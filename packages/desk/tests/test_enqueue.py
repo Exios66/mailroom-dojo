@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -56,6 +57,10 @@ def verify_ok(env: SimpleNamespace, run_id: str = "r1") -> None:
     report = verify_run(env.log, env.blobs, run_id)
     failing = [p for p in report.problems if p.fails]
     assert report.ok and failing == [], failing
+
+
+#: Tests that name a descriptor's file through ``/proc/self/fd`` (Linux only).
+LINUX_ONLY = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="reads /proc/self/fd")
 
 
 # --- the enqueue event --------------------------------------------------------------
@@ -402,6 +407,7 @@ def test_seal_guard_is_the_lock_seal_run_takes(env: SimpleNamespace, monkeypatch
     assert done.is_set()
 
 
+@LINUX_ONLY
 def test_seal_guard_creates_the_seals_directory_durably(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
     """``seal_run`` fsyncs the run directory only when it creates ``seals/`` itself, so the
     guard must do it when it creates the directory first: ``seals/`` and the run directory
@@ -913,6 +919,7 @@ def test_read_error_while_appending_is_damage_not_a_write_failure(
     verify_ok(env)
 
 
+@LINUX_ONLY
 def test_full_disk_on_flush_is_a_typed_error_and_leaves_the_record_usable(
     env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
