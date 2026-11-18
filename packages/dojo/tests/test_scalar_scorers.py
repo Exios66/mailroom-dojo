@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -9,6 +11,7 @@ from hypothesis import strategies as st
 from mailroom_dojo.field_scoring import scalar_scorers as scorers
 from mailroom_dojo.field_scoring.plugins.cms_identifiers import cms_document_signature, score_cms_doc_ref
 from mailroom_dojo.field_scoring.scorer_registry import BUILTIN_SCORERS
+from mailroom_dojo.normalization.money import parse_money
 
 ALL_SCORERS = {**BUILTIN_SCORERS, "cms_doc_ref": score_cms_doc_ref}
 
@@ -95,7 +98,15 @@ def test_every_scorer_returns_a_bounded_float_for_any_input(name, predicted, exp
 @pytest.mark.parametrize("name", ["id", "name", "money", "containment"])
 @given(value=st.text(max_size=40))
 def test_a_value_matches_itself(name, value):
-    """id, name, money and containment give any text a full match against itself."""
+    """id, name, money and containment give any text a full match against itself.
+
+    The one exception is money text that parses to infinity ("inf", "INF"): the old
+    scorer compares the two values by subtraction, which is NaN, and scores 0.0. That is
+    kept for parity and recorded in the score changelog.
+    """
+    if name == "money" and (parsed := parse_money(value)) is not None and math.isinf(parsed):
+        assert BUILTIN_SCORERS[name](value, value) == 0.0
+        return
     assert BUILTIN_SCORERS[name](value, value) == 1.0
 
 
