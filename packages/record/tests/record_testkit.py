@@ -1108,3 +1108,51 @@ def segment_bytes(root: Any) -> bytes:
     from pathlib import Path
 
     return b"".join(p.read_bytes() for p in sorted(Path(root).glob("runs/*/segments/*.jsonl")))
+
+
+# --- stage 1 gate helpers (Task 12) ---------------------------------------------------
+
+
+def pad_fixture(folder: Any, sentences: int = 400) -> Any:
+    """Lengthen every document text of a fixture copy with synthetic filler (so compression
+    and deduplication have something to show) and update its ``content_sha256``."""
+    import hashlib
+    from pathlib import Path
+
+    folder = Path(folder)
+    rows = read_jsonl(folder / "dataset.jsonl")
+    for row in rows:
+        filler = " ".join(f"Synthetic filler sentence {i} of {row['id']}." for i in range(sentences))
+        row["doc_text"] = f"{row['doc_text']} {filler}"
+        row["content_sha256"] = hashlib.sha256(row["doc_text"].encode("utf-8")).hexdigest()
+    write_jsonl(folder / "dataset.jsonl", rows)
+    return folder
+
+
+def build_runs_dir(dest: Any) -> Any:
+    """A synthetic ``--runs`` folder: two complete runs drawing the same three documents (one
+    of which fails in both), and one crashed run of the same draw."""
+    from pathlib import Path
+
+    dest = Path(dest)
+    pad_fixture(copy_fixture(dest / "ar-gate-r00", run_id="ar-gate-r00"))
+    pad_fixture(copy_fixture(dest / "ar-gate-r01", run_id="ar-gate-r01"))
+    pad_fixture(crash_fixture(copy_fixture(dest / "ar-gate-crashed", run_id="ar-gate-crashed")))
+    return dest
+
+
+def load_repo_script(relative: str, name: str) -> Any:
+    """A script of this package (``scripts/<file>``) loaded by path as module ``name``."""
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    if name in sys.modules:
+        return sys.modules[name]
+    path = Path(__file__).resolve().parents[1] / relative
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module

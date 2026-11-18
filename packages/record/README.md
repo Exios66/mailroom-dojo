@@ -4,6 +4,12 @@ The `mailroom_record` package: one append-only, hash-chained run record with a
 content-addressed blob store and a rebuildable index. It imports nothing from the
 other workspace packages.
 
+The public surface is `mailroom_record.__all__`, 19 names: `Run`, `Event`, `Seal`,
+`BlobRef`, `BlobStore`, `EventLog`, `Index`, `seal_run`, `verify_run`, `version_chain`,
+`trace_run`, `trace_doc`, `import_sandbox_run`, `audit_sandbox_run`, `replay_timeline`,
+`pack_run`, `unpack_run`, `prune_run` and `GENESIS` (`tests/test_public_surface.py`).
+Everything else is reached through its module.
+
 ## Verify
 
 `verify_run(log, blobs, run_id) -> VerifyReport` (`mailroom_record.verify`) checks a run on
@@ -176,3 +182,19 @@ not a directory, a bad option); 141 the output pipe closed (`| head`), nothing p
 Errors are one line on stderr, never a traceback. Output holds hashes, roles, node names,
 kinds and counts only; control, format and separator characters in stored ids are escaped
 (`\x1b`, `\u202e`) in text output.
+
+## Stage 1 gate
+
+```bash
+python packages/record/scripts/stage1_gate.py --runs <folder of sandbox run folders> --root <store> \
+    [--sandbox <sandbox checkout>] [--report <file>]
+```
+
+Imports every run folder under `--runs` into `--root`, audits and verifies each, rebuilds
+the index, and writes the report (default `docs/stage1-gate-report.md`; never edit it by
+hand): one row per run, source and store sizes, `original` blobs against document-runs, the
+absent routing inputs, a trace check, a leak scan of the report and every Parquet file
+(with a positive control), floor replay parity against the sandbox's `build_timeline` when
+`--sandbox` is given, and append throughput. Exit 0 when every condition holds, 1 otherwise.
+A second run with the same `--root` finds every run `already_imported`.
+`tests/test_stage1_gate.py` runs it on synthetic folders.
