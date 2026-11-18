@@ -20,9 +20,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 __all__ = [
+    "SNAPSHOT_ID_PATTERN",
     "LAYERS",
     "PRESENCES",
     "RANKS",
@@ -62,6 +63,11 @@ SEVERITIES: tuple[str, ...] = Severity.__args__  # type: ignore[attr-defined]
 #: one means the snapshot is incomplete: the importer refuses it unless told to keep it
 #: for inspection, and the quality gate reports it as an error.
 DROPPED_SOURCE_KEYS: tuple[str, ...] = ("rejected_lines", "unparseable_gt_fields", "not_imported", "unexplained_superseded")
+
+#: A snapshot id: lowercase letters, digits, ``.``, ``_`` and ``-``, starting with a letter
+#: or digit. It never holds ``/`` (a finding location is ``<snapshot_id>/<file>:<line>``),
+#: ``+`` (a label set id joins member ids with ``+``) or ``@`` (``<snapshot_id>@<hash>``).
+SNAPSHOT_ID_PATTERN = r"^[a-z0-9][a-z0-9._-]*$"
 
 RANK_STATUS: dict[str, str] = {
     "review:gold": "gold",
@@ -235,7 +241,7 @@ class SnapshotManifest(BaseModel):
     model_config = _FROZEN
 
     manifest_schema: str
-    snapshot_id: str
+    snapshot_id: str = Field(pattern=SNAPSHOT_ID_PATTERN)
     kind: Layer
     layer_schema: str
     source: Mapping[str, JsonValue]

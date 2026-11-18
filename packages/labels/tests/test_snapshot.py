@@ -11,7 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from labels_testkit import hub_row, make_snapshot, rehash_manifest
+from labels_testkit import hub_row, make_snapshot, near_gold_row, rehash_manifest
 
 from mailroom_labels.errors import (
     CorruptLine,
@@ -357,3 +357,31 @@ def test_empty_snapshot_is_valid(tmp_path: Path) -> None:
     loaded = load_snapshot(d)
     assert [(f.rows, f.bytes) for f in loaded.manifest.files] == [(0, 0)]
     assert list(loaded.rows()) == []
+
+
+# --- snapshot ids ------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", ["", "Hub", "a+b", "a/b", "a@b", "-lead", ".hidden", "a b", "é"])
+def test_a_snapshot_id_outside_the_pattern_is_refused_before_writing(tmp_path: Path, bad: str) -> None:
+    with pytest.raises(ValueError, match="must match"):
+        make_snapshot(tmp_path, "near_gold", [near_gold_row("D1", {"sender": "Ann"})], snapshot_id=bad or "x/../")
+    assert not any(tmp_path.iterdir())
+
+
+def test_a_hand_edited_snapshot_id_is_refused_on_load(tmp_path: Path) -> None:
+    d = make_snapshot(tmp_path, "near_gold", [near_gold_row("D1", {"sender": "Ann"})], snapshot_id="ng-a")
+    rehash_manifest(d, lambda m: m.update(snapshot_id="ng-a+ng-b"))
+    with pytest.raises(ManifestMismatch) as info:
+        load_snapshot(d)
+    assert info.value.kind == "manifest_invalid"
+
+
+def test_label_set_ids_cannot_collide() -> None:
+    import re
+
+    from mailroom_labels.models import SNAPSHOT_ID_PATTERN
+
+    # the separators a label set and a run use can never occur inside a member id
+    assert not any(re.match(SNAPSHOT_ID_PATTERN, s) for s in ("a+b", "a@b", "a/b", "A"))
+    assert all(re.match(SNAPSHOT_ID_PATTERN, s) for s in ("hub-ccd040f6", "near-gold-2026-11-17", "near_gold-test", "v1.2"))

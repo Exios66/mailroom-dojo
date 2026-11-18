@@ -18,6 +18,7 @@ stream opens or ends.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
@@ -33,7 +34,7 @@ from mailroom_labels.errors import (
     ManifestMissing,
     UnknownSnapshotSchema,
 )
-from mailroom_labels.models import SnapshotManifest
+from mailroom_labels.models import SNAPSHOT_ID_PATTERN, SnapshotManifest
 from mailroom_record.hashing import canonical_json, hash_obj
 
 __all__ = [
@@ -145,6 +146,11 @@ def _safe_path(rel: str) -> bool:
     )
 
 
+def _check_snapshot_id(snapshot_id: Any) -> None:
+    if not (isinstance(snapshot_id, str) and re.match(SNAPSHOT_ID_PATTERN, snapshot_id)):
+        raise ValueError(f"snapshot id {snapshot_id!r} must match {SNAPSHOT_ID_PATTERN}")
+
+
 def build_manifest(
     directory: Path | str,
     *,
@@ -161,6 +167,7 @@ def build_manifest(
     otherwise), so a snapshot can never be committed with a line it cannot load.
     """
     directory = Path(directory)
+    _check_snapshot_id(snapshot_id)
     files = []
     for rel in _data_files(directory):
         if not _safe_path(rel):
@@ -205,6 +212,7 @@ def write_snapshot(
     """Write each file's rows (sorted by ``sort_key``, default their canonical JSON) and the
     manifest. Input order never changes the bytes written."""
     directory = Path(directory)
+    _check_snapshot_id(manifest_args.get("snapshot_id"))
     directory.mkdir(parents=True, exist_ok=True)
     key = sort_key or canonical_json
     for rel, rows in files.items():
