@@ -15,13 +15,14 @@ Built and merged on the branch, `make check` green on the head (run with `PYTHON
 
 - Build: four Opus builders (common core, common runtime, dictionaries, tooling), each with mutation checks.
 - Round 1: two independent Opus reviewers (common; dictionaries and tooling): no blockers, 9 majors, all fixed by Opus fixers with red-then-green regression tests.
+- Bot review (CodeAnt) on PR #6: 5 findings, all verified real and fixed with tests (YAML merge-key override, test-writer symlink escape, CRLF at the JSONL limit, quoted secrets with spaces, mutable request messages); threads resolved without replies.
 - Round 2: one independent Opus reviewer on the fix commits: 1 blocker (layout map missing `docs/handoff/`), 2 majors (quadratic redaction regexes, text-redaction leaks), several minors. All fixed; redaction now linear (1 MB adversarial inputs under 2 s, tested) and run-together keys like `dbpassword` are masked.
 
 ## Not done
 
 - PR #6 is open and ready (body verified clean of footers and links). Handle bot review comments by verifying them, fixing real ones with tests, and resolving threads without replying (no footers).
 - CircleCI must be set up for the repo (JJB's to-do), then green on the final head; all review threads resolved; clean session-link sweep (`bash scripts/check_no_session_links.sh`); squash with a clean message, after #2 and #3.
-- Known gaps left on purpose: alias-expansion cap in config; `iter_jsonl` scalar-tail and CRLF-at-limit edge cases; the `label_statuses` override guard lives in `DictionarySet.with_overrides` only (a hand-built `DictionarySet` or `load_dictionary_dir` can still carry a re-ranked copy, but the manifest shows `origin: override`); `append_jsonl` refuses a whitespace-only tail and there is no repair helper; `append_jsonl` is 1.3 to 1.6 times slower than before because of its `flock`; NFKC folding diverges from the Dojo for non-ASCII spellings (documented in the dictionary module).
+- Known gaps left on purpose: alias-expansion cap in config; `iter_jsonl` scalar-tail edge case (a truncated `12` parses as a row); the `label_statuses` override guard lives in `DictionarySet.with_overrides` only (a hand-built `DictionarySet` or `load_dictionary_dir` can still carry a re-ranked copy, but the manifest shows `origin: override`); `append_jsonl` refuses a whitespace-only tail and there is no repair helper; `append_jsonl` is 1.3 to 1.6 times slower than before because of its `flock`; NFKC folding diverges from the Dojo for non-ASCII spellings (documented in the dictionary module).
 
 ## Follow-ups for other threads (not done here)
 
