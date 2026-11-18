@@ -18,7 +18,7 @@ urgency.require("Time Sensitive")        # "time-sensitive"; raises VocabularyEr
 urgency.normalize("soon")                # None
 load_dictionary("label_statuses").rank("gold")   # 1: gold wins over hub, interim, near_gold
 parse_field_type("entity_list:name")     # FieldType(base="entity_list", element="name")
-shipped_dictionaries().manifest()        # {name: {"version", "hash"}}: pin it on a run
+shipped_dictionaries().manifest()        # {name: {"version", "hash", "origin"}}: pin it on a run
 ```
 
 ## Adding a dictionary
@@ -26,9 +26,10 @@ shipped_dictionaries().manifest()        # {name: {"version", "hash"}}: pin it o
 1. Write `src/mailroom_dictionaries/data/<name>.yaml` with `name` (equal to the file name),
    `version: 1`, `description` (say where the values come from), `ordered`, and `entries`
    (`key`, `label`, `description`, optional `aliases`, `deprecated`, `replaced_by`, `rank`,
-   `attributes`). Keys match `[a-z][a-z0-9_-]*`. No two keys or aliases may be equal once
-   case, spaces, hyphens and underscores are ignored. An ordered dictionary gives every entry
-   a `rank`, listed in rank order.
+   `attributes`). Keys match `[a-z][a-z0-9_-]*`. A value names an entry by its key, label or
+   an alias, compared after folding (NFKC, case-folded, only `a-z0-9` kept: the Dojo's `label`
+   comparison key), so no two of those may fold to the same text across entries. An ordered
+   dictionary gives every entry a `rank`, listed in rank order.
 2. Run `python packages/dictionaries/scripts/update_lock.py`, then the tests.
 
 ## A client profile's own vocabulary
@@ -44,12 +45,21 @@ client = [load_dictionary_file(p) for p in sorted(profile_dir.glob("*.yaml"))]
 vocabularies = shipped_dictionaries().with_overrides(client)   # cross-references checked here
 ```
 
+`label_statuses` cannot be overridden (label precedence does not change), and a
+`doc_classes` override must keep every shipped class. The manifest marks each member
+`"shipped"` or `"override"`.
+
 ## Changing a dictionary
 
 Any content change needs a version bump: raise `version` by one, then run
 `python packages/dictionaries/scripts/update_lock.py`. The test suite fails when a
 dictionary's content no longer matches `data/dictionaries.lock.json` at the same version, and
 the script refuses to rewrite the lock in that case.
+
+Values taken from llm-mailroom or the Dojo are pinned in `tests/fixtures/source_values.json`
+with the commits they came from; renaming or removing one fails a test until the fixture is
+regenerated on purpose with `python scripts/check_against_sources.py --mailroom <checkout>
+--dojo <checkout> --write-fixture` (run without `--write-fixture` to only compare).
 
 ## The glossary
 
