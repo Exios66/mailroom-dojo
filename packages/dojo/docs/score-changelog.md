@@ -204,5 +204,8 @@ the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
 
 Not in the old Dojo, so not a difference: `paired_bootstrap_delta` (paired percentile
 bootstrap of per-document score differences, B minus A), `outcome_flip_test` (exact
-two-sided McNemar test on outcome flips) and `calibration_by_group` (ECE, Brier and AUROC
+two-sided McNemar test on outcome flips; significant when `p < alpha`) and `calibration_by_group` (ECE, Brier and AUROC
 per agent, class or both). These are the design's "Comparing runs" and "Confidence" needs.
+The paired functions take `{document id: value}` mappings and pair by id, in sorted id
+order; a document missing or `None` in one run is a `ValueError` naming it, unless the
+caller passes `allow_unpaired=True`, which leaves it out and returns it in `unpaired_ids`.
