@@ -96,7 +96,7 @@ the expected values are not ground truth (comparing two model outputs).
 ## The metric table
 
 `src/mailroom_dojo/measures/metrics.yaml` has one row for every id of the old Dojo's metric
-registry (184, in the old order) plus nine metrics the old golden baseline emits outside
+registry (184, in the old order) plus ten metrics the old golden baseline emits outside
 it. Each row keeps the old description, unit, aggregation, agents, ground truth,
 inclusion and citation; tiers are replaced by `headline` (exactly the old tier-0 ids), a
 `layer`, a `status` and the `readers` (gate, report or projection) that use it. A row is

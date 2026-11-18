@@ -91,6 +91,36 @@ order, flag stripping, empty class, rate defaults, one-sided length check, scora
 verified filters, status check, pending annotation, annotation keys, placeholder spans,
 subclass token): all 23 caught. Fixtures and their regeneration: `packages/dojo/docs/golden-parity.md`.
 
+## D2: `Measure` and the metric table
+
+Plan: `docs/plans/2026-11-18-dojo-d2-measures-plan.md`.
+
+| Claim | Test |
+|:---|:---|
+| A `Measure` is valid when built | `test_measure.py`: finite values, `n == 0` has no value, a missing value needs a reason, unverified labels carry no value, closed vocabularies, interval rules, any integral `n` (numpy too, never bool), `missing()` unverified by default; hypothesis property tests both ways |
+| Only like is compared with like | `test_measure.py`: method, subject, cost basis, label status and each provenance key; `vary` keys present but free; `draw_seed` absent on both sides allowed; an unknown `vary` key raises |
+| The table keeps every old id and golden metric | `test_metric_table_parity.py`: 184 registry ids in the old order plus ten golden-only metrics, the old fields kept, the 28 nested golden blocks and the chained composite accounted for, against the re-captured `old_metric_registry.json` |
+| The loader refuses a broken table at its path | `test_metric_table.py`: fault cases for every column, duplicate YAML keys, default views, direction, pairing and alias rules; `check()` refuses a fractional count, an interval outside the unit range or not around the value, and a measure filed under an alias |
+| Default views are the reviewed ones | `test_metric_table.py::test_the_default_views_are_the_reviewed_ones` against `fixtures/measures/default_views.json`; agent picks are read from the data, never named in code |
+| Directions follow the rule and are frozen | `test_metric_directions.py`: every direction and override equals `fixtures/measures/metric_directions.json`, follows `derive_direction`, name-rule cases, lower-word rows are lower, keep-rule rows have a direction |
+| Pairings are D1's methods | `test_metric_table.py`: each pairing maps to a D1 method string (the D1 import test skips until D1 is on the branch) |
+
+Mutation check (D2): each single mutation below, applied by a scratch script that restores
+the file and prints its hash, turned the suite red.
+
+| Mutation | Result |
+|:---|:---|
+| comparability ignores the subject | 4 failed |
+| whole-count check removed | 2 failed |
+| interval-contains-value check removed | 1 failed |
+| `reviewer_wrong_accept_rate` flipped to higher | table refused: 50 failed, 5 errors |
+| override step dropped from `derive_direction` | 51 failed, 5 errors |
+| "every headline agent has a view" removed | 1 failed |
+| "a view uses a headline metric" removed | 2 failed |
+| "a kept row names its pairing" removed | 2 failed |
+| alias check removed | 4 failed |
+| a nested golden block renamed in the capture | 2 failed |
+
 ## Running
 
 ```bash

@@ -153,3 +153,82 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   hyphens were already turned into spaces, so that branch of `explicit_month` never matches (the old Dojo is the
   same). Changing it would score some contained year-month dates differently, which is a scoring change for the
   Dojo owner to make first, not a port.
+
+## D2: `Measure` and the metric table
+
+### Intended differences (D2)
+
+- **A measure over nothing has no value.** A `Measure` with `n == 0` carries `value=None` and a
+  reason; it is never `0.0`. Some old scorers returned `0.0` for an empty input (an empty
+  document set or a field set with nothing scorable), which reads as "everything wrong". D2
+  defines the rule; no scorer is ported in D2, so no score changes yet. D3b applies it when it
+  ports the suites, and lists each scorer it changes here.
+- **`contracteval_false_no_related` is an alias** of `false_no_related_rate` (same unit,
+  direction and aggregation). The table resolves the alias; a `Measure` filed under it is
+  refused.
+- **`composite`** (the chained summary's weighted score) is a table row; the old registry had
+  no id for it, though the golden baseline emits it.
+
+### Correction
+
+Commit `56a5a5e` said "No score-changelog entry: no metric's meaning changed", and `ab609ff`
+listed the `n == 0` rule as ported. Both are wrong: the `n == 0` rule is new (above), and the
+alias and the composite row are table changes. The commits are not amended; this entry is the
+correction.
+
+### The old `scorecard_honesty.py`
+
+Old module: `llm_dojo_scoring/metrics/scorecard_honesty.py` at `23f8234c` (1,176 lines). "D2"
+means ported in this chunk (`mailroom_dojo.measures`); D3b, D4, D5, D6 and D7 are the owning
+build chunks of the port design (section 6); "dropped" gives the reason.
+
+| Old public name (line) | Disposition |
+|:---|:---|
+| `SCORER_VERSION` (56) | D2 shape: `Provenance.scorer_version`; D5 stamps the value from the run record |
+| `PROVENANCE_KEYS` (58) | D2: `PROVENANCE_KEYS` (less `metric_id`, which is `Measure.method`) and the `Provenance` fields |
+| `COST_BASIS_TOKEN_PRICE`, `COST_BASIS_VALUES` (74, 76) | D2: `COST_BASES` (the three values plus `none`) |
+| `ERROR_CLASS_LENGTH_FINISH`, `ERROR_CLASS_CONTEXT_OVERFLOW` (81, 82) | D5: completion error classes of the run layer |
+| `DEFAULT_SCHEMA_GATE`, `DEFAULT_INSURANCE_SCHEMA_GATE`, `SCHEMA_PROMOTION_GATES` (207-213) | D5, with the thresholds moved to `config/` (tuning is configuration) |
+| `MAUD_HEADLINE_FIELDS` (428) | D3b: MAUD suite headline scope |
+| `IncomparableMetricsError` (231) | D2: replaced by `IncomparableMeasuresError` (`method_mismatch`) |
+| `UnknownMetricNameError` (235) | D2: replaced by `UnknownMetricError` |
+| `ProvenanceExportError` (243) | D2: replaced by `IncomparableMeasuresError` (`provenance_missing`, `provenance_mismatch`, `cost_basis_mismatch`) |
+| `GtAssessment` (248) | D2 shape: `Measure.label_status` and `reason`; D4 computes the assessment |
+| `metric_id_for` (260) | D2: `MetricTable.get(id).metric_id` (an unknown id raises, as before) |
+| `metric_ids_for_class`, `metric_id_allowed` (288, 293) | D7: which metric ids a class's comparison may use belongs to run comparison |
+| `assert_comparable_metric_ids` (301) | D2: `assert_comparable` (`method_mismatch`) |
+| `assess_extraction_gt` (362) | D4: scorable-field rules over the label set (fail closed) |
+| `unscorable_extraction_result` (405) | D3b: suite output, built from `Measure.missing` |
+| `headline_scope` (515) | D3b: which live fields a class headline covers |
+| `intent_split` (612) | D3b: intent reported apart from the other fields |
+| `aggregate_quality_honest` (674) | D2 rule (unscorable rows carry no value; nothing scored gives no value); D3b aggregates |
+| `export_quality_verdict` (747) | Dropped: "unproven" is a `Measure` with `value=None` and a reason; "scored" is one with a value |
+| `score_format_layer` (767) | D5: rows `parse_ok`, `schema_valid`, `schema_adherence` (layer D5) |
+| `check_schema_promotion_gate` (814) | D5, threshold from `config/` |
+| `classify_extraction_failure` (843) | D6: cause codes (format against capability) |
+| `score_empty_field_contract` (859) | D3b: with `extraction_binary_metrics` (rows `extraction_f1`, `extraction_f2`) |
+| `detect_maud_gt_ambiguity` (927) | D3b: MAUD question scoring |
+| `canonical_error_class` (965) | D5: run-layer completion |
+| `summarize_run_completion` (988) | D5: run-layer completion (rows `success_rate`, `error_rate`) |
+| `aggregate_quality_itt` (1023) | D5: intention-to-treat quality over attempted documents |
+| `stamp_provenance` (1055) | D2 shape (`Provenance`); D5 stamps it from the sealed record |
+| `validate_comparison_provenance` (1103) | D2: `comparability_problems(..., vary=...)`: every key on both sides and equal, `vary` keys present but free, `draw_seed` absent on both allowed, cost basis equal |
+| `normalize_serving_kind_token` (1165) | D5: serving by backend (`Provenance.serving_kind` is compared as given until then) |
+
+The old tests, `tests/test_v018_scorecard_honesty.py` (13 test functions):
+
+| Old test (line) | Disposition |
+|:---|:---|
+| `test_unscorable_triage_only_contracts_gt_not_zero` (29) | D4 (assessment) and D3b (suite output); the "no silent zero" half is D2: `test_unverified_labels_never_carry_a_value`, `test_a_missing_value_needs_a_reason` |
+| `test_metric_id_mismatch_incomparable` (55) | D2: `test_measures_that_differ_in_identity_are_not_compared[method_mismatch]`; the `compare_serving` half is D5 |
+| `test_schema_valid_gate_insurance` (68) | D5 |
+| `test_maud_collapsed_gt_ambiguous` (80) | D3b |
+| `test_maud_distinct_subquestion_keys_score_normally` (111) | D3b |
+| `test_format_vs_extraction_and_empty_fields` (151) | D3b (empty fields) and D6 (failure class) |
+| `test_prose_wrapped_json_is_parse_fail_not_zero_extraction` (169) | D5 (format layer) and D3b (extraction P/R/F) |
+| `test_correctly_empty_fields_score_one` (188) | D3b; the `score_extraction` half already passes in chunk 1 (`field_scoring`) |
+| `test_normal_finish_reasons_count_as_completed` (221) | D5 |
+| `test_normal_finish_reasons_preserve_error_signals` (242) | D5 |
+| `test_error_finish_reasons_count_as_errors` (261) | D5 |
+| `test_completion_and_cost_basis` (269) | D5 (completion, ITT, cost basis per record); "never mix cost bases" is D2: `cost_basis_mismatch` |
+| `test_modal_serving_kind_not_local` (308) | D5 |

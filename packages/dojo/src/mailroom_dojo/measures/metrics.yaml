@@ -24,7 +24,7 @@
 #                 (accuracy, f1, f2, precision, recall, completeness, similarity,
 #                 coverage, per_second) -> higher; else none. none is for descriptive
 #                 behaviour rates and resource readings (audit, intake and routing rates,
-#                 token counts, GPU readings). All 193 values and the overrides, with
+#                 token counts, GPU readings). All 194 values and the overrides, with
 #                 their reasons, are frozen in tests/fixtures/measures/metric_directions.json
 #                 (tests/test_metric_directions.py). The overrides are data, in the
 #                 top-level direction_overrides mapping (id -> {direction, why}); the rule
