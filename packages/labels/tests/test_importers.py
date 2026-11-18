@@ -1102,6 +1102,75 @@ def test_an_unsure_mark_alone_imports_no_label_and_passes_the_gate(tmp_path: Pat
     assert {(r.document_id, r.field) for r in recs} == {("D2", "sender")}
 
 
+def test_a_later_unsure_mark_withdraws_the_earlier_desk_decisions(tmp_path: Path) -> None:
+    # The desk's rule: a later mark replaces an earlier one, and unsure keeps the label in
+    # needs_human. So keep @10:00 then unsure @11:00 is no decision: never gold.
+    manifest, rows = review(
+        tmp_path,
+        [decision("D1", "sender", "Claude says")],
+        [
+            desk("D1", "sender", "Ann", "keep", at="2026-11-17T10:00:00Z"),
+            desk("D1", "sender", "Anne", "correct", at="2026-11-17T09:00:00+00:00"),
+            desk("D1", "sender", "Ann", "unsure", at="2026-11-17T11:00:00Z"),
+            desk("D2", "sender", "Bo", "keep"),
+        ],
+    )
+    # the human decisions are withdrawn; the Claude decision stays what it is without a
+    # human one (near_gold, never gold), as it does beside an unsure mark alone
+    assert [(r["doc_id"], r["reviewer"]["model"]) for r in rows] == [("D1", "claude-opus"), ("D2", "human")]
+    withdrawn = [s for s in manifest.source["superseded"] if s["doc_id"] == "D1"]
+    assert sorted((s["value"], s["reason"]) for s in withdrawn) == [
+        ("Ann", "a later unsure mark on the same label"),
+        ("Anne", "a later unsure mark on the same label"),
+    ]
+    (u,) = manifest.source["undecided"]
+    assert (u["doc_id"], u["reviewed_at"], u["replaced"]) == ("D1", "2026-11-17T11:00:00Z", False)
+    assert "unordered_undecided" not in manifest.source
+    recs = read_layer(load_snapshot(tmp_path / "gold-review-x")).records
+    assert {(r.document_id, r.rank) for r in recs} == {("D1", "review:near_gold"), ("D2", "review:gold")}
+    assert _gate_kinds(tmp_path, tmp_path / "gold-review-x") == set()
+
+
+@pytest.mark.parametrize(
+    ("mark_at", "decision_at", "decision_file"),
+    [
+        (None, "2026-11-17T10:00:00Z", False),  # an undated mark against a dated decision
+        ("2026-11-17T11:00:00Z", None, True),  # a dated mark against an undated decision
+        ("2026-11-17T11:00:00Z", "2026-11-17T12:00:00+01:00", False),  # the same instant
+    ],
+    ids=["undated_mark", "undated_decision", "same_instant"],
+)
+def test_an_unsure_mark_that_cannot_be_ordered_against_a_decision_fails_safe(
+    tmp_path: Path, mark_at: str | None, decision_at: str | None, decision_file: bool
+) -> None:
+    decisions = [decision("D1", "sender", "Ann", human=True)] if decision_file else []
+    desks = [] if decision_file else [desk("D1", "sender", "Ann", "keep", at=decision_at)]
+    desks.append(desk("D1", "sender", "Ann", "unsure", at=mark_at))
+    with pytest.raises(ImportRefused, match="unordered_undecided 1"):
+        review(tmp_path, decisions, desks)
+    assert not (tmp_path / "gold-review-x").exists()  # refused: nothing written
+    manifest, _ = review(tmp_path, decisions, desks, allow_rejected=True)
+    (u,) = manifest.source["unordered_undecided"]
+    assert (u["doc_id"], u["field"], u["reviewed_at"]) == ("D1", "sender", mark_at)
+    assert "dropped_source_data" in _gate_kinds(tmp_path, tmp_path / "gold-review-x")
+
+
+def test_an_unexplained_superseded_reason_refuses_the_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Unreachable with the real reasons: drop one from the allowed set to prove the guard bites.
+    import mailroom_labels.importers.review as review_module
+
+    monkeypatch.setattr(review_module, "SUPERSEDED_REASONS", ("a human decision on the same label",))
+    later = [desk("D1", "sender", "Old", at="2026-11-17T10:00:00Z"), desk("D1", "sender", "New")]
+    with pytest.raises(ImportRefused, match="unexplained_superseded 1"):
+        review(tmp_path, [], later)
+    manifest, _ = review(tmp_path, [], later, allow_rejected=True)
+    (u,) = manifest.source["unexplained_superseded"]
+    assert u["value"] == "Old"
+    assert "dropped_source_data" in _gate_kinds(tmp_path, tmp_path / "gold-review-x")
+
+
 # --- review lines whose shape the review reader would refuse are rejected at import ------------
 
 
