@@ -53,6 +53,49 @@ list of fields, decisions lose any ``options`` entry, and blobs are never read. 
 ``FileNotFoundError`` for an unknown run, ``RunPruned`` for a pruned run (naming the
 archive that holds its events) and ``ValueError`` for a run with no node or item row, or a
 timeline longer than seven days (the sandbox's limits).
+
+Where the rows differ from the sandbox's, field by field, and why:
+
+- Node rows carry a fixed list of fields: ``doc``, ``node``, ``status``, ``agent``,
+  ``model``, ``step``, and on a finished row ``stage``, ``ms`` and ``decisions`` (``None``
+  or ``[]`` when the source row had none). The sandbox copies each source row whole, minus
+  ``ts``, so a field outside that list is in its row only; in the sandbox's runs that is
+  a node's ``error``, free text. The record never stores free text: the error's type name is
+  the event's ``cause``, not shown on the floor.
+- A finished node row's ``step``: the sandbox writes ``step`` on ``running`` rows only, so
+  its finished rows have none unless the source row named one. The record shows the finished
+  row's own step, else its start's, because the importer keeps the start's step on the
+  finishing event (``payload.step``) to pair the two.
+- ``decisions`` lose each ``options`` entry: model output text, which the importer does not
+  store.
+- A node ``status`` that was free text is stored as its SHA-256 and length, so it cannot be
+  restored and replays as ``None``; a number or a bool replays as stored.
+- Item rows: the record shows ``doc`` (the item id), ``error`` as the cause token (the type
+  name before the first ``:``, else ``error``), never the message, and the outcome fields
+  (``doc_type``, ``stage``, both confidences, ``review_causes``, ``review_verdict``,
+  ``escalation_reason``) at the top level, read from the sandbox's ``pred``. The sandbox's
+  row carries ``pred`` itself (with the extracted values), the legacy ``score`` and
+  ``usage_by_agent``; the record's does not: no extracted value is on the floor, the Dojo
+  scores runs, and ``usage_by_agent`` stays in the item event's payload.
+- ``meta["warnings"]``: the sandbox's "skipped N malformed node rows" and "skipped N
+  malformed item rows" are rebuilt from the import's ``skipped_torn_lines``, in the
+  sandbox's order. They agree for any folder the importer accepts, since it refuses a
+  malformed line anywhere but at the end of a file. The record then adds "N rows had no
+  source time" when rows were untimed, which the sandbox does not report. One edge: the
+  sandbox splits lines with ``str.splitlines`` (also at ``\\r``, ``\\x0b``, ``\\x0c``, ``\\x1c``
+  to ``\\x1e``, ``\\x85``, U+2028 and U+2029) and the importer at ``\\n`` only, so a row
+  holding such a raw character inside a string is one row to the record and broken rows to
+  the sandbox.
+- Times: agree within 1 ms (the record rounds to 0.1 ms). A ``started_ts`` the record cannot
+  read as an ISO string (a native writer's value; the importer always writes ISO) is
+  untimed, where the sandbox would also read a number as epoch seconds.
+
+Scope of each comparator: the stage 1 gate's parity check compares the event sequence (node
+rows by ``doc``, ``node`` and ``status``, items by id, checkpoints) and the times within 1
+ms, not the other fields.
+``tests/test_replay.py::test_field_parity_with_the_sandbox_build_timeline`` compares every
+field the record carries, field by field, and the ``meta`` dict, and fails on any difference
+not listed here; it runs when ``MAILROOM_SANDBOX_CHECKOUT`` names a sandbox checkout.
 """
 
 from __future__ import annotations
@@ -128,6 +171,7 @@ class _Rows:
         self.checkpoint: dict[str, Any] = {}
         self.source: dict[str, str] = {}
         self.untimed = 0
+        self.skipped: dict[str, int] = {}  # source file -> torn last lines the import skipped
 
     def _key(self, order: Any, e: Event, t: float | None, *, start: bool = False) -> tuple[Any, ...]:
         """Source order when the row has one; else time, document, ``seq``, and a start
@@ -148,6 +192,12 @@ class _Rows:
         if e.doc_id == "_run":
             if floor == "checkpoint":
                 self.checkpoint = {k: e.payload.get(k) for k in ("state", "cursor", "total")}
+            elif floor == "import":
+                torn = e.payload.get("skipped_torn_lines")
+                for line in torn if isinstance(torn, list) else ():
+                    name = line.get("file") if isinstance(line, dict) else None
+                    if isinstance(name, str):
+                        self.skipped[name] = self.skipped.get(name, 0) + 1
             return
         if floor == "draw":
             sid = e.payload.get("source_id")
@@ -288,7 +338,14 @@ def replay_timeline(log: EventLog, run_id: str) -> tuple[list[tuple[float, dict[
     duration = timeline[-1][0]
     if duration > MAX_TIMELINE_S:
         raise ValueError(f"run {run_id!r}: the timeline exceeds 7 days ({duration:.0f}s)")
-    warnings = [f"{rows.untimed} rows had no source time"] if rows.untimed else []
+    # The sandbox's own warnings first, in its order; then the record's.
+    warnings = [
+        f"skipped {n} malformed {what} rows"
+        for what, n in (("node", rows.skipped.get("nodes.jsonl", 0)), ("item", rows.skipped.get("items.jsonl", 0)))
+        if n
+    ]
+    if rows.untimed:
+        warnings.append(f"{rows.untimed} rows had no source time")
     meta = {
         "source_run_id": run.source.get("source_run_id") or run.run_id,
         "engine_kind": run.backend,

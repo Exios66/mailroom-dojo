@@ -53,7 +53,9 @@ def expected_timeline(folder: Path) -> list[tuple]:
     items = read_jsonl(folder / "items.jsonl")
     cp = json.loads((folder / "checkpoint.json").read_text())
     t0 = min(_epoch(r["ts"]) for r in [*nodes, *items])
-    rows = [(_epoch(r["ts"]) - t0, i, ("node", r["doc"], r["node"], r["status"])) for i, r in enumerate(nodes)]
+    rows = [
+        (_epoch(r["ts"]) - t0, i, ("node", r["doc"], r["node"], r["status"])) for i, r in enumerate(nodes)
+    ]
     rows += [(_epoch(r["ts"]) - t0, len(nodes) + i, ("item", r["item_id"])) for i, r in enumerate(items)]
     rows.sort()
     end = rows[-1][0] + 0.5
@@ -97,10 +99,15 @@ def test_timeline_matches_fixture_folder(tmp_store: SimpleNamespace, fixture_fol
     r = import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
     timeline, meta = replay_timeline(tmp_store.log, r.run_id)
     _same(normalise(timeline), expected_timeline(fixture_folder))
-    assert meta["node_records"] == len(read_jsonl(fixture_folder / "nodes.jsonl")) and not meta["synthetic_timing"]
+    assert (
+        meta["node_records"] == len(read_jsonl(fixture_folder / "nodes.jsonl"))
+        and not meta["synthetic_timing"]
+    )
     assert meta["item_records"] == 3
     assert (meta["source_run_id"], meta["engine_kind"], meta["engine_model"]) == (
-        FIXTURE_RUN_ID, "openrouter", "vendor/test-model"
+        FIXTURE_RUN_ID,
+        "openrouter",
+        "vendor/test-model",
     )
     assert (meta["incomplete"], meta["source_state"], meta["warnings"]) == (False, "done", [])
     assert meta["duration_s"] == pytest.approx(timeline[-1][0], abs=TOLERANCE_S)
@@ -114,6 +121,34 @@ def test_in_flight_node_replays_as_running(tmp_store: SimpleNamespace, fixture_f
     assert (c3[-1]["node"], c3[-1]["status"]) == ("extract", "running")
     assert (meta["incomplete"], meta["source_state"]) == (True, "running")
     assert timeline[-1][1]["checkpoint"]["state"] == "running"
+    assert meta["warnings"] == ["skipped 1 malformed node rows"]  # the sandbox's warning, from the import
+
+
+@pytest.mark.parametrize(
+    ("torn", "warnings"),
+    [
+        ((), []),
+        (("nodes.jsonl",), ["skipped 1 malformed node rows"]),
+        (("items.jsonl",), ["skipped 1 malformed item rows"]),
+        (
+            ("items.jsonl", "nodes.jsonl", "events.jsonl"),
+            ["skipped 1 malformed node rows", "skipped 1 malformed item rows"],
+        ),
+    ],
+)
+def test_skipped_torn_lines_become_the_sandboxs_warnings(
+    tmp_store: SimpleNamespace, fixture_folder: Path, torn: tuple[str, ...], warnings: list[str]
+) -> None:
+    """A torn last line the import skipped is the sandbox's "skipped N malformed node/item
+    rows" warning, nodes before items; a torn ``events.jsonl`` line is not a floor row."""
+    for name in torn:
+        with (fixture_folder / name).open("ab") as f:
+            f.write(b'{"torn": ')
+    r = import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    assert replay_timeline(tmp_store.log, r.run_id)[1]["warnings"] == warnings
+    sandbox = _sandbox_floor_replay()
+    if sandbox is not None:
+        assert sandbox.build_timeline(fixture_folder)[1]["warnings"] == warnings
 
 
 def expected_timeline_torn(folder: Path) -> list[tuple]:
@@ -139,7 +174,9 @@ def test_native_run_replays(store_with_events: SimpleNamespace) -> None:  # writ
     timeline, meta = replay_timeline(store_with_events.log, "r1")
     nodes = [e["node"] for _, e in timeline if "node" in e]
     assert sorted((n["doc"], n["node"], n["status"]) for n in nodes) == [
-        ("d1", "classify", "done"), ("d1", "extract", "done"), ("d2", "classify", "done"),
+        ("d1", "classify", "done"),
+        ("d1", "extract", "done"),
+        ("d2", "classify", "done"),
     ]
     assert nodes[0]["decisions"] == [{"chosen": "contract"}]
     assert [at for at, _ in timeline] == sorted(at for at, _ in timeline)
@@ -193,14 +230,23 @@ def sandbox_rows(draw: Any) -> tuple[list[dict], list[dict], str]:
     for d in order:
         status, doc, name, step = queues[d].pop(0)
         t += draw(st.integers(1, 5000)) / 1000.0
-        row = {"doc": f"DOC-{doc:016x}", "node": name, "status": status, "agent": None, "model": None, "ts": round(t, 3)}
+        row = {
+            "doc": f"DOC-{doc:016x}",
+            "node": name,
+            "status": status,
+            "agent": None,
+            "model": None,
+            "ts": round(t, 3),
+        }
         row |= {"step": step} if status == "running" else {"ms": 1.0, "stage": "s", "decisions": []}
         nodes.append(row)
     items = []
     for d, _, _, in_flight in plans:
         if not in_flight:
             t += 0.25
-            items.append({"item_id": f"DOC-{d:016x}", "ok": True, "error": None, "pred": {}, "score": {}, "ts": t})
+            items.append(
+                {"item_id": f"DOC-{d:016x}", "ok": True, "error": None, "pred": {}, "score": {}, "ts": t}
+            )
     state = "running" if any(p[3] for p in plans) else "done"
     return nodes, items, state
 
@@ -259,8 +305,17 @@ def _sandbox_floor_replay() -> ModuleType | None:
 
 
 def _same_meta(got: dict, want: dict) -> None:
-    for key in ("source_run_id", "engine_kind", "engine_model", "profile", "node_records", "item_records",
-                "synthetic_timing", "incomplete", "source_state"):
+    for key in (
+        "source_run_id",
+        "engine_kind",
+        "engine_model",
+        "profile",
+        "node_records",
+        "item_records",
+        "synthetic_timing",
+        "incomplete",
+        "source_state",
+    ):
         assert got[key] == want[key], key
     assert abs(got["duration_s"] - want["duration_s"]) <= TOLERANCE_S
 
@@ -284,14 +339,123 @@ def test_parity_with_the_sandbox_build_timeline(tmp_path: Path, variant: str) ->
     assert [e for _, e in got if "node" in e][0]["node"]["doc"] in source_ids(folder)
 
 
+# Field-level parity (adversarial round 3, finding 6). The sandbox's build_timeline copies
+# each source row whole (minus ``ts``); the record rebuilds each row from a fixed list of
+# fields. The comparator below checks every field the record carries against the sandbox's
+# row and names every field it does not carry; any other difference fails.
+NODE_KEYS = {"doc", "node", "status", "agent", "model", "step"}  # every node row
+FINISH_KEYS = NODE_KEYS | {"stage", "ms", "decisions"}  # a finished node row
+NODE_ONLY_IN_SANDBOX = {"error"}  # free text: the record keeps the cause token on the event only
+ITEM_KEYS = {
+    "item_id",
+    "doc",
+    "ok",
+    "error",
+    "latency_ms",
+    "prompt_tokens",
+    "completion_tokens",
+    "doc_type",
+    "stage",
+    "classification_confidence",
+    "extraction_confidence",
+    "review_causes",
+    "review_verdict",
+    "escalation_reason",
+}
+ITEM_ONLY_IN_SANDBOX = {"pred", "score", "usage_by_agent"}  # extracted values, the legacy score, usage
+OUTCOME_KEYS = (
+    "doc_type",
+    "stage",
+    "classification_confidence",
+    "extraction_confidence",
+    "review_causes",
+    "review_verdict",
+    "escalation_reason",
+)
+
+
+def _same_fields(got: list[tuple[float, dict]], want: list[tuple[float, dict]]) -> set[str]:
+    """Assert the field rules above row by row; return the fields that were compared."""
+    from mailroom_record.importer._folder import cause_token
+
+    compared: set[str] = set()
+    started: dict[tuple[str, str], Any] = {}  # the sandbox's last running step per (doc, node)
+    assert len(got) == len(want)
+    for (g_at, g_event), (w_at, w_event) in zip(got, want, strict=True):
+        assert abs(g_at - w_at) <= TOLERANCE_S
+        ((kind, g),) = g_event.items()
+        ((w_kind, w),) = w_event.items()
+        assert kind == w_kind
+        if kind == "checkpoint":
+            assert g == w
+            continue
+        assert "ts" not in w
+        if kind == "node":
+            assert set(g) == (NODE_KEYS if g["status"] == "running" else FINISH_KEYS), set(g)
+            assert set(w) - set(g) <= NODE_ONLY_IN_SANDBOX, set(w) - set(g)
+            for key in ("doc", "node", "status", "agent", "model"):
+                assert g[key] == w.get(key), key
+            pair = (w["doc"], w["node"])
+            if g["status"] == "running":
+                assert g["step"] == w.get("step")
+                started[pair] = w.get("step")
+            else:
+                # The sandbox writes ``step`` on running rows only; the record shows the step of
+                # the finish's own row, else of its start.
+                assert g["step"] == (w["step"] if "step" in w else started.get(pair)), (pair, g["step"])
+                assert g["stage"] == w.get("stage") and g["ms"] == w.get("ms")
+                decisions = w.get("decisions") or []
+                assert g["decisions"] == [{k: v for k, v in d.items() if k != "options"} for d in decisions]
+            compared |= {f"node.{k}" for k in g}
+        else:
+            assert set(g) == ITEM_KEYS, set(g)
+            assert set(w) - set(g) == ITEM_ONLY_IN_SANDBOX & set(w), set(w) - set(g)
+            for key in ("item_id", "ok", "latency_ms", "prompt_tokens", "completion_tokens"):
+                assert g[key] == w.get(key), key
+            assert g["doc"] == w["item_id"]
+            assert g["error"] == cause_token(w.get("error"))  # the type name, never the message
+            pred = w.get("pred") if isinstance(w.get("pred"), dict) else {}
+            for key in OUTCOME_KEYS:
+                assert g[key] == pred.get(key), key
+            compared |= {f"item.{k}" for k in g}
+    return compared
+
+
+@pytest.mark.parametrize("variant", ["complete", "crashed"])
+def test_field_parity_with_the_sandbox_build_timeline(tmp_path: Path, variant: str) -> None:
+    sandbox = _sandbox_floor_replay()
+    if sandbox is None:
+        pytest.skip("no sandbox checkout (set MAILROOM_SANDBOX_CHECKOUT to run the parity check)")
+    folder = copy_fixture(tmp_path / "src" / variant, run_id=f"ar-fields-{variant}")
+    if variant == "crashed":
+        crash_fixture(folder)
+    store = _store(tmp_path / "store")
+    r = import_sandbox_run(folder, store.log, store.blobs)
+    got, got_meta = replay_timeline(store.log, r.run_id)
+    want, want_meta = sandbox.build_timeline(folder)
+    compared = _same_fields(got, want)
+    assert {f"node.{k}" for k in FINISH_KEYS} | {f"item.{k}" for k in ITEM_KEYS} <= compared
+    assert set(got_meta) == set(want_meta)
+    for key in set(got_meta) - {"duration_s"}:
+        assert got_meta[key] == want_meta[key], key
+    assert abs(got_meta["duration_s"] - want_meta["duration_s"]) <= TOLERANCE_S
+
+
 # --- untimed and synthetic timing (adversarial round 1, finding 3) -------------------------
 
 T0 = 1_795_000_000.0
 D0, D1, D2 = (f"DOC-{i:016x}" for i in range(3))
 
 
-def _node(doc: str, node: str, status: str, ts: float | None = None, *, step: int | None = None,
-          ms: float | None = None) -> dict:
+def _node(
+    doc: str,
+    node: str,
+    status: str,
+    ts: float | None = None,
+    *,
+    step: int | None = None,
+    ms: float | None = None,
+) -> dict:
     row: dict[str, Any] = {"doc": doc, "node": node, "status": status, "agent": None, "model": None}
     if ts is not None:
         row["ts"] = ts
@@ -450,7 +614,12 @@ def _untime(folder: Path, variant: str) -> None:
 
 
 UNTIMED_VARIANTS = (
-    "untimed-start", "untimed-finish", "untimed-both", "untimed-items", "untimed-run", "untimed-unstepped",
+    "untimed-start",
+    "untimed-finish",
+    "untimed-both",
+    "untimed-items",
+    "untimed-run",
+    "untimed-unstepped",
     "untimed-stepped",
 )
 
@@ -502,12 +671,16 @@ def _normalise_lenient(timeline: list[tuple[float, dict]]) -> list[tuple]:
 # --- statuses and steps the importer scrubs (adversarial round 2, findings 6 and 7) --------
 
 
-@pytest.mark.parametrize(("status", "shown"), [(1, 1), (True, True), (0.5, 0.5), ("done with notes", None)],
-                         ids=["int", "bool", "float", "free-text"])
+@pytest.mark.parametrize(
+    ("status", "shown"),
+    [(1, 1), (True, True), (0.5, 0.5), ("done with notes", None)],
+    ids=["int", "bool", "float", "free-text"],
+)
 def test_a_non_token_status_replays_as_stored(tmp_path: Path, status: Any, shown: Any) -> None:
     """The sandbox shows a row's status raw. The record keeps a number or a bool as it was,
     so the replay shows it too; free text was stored as its SHA-256 and length, so it
-    cannot be restored and replays as None (the one known difference)."""
+    cannot be restored and replays as None (one of the field-level differences the replay
+    module docstring lists)."""
     nodes = [_node(D0, "intake", "running", T0, step=1), _node(D0, "intake", "done", T0 + 0.05, ms=50.0)]
     nodes[1]["status"] = status
     folder = _folder_with(tmp_path, 1, nodes, [_item(D0, T0 + 0.1)])
@@ -521,16 +694,33 @@ def test_a_non_token_status_replays_as_stored(tmp_path: Path, status: Any, shown
         assert [e["node"]["status"] for _, e in want if "node" in e] == ["running", status]
         if shown == status:
             _same(normalise(timeline), normalise(want))
+
+
 @pytest.mark.parametrize("finish_names_step", [True, False], ids=["finish-names-step", "finish-without-step"])
 def test_a_free_text_step_pairs_and_does_not_crash(tmp_path: Path, finish_names_step: bool) -> None:
     """A step that is not a token is stored scrubbed (a dict); pairing used it as a dict key
     and raised TypeError. It pairs by a hashable form instead: an untimed finish naming the
     same text step lands at its start plus ms, as in the sandbox; one without a step does
     not pair and lands 0.1 s after the latest row."""
-    start = {"doc": D0, "node": "intake", "status": "running", "agent": None, "model": None, "ts": T0,
-             "step": "step one"}
-    finish = {"doc": D0, "node": "intake", "status": "done", "agent": None, "model": None,
-              "ms": 50.0, "stage": "s", "decisions": []}
+    start = {
+        "doc": D0,
+        "node": "intake",
+        "status": "running",
+        "agent": None,
+        "model": None,
+        "ts": T0,
+        "step": "step one",
+    }
+    finish = {
+        "doc": D0,
+        "node": "intake",
+        "status": "done",
+        "agent": None,
+        "model": None,
+        "ms": 50.0,
+        "stage": "s",
+        "decisions": [],
+    }
     if finish_names_step:
         finish["step"] = "step one"
     folder = _folder_with(tmp_path, 1, [start, finish], [_item(D0, T0 + 0.2)])
@@ -547,12 +737,18 @@ def test_a_free_text_step_pairs_and_does_not_crash(tmp_path: Path, finish_names_
         _same_meta(meta, want_meta)
 
 
-def _native_start(store: SimpleNamespace, started: Any) -> tuple[list[tuple[float, dict[str, Any]]], dict[str, Any]]:
+def _native_start(
+    store: SimpleNamespace, started: Any
+) -> tuple[list[tuple[float, dict[str, Any]]], dict[str, Any]]:
     """One native node event finishing at 00:00:10Z whose ``payload.started_ts`` is ``started``."""
     with store.log.open_writer("r1", "w0") as w:
         w.append(
-            doc_id="d1", node="classify", kind="decision", latency_ms=5000.0,
-            payload={"started_ts": started}, ts="2026-01-01T00:00:10.000000Z",
+            doc_id="d1",
+            node="classify",
+            kind="decision",
+            latency_ms=5000.0,
+            payload={"started_ts": started},
+            ts="2026-01-01T00:00:10.000000Z",
         )
     return replay_timeline(store.log, "r1")
 
@@ -572,7 +768,9 @@ def new_york(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 @pytest.mark.parametrize("local_tz", ["process", "new_york"])
-def test_a_naive_started_ts_is_read_as_utc(store: SimpleNamespace, local_tz: str, request: pytest.FixtureRequest) -> None:
+def test_a_naive_started_ts_is_read_as_utc(
+    store: SimpleNamespace, local_tz: str, request: pytest.FixtureRequest
+) -> None:
     """A naive ``started_ts`` is UTC, as the sandbox's ``_parse_time`` reads it, whatever the
     process's local zone: the start is 5 s before the finish, not hours away."""
     if local_tz == "new_york":

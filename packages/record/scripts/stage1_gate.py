@@ -36,7 +36,13 @@ these totals and checks:
   sandbox's ``build_timeline`` on the folder give the same event sequence (node rows by
   doc, node and status; items by id; checkpoints) and the same times within 1 ms. The
   sandbox's ``tui/floor_replay.py`` is loaded by path (it imports only the standard
-  library); without ``--sandbox`` the check is reported as skipped;
+  library); without ``--sandbox`` the check is reported as skipped. Scope: this check
+  compares the sequence and the times only, not the rows' other fields. Those differ by
+  design (a fixed field list, no free text or extracted values, ``options`` dropped, the
+  cause token for an error, the outcome fields lifted out of ``pred``, a finished row's
+  step taken from its start, and the record's own untimed-rows warning), each listed with
+  its reason in ``mailroom_record.replay``'s docstring and checked field by field by
+  ``tests/test_replay.py::test_field_parity_with_the_sandbox_build_timeline``;
 - import warnings: what each import skipped (a torn last line of a JSONL file), on the
   run's row, and the number of runs with any (reported, not a gate; the record keeps them
   as the run's ``import`` event);
