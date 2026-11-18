@@ -183,7 +183,12 @@ class LabelVocabulary:
         return ""
 
     def _normalize_catalog(self, value: object) -> str:
-        """Map a value to a catalog key: key, alias, then label (whole or first eight characters)."""
+        """Map a value to a catalog key: key, alias, then label (whole or first eight characters).
+
+        A value none of them maps whose compact form is a token's (a key written
+        with capitals or punctuation, such as ``Co-Op``) gives that token, as
+        :meth:`fold` does; anything else gives the unknown token.
+        """
         if value is None:
             return self.unknown_token
         key = _text_key(value)
@@ -198,7 +203,7 @@ class LabelVocabulary:
             label_key = _text_key(entry.label)
             if key == label_key or key.startswith(label_key[:_CATALOG_LABEL_PREFIX_LENGTH]):
                 return entry.key
-        return self.unknown_token
+        return self._tokens_by_compact.get(key, self.unknown_token)
 
     def _normalize_allowed_set(self, value: object) -> str:
         """Map a value to a token written the same way, or with the same compact form."""

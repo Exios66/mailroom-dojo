@@ -143,7 +143,8 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   raised `RecursionError` out of extraction scoring on it.
 - **Found, not changed:** the `catalog` fold's normalizer maps a mixed-case or punctuated catalog key only through
   the key, the aliases or the label prefix, as the old `normalize_corpus_subclass` did; `fold` and `normalize`
-  can therefore differ for such a key. Differential parity covers the old behaviour, so it stays.
+  can therefore differ for such a key. Differential parity covers the old behaviour, so it stays. (Changed
+  later for keys the old Dojo could not hold; see "Review fixes, round 5".)
 
 ## Review fixes, round 4
 
@@ -163,3 +164,11 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   score changes for the mailroom profile: its marker values are `carrier`, `inpatient`, `outpatient` and `pde`,
   none of which is the text of a number or a boolean, and both the empty and the new token miss them. The
   fixtures and the intended-differences ledger are unchanged.
+- **A catalog normalizer finds a token by its compact form last.** When the key, alias and label steps all
+  miss, `normalize` now returns the token whose compact form equals the value's (as `fold` does) instead of the
+  unknown token, so a key such as `Co-Op` whose label does not start like it is no longer unknown. The three
+  old steps run first and unchanged, so only a value that used to get the unknown token can move. No mailroom
+  score moves: every mailroom token already normalizes to itself
+  (`test_every_mailroom_vocabulary_is_closed_and_has_fixed_points`), and the normalizer reads a value only
+  through its compact form, so any value with a token's compact form already reached that token before the
+  new step. The old Dojo's catalogs were fixed lowercase tables and could not hold such a key.
