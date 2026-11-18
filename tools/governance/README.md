@@ -13,8 +13,7 @@ must be 3.10 or later too. From the repository root:
 PYTHONDONTWRITEBYTECODE=1 python -m pytest tools/governance/tests -q --import-mode=importlib -p no:cacheprovider
 ```
 
-The two environment settings keep caches out of the tree. They were needed until PR #2's
-`.gitignore` reached `main`, which it now has.
+The two environment settings keep bytecode and pytest caches out of the tree.
 
 Until the wiring follow-up in `AGENTS.md` section 12 adds this command to the CircleCI
 `test` job, run it locally on every PR that touches these files.

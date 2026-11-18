@@ -31,7 +31,8 @@ python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]
 ```
 
 With an older `python3`, name a newer interpreter here too, for example
-`python3.12 -m venv .venv`. Each package README gives its own install and test command.
+`python3.12 -m venv .venv`. Each package README gives its own install command, and most
+also give a test command.
 
 ## Packages
 
@@ -97,7 +98,7 @@ mailroom-dojo/
 │   ├── specs/                 the design (the master plan)
 │   ├── plans/                 one build plan per project, dated
 │   ├── adr/                   architecture decision records
-│   ├── test-strategy-*.md     one test strategy per package
+│   ├── test-strategy-*.md     a package's test strategy, where it has one
 │   ├── glossary.md            the glossary, generated from mailroom_dictionaries
 │   ├── handoff/               dated notes handing a chunk of work to the next session
 │   └── reports/               gate reports, written by scripts (created on first use)
