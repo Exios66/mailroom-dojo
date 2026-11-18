@@ -16,11 +16,13 @@ from functools import lru_cache
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
 from mailroom_labels import load_label_set, load_profile
 from mailroom_labels.errors import ManifestMismatch
 from mailroom_labels.layers import read_layers
-from mailroom_labels.quality import check_dirs
+from mailroom_labels.cli import app
+from mailroom_labels.quality import check_dirs, verify
 from mailroom_labels.snapshot import MANIFEST_NAME, load_snapshot, load_snapshot_set
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -83,6 +85,13 @@ def test_zero_errors_and_every_warning_known_with_a_reason() -> None:
     assert all(f.known for f in report.warnings)
     reasons = [w.get("reason") for s in loaded for w in s.manifest.known_warnings]
     assert len(reasons) == 13 and all(isinstance(r, str) and len(r) > 40 for r in reasons)
+    # each warning is accepted by the snapshot that raised it, and the strict gate passes
+    owners = Counter((f.kind, f.location.split("/")[0]) for f in report.warnings)
+    assert owners == {("orphan_decision", "gold-review-2026-11-18"): 7, ("subclass_mismatch", "interim-2026-11-01"): 6}
+    assert verify(report, strict=True) == 0
+    result = CliRunner().invoke(app, ["verify", "--strict", "--profile", str(PROFILE), *map(str, DIRS)])
+    assert result.exit_code == 0, result.output
+    assert result.output.strip().splitlines()[-1] == "0 error(s), 13 warning(s)"
 
 
 # --- pinned counts ----------------------------------------------------------------------

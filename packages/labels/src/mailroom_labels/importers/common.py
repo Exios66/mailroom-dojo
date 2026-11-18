@@ -40,7 +40,9 @@ BUILDER_VERSION = "0.1.0"
 
 def known_warnings_for(path: Path | str | None, snapshot_id: str) -> list[dict[str, str | None]]:
     """The accepted warnings of one snapshot from a known-warnings YAML file
-    (``{<snapshot_id>: [{kind, doc, field, reason}, ...]}``); every entry needs a reason."""
+    (``{<snapshot_id>: [{kind, doc, field, reason, file?}, ...]}``); every entry needs a
+    reason. An entry accepts only warnings this snapshot raises (and, with ``file``, only
+    those located in that data file of it)."""
     if path is None:
         return []
     import yaml
@@ -51,11 +53,15 @@ def known_warnings_for(path: Path | str | None, snapshot_id: str) -> list[dict[s
         raise ImportRefused(f"{path}: {snapshot_id} must map to a list of warnings")
     out = []
     for entry in entries:
-        if not (isinstance(entry, dict) and set(entry) == {"kind", "doc", "field", "reason"}
-                and isinstance(entry["kind"], str) and isinstance(entry["reason"], str) and entry["reason"].strip()):
-            raise ImportRefused(f"{path}: a known warning must be {{kind, doc, field, reason}} with a reason: {entry!r}")
-        out.append({k: entry[k] for k in ("kind", "doc", "field", "reason")})
+        if not (isinstance(entry, dict) and {"kind", "doc", "field", "reason"} <= set(entry) <= _KNOWN_KEYS
+                and isinstance(entry["kind"], str) and isinstance(entry["reason"], str) and entry["reason"].strip()
+                and isinstance(entry.get("file", ""), str)):
+            raise ImportRefused(f"{path}: a known warning must be {{kind, doc, field, reason, file?}} with a reason: {entry!r}")
+        out.append({k: entry[k] for k in sorted(_KNOWN_KEYS) if k in entry})
     return out
+
+
+_KNOWN_KEYS = {"kind", "doc", "field", "reason", "file"}
 
 
 def builder_name(command: str) -> str:

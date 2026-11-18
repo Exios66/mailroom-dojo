@@ -12,12 +12,14 @@ PyPI, where no such package of ours is published.
 ```bash
 .venv/bin/pip install -e packages/record -e "packages/labels[dev]"
 .venv/bin/python -m pytest packages/labels/tests -q
-mailroom-labels verify --profile config/clients/<client>/profile.yaml labels/<snapshot>...
+mailroom-labels verify [--strict] --profile config/clients/<client>/profile.yaml labels/<snapshot>...
 mailroom-labels coverage --profile ... --json-out c.json --md-out c.md labels/<snapshot>...
 mailroom-labels import-hub|import-interim|import-near-gold|import-review --out labels/<snapshot> ... [--check]
 ```
 
-`verify` exits 0 with no error and 1 with any error (warnings never fail it); `coverage`
+`verify` exits 0 with no error and 1 with any error; warnings fail it only under
+`--strict`, which exits 1 on any warning that the `known_warnings` of the snapshot that
+raised it do not accept; `coverage`
 exits 1 and writes nothing when verification finds an error; an importer exits 1 when it
 refuses its source or, with `--check`, when the fresh build differs from `--out`; usage and
 profile errors exit 2. The importers read parquet, so they need the `import` extra
@@ -109,8 +111,11 @@ ordered against a dated one, so a tie or an undated decision with another value 
 beside the winner and `verify` reports a `conflicting_decision` error (an equal value is
 merged).
 
-`--known-warnings` takes `config/clients/<client>/known-warnings.yaml`; each entry needs a
-`reason`, and the importer records the snapshot's entries in its manifest.
+`--known-warnings` takes `config/clients/<client>/known-warnings.yaml`, keyed by snapshot id;
+each entry is `{kind, doc, field, reason}` (plus an optional `file`), needs a `reason`, and
+the importer records the snapshot's entries in its manifest. An entry accepts only a
+warning raised by its own snapshot (and, with `file`, located in that data file): the same
+warning from another snapshot stays unknown and fails `verify --strict`.
 
 ### Rebuild the committed snapshots
 

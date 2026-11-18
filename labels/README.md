@@ -21,12 +21,12 @@ the profile's precedence (`review:gold`, `interim:correction`, `hub`, `review:ne
 as `label_snapshot_ids()` (`<snapshot_id>@<manifest_hash>` per snapshot).
 
 ```bash
-mailroom-labels verify --profile config/clients/mailroom-dataset/profile.yaml \
+mailroom-labels verify --strict --profile config/clients/mailroom-dataset/profile.yaml \
     labels/hub-ccd040f6 labels/interim-2026-11-01 labels/near-gold-2026-11-17 labels/gold-review-2026-11-18
 ```
 
-The set verifies with 0 errors and 13 warnings, all accepted in the manifests with a
-reason (`config/clients/mailroom-dataset/known-warnings.yaml`): 7 decisions aimed at a
+The set verifies strictly with 0 errors and 13 warnings, each accepted with a reason in
+the manifest of the snapshot that raises it (`config/clients/mailroom-dataset/known-warnings.yaml`): 7 decisions aimed at a
 label no layer holds and 6 interim labels for documents the Hub re-filed under another
 subclass. Counts, coverage and the sandbox cross-check are in
 `docs/reports/labels/data-quality-2026-11-18.md` and `coverage-2026-11-18.md`;

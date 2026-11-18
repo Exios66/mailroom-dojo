@@ -1,7 +1,8 @@
 """The ``mailroom-labels`` command line.
 
 ``verify``   load and check snapshots against a client profile; print every finding.
-             Exit 0 with no error, 1 with any error (warnings never fail it).
+             Exit 0 with no error, 1 with any error. Warnings fail it only with
+             ``--strict``, and then only those its snapshot's known_warnings do not accept.
 ``coverage`` verify, then resolve and write the coverage report (JSON and Markdown).
              Exit 1, writing nothing, when verification finds an error.
 
@@ -42,6 +43,7 @@ from mailroom_labels.importers.common import file_sha256, known_warnings_for
 from mailroom_labels.layers import corpus_index, read_layers
 from mailroom_labels.profile import ClientProfile, load_profile
 from mailroom_labels.quality import QualityReport, check_dirs
+from mailroom_labels.quality import verify as quality_verify
 from mailroom_labels.resolve import resolve
 from mailroom_labels.snapshot import snapshot_refs
 
@@ -70,12 +72,19 @@ def _print_report(report: QualityReport) -> None:
 
 
 @app.command()
-def verify(snapshots: SnapshotArgs, profile: ProfileOpt) -> None:
-    """Check snapshots; exit 1 on any error."""
+def verify(
+    snapshots: SnapshotArgs,
+    profile: ProfileOpt,
+    strict: Annotated[bool, typer.Option(
+        "--strict", help="Also exit 1 on a warning that its snapshot's known_warnings does not accept.")] = False,
+) -> None:
+    """Check snapshots; exit 1 on any error (and, with --strict, on any unknown warning)."""
     prof = _profile(profile)
     report, _ = check_dirs(snapshots, prof)
     _print_report(report)
-    raise typer.Exit(0 if report.ok else 1)
+    if strict and report.unknown_warnings:
+        typer.echo(f"--strict: {len(report.unknown_warnings)} warning(s) not known for their snapshot", err=True)
+    raise typer.Exit(quality_verify(report, strict=strict))
 
 
 @app.command()

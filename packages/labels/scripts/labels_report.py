@@ -25,7 +25,7 @@ from typing import Any
 from mailroom_labels.coverage import coverage, render_markdown
 from mailroom_labels.layers import corpus_index, hash_matches, read_layers
 from mailroom_labels.profile import load_profile
-from mailroom_labels.quality import check_dirs
+from mailroom_labels.quality import check_dirs, known_entry
 from mailroom_labels.resolve import resolve
 from mailroom_labels.snapshot import snapshot_refs
 from mailroom_record.hashing import canonical_json
@@ -89,11 +89,9 @@ def build(dirs: list[Path], profile_path: Path, crosscheck: dict | None, cases: 
     # --- quality findings
     md += ["## Quality gate", "", f"`mailroom-labels verify`: {len(report.errors)} error(s), {len(report.warnings)} warning(s).", ""]
     if report.warnings:
-        reasons = {(w.get("kind"), w.get("doc"), w.get("field")): w.get("reason")
-                   for s in loaded for w in s.manifest.known_warnings}
         md += _table(["Kind", "Document", "Field", "Layer", "Known", "Reason"], [
             [f.kind, f.doc or "", f.field or "", f.layer or "", "yes" if f.known else "**no**",
-             reasons.get((f.kind, f.doc, f.field), "")] for f in report.warnings])
+             (known_entry(f, loaded) or {}).get("reason", "")] for f in report.warnings])
 
     # --- staleness and verification
     md += ["## Content hashes and verification", ""]

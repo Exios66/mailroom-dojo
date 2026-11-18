@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 from labels_testkit import (
+    PROFILE_PATH,
     hub_row,
     interim_row,
     make_snapshot,
@@ -283,3 +284,47 @@ def test_nan_and_deep_nesting_are_reported_not_raised(tmp_path: Path) -> None:
     read = read_layers(loaded)
     docs = {x.document_id: x for x in resolve(read.records, profile(), corpus_index(read.corpus))}
     assert docs["D4"].fields["recipient"].value == "X"  # the valid neighbour line still resolves
+
+
+# --- known warnings belong to the snapshot that raised them ---------------------------------
+
+
+def _stale(doc: str, field: str) -> dict:
+    return interim_row(doc, {field: ("gap_fill", "X")}, subclass="memo")  # the Hub says email
+
+
+def test_a_known_warning_covers_only_its_own_snapshot(tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+
+    from mailroom_labels.cli import app
+
+    hub = make_snapshot(tmp_path, "hub", [hub_row("D1", fields={"sender": "Ann", "recipient": "Bo"})])
+    accepted = ({"kind": "subclass_mismatch", "doc": "D1", "field": None, "reason": "re-filed"},)
+    a = make_snapshot(tmp_path, "interim", [_stale("D1", "sender")], snapshot_id="interim-a", known_warnings=accepted)
+    b = make_snapshot(tmp_path, "interim", [_stale("D1", "recipient")], snapshot_id="interim-b")
+    report, _ = check_dirs([hub, a, b], profile())
+    got = sorted((f.kind, f.location.split("/")[0], f.known) for f in report.findings)
+    assert got == [("subclass_mismatch", "interim-a", True), ("subclass_mismatch", "interim-b", False)]
+    assert verify(report) == 0 and verify(report, strict=True) == 1
+    runner = CliRunner()
+    args = ["verify", "--profile", str(PROFILE_PATH), str(hub), str(a), str(b)]
+    assert runner.invoke(app, args).exit_code == 0
+    assert runner.invoke(app, [*args, "--strict"]).exit_code == 1
+    assert runner.invoke(app, ["verify", "--strict", "--profile", str(PROFILE_PATH), str(hub), str(a)]).exit_code == 0
+
+
+def test_a_known_warning_matches_kind_document_field_and_file(tmp_path: Path) -> None:
+    accepted = (
+        {"kind": "orphan_decision", "doc": "D4", "field": "sender", "reason": "other field"},
+        {"kind": "orphan_decision", "doc": "D4", "field": "recipient", "reason": "other file", "file": "other.jsonl"},
+    )
+    extra = make_snapshot(tmp_path, "review", [review_row("D4", "recipient", "Eve")], snapshot_id="rv-extra",
+                          known_warnings=accepted)
+    report, _ = check_dirs([*standard_set(tmp_path), extra], profile())
+    (f,) = report.findings
+    assert (f.kind, f.doc, f.field, f.known) == ("orphan_decision", "D4", "recipient", False)
+    in_file = ({"kind": "orphan_decision", "doc": "D4", "field": "recipient", "reason": "r", "file": "rows.jsonl"},)
+    fixed = make_snapshot(tmp_path / "again", "review", [review_row("D4", "recipient", "Eve")], snapshot_id="rv-extra",
+                          known_warnings=in_file)
+    report, _ = check_dirs([*standard_set(tmp_path / "again"), fixed], profile())
+    assert [f.known for f in report.findings] == [True]

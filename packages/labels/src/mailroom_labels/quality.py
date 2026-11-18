@@ -3,8 +3,9 @@
 ``check`` and ``check_dirs`` never raise on bad data. Each problem becomes a ``Finding``
 (``findings.SEVERITY`` gives its severity) and the valid records around it are still read
 and checked, so one run lists every problem at once. ``verify`` turns a report into an
-exit code: non-zero when any error is found. A warning named in a manifest's
-``known_warnings`` is marked ``known``; it never changes the exit code either way.
+exit code: non-zero when any error is found. A warning accepted by the ``known_warnings``
+of the snapshot that raised it (``known_entry``) is marked ``known``; it changes the exit
+code only under ``strict``, which fails on any warning that is not known.
 
 Checks against the corpus index (the Hub snapshot): unknown document, class and subclass
 disagreement, stale content hash, Hub text not verified, a document indexed twice. Within
@@ -37,7 +38,7 @@ from mailroom_labels.profile import ClientProfile
 from mailroom_labels.snapshot import LabelSnapshot, load_snapshot
 from mailroom_record.hashing import canonical_json
 
-__all__ = ["QualityReport", "check", "check_dirs", "check_read", "value_matches_type", "verify"]
+__all__ = ["QualityReport", "check", "check_dirs", "check_read", "known_entry", "value_matches_type", "verify"]
 
 _STRING_TYPES = ("name", "label", "date", "id", "free_text", "containment", "cms_doc_ref")
 
@@ -60,8 +61,45 @@ class QualityReport:
     def ok(self) -> bool:
         return not self.errors
 
+    @property
+    def unknown_warnings(self) -> tuple[Finding, ...]:
+        """Warnings no snapshot accepted (``verify --strict`` fails on them)."""
+        return tuple(f for f in self.warnings if not f.known)
+
     def kinds(self) -> Counter:
         return Counter(f.kind for f in self.findings)
+
+
+def _owner(f: Finding, snapshots: Sequence[LabelSnapshot]) -> tuple[set[str], str | None]:
+    """The snapshot(s) a finding comes from and, for a record finding, the file. A record
+    finding's location is ``<snapshot_id>/<file>:<line>`` (snapshot ids hold no ``/``); a
+    finding about the corpus index has no location and belongs to the snapshots of its layer."""
+    ids = {s.snapshot_id for s in snapshots}
+    if f.location:
+        head, sep, rest = f.location.partition("/")
+        if sep and head in ids:
+            return {head}, rest.rpartition(":")[0] or rest
+        if f.location in ids:
+            return {f.location}, None
+    return {s.snapshot_id for s in snapshots if s.kind == f.layer}, None
+
+
+def known_entry(f: Finding, snapshots: Sequence[LabelSnapshot]) -> Any:
+    """The ``known_warnings`` entry that accepts warning ``f``, or ``None``. An entry
+    accepts only warnings raised by its own snapshot, matching kind, document and field,
+    and the file when the entry names one."""
+    if f.severity != "warning":
+        return None
+    owners, file = _owner(f, snapshots)
+    for snap in snapshots:
+        if snap.snapshot_id not in owners:
+            continue
+        for w in snap.manifest.known_warnings:
+            if (w.get("kind"), w.get("doc"), w.get("field")) == (f.kind, f.doc, f.field) and (
+                w.get("file") is None or w.get("file") == file
+            ):
+                return w
+    return None
 
 
 def _sort_key(f: Finding) -> tuple:
@@ -251,17 +289,7 @@ def check_read(
     _check_duplicates(read.records, out)
     _check_decisions(read.records, out)
 
-    known = {
-        (w.get("kind"), w.get("doc"), w.get("field"))
-        for s in snapshots
-        for w in s.manifest.known_warnings
-    }
-    items = [
-        f.model_copy(update={"known": True})
-        if f.severity == "warning" and (f.kind, f.doc, f.field) in known
-        else f
-        for f in out.items
-    ]
+    items = [f.model_copy(update={"known": True}) if known_entry(f, snapshots) is not None else f for f in out.items]
     return QualityReport(tuple(sorted(items, key=_sort_key)))
 
 
@@ -328,6 +356,7 @@ def check_dirs(directories: Iterable[Path | str], profile: ClientProfile) -> tup
     return report, tuple(loaded)
 
 
-def verify(report: QualityReport) -> int:
-    """Exit code for a report: 0 when it has no error, 1 otherwise."""
-    return 0 if report.ok else 1
+def verify(report: QualityReport, *, strict: bool = False) -> int:
+    """Exit code for a report: 0 when it has no error, 1 otherwise. With ``strict``, a
+    warning that its snapshot's ``known_warnings`` does not accept is also a failure."""
+    return 0 if report.ok and not (strict and report.unknown_warnings) else 1
