@@ -125,11 +125,12 @@ except through a human or the autoresearch driver choosing the next policy.
 | `engine` | `common`, `dictionaries`, `record`; reads `config/` | `dojo`, `labels`, `launcher` |
 | `launcher` | all of them | nothing else of ours exists above it |
 
-**Deviation to approve.** The master design's map names five packages. PR #6 adds two shared
-leaves, `common` and `dictionaries`, with map lines and a boundary script. They keep the one-way
-rule (they sit below everything) and remove copy-paste of hashing, JSONL and vocabularies, but
-they are not in the design. This plan assumes they stay; if the owner declines, their contents
-fold back into `record` (hashing, JSONL) and `config/` (vocabularies).
+**Approved deviation (owner, 2026-11-18).** The master design's map names five packages. PR #6
+adds two shared leaves, `common` and `dictionaries`, with map lines and a boundary script; the
+owner decided to keep them. They keep the one-way rule (they sit below everything) and remove
+copy-paste of hashing, JSONL, redacting logs and closed vocabularies. The owner also adopted
+PR #6's `make lint` (ruff), `make typecheck` (mypy strict) and `make spell` (codespell) gates;
+`CLAUDE.md`, `AGENTS.md` and the rules now say so.
 
 ## 4. Deep dive
 
@@ -165,8 +166,8 @@ from typed inputs to `Measure` values; the record reader is the only place that 
 mailroom_dojo/
 ├── profile/, values/, normalization/, field_scoring/, classification/, labels_interface/   (done)
 ├── statistics/        bootstrap, calibration (ECE, ranking power), paired tests        D1
-├── measures/          Measure value type + flat metric table (name, unit, aggregation,
-│                      direction) — every number carries n, cost basis, label status     D2
+├── measures/          Measure value type + the flat metric table loader (headline and
+│                      supporting metrics; every number carries n, cost basis, label status) D2
 ├── tasks/, suites/    task kinds and per-agent suites, document scorers                 D3b
 ├── label_layer/       scorable-field rules over mailroom_labels.LabelSet                D4
 ├── run_reader/        typed view of a sealed record (documents, steps, decisions, costs) D5
@@ -179,6 +180,20 @@ mailroom_dojo/
 
 Key decisions:
 
+- **The headline registry metrics stay, improved (owner, 2026-11-18).** The old registry's
+  headline metrics (tier 0: one board-level number per agent, such as macro F1 for the sorter and
+  the overall extraction score for each specialist) and the tier-1 metrics under them keep their
+  names, definitions, units, direction and aggregation, so a number means the same before and
+  after cutover. What the master design drops is the machinery around them (tiers as a filter
+  API, bundles, metric profiles), not the metrics. The new form is one flat, versioned metric
+  table in configuration: each row is a metric id, its definition, unit, direction,
+  aggregation, the layer and agents that produce it, and a `headline` flag (one per agent), so
+  the dashboard view is a query over the table, not a tier system. Improvements: every value is
+  a `Measure` (below); each metric names its noise floor and its pairing rule for comparisons;
+  per-class breakdowns are standard; new layers (behaviour, stability, cost truth, log health)
+  add rows, never a parallel registry. Parity: every metric id the old registry and the golden
+  suites emit is in the table with the same meaning, or listed as an intended change with a
+  reason.
 - **`Measure` replaces scorecard honesty.** The old 1,176-line `scorecard_honesty` module is
   imported by 11 modules. The master design replaces it with one rule: every number carries its
   sample size, cost basis and the status of the labels behind it. So D2 defines
@@ -251,7 +266,7 @@ section, test strategy additions, one to three adversarial rounds and a fresh pr
 | --- | --- | --- | --- |
 | 0 | Land PRs #2, #6, #5, #7 (another thread) | - | their own gates |
 | 1 | D1 statistics | 0 | old tests and a differential corpus, identical |
-| 2 | D2 `Measure` and flat metric table | 0 | every metric name `scores.json` emits is in the table; provenance tests |
+| 2 | D2 headline registry metrics in one flat table, and `Measure` | 0 | every old registry id and every metric `scores.json` emits is in the table with the same meaning (or an intended change); headline per agent kept; provenance tests |
 | 3 | D3a one schema source per class | 2 | YAML equals frozen dump of old tables; labels, Dojo (and later engine) load the same files |
 | 4 | D3b tasks, suites, document scorers | 1 to 3 | `scores.json` and the 89 document-scorer goldens reproduced exactly |
 | 5 | D4 label layer, Dojo joined to `mailroom_labels` | 3 | old label-policy cases; Protocols checked against the real `LabelSet` |
@@ -310,12 +325,16 @@ To follow, from the sandbox and mailroom-reloaded inventory (in progress).
 | Launcher work before the go or no-go gate | Operator surfaces over imported runs early | Some launcher code drives the old pipeline first | The engine is built |
 | Port by verdict, not by file | About a third of the code never moves | Each drop needs a reason in the inventory | A dropped capability is asked for |
 
-## 10. Decisions needed from the owner
+## 10. Owner decisions
 
-1. Keep the `common` and `dictionaries` leaf packages (PR #6) as a deviation from the five-package map?
-2. PR #6 adds ruff, mypy and codespell gates; `CLAUDE.md` and `AGENTS.md` still say no linter or
-   type checker is configured. Keep the gates (and update both files in that PR) or drop them?
-3. Confirm the placements of the capabilities in section 7 that the master design does not name.
-4. Design open question 2: this plan proposes that the launcher floor replaces The-Mailroom at
-   cutover (the old visualizer stays on its pin), so the trace exporter needs no span-name
-   compatibility. Confirm.
+Decided 2026-11-18:
+
+1. Keep the `common` and `dictionaries` leaf packages (section 3).
+2. Adopt the ruff, mypy and codespell gates (section 3).
+3. The launcher floor replaces The-Mailroom at cutover; the old visualizer stays on its pin, so
+   the trace exporter needs no span-name compatibility (answers master design open question 2).
+4. The headline registry metrics stay, improved on the new system, with consistent meanings
+   (section 4.2).
+
+Still open: confirm the placements of the capabilities in section 7 that the master design does
+not name.
