@@ -228,3 +228,16 @@ def test_nested_values_handed_out_cannot_change_the_stored_labels(tmp_path: Path
             _scribble(v)
         assert [d.model_dump(mode="json") for d in ls.documents()] == before
         assert ls.document(doc_id).model_dump(mode="json") in before
+
+
+def test_a_label_set_built_directly_with_a_repeated_id_answers_with_the_first() -> None:
+    """``resolve`` never yields one id twice, but ``LabelSet`` must not depend on it:
+    ``document()`` answers with the first document of an id, as ``documents()`` lists it."""
+    first = DocumentLabels(
+        document_id="D1", doc_class="letter", verified=True, fields={}, scorable_fields=frozenset()
+    )
+    second = first.model_copy(update={"doc_class": "filing"})
+    labels = LabelSet(snapshots=(), profile=profile(), report=QualityReport(()), _documents=(first, second))
+    assert labels.document("D1") == first and labels.document("D1") != second
+    listed = next(d for d in labels.documents() if d.document_id == "D1")
+    assert labels.document("D1") == listed
