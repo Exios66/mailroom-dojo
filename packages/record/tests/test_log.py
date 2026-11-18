@@ -13,6 +13,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 from pydantic import ValidationError
 from record_testkit import (
     append_in_child,
@@ -512,3 +514,62 @@ def test_open_writer_fsyncs_the_segment_dir_even_when_the_segment_exists(
     monkeypatch.setattr(log_module, "_fsync_dir", lambda p: (calls.append(Path(p)), real(p))[1])
     store.log.open_writer("r1", "w0").close()
     assert seg_dir(store) in calls
+
+
+# --- tolerant raw reading (Task 7 needs it) -------------------------------------------
+
+
+def test_iter_raw_streams_past_a_corrupt_line_and_reports_the_torn_tail(store: SimpleNamespace) -> None:
+    # Bytes torn mid-file by a crash, then whole lines appended after them: the strict
+    # reader refuses the whole run, the raw reader yields every line and keeps going.
+    with store.log.open_writer("r1", "w0") as w:
+        a = w.append(doc_id="d1", node="n0", kind="decision")
+    seg = seg_dir(store) / "w0.jsonl"
+    good = seg.read_bytes()
+    with seg.open("ab") as f:
+        f.write(b'{"run_id":"r1","doc_\xff\n')  # corrupt whole line (not JSON, not UTF-8)
+        f.write(good)  # a whole line after it
+        f.write(b'{"torn')  # and a torn tail
+    with pytest.raises(log_module.CorruptLine):
+        list(store.log.iter_stored("r1"))
+    items = list(store.log.iter_raw("r1"))
+    assert [type(i).__name__ for i in items] == ["RawLine", "RawLine", "RawLine", "TornTail"]
+    first, bad, again, tail = items
+    assert json.loads(first.data)["hash"] == a.hash and first.byte_offset == 0
+    assert bad.byte_offset == len(good) and bad.data == b'{"run_id":"r1","doc_\xff'
+    assert again.data + b"\n" == good and again.byte_offset == len(good) + len(bad.data) + 1
+    assert tail == TornTail("w0.jsonl", again.byte_offset + len(good))
+    assert store.log.torn_tails("r1") == [tail]
+
+
+def test_iter_raw_matches_the_strict_reader_on_clean_segments(store: SimpleNamespace) -> None:
+    for wid, docs in (("w0", ["d1", "d2"]), ("w1", ["d3"])):
+        with store.log.open_writer("r1", wid, flush_every=1) as w:
+            for i in range(4):
+                for d in docs:
+                    w.append(doc_id=d, node=f"n{i}", kind="decision")
+    raw = list(store.log.iter_raw("r1"))
+    stored = list(store.log.iter_stored("r1"))
+    assert [(r.segment, r.byte_offset, json.loads(r.data)) for r in raw] == [
+        (s.segment, s.byte_offset, s.raw) for s in stored
+    ]
+    assert [p.name for p in store.log.segment_paths("r1")] == ["w0.jsonl", "w1.jsonl"]
+
+
+@given(
+    lines=st.lists(st.binary(max_size=40).map(lambda b: b.replace(b"\n", b"")), max_size=12),
+    tail=st.binary(max_size=20).map(lambda b: b.replace(b"\n", b"")),
+)
+def test_iter_raw_reproduces_any_segment_bytes(tmp_path_factory: Any, lines: list[bytes], tail: bytes) -> None:
+    # Whatever bytes a segment holds, the raw reader returns them exactly: every whole line
+    # at its offset, then the torn tail (if any) where the last newline ends.
+    path = tmp_path_factory.mktemp("raw") / "w0.jsonl"
+    data = b"".join(line + b"\n" for line in lines) + tail
+    path.write_bytes(data)
+    items = list(log_module.iter_raw_segment(path))
+    whole = [i for i in items if isinstance(i, log_module.RawLine)]
+    torn = [i for i in items if isinstance(i, TornTail)]
+    assert [i.data for i in whole] == lines
+    for i in whole:
+        assert data[i.byte_offset : i.byte_offset + len(i.data) + 1] == i.data + b"\n"
+    assert torn == ([TornTail("w0.jsonl", len(data) - len(tail))] if tail else [])

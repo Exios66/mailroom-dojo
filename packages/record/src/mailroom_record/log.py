@@ -65,6 +65,12 @@ raises ``CorruptLine`` naming the segment and byte offset; it is never skipped. 
 upgraded on read (``Event.from_stored``); ``iter_stored`` yields the raw stored dicts so a
 verifier can hash the stored form (ADR-0005). ``iter_events`` orders by ``(doc_id, seq)``
 across segments; ``_run`` sorts like any other doc id.
+
+``iter_raw`` is the tolerant reader for verification (Task 7): it streams every segment one
+line at a time and parses nothing, yielding each whole line as bytes (``RawLine``) and each
+segment's torn tail (``TornTail``) in file order. A corrupt line is just bytes to it, so one
+bad line never stops the scan of the lines after it; deciding what is corrupt is the
+caller's job. The strict readers above are what writers and ``seal_run`` use.
 """
 
 from __future__ import annotations
@@ -93,6 +99,7 @@ __all__ = [
     "EventLog",
     "ForkedChain",
     "LogWriter",
+    "RawLine",
     "RunExists",
     "StoredLine",
     "TornTail",
@@ -155,6 +162,31 @@ class StoredLine:
     segment: str
     byte_offset: int
     raw: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class RawLine:
+    """One whole stored line as bytes, without its newline, not parsed."""
+
+    segment: str
+    byte_offset: int
+    data: bytes
+
+
+def iter_raw_segment(path: Path) -> Iterator[RawLine | TornTail]:
+    """Stream one segment: each whole line as a ``RawLine``, then its torn tail, if any.
+
+    Reads one line at a time (a line ends at ``\\n`` and nowhere else), so memory is bounded
+    by the longest line, not the segment. Raises ``OSError`` if the file cannot be read.
+    """
+    with path.open("rb") as f:
+        offset = 0
+        for line in f:
+            if line.endswith(b"\n"):
+                yield RawLine(path.name, offset, line[:-1])
+            else:
+                yield TornTail(path.name, offset)
+            offset += len(line)
 
 
 def _check_writer_id(writer_id: Any) -> str:
@@ -250,6 +282,15 @@ class EventLog:
         for seg in self._segments(run_id):
             lines, _ = _parse_lines(seg.name, seg.read_bytes(), 0)
             yield from lines
+
+    def segment_paths(self, run_id: str) -> list[Path]:
+        """Every segment file of a run, sorted by name."""
+        return self._segments(run_id)
+
+    def iter_raw(self, run_id: str) -> Iterator[RawLine | TornTail]:
+        """Every segment's whole lines and torn tail, streamed and unparsed (see module doc)."""
+        for seg in self._segments(run_id):
+            yield from iter_raw_segment(seg)
 
     def torn_tails(self, run_id: str) -> list[TornTail]:
         """Segments whose last bytes do not end in a newline, with where the torn part starts."""
