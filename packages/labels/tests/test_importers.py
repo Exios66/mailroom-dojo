@@ -997,7 +997,9 @@ def test_fetch_hub_deletes_a_download_that_fails_part_way(
 # --- unlisted files and directories ---------------------------------------------------------
 
 
-@pytest.mark.parametrize("stray", ["LETTER.JSONL", "nested/letter.jsonl", "a/b/More.Jsonl"])
+# STRAY.JSONL, not LETTER.JSONL: on a case-insensitive file system that name would
+# overwrite the listed letter.jsonl and the test would meet a hash mismatch instead.
+@pytest.mark.parametrize("stray", ["STRAY.JSONL", "nested/letter.jsonl", "a/b/More.Jsonl"])
 def test_overlay_refuses_unlisted_jsonl_of_any_case_or_depth(tmp_path: Path, stray: str) -> None:
     src = write_overlay(
         tmp_path / "src", {"letter.jsonl": jsonl(interim_row("D1", {"sender": ("gap_fill", "A")}))}
