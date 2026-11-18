@@ -12,7 +12,8 @@ Reading one document
 rebuild recorded plus every byte written since), so a per-document read touches only that
 document's lines; the lines the last rebuild skipped as corrupt or invalid in that run are
 reported with it, because a skipped line carries no usable ``doc_id`` and may be one of the
-document's events. When there is no usable index, when the index read raises (a corrupt or
+document's events (each is re-read first, so one whose bytes were restored since the rebuild
+is not reported). When there is no usable index, when the index read raises (a corrupt or
 invalid line inside the document's ranges), or when the events it returns do not form one
 clean chain, the document is read again from the log with a tolerant scan
 (``EventLog.scan(strict=False)``), re-read while it shows a ``seq`` gap a second read does
@@ -44,6 +45,7 @@ would name its stored field names), and other errors by their type.
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from collections import defaultdict
@@ -68,6 +70,7 @@ __all__ = [
 _RUN_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
 _SEAL_NAME_RE = re.compile(r"(0|[1-9][0-9]*)\.json")
 _SCAN_TRIES = 3
+_RECHECK_LIMIT = 64 * 1024 * 1024  # verify's MAX_LINE: a longer line is never read whole
 # What a read of one document through the index can raise on damaged or changing data.
 _INDEX_READ_ERRORS = (ValueError, TypeError, OSError, RecursionError, IndexUnavailable, sqlite3.Error)
 
@@ -291,15 +294,20 @@ def read_document(log: EventLog, index: Index | None, run_id: str, doc_id: str) 
         except _INDEX_READ_ERRORS:
             events = None
         if events is not None and not chain_damage(doc_id, events):
-            skipped = _skipped_by_index(index, run_id)
+            skipped = _skipped_by_index(log, index, run_id)
             if skipped is not None:
                 torn = tuple(_torn_damage(t) for t in _torn_tails(log, run_id))
                 return DocRead(events, skipped + torn, "index")
     return _read_from_log(log, run_id, doc_id)
 
 
-def _skipped_by_index(index: Index, run_id: str) -> tuple[Damage, ...] | None:
-    """The run's lines the last rebuild skipped (any may be one of this document's events)."""
+def _skipped_by_index(log: EventLog, index: Index, run_id: str) -> tuple[Damage, ...] | None:
+    """The run's lines the last rebuild skipped and the log still holds as skipped lines.
+
+    Any of them may be one of this document's events. Each is re-read where the index
+    recorded it, so damage that is gone from the log (bytes restored since the rebuild) is
+    not reported as current.
+    """
     try:
         problems = index.problems()
     except _INDEX_READ_ERRORS:
@@ -307,8 +315,35 @@ def _skipped_by_index(index: Index, run_id: str) -> tuple[Damage, ...] | None:
     return tuple(
         _line_damage(BadLine(p.segment, p.byte_offset, p.kind, p.detail))  # type: ignore[arg-type]
         for p in problems
-        if p.run_id == run_id and p.kind in ("corrupt_line", "invalid_event") and p.segment is not None and p.byte_offset is not None
+        if p.run_id == run_id
+        and p.kind in ("corrupt_line", "invalid_event")
+        and p.segment is not None
+        and p.byte_offset is not None
+        and _still_skipped(log, run_id, p.segment, p.byte_offset)
     )
+
+
+def _still_skipped(log: EventLog, run_id: str, segment: str, offset: int) -> bool:
+    """Whether a whole line still starts at ``offset`` and is still not a valid event."""
+    try:
+        with (log.segment_dir(run_id) / segment).open("rb") as f:
+            if offset > 0:
+                f.seek(offset - 1)
+                if f.read(1) != b"\n":
+                    return False  # no line starts there any more: the bytes changed
+            line = f.readline(_RECHECK_LIMIT + 1)
+    except OSError:
+        return False  # the segment is gone; a read of the log reports what that lost
+    if not line.endswith(b"\n"):
+        return len(line) > _RECHECK_LIMIT  # an over-long line stays skipped; a tail is a torn tail
+    try:
+        raw = json.loads(line)
+        if not isinstance(raw, dict):
+            return True
+        Event.from_stored(raw)
+    except (ValueError, TypeError, RecursionError):
+        return True
+    return False
 
 
 def _torn_tails(log: EventLog, run_id: str) -> list[TornTail]:

@@ -467,3 +467,18 @@ def test_error_details_never_carry_stored_key_names(review_store: SimpleNamespac
     assert res.stderr.startswith("error: CorruptLine: w0.jsonl at byte "), res.stderr
     assert res.exit_code == 1 and res.stderr.startswith("error: ") and res.stderr.count("\n") == 1
     assert SENTINEL not in res.stdout + res.stderr, res.stderr
+
+
+def test_a_skipped_line_the_log_no_longer_holds_is_not_reported(review_store: SimpleNamespace, tmp_path: Path) -> None:
+    """The index recorded a corrupt line; the bytes were restored since. Trace reads the log
+    as it is now, so it must not report damage verify no longer finds."""
+    seg, off, line = find_line(review_store, "d2", 1)
+    garble_line(review_store, "d2", 1, b"#" * len(line))
+    idx = built_index(review_store, tmp_path)
+    assert "corrupt_line" in {p.kind for p in idx.problems()}
+    garble_line_back = seg.read_bytes()
+    seg.write_bytes(garble_line_back[:off] + line + garble_line_back[off + len(line):])
+    assert run_cli("verify", "r1", root=review_store.root).exit_code == 0
+    dt = trace_doc(review_store.log, idx, "d1")
+    assert (dt.runs[0].source, dt.runs[0].damage, dt.damaged) == ("index", (), False)
+    assert read_document(review_store.log, idx, "r1", "d2").damage == ()
