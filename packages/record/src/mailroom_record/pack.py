@@ -34,7 +34,11 @@ Rules
   unknown files), a member twice, a member missing from or not listed in the manifest, a
   member whose hash or size differs. Blobs the run names but the archive lacks
   (``include_blobs=False``) are taken from the target root's blob store. It then runs
-  ``verify_run`` on the staging store; any failing problem is ``PackCorrupt``. Only then
+  ``verify_run`` on the staging store; any failing problem is ``PackCorrupt``. If the
+  target recorded a pack of the run (``pack.json``, or ``prune.json`` for a pruned run),
+  the archive must be that pack: an archive whose SHA-256 or latest seal differs from the
+  record is ``UnpackConflict`` and nothing is changed (an older archive would otherwise put
+  an earlier state back over a run pruned from a newer one). Only then
   does anything reach the target: if a run file already there differs from the archive's,
   ``UnpackConflict`` and nothing is changed; equal files are left alone, missing ones are
   hard-linked into place (blobs first, ``run.json`` last), so a second unpack is a no-op and
@@ -277,6 +281,23 @@ class _ZstdIn(io.RawIOBase):
 class _Read:
     run_id: str
     manifest: dict[str, Any]
+    archive_sha256: str
+
+
+class _Hashing(io.RawIOBase):
+    """Read ``f`` and hash every byte read, so the archive is hashed in the same pass."""
+
+    def __init__(self, f: Any) -> None:
+        self._f = f
+        self.sha = hashlib.sha256()
+
+    def readable(self) -> bool:
+        return True
+
+    def read(self, size: int = -1) -> bytes:
+        data: bytes = self._f.read(size)
+        self.sha.update(data)
+        return data
 
 
 def _read_archive(archive: Path, sink: Callable[[str, Iterator[bytes]], None]) -> _Read:
@@ -286,7 +307,8 @@ def _read_archive(archive: Path, sink: Callable[[str, Iterator[bytes]], None]) -
     run_id: str | None = None
     manifest_raw: bytes | None = None
     try:
-        with archive.open("rb") as f:
+        with archive.open("rb") as raw:
+            f = _Hashing(raw)
             z = _ZstdIn(f)
             with tarfile.open(fileobj=io.BufferedReader(z, _CHUNK), mode="r|") as tar:
                 for m in tar:
@@ -328,6 +350,7 @@ def _read_archive(archive: Path, sink: Callable[[str, Iterator[bytes]], None]) -
                         pass
                     seen[name] = {"sha256": h.hexdigest(), "size": size}
             z.drain()
+            archive_sha = f.sha.hexdigest()
     except PackCorrupt:
         raise
     except (tarfile.TarError, EOFError, zstandard.ZstdError) as exc:
@@ -348,7 +371,7 @@ def _read_archive(archive: Path, sink: Callable[[str, Iterator[bytes]], None]) -
     blobs = manifest.get("blobs")
     if not isinstance(blobs, list) or not all(isinstance(b, str) and re.fullmatch(_SHA, b) for b in blobs):
         raise PackCorrupt(f"{_MANIFEST} has no valid blob list")
-    return _Read(run_id, manifest)
+    return _Read(run_id, manifest, archive_sha)
 
 
 # --- pack -------------------------------------------------------------------------
@@ -479,9 +502,42 @@ def unpack_run(archive: Path, root: Path, *, lock_timeout: float = 60.0) -> str:
         shutil.rmtree(staging, ignore_errors=True)
 
 
+def _refuse_another_pack(read: _Read, root: Path) -> None:
+    """``UnpackConflict`` when ``root`` recorded a pack of this run (``pack.json``, or a prune
+    by ``prune.json``) and ``read`` is not that archive: its SHA-256 or its latest seal differ.
+
+    An older archive over a run pruned from a newer one would put back an earlier state
+    beside the newer Parquet files and drop ``prune.json``, which leaves the run unsealed,
+    the newer archive unrestorable and the import guard gone.
+    """
+    run_dir = root / "runs" / read.run_id
+    pack_path, prune_path = run_dir / _PACK_RECORD, run_dir / _PRUNE_RECORD
+    if not (pack_path.is_file() or prune_path.is_file()):
+        return
+    try:
+        record = json.loads(pack_path.read_bytes())
+        recorded = (record["archive_sha256"], record["last_seal"]["n"], record["last_seal"]["hash"])
+        archive = str(record["archive"])
+    except (OSError, ValueError, RecursionError, KeyError, TypeError):
+        raise UnpackConflict(
+            f"runs/{read.run_id}: this store recorded a pack of the run but its {_PACK_RECORD} is "
+            "missing or unreadable, so this archive cannot be checked against it"
+        ) from None
+    seal = read.manifest.get("last_seal")
+    given = (read.archive_sha256, *(seal.get(k) for k in ("n", "hash"))) if isinstance(seal, dict) else None
+    if given != recorded:
+        state = "pruned from" if prune_path.is_file() else "packed as"
+        raise UnpackConflict(
+            f"runs/{read.run_id}: this store holds the run {state} {archive} (seal {recorded[1]}); "
+            f"this archive is a different pack (seal {seal.get('n') if isinstance(seal, dict) else '?'}); "
+            "unpack the recorded archive instead"
+        )
+
+
 def _place(read: _Read, staging: Path, root: Path) -> str:
     """Verify the staged run and place it under ``root``; the caller holds the maintenance lock."""
     run_id = read.run_id
+    _refuse_another_pack(read, root)  # under the lock: before anything is read from or put in root
     s_log, s_blobs = _open_store(staging)
     target = BlobStore(root)
     for sha in read.manifest["blobs"]:

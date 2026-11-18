@@ -607,3 +607,49 @@ def test_a_prune_waits_for_a_live_seal(
     seal_run(s.log, "r1")
     assert seen == ["r1"]
     assert verify_run(*s.parts, "r1").ok and (s.root / "runs" / "r1" / "seals" / "0.json").is_file()
+
+
+@pytest.mark.parametrize("keep_columns", [True, False], ids=["keep-columns", "drop-columns"])
+def test_unpack_refuses_an_older_archive_over_a_pruned_run(
+    two_run_sealed_store: SimpleNamespace, tmp_path: Path, keep_columns: bool
+) -> None:
+    """Adversarial round 2, finding 1: archive A, more events, archive B, prune, unpack A.
+    A would put back seal 0's state beside B's Parquet files and drop prune.json. The store
+    recorded B, so A is refused and the store is left byte for byte as it was."""
+    s = two_run_sealed_store
+    old, new = tmp_path / "A.tar.zst", tmp_path / "B.tar.zst"
+    pack_run(s.root, "r1", old)
+    with s.log.open_writer("r1", "w1") as w:
+        w.append(doc_id="d1", node="late", kind="handoff")
+    seal_run(s.log, "r1")
+    pack_run(s.root, "r1", new)
+    prune_run(s.root, "r1", keep_columns=keep_columns)
+    before = store_tree(s.root)
+    with pytest.raises(UnpackConflict, match="different pack"):
+        unpack_run(old, s.root)
+    assert store_tree(s.root) == before
+    assert not list(s.root.glob(".unpack-*"))
+    res = run_cli("unpack", str(old), root=s.root)
+    assert res.exit_code == 1 and "UnpackConflict" in res.stderr
+    assert store_tree(s.root) == before
+
+    assert unpack_run(new, s.root) == "r1"  # the recorded pack still restores the run
+    assert not (s.root / "runs" / "r1" / "prune.json").exists()
+    assert verify_run(*s.parts, "r1").ok and len(list(s.log.iter_events("r1"))) == 4
+    with pytest.raises(UnpackConflict):  # still the recorded pack's run: A stays refused
+        unpack_run(old, s.root)
+    assert unpack_run(old, tmp_path / "elsewhere") == "r1"  # a store with no record takes A
+
+
+def test_unpack_refuses_when_the_pack_record_is_unreadable(
+    two_run_sealed_store: SimpleNamespace, tmp_path: Path
+) -> None:
+    s = two_run_sealed_store
+    archive = tmp_path / "r1.tar.zst"
+    pack_run(s.root, "r1", archive)
+    prune_run(s.root, "r1")
+    (s.root / "runs" / "r1" / "pack.json").write_bytes(b"{not json")
+    before = store_tree(s.root)
+    with pytest.raises(UnpackConflict, match="unreadable"):
+        unpack_run(archive, s.root)
+    assert store_tree(s.root) == before
