@@ -39,7 +39,6 @@ not verify (or have no text row) are listed in ``source.text_unverified_document
 
 from __future__ import annotations
 
-import json
 import re
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
@@ -47,7 +46,13 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from mailroom_labels.importers.common import ImportRefused, builder_name, file_sha256, loads_source, refuse_dropped
+from mailroom_labels.importers.common import (
+    ImportRefused,
+    builder_name,
+    file_sha256,
+    loads_source,
+    refuse_dropped,
+)
 from mailroom_labels.layers import CURRENT_LAYER_SCHEMA
 from mailroom_labels.models import SnapshotManifest
 from mailroom_labels.profile import ClientProfile
@@ -102,17 +107,26 @@ def load_hub_pins(path: Path | str) -> dict[str, dict[str, str]]:
         raise ImportRefused(f"{path}: expected {{revision: {{path: sha256}}}}")
     out: dict[str, dict[str, str]] = {}
     for revision, files in raw.items():
-        if not (isinstance(revision, str) and _HEX40.match(revision) and isinstance(files, dict) and files
-                and all(isinstance(k, str) and isinstance(v, str) and _HEX64.match(v) for k, v in files.items())):
-            raise ImportRefused(f"{path}: {revision!r} must be a 40-hex revision mapping paths to 64-hex sha256")
+        if not (
+            isinstance(revision, str)
+            and _HEX40.match(revision)
+            and isinstance(files, dict)
+            and files
+            and all(isinstance(k, str) and isinstance(v, str) and _HEX64.match(v) for k, v in files.items())
+        ):
+            raise ImportRefused(
+                f"{path}: {revision!r} must be a 40-hex revision mapping paths to 64-hex sha256"
+            )
         out[revision] = dict(files)
     return out
 
 
 def _pinned(pinned: Mapping[str, str], rel: str, actual: str, revision: str) -> None:
     if pinned.get(rel) != actual:
-        raise ImportRefused(f"{rel}: sha256 {actual} is not the one pinned for revision {revision} "
-                            f"({pinned.get(rel, 'not pinned')})")
+        raise ImportRefused(
+            f"{rel}: sha256 {actual} is not the one pinned for revision {revision} "
+            f"({pinned.get(rel, 'not pinned')})"
+        )
 
 
 def _verified_shard(root: Path, rel: str, listed: dict[str, str]) -> dict[str, str]:
@@ -184,14 +198,18 @@ def _fields(row: dict[str, Any], profile: ClientProfile, tally: _Tally) -> dict[
     if gt in (None, ""):
         gt = {}
     if not isinstance(gt, dict):
-        tally.bad_gt_fields.append({"document_id": row.get("document_id"), "reason": "gt_fields is not a JSON object"})
+        tally.bad_gt_fields.append(
+            {"document_id": row.get("document_id"), "reason": "gt_fields is not a JSON object"}
+        )
         return None
     raw_presence = gt.get(PRESENCE_KEY)
     # Only an absent, null or empty-string gt_presence means "no presence codes"; any other
     # value that is not an object ("[]", "false", "0", ...) is reported, never read as empty.
     presence = {} if raw_presence in (None, "") else _json_or_raw(raw_presence)
     if not isinstance(presence, dict):
-        tally.bad_gt_fields.append({"document_id": row.get("document_id"), "reason": "gt_presence is not a JSON object"})
+        tally.bad_gt_fields.append(
+            {"document_id": row.get("document_id"), "reason": "gt_presence is not a JSON object"}
+        )
         return None
     out: dict[str, dict[str, Any]] = {}
     for key in sorted((set(gt) | set(presence)) - {PRESENCE_KEY}):
@@ -230,7 +248,9 @@ def _fields(row: dict[str, Any], profile: ClientProfile, tally: _Tally) -> dict[
     return out
 
 
-def _text_check(default_dir: Path, listed: dict[str, str], hub_rows: Sequence[dict[str, Any]]) -> tuple[list, list, dict]:
+def _text_check(
+    default_dir: Path, listed: dict[str, str], hub_rows: Sequence[dict[str, Any]]
+) -> tuple[list, list, dict]:
     files = [_verified_shard(default_dir, shard_path("default", s), listed) for s in SPLITS]
     texts: dict[str, str | None] = {}
     duplicates = 0
@@ -306,20 +326,22 @@ def build_hub(
 
     tally = _Tally()
     rows: list[dict[str, Any]] = []
-    for f, split in zip(gt_files, SPLITS):
+    for f, split in zip(gt_files, SPLITS, strict=True):
         for raw in _read_parquet(dataset_dir / f["path"]):
             fields = _fields(raw, profile, tally)
             if fields is None:
                 continue
-            rows.append({
-                "document_id": raw.get("document_id"),
-                "doc_class": raw.get("expected"),
-                "subclass": _name_or_none(raw.get("expected_subclass")),
-                "split": _name_or_none(raw.get("split")) or split,
-                "content_sha256": _name_or_none(raw.get("content_sha256")),
-                "filename": _name_or_none(raw.get("filename")),
-                "fields": fields,
-            })
+            rows.append(
+                {
+                    "document_id": raw.get("document_id"),
+                    "doc_class": raw.get("expected"),
+                    "subclass": _name_or_none(raw.get("expected_subclass")),
+                    "split": _name_or_none(raw.get("split")) or split,
+                    "content_sha256": _name_or_none(raw.get("content_sha256")),
+                    "filename": _name_or_none(raw.get("filename")),
+                    "fields": fields,
+                }
+            )
 
     refuse_dropped({"unparseable_gt_fields": tally.bad_gt_fields}, allow=allow_rejected)
 
@@ -339,7 +361,10 @@ def build_hub(
         "dataset_manifest": {"path": "manifest.txt", "sha256": file_sha256(manifest_txt)},
         "files": gt_files + text_files,
         "profile": {"client": profile.client, "sha256": profile_sha256},
-        "builder": {"name": "mailroom_labels.importers.hub", "version": builder_name("import-hub").split()[-1]},
+        "builder": {
+            "name": "mailroom_labels.importers.hub",
+            "version": builder_name("import-hub").split()[-1],
+        },
         "rows": len(rows),
         "text_check": text_summary,
         "text_unverified_documents": unverified,

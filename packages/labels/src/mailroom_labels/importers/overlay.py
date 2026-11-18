@@ -43,8 +43,18 @@ __all__ = ["OVERLAY_SCHEMA", "build_overlay"]
 OVERLAY_SCHEMA = "mailroom-interim-labels/v1"
 _MANIFEST = "MANIFEST.json"
 #: Keys of the source MANIFEST.json copied into the snapshot manifest's ``source``.
-_KEPT_KEYS = ("schema", "status", "built_at", "rederived_at", "builder", "gate_run",
-              "catalog_manifest_sha256", "rules", "sources", "superseded_by")
+_KEPT_KEYS = (
+    "schema",
+    "status",
+    "built_at",
+    "rederived_at",
+    "builder",
+    "gate_run",
+    "catalog_manifest_sha256",
+    "rules",
+    "sources",
+    "superseded_by",
+)
 
 
 def _status_key(label: Any) -> str:
@@ -92,8 +102,10 @@ def build_overlay(
     # Any .jsonl the manifest does not list, whatever its case or depth, could be label data
     # the sandbox meant to ship: refuse rather than import a part of the overlay.
     unlisted = sorted(
-        rel for p in source_dir.rglob("*")
-        if p.is_file() and p.suffix.lower() == ".jsonl"
+        rel
+        for p in source_dir.rglob("*")
+        if p.is_file()
+        and p.suffix.lower() == ".jsonl"
         and (rel := p.relative_to(source_dir).as_posix()) not in listed
     )
     if unlisted:
@@ -116,7 +128,7 @@ def build_overlay(
         file_facts.append({"path": f"{source_path}/{name}", "sha256": actual, "rows": len(rows)})
         for r in rows:
             labels = r.data.get("labels")
-            for label in (labels.values() if isinstance(labels, dict) else ()):
+            for label in labels.values() if isinstance(labels, dict) else ():
                 counts[name[: -len(".jsonl")]][_status_key(label)] += 1
 
     refuse_dropped({"rejected_lines": rejected}, allow=allow_rejected)
@@ -126,7 +138,10 @@ def build_overlay(
         "path": source_path,
         "source_manifest": {"path": f"{source_path}/{_MANIFEST}", "sha256": file_sha256(man_path)},
         "files": file_facts,
-        "builder": {"name": f"mailroom_labels.importers.{kind}", "version": builder_name(command).split()[-1]},
+        "builder": {
+            "name": f"mailroom_labels.importers.{kind}",
+            "version": builder_name(command).split()[-1],
+        },
         "native": {k: man[k] for k in _KEPT_KEYS if k in man},
         "label_counts": {k: dict(sorted(v.items())) for k, v in sorted(counts.items())},
         "rejected_lines": rejected,

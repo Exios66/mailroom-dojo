@@ -89,8 +89,10 @@ module = ["pyarrow", "pyarrow.*", "zstandard", "duckdb", "mailroom_record", "mai
 ignore_missing_imports = true
 
 [tool.codespell]
-skip = "./.venv,./.git,*.egg-info,./build,./dist,*.parquet,*.zst,*.lock"
+skip = "./.venv,./.git,*.egg-info,./build,./dist,*.parquet,*.zst,*.lock,./labels/*/*.jsonl"
 check-filenames = true
 # `caf` is the start of the byte escape in b"caf\xe9" (a non-UTF-8 test input).
+# `unparseable`: the word the labels package's own messages use.
+# labels/*/*.jsonl is skipped: committed, immutable snapshots of real document text.
 # Add a word here only with the reason in the commit message.
-ignore-words-list = "caf"
+ignore-words-list = "caf,unparseable"

@@ -6,8 +6,9 @@ import shutil
 from pathlib import Path
 
 import pytest
-from labels_testkit import make_snapshot, near_gold_row, profile, standard_set
+from pydantic import ValidationError
 
+from labels_testkit import make_snapshot, near_gold_row, profile, standard_set
 from mailroom_labels import LabelSet, QualityGateFailed, load_label_set
 from mailroom_labels.models import DocumentLabels
 from mailroom_labels.snapshot import load_snapshot
@@ -34,7 +35,11 @@ def test_label_set_resolves_documents_and_names_its_members(tmp_path: Path) -> N
 def test_label_set_is_deterministic_and_order_free(tmp_path: Path) -> None:
     dirs = standard_set(tmp_path)
     a, b = load_label_set(dirs, profile()), load_label_set(list(reversed(dirs)), profile())
-    assert (a.snapshot_id, a.manifest_hash, list(a.documents())) == (b.snapshot_id, b.manifest_hash, list(b.documents()))
+    assert (a.snapshot_id, a.manifest_hash, list(a.documents())) == (
+        b.snapshot_id,
+        b.manifest_hash,
+        list(b.documents()),
+    )
 
 
 def test_manifest_hash_changes_with_any_member(tmp_path: Path) -> None:
@@ -47,7 +52,9 @@ def test_manifest_hash_changes_with_any_member(tmp_path: Path) -> None:
 
 def test_label_set_refuses_a_set_with_an_error(tmp_path: Path) -> None:
     dirs = standard_set(tmp_path)
-    bad = make_snapshot(tmp_path, "near_gold", [near_gold_row("D4", {"urgency": "panic"})], snapshot_id="ng-x")
+    bad = make_snapshot(
+        tmp_path, "near_gold", [near_gold_row("D4", {"urgency": "panic"})], snapshot_id="ng-x"
+    )
     with pytest.raises(QualityGateFailed) as info:
         load_label_set([*dirs, bad], profile())
     assert [f.kind for f in info.value.report.errors] == ["vocabulary_violation"]
@@ -74,12 +81,22 @@ def test_strict_label_set_refuses_a_warning_its_snapshot_does_not_accept(tmp_pat
         load_label_set(dirs, profile(), strict=True)
     assert [f.kind for f in info.value.report.unknown_warnings] == ["orphan_decision"]
     accepted = ({"kind": "orphan_decision", "doc": "D3", "field": "filing_id", "reason": "added by review"},)
-    ok = make_snapshot(tmp_path / "ok", "review", [review_row("D3", "filing_id", "F1")], snapshot_id="rv-extra",
-                       known_warnings=accepted)
-    assert load_label_set([*standard_set(tmp_path / "ok"), ok], profile(), strict=True).report.unknown_warnings == ()
+    ok = make_snapshot(
+        tmp_path / "ok",
+        "review",
+        [review_row("D3", "filing_id", "F1")],
+        snapshot_id="rv-extra",
+        known_warnings=accepted,
+    )
+    assert (
+        load_label_set([*standard_set(tmp_path / "ok"), ok], profile(), strict=True).report.unknown_warnings
+        == ()
+    )
 
 
-def test_a_file_changed_after_the_gate_raises_the_documented_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_file_changed_after_the_gate_raises_the_documented_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import mailroom_labels.labelset as labelset_module
     from mailroom_labels.errors import ManifestMismatch
     from mailroom_labels.quality import check_dirs as real_check_dirs
@@ -107,7 +124,7 @@ def test_resolved_labels_cannot_be_changed_after_the_gate(tmp_path: Path) -> Non
         del doc.fields["sender"]  # type: ignore[attr-defined]
     with pytest.raises(TypeError):
         doc.untrusted["x"] = ()  # type: ignore[index]
-    with pytest.raises(Exception):  # frozen model
+    with pytest.raises(ValidationError):  # frozen model
         doc.fields["sender"].value = "Mallory"  # type: ignore[misc]
     assert isinstance(doc.model_dump()["fields"], dict) and doc == doc.model_copy()
     assert DocumentLabels.model_validate_json(doc.model_dump_json()) == doc

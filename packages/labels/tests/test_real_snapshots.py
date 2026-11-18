@@ -19,9 +19,9 @@ import pytest
 from typer.testing import CliRunner
 
 from mailroom_labels import load_label_set, load_profile
+from mailroom_labels.cli import app
 from mailroom_labels.errors import ManifestMismatch
 from mailroom_labels.layers import read_layers
-from mailroom_labels.cli import app
 from mailroom_labels.quality import check_dirs, verify
 from mailroom_labels.snapshot import MANIFEST_NAME, load_snapshot, load_snapshot_set
 
@@ -87,7 +87,10 @@ def test_zero_errors_and_every_warning_known_with_a_reason() -> None:
     assert len(reasons) == 13 and all(isinstance(r, str) and len(r) > 40 for r in reasons)
     # each warning is accepted by the snapshot that raised it, and the strict gate passes
     owners = Counter((f.kind, f.location.split("/")[0]) for f in report.warnings)
-    assert owners == {("orphan_decision", "gold-review-2026-11-18"): 7, ("subclass_mismatch", "interim-2026-11-01"): 6}
+    assert owners == {
+        ("orphan_decision", "gold-review-2026-11-18"): 7,
+        ("subclass_mismatch", "interim-2026-11-01"): 6,
+    }
     assert verify(report, strict=True) == 0
     result = CliRunner().invoke(app, ["verify", "--strict", "--profile", str(PROFILE), *map(str, DIRS)])
     assert result.exit_code == 0, result.output
@@ -128,7 +131,12 @@ def test_documents_and_labels_per_layer_and_class() -> None:
             docs[key] += 1
     assert {k: (docs[k], labels[k]) for k in labels} == LAYER_COUNTS
     assert Counter(e.doc_class for e in read.corpus) == {
-        "contract": 600, "corporate_record": 450, "correspondence": 1000, "insurance_claim": 1100, "merger_agreement": 152}
+        "contract": 600,
+        "corporate_record": 450,
+        "correspondence": 1000,
+        "insurance_claim": 1100,
+        "merger_agreement": 152,
+    }
 
 
 SCORABLE = {  # class: (documents, verified, scorable documents, {status: scorable labels})
@@ -148,18 +156,30 @@ def test_resolved_scorable_counts_per_class_and_status() -> None:
         row[1] += d.verified
         row[2] += bool(d.scorable_fields)
         row[3].update(d.fields[f].status for f in d.scorable_fields)
-    assert {c: (a, b, s, {k: st[k] for k in ("gold", "hub", "interim", "near_gold")})
-            for c, (a, b, s, st) in got.items()} == SCORABLE
+    assert {
+        c: (a, b, s, {k: st[k] for k in ("gold", "hub", "interim", "near_gold")})
+        for c, (a, b, s, st) in got.items()
+    } == SCORABLE
 
 
 # --- behaviour on real positive controls --------------------------------------------------
 
 
 def test_every_human_desk_decision_resolves_to_gold() -> None:
-    gold = [(d.document_id, f) for d in label_set().documents() for f, lab in d.fields.items() if lab.status == "gold"]
+    gold = [
+        (d.document_id, f)
+        for d in label_set().documents()
+        for f, lab in d.fields.items()
+        if lab.status == "gold"
+    ]
     assert len(gold) == 8
     assert doc("DOC-b0801e4d4bb58191").fields["signatories"].value == [
-        "Melanie Figueroa", "Anthony C. Pintsopoulos", "Jawahar Tandon", "Vivek Tandon", "David H. Clarke"]
+        "Melanie Figueroa",
+        "Anthony C. Pintsopoulos",
+        "Jawahar Tandon",
+        "Vivek Tandon",
+        "David H. Clarke",
+    ]
     absent = doc("DOC-bda69bc956881bab").fields["jurisdiction"]
     assert (absent.status, absent.value, absent.presence) == ("gold", None, "schema_documented_absence")
 
@@ -169,7 +189,9 @@ def test_audit_decision_that_differs_from_the_catalog_wins_over_near_gold() -> N
     assert (lab.rank, lab.status, lab.source) == ("review:near_gold", "near_gold", "review:claude-opus-audit")
     assert lab.value == ["please continue to spread the word", "Check it out!"]
     assert [(f.rank, f.value) for f in lab.layers_seen] == [
-        ("review:near_gold", ["please continue to spread the word", "Check it out!"]), ("near_gold", [])]
+        ("review:near_gold", ["please continue to spread the word", "Check it out!"]),
+        ("near_gold", []),
+    ]
 
 
 def test_populated_hub_is_never_replaced_by_a_fill_or_near_gold() -> None:
@@ -177,7 +199,12 @@ def test_populated_hub_is_never_replaced_by_a_fill_or_near_gold() -> None:
     for d in label_set().documents():
         for lab in d.fields.values():
             fresh = {f.rank for f in lab.layers_seen if not f.stale}
-            if "hub" in fresh and fresh & {"interim:gap_fill", "interim:derived", "near_gold", "review:near_gold"}:
+            if "hub" in fresh and fresh & {
+                "interim:gap_fill",
+                "interim:derived",
+                "near_gold",
+                "review:near_gold",
+            }:
                 checked += 1
             if "hub" in fresh:
                 assert lab.rank in ("hub", "review:gold", "interim:correction")
@@ -193,17 +220,31 @@ def test_interim_fills_replace_a_hub_absence_like_the_sandbox() -> None:
         for name, lab in d.fields.items():
             if "hub:absent" in {f.rank for f in lab.layers_seen} and lab.rank.startswith("interim:"):
                 fills[(name, lab.rank)] += 1
-    assert fills == {("filing_number", "interim:gap_fill"): 136, ("jurisdiction", "interim:gap_fill"): 14,
-                     ("signatories", "interim:gap_fill"): 21}
+    assert fills == {
+        ("filing_number", "interim:gap_fill"): 136,
+        ("jurisdiction", "interim:gap_fill"): 14,
+        ("signatories", "interim:gap_fill"): 21,
+    }
     lab = doc("DOC-02e5b3d7ea700ab0").fields["filing_number"]
-    assert [f.rank for f in lab.layers_seen] == ["interim:gap_fill", "hub:absent"] and lab.rank == "interim:gap_fill"
+    assert [f.rank for f in lab.layers_seen] == [
+        "interim:gap_fill",
+        "hub:absent",
+    ] and lab.rank == "interim:gap_fill"
 
 
 def test_disputed_interim_labels_are_never_truth() -> None:
-    disputed = [(d.document_id, n) for d in label_set().documents() for n, facts in d.untrusted.items()
-                if any(f.rank == "interim:disputed" for f in facts)]
-    in_fields = [(d.document_id, n) for d in label_set().documents() for n, lab in d.fields.items()
-                 if lab.rank == "interim:disputed"]
+    disputed = [
+        (d.document_id, n)
+        for d in label_set().documents()
+        for n, facts in d.untrusted.items()
+        if any(f.rank == "interim:disputed" for f in facts)
+    ]
+    in_fields = [
+        (d.document_id, n)
+        for d in label_set().documents()
+        for n, lab in d.fields.items()
+        if lab.rank == "interim:disputed"
+    ]
     assert in_fields == []
     assert ("DOC-0a29136832720e65", "merger_consideration") in disputed
 
@@ -224,9 +265,17 @@ def test_no_audit_decision_meets_a_hub_value_or_a_correction_on_the_real_data() 
 
 def test_subclass_stale_documents_are_unverified_and_not_scored() -> None:
     stale = sorted(d.document_id for d in label_set().documents() if not d.verified)
-    assert stale == ["DOC-033adce2fbdff0ec", "DOC-4a8f1db0546e42be", "DOC-5c087a08edcb4a91",
-                     "DOC-691191d21d96b75d", "DOC-e00ef4799dbd6b37", "DOC-ea4b0e70dc4677d1"]
-    assert all(doc(x).scorable_fields == frozenset() and doc(x).unverified_reasons == ("stale_label",) for x in stale)
+    assert stale == [
+        "DOC-033adce2fbdff0ec",
+        "DOC-4a8f1db0546e42be",
+        "DOC-5c087a08edcb4a91",
+        "DOC-691191d21d96b75d",
+        "DOC-e00ef4799dbd6b37",
+        "DOC-ea4b0e70dc4677d1",
+    ]
+    assert all(
+        doc(x).scorable_fields == frozenset() and doc(x).unverified_reasons == ("stale_label",) for x in stale
+    )
 
 
 def test_every_label_document_is_in_the_hub_index() -> None:
@@ -240,10 +289,19 @@ def test_profile_covers_every_field_of_every_snapshot() -> None:
     profile = load_profile(PROFILE)
     read = records()
     classes = {e.document_id: e.doc_class for e in read.corpus}
-    missing = {(classes[r.document_id], r.field) for r in read.records
-               if profile.field_spec(classes[r.document_id], r.field) is None}
+    missing = {
+        (classes[r.document_id], r.field)
+        for r in read.records
+        if profile.field_spec(classes[r.document_id], r.field) is None
+    }
     assert missing == set()
-    assert set(profile.classes) == {"contract", "corporate_record", "correspondence", "insurance_claim", "merger_agreement"}
+    assert set(profile.classes) == {
+        "contract",
+        "corporate_record",
+        "correspondence",
+        "insurance_claim",
+        "merger_agreement",
+    }
     assert all(spec.subclasses for spec in profile.classes.values())
 
 
@@ -257,15 +315,21 @@ def test_label_set_identity_is_stable() -> None:
 
 
 def test_committed_reports_match_a_fresh_build(tmp_path: Path) -> None:
-    spec = importlib.util.spec_from_file_location("labels_report_under_test", ROOT / "packages/labels/scripts/labels_report.py")
+    spec = importlib.util.spec_from_file_location(
+        "labels_report_under_test", ROOT / "packages/labels/scripts/labels_report.py"
+    )
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     crosscheck = json.loads((REPORTS / "sandbox-crosscheck-2026-11-18.json").read_text(encoding="utf-8"))
-    quality_md, cov, cov_md = module.build(DIRS, PROFILE, crosscheck, [("DOC-672cec2c85c83c39", "action_items")], "2026-11-18")
+    quality_md, cov, cov_md = module.build(
+        DIRS, PROFILE, crosscheck, [("DOC-672cec2c85c83c39", "action_items")], "2026-11-18"
+    )
     assert quality_md == (REPORTS / "data-quality-2026-11-18.md").read_text(encoding="utf-8")
     assert cov_md == (REPORTS / "coverage-2026-11-18.md").read_text(encoding="utf-8")
-    assert json.dumps(cov, indent=2, sort_keys=True) + "\n" == (REPORTS / "coverage-2026-11-18.json").read_text(encoding="utf-8")
+    assert json.dumps(cov, indent=2, sort_keys=True) + "\n" == (
+        REPORTS / "coverage-2026-11-18.json"
+    ).read_text(encoding="utf-8")
 
 
 # --- the layout map names what this package added ---------------------------------------------
@@ -280,4 +344,7 @@ def test_layout_map_names_the_label_folders() -> None:
     assert entries == sorted([*SNAPSHOTS, "README.md"])
     assert all((ROOT / "labels" / name / MANIFEST_NAME).is_file() for name in SNAPSHOTS)
     assert sorted(p.name for p in (ROOT / "config/clients/mailroom-dataset").iterdir()) == [
-        "hub-revisions.yaml", "known-warnings.yaml", "profile.yaml"]
+        "hub-revisions.yaml",
+        "known-warnings.yaml",
+        "profile.yaml",
+    ]

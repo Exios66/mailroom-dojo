@@ -32,7 +32,8 @@ outer shape; every label has ``basis`` ``near_gold:<how>`` and a ``presence``. I
 "verdict", "reviewer": {"model", "role"}, "note"?, "entry": {"value", "evidence"?,
 "absent"?, "basis"?}, "origin"?, "reviewed_at"?}``. ``origin`` (a list of
 ``<source file>:<line>`` strings) and ``reviewed_at`` (a timestamp string or null) are
-provenance only and never change how a decision resolves. ``verdict`` is ``correct`` or ``accept``. A decision whose
+provenance only and never change how a decision resolves. ``verdict`` is ``correct`` or
+``accept``. A decision whose
 ``reviewer.model`` is ``human`` is ``gold`` (rank ``review:gold``); any other reviewer's is
 ``near_gold`` (rank ``review:near_gold``) with source ``review:<model>-<role>``. An
 ``absent`` reason makes the presence ``schema_documented_absence``.
@@ -238,7 +239,10 @@ def _read_interim(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
         if status not in INTERIM_STATUSES:
             out.findings.append(
                 finding(
-                    "status_not_allowed", doc=doc, field=fname, layer="interim",
+                    "status_not_allowed",
+                    doc=doc,
+                    field=fname,
+                    layer="interim",
                     detail=f"interim status {status!r} (allowed: {', '.join(INTERIM_STATUSES)})",
                     location=ctx.location,
                 )
@@ -248,7 +252,10 @@ def _read_interim(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
         if lab.get("use_as_truth") is not (status in INTERIM_TRUTH):
             out.findings.append(
                 finding(
-                    "inconsistent_truth_flag", doc=doc, field=fname, layer="interim",
+                    "inconsistent_truth_flag",
+                    doc=doc,
+                    field=fname,
+                    layer="interim",
                     detail=f"status {status!r} with use_as_truth={lab.get('use_as_truth')!r}",
                     location=ctx.location,
                 )
@@ -287,8 +294,12 @@ def _read_near_gold(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
         if not (isinstance(basis, str) and basis.startswith("near_gold:") and len(basis) > 10):
             out.findings.append(
                 finding(
-                    "status_not_allowed", doc=doc, field=fname, layer="near_gold",
-                    detail=f"basis {basis!r} is not near_gold:<how>", location=ctx.location,
+                    "status_not_allowed",
+                    doc=doc,
+                    field=fname,
+                    layer="near_gold",
+                    detail=f"basis {basis!r} is not near_gold:<how>",
+                    location=ctx.location,
                 )
             )
             continue
@@ -299,8 +310,12 @@ def _read_near_gold(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
         if lab.get("use_as_truth"):
             out.findings.append(
                 finding(
-                    "inconsistent_truth_flag", doc=doc, field=fname, layer="near_gold",
-                    detail="a near_gold label claims use_as_truth", location=ctx.location,
+                    "inconsistent_truth_flag",
+                    doc=doc,
+                    field=fname,
+                    layer="near_gold",
+                    detail="a near_gold label claims use_as_truth",
+                    location=ctx.location,
                 )
             )
         out.records.append(
@@ -337,12 +352,19 @@ def _read_review(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
     if not _is_name(fname):
         problems.append("field must be a name")
     reviewer = d.get("reviewer")
-    if not (isinstance(reviewer, dict) and set(reviewer) == {"model", "role"}
-            and _is_name(reviewer["model"]) and _is_name(reviewer["role"])):
+    if not (
+        isinstance(reviewer, dict)
+        and set(reviewer) == {"model", "role"}
+        and _is_name(reviewer["model"])
+        and _is_name(reviewer["role"])
+    ):
         problems.append("reviewer must be {model, role} with both named")
     entry = d.get("entry")
-    if not (isinstance(entry, dict) and "value" in entry
-            and set(entry) <= {"value", "evidence", "absent", "basis"}):
+    if not (
+        isinstance(entry, dict)
+        and "value" in entry
+        and set(entry) <= {"value", "evidence", "absent", "basis"}
+    ):
         problems.append("entry must be {value, evidence?, absent?, basis?}")
     if "note" in d and not isinstance(d["note"], (str, type(None))):
         problems.append("note must be a string or null")
@@ -352,7 +374,10 @@ def _read_review(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
     if d.get("verdict") not in REVIEW_VERDICTS:
         out.findings.append(
             finding(
-                "status_not_allowed", doc=doc, field=fname, layer="review",
+                "status_not_allowed",
+                doc=doc,
+                field=fname,
+                layer="review",
                 detail=f"verdict {d.get('verdict')!r} (allowed: {', '.join(REVIEW_VERDICTS)})",
                 location=ctx.location,
             )
@@ -408,7 +433,9 @@ def read_layer(snapshot: LabelSnapshot) -> LayerRead:
     def on_corrupt(exc: CorruptLine) -> None:
         out.findings.append(
             finding(
-                "corrupt_line", layer=kind, detail=exc.detail,
+                "corrupt_line",
+                layer=kind,
+                detail=exc.detail,
                 location=f"{snapshot.snapshot_id}/{exc.path.relative_to(snapshot.directory).as_posix()}:{exc.line}",
             )
         )
@@ -416,7 +443,9 @@ def read_layer(snapshot: LabelSnapshot) -> LayerRead:
     unverified = frozenset()
     if kind == "hub":
         listed = snapshot.manifest.source.get("text_unverified_documents", [])
-        unverified = frozenset(x for x in listed if isinstance(x, str)) if isinstance(listed, list) else frozenset()
+        unverified = (
+            frozenset(x for x in listed if isinstance(x, str)) if isinstance(listed, list) else frozenset()
+        )
     for row in snapshot.rows(on_corrupt=on_corrupt):
         if steps:
             data = row.data

@@ -6,17 +6,17 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from labels_testkit import (
     hub_row,
-    profile,
     interim_row,
     make_snapshot,
     near_gold_row,
+    profile,
     rehash_manifest,
     review_row,
     text_hash,
 )
-
 from mailroom_labels import layers
 from mailroom_labels.errors import UnknownSnapshotSchema
 from mailroom_labels.layers import corpus_index, hash_matches, read_layer, read_layers
@@ -29,17 +29,30 @@ def read(tmp_path: Path, kind: str, rows: list[dict], **kw):
 
 
 def test_hub_rows_become_corpus_entries_and_labels(tmp_path: Path) -> None:
-    out = read(tmp_path, "hub", [
-        hub_row("D1", fields={
-            "sender": "Ann",
-            "recipient": None,
-            "amount": (None, "not_applicable"),
-            "urgency": ("", "unlabeled"),
-        }),
-    ], source={"text_unverified_documents": ["D1"]})
+    out = read(
+        tmp_path,
+        "hub",
+        [
+            hub_row(
+                "D1",
+                fields={
+                    "sender": "Ann",
+                    "recipient": None,
+                    "amount": (None, "not_applicable"),
+                    "urgency": ("", "unlabeled"),
+                },
+            ),
+        ],
+        source={"text_unverified_documents": ["D1"]},
+    )
     assert out.findings == []
     (entry,) = out.corpus
-    assert (entry.document_id, entry.doc_class, entry.subclass, entry.text_verified) == ("D1", "letter", "email", False)
+    assert (entry.document_id, entry.doc_class, entry.subclass, entry.text_verified) == (
+        "D1",
+        "letter",
+        "email",
+        False,
+    )
     got = {(r.field, r.presence, r.rank, r.value) for r in out.records}
     assert got == {
         ("sender", "populated", "hub", "Ann"),
@@ -50,13 +63,22 @@ def test_hub_rows_become_corpus_entries_and_labels(tmp_path: Path) -> None:
 
 
 def test_interim_statuses_map_to_ranks_and_disputed_is_kept(tmp_path: Path) -> None:
-    out = read(tmp_path, "interim", [interim_row("D1", {
-        "sender": ("gap_fill", "Ann"),
-        "recipient": ("correction", "Bob"),
-        "urgency": ("derived", "routine"),
-        "sent_on": ("disputed", "2020-01-01"),
-        "amount": ("gap_fill", None),
-    })])
+    out = read(
+        tmp_path,
+        "interim",
+        [
+            interim_row(
+                "D1",
+                {
+                    "sender": ("gap_fill", "Ann"),
+                    "recipient": ("correction", "Bob"),
+                    "urgency": ("derived", "routine"),
+                    "sent_on": ("disputed", "2020-01-01"),
+                    "amount": ("gap_fill", None),
+                },
+            )
+        ],
+    )
     assert out.findings == []
     by_field = {r.field: r for r in out.records}
     assert {f: r.rank for f, r in by_field.items()} == {
@@ -72,8 +94,11 @@ def test_interim_statuses_map_to_ranks_and_disputed_is_kept(tmp_path: Path) -> N
 
 
 def test_near_gold_labels_are_near_gold_whatever_the_native_status(tmp_path: Path) -> None:
-    out = read(tmp_path, "near_gold", [near_gold_row("D1", {"sender": "Ann", "sent_on": None},
-                                                     basis="near_gold:opus_reviewed_correct")])
+    out = read(
+        tmp_path,
+        "near_gold",
+        [near_gold_row("D1", {"sender": "Ann", "sent_on": None}, basis="near_gold:opus_reviewed_correct")],
+    )
     assert out.findings == []
     assert {(r.field, r.rank, r.native_status, r.presence, r.source) for r in out.records} == {
         ("sender", "near_gold", "gap_fill", "populated", "near_gold:opus_reviewed_correct"),
@@ -82,18 +107,25 @@ def test_near_gold_labels_are_near_gold_whatever_the_native_status(tmp_path: Pat
 
 
 def test_review_human_is_gold_and_claude_is_near_gold(tmp_path: Path) -> None:
-    out = read(tmp_path, "review", [
-        review_row("D1", "sender", "Ann", human=True),
-        review_row("D1", "action_items", [], absent="nothing asked"),
-        review_row("D2", "sent_on", None, verdict="accept"),
-    ])
+    out = read(
+        tmp_path,
+        "review",
+        [
+            review_row("D1", "sender", "Ann", human=True),
+            review_row("D1", "action_items", [], absent="nothing asked"),
+            review_row("D2", "sent_on", None, verdict="accept"),
+        ],
+    )
     assert out.findings == []
     got = {(r.document_id, r.field): r for r in out.records}
     human = got[("D1", "sender")]
     assert (human.rank, human.reviewer, human.source) == ("review:gold", "human:desk", "review:human-desk")
     audit = got[("D1", "action_items")]
     assert (audit.rank, audit.presence, audit.source) == (
-        "review:near_gold", "schema_documented_absence", "review:synthetic-auditor-audit")
+        "review:near_gold",
+        "schema_documented_absence",
+        "review:synthetic-auditor-audit",
+    )
     assert got[("D2", "sent_on")].presence == "schema_documented_absence"
     assert all(r.content_sha256 is None and r.doc_class is None for r in out.records)
 
@@ -112,8 +144,12 @@ def _bad_rows():
 def test_malformed_hub_rows_are_findings_and_neighbours_still_read(tmp_path: Path) -> None:
     out = read(tmp_path, "hub", _bad_rows())
     kinds = sorted((f.kind, f.doc) for f in out.findings)
-    assert kinds == [("malformed_record", "X1"), ("malformed_record", "X2"),
-                     ("malformed_record", "X3"), ("malformed_record", "X4")]
+    assert kinds == [
+        ("malformed_record", "X1"),
+        ("malformed_record", "X2"),
+        ("malformed_record", "X3"),
+        ("malformed_record", "X4"),
+    ]
     assert sorted(e.document_id for e in out.corpus) == ["OK", "X3", "X4"]
 
 
@@ -131,9 +167,11 @@ def test_malformed_hub_rows_are_findings_and_neighbours_still_read(tmp_path: Pat
     ],
 )
 def test_bad_native_rows_are_typed_findings(tmp_path: Path, kind: str, row: dict, expected: str) -> None:
-    good = {"interim": interim_row("D9", {"sender": ("gap_fill", "Zed")}),
-            "near_gold": near_gold_row("D9", {"sender": "Zed"}),
-            "review": review_row("D9", "sender", "Zed")}[kind]
+    good = {
+        "interim": interim_row("D9", {"sender": ("gap_fill", "Zed")}),
+        "near_gold": near_gold_row("D9", {"sender": "Zed"}),
+        "review": review_row("D9", "sender", "Zed"),
+    }[kind]
     out = read(tmp_path, kind, [row, good])
     assert [f.kind for f in out.findings] == [expected]
     assert [r.document_id for r in out.records] == ["D9"]
@@ -156,14 +194,25 @@ def test_a_truth_status_with_a_false_flag_is_not_truth(tmp_path: Path) -> None:
     read_ = read_layers(load_snapshot_set([hub, interim]))
     assert [f.kind for f in read_.findings] == ["inconsistent_truth_flag"]
     (doc,) = resolve(read_.records, profile(), corpus_index(read_.corpus))
-    assert "sender" not in doc.fields and [f.rank for f in doc.untrusted["sender"]] == ["interim:flag_mismatch"]
+    assert "sender" not in doc.fields and [f.rank for f in doc.untrusted["sender"]] == [
+        "interim:flag_mismatch"
+    ]
 
 
 def test_uppercase_or_short_label_hash_is_malformed_and_never_matches(tmp_path: Path) -> None:
     full = text_hash("D1")
-    out = read(tmp_path, "interim", [interim_row("D1", {"sender": ("gap_fill", "A")}, sha=full[:16].upper()),
-                                     interim_row("D2", {"sender": ("gap_fill", "B")}, sha=full[:8])])
-    assert sorted((f.kind, f.doc) for f in out.findings) == [("malformed_record", "D1"), ("malformed_record", "D2")]
+    out = read(
+        tmp_path,
+        "interim",
+        [
+            interim_row("D1", {"sender": ("gap_fill", "A")}, sha=full[:16].upper()),
+            interim_row("D2", {"sender": ("gap_fill", "B")}, sha=full[:8]),
+        ],
+    )
+    assert sorted((f.kind, f.doc) for f in out.findings) == [
+        ("malformed_record", "D1"),
+        ("malformed_record", "D2"),
+    ]
     assert out.records == []
     assert not hash_matches(full[:16].upper(), full.upper())
     assert not hash_matches("", full)
@@ -171,7 +220,9 @@ def test_uppercase_or_short_label_hash_is_malformed_and_never_matches(tmp_path: 
 
 
 def test_corrupt_line_is_a_finding_with_location(tmp_path: Path) -> None:
-    d = make_snapshot(tmp_path, "review", [review_row("D1", "sender", "Ann"), review_row("D2", "sender", "Bo")])
+    d = make_snapshot(
+        tmp_path, "review", [review_row("D1", "sender", "Ann"), review_row("D2", "sender", "Bo")]
+    )
     path = d / "rows.jsonl"
     lines = path.read_bytes().splitlines(keepends=True)
     path.write_bytes(lines[0] + b"{oops\n" + lines[1])
@@ -191,12 +242,15 @@ def test_unknown_layer_schema_is_refused(tmp_path: Path) -> None:
 def test_old_layer_schema_is_upgraded_at_read_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A v0 hub row called its id ``doc_id``; the upgrade renames it. The stored bytes are
     not rewritten (the manifest still verifies)."""
+
     def v0_to_v1(row: dict) -> dict:
         row = dict(row)
         row["document_id"] = row.pop("doc_id")
         return row
 
-    monkeypatch.setitem(layers.UPGRADES, ("hub", "mailroom-labels/hub/v0"), ("mailroom-labels/hub/v1", v0_to_v1))
+    monkeypatch.setitem(
+        layers.UPGRADES, ("hub", "mailroom-labels/hub/v0"), ("mailroom-labels/hub/v1", v0_to_v1)
+    )
     old = hub_row("D1", fields={"sender": "Ann"})
     old["doc_id"] = old.pop("document_id")
     d = make_snapshot(tmp_path, "hub", [old, {"broken": True}])
@@ -226,18 +280,26 @@ def test_corpus_index_keeps_the_first_entry(tmp_path: Path) -> None:
 def test_review_provenance_keys_are_read_and_checked(tmp_path: Path) -> None:
     """``origin`` and ``reviewed_at`` are provenance: accepted when well formed, a
     malformed_record when not, and they never change the decision."""
-    good = {**review_row("D1", "sender", "Ann", human=True),
-            "origin": ["desk.jsonl:3", "owner.jsonl:1"], "reviewed_at": "2026-11-17T18:13:52Z"}
+    good = {
+        **review_row("D1", "sender", "Ann", human=True),
+        "origin": ["desk.jsonl:3", "owner.jsonl:1"],
+        "reviewed_at": "2026-11-17T18:13:52Z",
+    }
     bad_origin = {**review_row("D2", "sender", "Bo"), "origin": "desk.jsonl:4"}
     bad_time = {**review_row("D3", "sender", "Cy"), "reviewed_at": 17}
     read = read_layer(load_snapshot(make_snapshot(tmp_path, "review", [good, bad_origin, bad_time])))
     assert [(r.document_id, r.rank, r.value) for r in read.records] == [("D1", "review:gold", "Ann")]
-    assert sorted((f.kind, f.doc) for f in read.findings) == [("malformed_record", "D2"), ("malformed_record", "D3")]
+    assert sorted((f.kind, f.doc) for f in read.findings) == [
+        ("malformed_record", "D2"),
+        ("malformed_record", "D3"),
+    ]
 
 
 def test_hash_matches_compares_every_digit_of_a_longer_label_hash() -> None:
     full = text_hash("D1")
     for n in (17, 32, 63, 64):
         changed = full[: n - 1] + ("0" if full[n - 1] != "0" else "1")
-        assert not hash_matches(changed, full), f"a {n}-digit hash differing in its last digit names other text"
+        assert not hash_matches(changed, full), (
+            f"a {n}-digit hash differing in its last digit names other text"
+        )
         assert hash_matches(full[:n], full)

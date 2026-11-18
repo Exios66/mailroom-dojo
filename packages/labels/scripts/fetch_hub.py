@@ -64,7 +64,11 @@ def _fetch_one(url: str, target: Path) -> str | None:
     """The sha256 of the downloaded file, or None (reported, nothing left on disk) on error."""
     try:
         return _download(url, target)
-    except (OSError, ValueError, http.client.HTTPException) as exc:  # URLError/HTTPError are OSErrors; IncompleteRead is not
+    except (
+        OSError,
+        ValueError,
+        http.client.HTTPException,
+    ) as exc:  # URLError/HTTPError are OSErrors; IncompleteRead is not
         target.unlink(missing_ok=True)
         print(f"REFUSED {target.name}: download failed: {exc}", file=sys.stderr)
         return None
@@ -73,7 +77,13 @@ def _fetch_one(url: str, target: Path) -> str | None:
 def _safe(path: str) -> bool:
     pure = PurePosixPath(path)
     # ":" also rules out a Windows drive ("C:/x", "C:x"), which PurePosixPath calls relative
-    return path != "" and not pure.is_absolute() and ".." not in pure.parts and "\\" not in path and ":" not in path
+    return (
+        path != ""
+        and not pure.is_absolute()
+        and ".." not in pure.parts
+        and "\\" not in path
+        and ":" not in path
+    )
 
 
 def fetch(out: Path, files: list[str], *, repository: str = REPOSITORY, revision: str = REVISION) -> int:

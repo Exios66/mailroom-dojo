@@ -47,7 +47,10 @@ from mailroom_labels.profile import parse_profile
 from mailroom_labels.snapshot import load_snapshot
 
 CLIENT = "mailroom-dataset"
-DATASET = {"repository": "Lucius-Morningstar/mailroom-dataset", "revision": "ccd040f6a1b6b414bdefd161cdc622b68f6dacf8"}
+DATASET = {
+    "repository": "Lucius-Morningstar/mailroom-dataset",
+    "revision": "ccd040f6a1b6b414bdefd161cdc622b68f6dacf8",
+}
 EDA_REPOSITORY = "Exios66/Mailroom-Corpus-EDA"
 FIELDS_YAML = "src/mailroom_eda/labeling/fields.yaml"
 DOJO_SCHEMAS = "src/mailroom_eda/labeling/dojo_snapshot/dojo_schemas.json"
@@ -101,7 +104,9 @@ def _hub_rows(hub_dir: Path, pinned: dict[str, str]) -> tuple[list[dict[str, Any
 
     manifest_digest = file_sha256(hub_dir / "manifest.txt")
     if pinned.get("manifest.txt") != manifest_digest:
-        raise BuildError(f"manifest.txt: sha256 {manifest_digest} is not the one pinned for {DATASET['revision']}")
+        raise BuildError(
+            f"manifest.txt: sha256 {manifest_digest} is not the one pinned for {DATASET['revision']}"
+        )
     listed = parse_dataset_manifest((hub_dir / "manifest.txt").read_text(encoding="utf-8"))
     rows, files = [], []
     for split in SPLITS:
@@ -144,25 +149,33 @@ def build(eda_dir: Path, eda_commit: str, hub_dir: Path, covers: list[Path], pin
         fields: dict[str, dict[str, Any]] = {}
         for name, f in spec["fields"].items():
             if default_types.get(name) != f["type"]:
-                problems.append(f"{cls}.{name}: registry type {f['type']!r} != Dojo {default_types.get(name)!r}")
+                problems.append(
+                    f"{cls}.{name}: registry type {f['type']!r} != Dojo {default_types.get(name)!r}"
+                )
             entry: dict[str, Any] = {"type": f["type"]}
             vocab = f.get("vocabulary")
             if vocab and f["type"] == "label":
                 entry["vocabulary"] = vocab
             elif vocab:
-                comments.append(f"{cls}.{name}: registry vocabulary {vocab!r} ({f.get('vocabulary_part')}) "
-                                f"applies to a {f['type']} field and is not enforced here")
+                comments.append(
+                    f"{cls}.{name}: registry vocabulary {vocab!r} ({f.get('vocabulary_part')}) "
+                    f"applies to a {f['type']} field and is not enforced here"
+                )
             fields[name] = entry
         if cls == "corporate_record":
             for sub, sub_spec in sorted(dojo["corporate_subclass_schemas"].items()):
                 for ent in sub_spec.get("entities", []):
                     key, ftype = ent["key"], ent["type"]
                     if key in fields and fields[key]["type"] != ftype:
-                        problems.append(f"{cls}.{key}: subclass {sub} types it {ftype!r}, already {fields[key]['type']!r}")
+                        problems.append(
+                            f"{cls}.{key}: subclass {sub} types it {ftype!r}, already {fields[key]['type']!r}"
+                        )
                     fields.setdefault(key, {"type": ftype})
         for key in sorted(hub_labelled.get(cls, set()) - set(fields)):
             if key not in HUB_NATIVE_TYPES:
-                problems.append(f"{cls}.{key}: the Hub labels it but neither the registry nor HUB_NATIVE_TYPES types it")
+                problems.append(
+                    f"{cls}.{key}: the Hub labels it but neither the registry nor HUB_NATIVE_TYPES types it"
+                )
                 continue
             fields[key] = {"type": HUB_NATIVE_TYPES[key]}
         for key, entry in OVERLAY_FIELDS.get(cls, {}).items():
@@ -203,7 +216,7 @@ def build(eda_dir: Path, eda_commit: str, hub_dir: Path, covers: list[Path], pin
         for raw in snap.rows():
             row = raw.data
             cls = row.get("doc_class")
-            for name in sorted((row.get("labels") or {})):
+            for name in sorted(row.get("labels") or {}):
                 if parsed.field_spec(cls, name) is None:
                     problems.append(f"{snap.snapshot_id}: {cls}.{name} is not in the profile")
     if problems:
@@ -226,10 +239,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Generate the mailroom-dataset client profile.")
     parser.add_argument("--eda-dir", type=Path, required=True)
     parser.add_argument("--eda-commit", required=True)
-    parser.add_argument("--hub-dir", type=Path, required=True, help="fetch_hub.py output (manifest.txt + parquet)")
-    parser.add_argument("--covers", type=Path, nargs="*", default=[], help="snapshots whose fields must be covered")
-    parser.add_argument("--pins", type=Path, default=Path("config/clients/mailroom-dataset/hub-revisions.yaml"),
-                        help="hub-revisions.yaml: the file hashes pinned for the dataset revision")
+    parser.add_argument(
+        "--hub-dir", type=Path, required=True, help="fetch_hub.py output (manifest.txt + parquet)"
+    )
+    parser.add_argument(
+        "--covers", type=Path, nargs="*", default=[], help="snapshots whose fields must be covered"
+    )
+    parser.add_argument(
+        "--pins",
+        type=Path,
+        default=Path("config/clients/mailroom-dataset/hub-revisions.yaml"),
+        help="hub-revisions.yaml: the file hashes pinned for the dataset revision",
+    )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--check", action="store_true", help="compare with --out instead of writing")
     args = parser.parse_args(argv)

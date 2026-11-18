@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 from hypothesis import HealthCheck, settings
+
 from labels_testkit import profile as _profile
 from labels_testkit import standard_set
-
 from mailroom_labels.profile import ClientProfile
 
 # Same profile names as the record tests, so one HYPOTHESIS_PROFILE drives both suites.

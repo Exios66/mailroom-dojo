@@ -16,12 +16,27 @@ from mailroom_labels.models import SnapshotManifest
 __all__ = ["build_interim"]
 
 
-def build_interim(out_dir: Path | str, *, source_dir: Path | str, source_path: str, repository: str,
-                  commit: str, snapshot_id: str | None = None,
-                    known_warnings: Sequence[Mapping[str, str | None]] = (),
-                    allow_rejected: bool = False) -> SnapshotManifest:
+def build_interim(
+    out_dir: Path | str,
+    *,
+    source_dir: Path | str,
+    source_path: str,
+    repository: str,
+    commit: str,
+    snapshot_id: str | None = None,
+    known_warnings: Sequence[Mapping[str, str | None]] = (),
+    allow_rejected: bool = False,
+) -> SnapshotManifest:
     """Write the interim snapshot (see ``overlay.build_overlay``)."""
-    return build_overlay(out_dir, kind="interim", source_dir=source_dir, source_path=source_path,
-                         repository=repository, commit=commit, command="import-interim",
-                         snapshot_id=snapshot_id, known_warnings=known_warnings,
-                         allow_rejected=allow_rejected)
+    return build_overlay(
+        out_dir,
+        kind="interim",
+        source_dir=source_dir,
+        source_path=source_path,
+        repository=repository,
+        commit=commit,
+        command="import-interim",
+        snapshot_id=snapshot_id,
+        known_warnings=known_warnings,
+        allow_rejected=allow_rejected,
+    )
