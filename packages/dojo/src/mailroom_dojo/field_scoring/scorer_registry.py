@@ -141,7 +141,7 @@ class FieldScorerRegistry:
             raise ValueError(f"plug-ins {undeclared} are not declared in the profile's scorer_plugins")
         scorers = dict(BUILTIN_SCORERS)
         for name in profile.scorer_plugins:
-            scorer = supplied.get(name) or BUNDLED_PLUGINS.get(name)
+            scorer = supplied[name] if name in supplied else BUNDLED_PLUGINS.get(name)
             if scorer is None:
                 raise UnknownFieldTypeError(
                     f"profile {profile.client!r} declares plug-in {name!r}, but no scorer was supplied "

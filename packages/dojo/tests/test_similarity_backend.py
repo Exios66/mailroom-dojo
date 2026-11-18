@@ -112,8 +112,9 @@ def test_only_name_like_scorers_consult_the_backend():
         (_constant(float("inf")), "out_of_range", "inf"),
         (_constant(float("-inf")), "out_of_range", "-inf"),
         (_constant(Decimal("0.9")), "not_a_number", "Decimal('0.9')"),
+        (_constant(10**400), "out_of_range", repr(10**400)[:80]),
     ],
-    ids=["raises", "nan", "text", "bool", "list", "above-one", "below-zero", "inf", "minus-inf", "decimal"],
+    ids=["raises", "nan", "text", "bool", "list", "above-one", "below-zero", "inf", "minus-inf", "decimal", "huge-int"],
 )
 def test_a_failing_backend_keeps_the_string_score_and_is_reported(backend, reason, detail, caplog):
     """Every failure keeps the string score and records exactly one fallback with its reason and detail."""

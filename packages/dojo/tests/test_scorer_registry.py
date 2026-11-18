@@ -130,3 +130,18 @@ def test_non_callable_scorer_is_refused():
 def test_heuristic_field_type(field_name, value, expected):
     """Unmapped fields are typed by value shape and then by substrings of the name, in that order."""
     assert heuristic_field_type(field_name, value) == expected
+
+
+def test_a_supplied_scorer_that_is_falsy_still_overrides_the_bundled_one(mailroom_profile):
+    """Presence, not truthiness, decides: a callable object whose __bool__ is False is still supplied."""
+
+    class FalsyScorer:
+        def __bool__(self) -> bool:
+            return False
+
+        def __call__(self, predicted, expected, rescue=None) -> float:
+            return 0.5
+
+    scorer = FalsyScorer()
+    registry = FieldScorerRegistry.for_profile(mailroom_profile, {"cms_doc_ref": scorer})
+    assert registry.scalar_scorer("cms_doc_ref").__wrapped__ is scorer

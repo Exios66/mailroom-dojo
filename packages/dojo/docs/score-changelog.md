@@ -126,3 +126,13 @@ greedy matcher), and None failed with an unhelpful `TypeError`.
 `parse_money` on an int such as `10**400` raised `OverflowError` in the old Dojo (a JSON number can be that
 large). It now returns signed infinity, like the text `"1e999"`, and a money field holding it scores 0.0 against
 anything, as `"inf"` does. No recorded or generated parity case contained such an int, so no fixture changes.
+
+## Review fixes: backend integers, supplied scorers, and two old behaviours kept
+
+- A similarity backend returning an integer too large for a float is now reported as an `out_of_range`
+  fallback (the detail is cut to 80 characters) instead of raising `OverflowError`.
+- A supplied plug-in scorer replaces the bundled one by presence, not by truthiness.
+- **Found, not changed:** `binary_metrics(..., normalize=True)` compares the normalized value with `positive`
+  exactly as given, so `positive` must be a class key (its docstring says so; a sorter label or a mixed-case
+  name never matches). The row-variant marker token is read with `str(value or "")`, so a JSON number `0`
+  becomes an empty token (no mailroom marker is numeric). Both are the old Dojo's behaviour.

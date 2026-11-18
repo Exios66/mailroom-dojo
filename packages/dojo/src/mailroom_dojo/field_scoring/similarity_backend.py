@@ -130,7 +130,10 @@ class EmbeddingRescue:
             return string_score
         if isinstance(similarity, bool) or not isinstance(similarity, numbers.Real):
             return self._fall_back("not_a_number", repr(similarity), string_score)
-        value = float(similarity)
+        try:
+            value = float(similarity)
+        except OverflowError:  # an integer too large for a float is out of range, not a crash
+            return self._fall_back("out_of_range", repr(similarity)[:80], string_score)
         if math.isnan(value):
             return self._fall_back("not_a_number", repr(similarity), string_score)
         if not 0.0 <= value <= 1.0:
