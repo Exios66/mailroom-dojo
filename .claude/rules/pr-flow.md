@@ -117,7 +117,8 @@ Give it only:
 - the draft PR description with its evidence section, leaving out its Review log;
 - the gate commands you ran and their exit codes.
 
-Fix every BLOCKING and MAJOR finding, each with a red-then-green test, and re-run the
+Fix every BLOCKING and MAJOR finding (a code fix with a red-then-green test, a docs fix
+with the probe that showed it re-run), and re-run the
 local gate on the final commit yourself. The fixes are verified by you, not re-reviewed.
 Dispatch a second, new `pre-pr-reviewer` only when the fixes changed the design or added
 more than about 150 lines. Never more than two reviews per PR; beyond that, escalate to
@@ -176,7 +177,8 @@ PR, so the next fresh reviewer checks for it.
    in the PR, and the owner's go-ahead (item 5) must name this exception.
 2. Every review thread is handled (fixed, or answered in the PR body and resolved).
 3. The PR's one independent Opus review has run (step 3), and you verified its fixes on
-   the final head (red-then-green tests, gates re-run). That same review covers anything
+   the final head (red-then-green tests for code fixes, probes re-run for docs fixes,
+   gates re-run). That same review covers anything
    Sonnet or Haiku produced (`.claude/rules/orchestration.md`).
 4. A final sweep for session links is clean: commit messages (the guard script), the PR
    title and body (read back), and tracked files.

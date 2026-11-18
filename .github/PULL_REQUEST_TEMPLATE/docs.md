@@ -37,8 +37,8 @@ Commit: `<short sha>`
 
 ## Review log
 
-- Review, fresh context (`pre-pr-reviewer` or `adversarial-reviewer`, `<model, effort>`, on `<sha>`): `<READY / FIX FIRST>`, `<N>` findings (`<B>` BLOCKING, `<M>` MAJOR, `<m>` MINOR)
-- Fixes verified by the orchestrator: `<finding -> fix commit, red-then-green test, gates re-run on <sha>>` or `none needed`
+- Review, fresh context (`pre-pr-reviewer` or `adversarial-reviewer`, `<model, effort>`, on `<sha>`): `<READY / FIX FIRST, or ACCEPT / ACCEPT WITH FIXES / REJECT>`, `<N>` findings (`<B>` BLOCKING, `<M>` MAJOR, `<m>` MINOR)
+- Fixes verified by the orchestrator: `<finding -> fix commit, red-then-green test (or, for a docs fix, the probe re-run), gates re-run on <sha>>` or `none needed`
 - Second review: `<not needed / reason (design change or more than about 150 lines), model, effort, result>`
 
 ## Risks, rollback and follow-ups

@@ -24,7 +24,7 @@ This workspace replaces three older repositories with packages around one run re
    green; reproduce a CI failure locally before fixing it.
 5. **Get one independent review.** A fresh-context Opus reviewer reads the final diff and
    the draft PR description once, before the PR is pushed; that review also covers
-   anything a cheaper model produced. Fixes are verified with red-then-green tests and
+   anything a cheaper model produced. Fixes are verified with red-then-green tests (docs fixes: the probe re-run) and
    the gates re-run, not re-reviewed (`.claude/rules/orchestration.md`).
 
 ## Writing the PR

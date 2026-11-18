@@ -277,7 +277,7 @@ a fresh `pre-pr-reviewer` reviews the final diff and the draft PR description in
 pass through its checklist, covering all three lenses (does it solve the problem, what
 breaks, try to break it). That review also counts as the Opus review of anything Sonnet
 or Haiku produced. The orchestrator verifies the fixes (a red-then-green test for each
-BLOCKING or MAJOR finding, gates re-run on the final commit) rather than sending them back
+BLOCKING or MAJOR code finding, the probe re-run for a docs finding, gates re-run on the final commit) rather than sending them back
 for review. A second review only when the fixes changed the design or added more than
 about 150 lines; never more than two per PR, then escalate to the owner. The
 `adversarial-reviewer` is optional: only when the owner asks, or for a record schema,

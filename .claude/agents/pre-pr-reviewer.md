@@ -53,37 +53,44 @@ past earlier multi-round reviews.
    matches the code and was run. Counts, paths and commands exist. "Bounded", "never"
    and "always" claims are tested against hostile input. The PR description is an
    executive summary, its evidence is from the stated commit, and "Not verified" is
-   honest.
-2. **Free text in outputs.** Every field that reaches a log, the record, CLI output,
+   honest. The PR text carries no document text, handles, credentials or local paths,
+   and the squash message is drafted and clean.
+2. **Correctness.** Logic errors, off-by-one, unhandled `None` or empty input. Resource
+   leaks (file handles, locks, processes). Crash consistency: write order, fsync, torn
+   tails, atomic replace. Hash and canonical-form mistakes (what is hashed, in which
+   encoding and order).
+3. **Free text in outputs.** Every field that reaches a log, the record, CLI output,
    `--json` or a script-written report holds only our own tokens: ids, labels, hashes,
    lengths, counts. Check each field, not a sample. Emails, URLs, paths and prose are not
    tokens.
-3. **Hostile and malformed input.** Size, count and total caps, including headers and
+4. **Hostile and malformed input.** Size, count and total caps, including headers and
    metadata a library reads before your checks. Deep nesting. Lone surrogates and invalid
    UTF-8. NaN and Infinity, huge integers. Wrong JSON types, empty and null ids. Symlinks
    and paths that escape. Each refusal is the documented error type, never a raw
    traceback.
-4. **Test independence.** No state leaks between tests (`sys.modules`, caches, env, cwd,
+5. **Test independence.** No state leaks between tests (`sys.modules`, caches, env, cwd,
    gc, logging config). The suite passes in reverse order and under `pytest-xdist`
    (`-n auto`), and timing tests use CPU time with margins wide enough to catch a real
    regression.
-5. **Immutability and copies.** Whatever is described as read-only or frozen really is:
+6. **Immutability and copies.** Whatever is described as read-only or frozen really is:
    public fields, nested containers, copy and pickle.
-6. **Determinism.** No set or frozenset order, hash seed, dict order from untrusted input,
+7. **Determinism.** No set or frozenset order, hash seed, dict order from untrusted input,
    or wall clock in anything hashed, dumped or compared.
-7. **Concurrency and partial failure.** Locks held across check-then-act. Crash windows
+8. **Concurrency and partial failure.** Locks held across check-then-act. Crash windows
    documented. Interrupted operations resumable.
-8. **Scope and hygiene.** No formatting churn on untouched code. No dead code, debug code
-   or unused names. One concern per PR. Package boundaries hold; tuning lives in
+9. **Scope and hygiene.** No formatting churn on untouched code. No dead code, debug code
+   or unused names. No copy-paste slips, typos in identifiers or inconsistent names. No
+   hardcoded or local paths and no secrets in tracked files. A new folder has a line in
+   the layout map. One concern per PR. Package boundaries hold; tuning lives in
    `config/` or `labels/`; no real model call in tests; no hand-edited stored runs or
    reports. Commit messages and PR text carry no links, footers, names or initials: run
    `bash .circleci/check_no_session_links.sh` (it fetches `origin/main`; it checks PR text
    only with `CIRCLE_PULL_REQUEST` set to the PR's URL).
-9. **R8 failure detection.** At least one deliberate mutation shown red, with its output,
+10. **R8 failure detection.** At least one deliberate mutation shown red, with its output,
    for each code change. Every behaviour change has a test that would fail without it;
    bug fixes have a red-then-green regression test; no test was skipped, deleted or
    loosened to get green.
-10. **Lessons from bot reviews** (below): check each one.
+11. **Lessons from bot reviews** (below): check each one.
 
 Return exactly this:
 
@@ -94,7 +101,7 @@ READY | FIX FIRST
 <model and effort you ran on>
 ## Checklist
 1. Claims against the code - checked: <how> | n/a: <why>
-… (one line for each of items 1 to 10)
+… (one line for each of items 1 to 11)
 ## Findings
 1. [BLOCKING|MAJOR|MINOR] [CONFIRMED|UNCONFIRMED] path:line - <defect>
    Probe: <command> -> <output that shows it>

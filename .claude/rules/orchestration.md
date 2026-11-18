@@ -32,6 +32,7 @@ minimum for anything that needs judgement, and every review runs on Opus.
 3. **Anything Sonnet or Haiku produced (`scoped-worker`, `runner`) gets a fresh,
    independent Opus review** of the full diff and of every claim before it is merged or
    handed off. The one review per PR (below) satisfies this; there is no separate pass.
+   Work handed off with no PR gets that one review before the hand-off.
    Fix the valid findings, then re-verify the tests and CI on the final head.
 4. Do not delegate a lookup you can answer with one `Read` or `Grep`. Every subagent starts
    cold and re-reads context.
@@ -84,14 +85,17 @@ Many review rounds cost too much usage. Each PR gets one effective review instea
    solve the problem, what breaks, and try to break it. It works through the checklist in
    its agent file and reports on every item.
 2. **The orchestrator verifies the fixes; they are not re-reviewed.** Send each BLOCKING
-   and MAJOR finding to an `implementer` (or fix it yourself when trivial). Each fix gets
-   a red-then-green test. Commit, then re-run the gates on the final commit yourself.
+   and MAJOR finding to an `implementer` (or fix it yourself when trivial). Each code fix
+   gets a red-then-green test; a docs fix gets the probe that showed the defect re-run.
+   Commit, then re-run the gates on the final commit yourself.
 3. **A second review only when needed.** Dispatch a second, new `pre-pr-reviewer` only
    when the fixes changed the design or added more than about 150 lines (count with
    `git diff --stat` over the fix commits). Never more than two reviews per PR; beyond
    that, escalate to the owner.
 4. **The `adversarial-reviewer` is optional.** Use it only when the owner asks for it, or
-   for a record schema, security or governance-guard change. There it replaces the
+   for a record schema, security or governance-guard change (`.claude/hooks/`,
+   `.claude/settings.json`, either `check_no_session_links.sh`, `tools/governance/`).
+   There it replaces the
    pre-PR review rather than adding to it, and it gets the same checklist and the same
    fix-verification rule.
 
