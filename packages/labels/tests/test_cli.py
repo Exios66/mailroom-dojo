@@ -117,7 +117,8 @@ def test_coverage_refuses_and_writes_nothing_on_an_error(tmp_path: Path, snapsho
 def test_real_process_exit_codes(tmp_path: Path, snapshot_dirs) -> None:
     """The installed console script, in a real subprocess: 0 clean, 1 after tampering."""
     exe = shutil.which("mailroom-labels", path=str(Path(sys.executable).parent))
-    cmd = [exe] if exe else [sys.executable, "-c", "from mailroom_labels.cli import app; app()"]
+    assert exe is not None, "the documented console script mailroom-labels is not installed"
+    cmd = [exe]
     clean = subprocess.run(
         [*cmd, "verify", "--profile", str(PROFILE_PATH), *map(str, snapshot_dirs)],
         capture_output=True,
