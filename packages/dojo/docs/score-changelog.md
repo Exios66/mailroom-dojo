@@ -172,3 +172,18 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   (`test_every_mailroom_vocabulary_is_closed_and_has_fixed_points`), and the normalizer reads a value only
   through its compact form, so any value with a token's compact form already reached that token before the
   new step. The old Dojo's catalogs were fixed lowercase tables and could not hold such a key.
+- **Found, not changed** (each checked against the old Dojo at `23f8234c` on the same input, identical output):
+  - `cms_document_signature`: when the word NDC appears, the first run of 9 to 11 digits is read as the NDC, even
+    a claim number before it (`"claim 1234567890 NDC 00703051002"` is NDC `01234567890`, so it misses
+    `"NDC 00703051002"`).
+  - Presence routing: a reasoning entry tagged with the category whose evidence and section reference are both
+    blank still counts as routed, so the field's own candidates are ignored and the category scores false.
+  - Recall-coverage lists: an empty predicted item (`[""]`) is not a role phrase, so it "names a party" and
+    role-word expectations (`Seller`) get recall credit.
+  - `date_grounded_in_document` finds only full dates in the document (numeric, month-day-year, day-of-month),
+    so a prediction "August 2014" is not grounded by a document that says "August 2014".
+  - Trace capture: a reasoning value that is a single mapping with only a `span` key is dropped (a bare entry
+    needs `field` or `evidence`), and `missing_confidence` `assume_1` or `assume_0` fills the confidence for the
+    gate only, so the calibration error stays None. The `TraceCaptureOptions` docstring, which said the policy
+    also applied to calibration, now says what the code does; the old Dojo's comment made the same wrong claim.
+

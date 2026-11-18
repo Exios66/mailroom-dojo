@@ -307,7 +307,9 @@ class TraceCaptureOptions:
 
     ``confidence_min`` flags predictions below a floor and ``confidence_band``
     tags a half-open band (``None`` turns each off). ``missing_confidence`` decides
-    what a missing confidence counts as for gating and calibration.
+    what a missing confidence counts as for gating only: the calibration error
+    needs a stated confidence and stays None without one, whatever the policy (the
+    old Dojo's behaviour, though its comment said otherwise).
     """
 
     capture_confidence: bool = True
