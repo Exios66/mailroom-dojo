@@ -9,7 +9,7 @@ partial download, exit 1) any file whose sha256 differs from the manifest or tha
 manifest does not list. The output directory must be new or empty, so a stale or planted
 file can never be mistaken for a verified one.
 
-    python packages/labels/scripts/fetch_hub.py --out /tmp/hub-ccd040f6 \
+    python packages/labels/scripts/fetch_hub.py --out <new empty download dir> \
         --revision ccd040f6a1b6b414bdefd161cdc622b68f6dacf8 \
         parquet/ground_truth/train/train-00000-of-00001.parquet \
         parquet/ground_truth/test/test-00000-of-00001.parquet
