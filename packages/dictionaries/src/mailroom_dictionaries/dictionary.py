@@ -26,10 +26,11 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
 from mailroom_common.errors import ConfigError
 from mailroom_common.hashing import hash_obj
 from mailroom_common.yamlio import load_yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 __all__ = [
     "DATA_DIR",
@@ -518,7 +519,8 @@ def _check_field_types(dictionary: Dictionary) -> None:
         default = entry.attributes.get("default_element")
         if default is not None and (not takes or not isinstance(default, str)):
             raise ConfigError(
-                f"entry {entry.key!r}: default_element is only allowed (as a string) when takes_element is true",
+                f"entry {entry.key!r}: default_element is only allowed (as a string) "
+                "when takes_element is true",
                 source=dictionary.source,
             )
 

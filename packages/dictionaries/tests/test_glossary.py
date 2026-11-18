@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 import yaml
+
 from mailroom_common.errors import ConfigError
 from mailroom_dictionaries import load_glossary, render_glossary
 from mailroom_dictionaries.glossary import GLOSSARY_PATH
@@ -63,7 +64,7 @@ def render_script(*args: str) -> subprocess.CompletedProcess[str]:
 def test_shipped_glossary_has_the_required_terms_sorted() -> None:
     glossary = load_glossary()
     names = [t.term for t in glossary.terms]
-    assert REQUIRED_TERMS <= set(names)
+    assert set(names) >= REQUIRED_TERMS
     assert names == sorted(names, key=str.casefold)
     assert all(t.source.strip() and t.definition.strip() for t in glossary.terms)
 

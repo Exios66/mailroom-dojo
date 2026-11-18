@@ -88,7 +88,8 @@ def lock_problems(
                 LockProblem(
                     "backwards",
                     name,
-                    f"version of {name!r} went backwards: lock has {old['version']}, file has {new['version']}",
+                    f"version of {name!r} went backwards: "
+                    f"lock has {old['version']}, file has {new['version']}",
                 )
             )
         elif new["version"] == old["version"] and new["hash"] != old["hash"]:

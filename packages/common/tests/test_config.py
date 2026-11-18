@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import json
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +16,7 @@ from mailroom_common.config import ConfigModel, config_hash, deep_merge, load_co
 from mailroom_common.errors import ConfigError
 
 
-class Mode(str, Enum):
+class Mode(StrEnum):
     fast = "fast"
     careful = "careful"
 

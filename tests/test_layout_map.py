@@ -55,10 +55,6 @@ def test_real_readme_map_parses_and_names_the_shared_packages() -> None:
     assert {"packages/common/", "packages/dictionaries/", "scripts/", "tests/", "Makefile"} <= names
 
 
-@pytest.mark.skipif(
-    not all((ROOT / "packages" / p / "README.md").is_file() for p in ("common", "dictionaries")),
-    reason="the common and dictionaries READMEs are still being written in their own commits",
-)
 def test_real_workspace_matches_its_layout_map() -> None:
     assert check_layout(ROOT) == []
 

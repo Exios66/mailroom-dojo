@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 import yaml
+
 from mailroom_common.errors import ConfigError
 from mailroom_dictionaries import (
     DATA_DIR,

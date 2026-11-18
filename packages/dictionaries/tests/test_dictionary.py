@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 import yaml
+
 from mailroom_common.errors import ConfigError
 from mailroom_dictionaries import Dictionary, VocabularyError, fold, load_dictionary_file
 
@@ -399,7 +400,10 @@ def test_date_attribute_must_be_quoted(write_dict: WriteDict) -> None:
 
 
 def test_nan_attribute(write_dict: WriteDict) -> None:
-    text = "name: colors\nversion: 1\ndescription: d\nentries:\n  - {key: red, label: R, description: r, attributes: {x: .nan}}\n"
+    text = (
+        "name: colors\nversion: 1\ndescription: d\nentries:\n"
+        "  - {key: red, label: R, description: r, attributes: {x: .nan}}\n"
+    )
     refused(write_dict, text, "must be finite")
 
 

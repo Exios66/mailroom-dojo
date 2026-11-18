@@ -11,6 +11,7 @@ Reading is strict about JSON (:func:`parse_json`): a duplicated object key or a 
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
@@ -43,8 +44,8 @@ class BadLine:
     """A line that :func:`iter_jsonl` could not read, reported in tolerant mode.
 
     ``line_no`` is 1-based. ``raw`` is the line's bytes without its newline (for a line
-    over the size limit, only its first ``min(max_line_bytes, 1024)`` bytes). ``truncated_tail`` is true for a final
-    line with no newline that does not parse: what a writer killed mid-append leaves.
+    over the size limit, only its first ``min(max_line_bytes, 1024)`` bytes). ``truncated_tail`` is true for a
+    final line with no newline that does not parse: what a writer killed mid-append leaves.
     """
 
     line_no: int
@@ -118,10 +119,8 @@ def write_jsonl_atomic(path: str | Path, rows: Iterable[Any]) -> int:
             os.fsync(handle.fileno())
         os.replace(tmp_name, target)
     except BaseException:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(tmp_name)
-        except FileNotFoundError:
-            pass
         raise
     _fsync_directory(directory)
     return count
@@ -196,7 +195,7 @@ def iter_jsonl(
 
     Strict mode (the default) raises :class:`IntegrityError` at the first bad line, with
     ``path`` and the 1-based ``line`` in its context (plus ``truncated_tail=True`` for an
-    unparseable last line without a newline). Tolerant mode yields a :class:`BadLine` in
+    unparsable last line without a newline). Tolerant mode yields a :class:`BadLine` in
     the row's place and carries on. ``OSError`` from opening or reading propagates.
     """
     if max_line_bytes < 1:

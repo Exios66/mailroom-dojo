@@ -7,6 +7,7 @@ import threading
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
+
 from mailroom_dictionaries import (
     DATA_DIR,
     VocabularyError,

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+
 from mailroom_common.errors import ConfigError
 from mailroom_dictionaries import DATA_DIR
 from mailroom_dictionaries.lock import LOCK_NAME, lock_problems, read_lock, write_lock
@@ -63,7 +64,8 @@ def test_lock_problem_kinds() -> None:
 def test_unbumped_message_says_what_to_do() -> None:
     (problem,) = lock_problems({"urgency": ROW}, {"urgency": {"version": 1, "hash": "c" * 64}})
     assert problem.message == (
-        "content of 'urgency' changed but its version is still 1: bump `version`, then run scripts/update_lock.py"
+        "content of 'urgency' changed but its version is still 1: "
+        "bump `version`, then run scripts/update_lock.py"
     )
 
 

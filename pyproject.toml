@@ -89,5 +89,6 @@ ignore_missing_imports = true
 [tool.codespell]
 skip = "./.venv,./.git,*.egg-info,./build,./dist,*.parquet,*.zst,*.lock"
 check-filenames = true
-# No ignore-words-list today: the tree spells clean. If codespell misreads a real word, add
-# `ignore-words-list = "word"` here, one word per reason given in the commit message.
+# `caf` is the start of the byte escape in b"caf\xe9" (a non-UTF-8 test input).
+# Add a word here only with the reason in the commit message.
+ignore-words-list = "caf"

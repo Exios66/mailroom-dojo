@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
+
 from mailroom_common.errors import ConfigError
 from mailroom_dictionaries import FieldType, VocabularyError, load_dictionary, parse_field_type
 

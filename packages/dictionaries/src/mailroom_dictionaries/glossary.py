@@ -13,10 +13,10 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from mailroom_common.errors import ConfigError
-from mailroom_common.yamlio import load_yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from mailroom_common.errors import ConfigError
+from mailroom_common.yamlio import load_yaml
 from mailroom_dictionaries.dictionary import DATA_DIR
 
 __all__ = ["GLOSSARY_PATH", "Glossary", "Term", "load_glossary", "render_glossary"]
