@@ -58,6 +58,8 @@ from mailroom_labels.snapshot import MANIFEST_NAME, LabelSnapshot, Row
 
 __all__ = [
     "CURRENT_LAYER_SCHEMA",
+    "HUB_PRESENCES",
+    "HUB_UNLABELED",
     "UPGRADES",
     "LayerRead",
     "corpus_index",
@@ -77,6 +79,11 @@ CURRENT_LAYER_SCHEMA: dict[str, str] = {
 #: ``(kind, old_schema) -> (new_schema, upgrade_row)``. Applied until the current schema.
 UPGRADES: dict[tuple[str, str], tuple[str, Callable[[dict[str, Any]], dict[str, Any]]]] = {}
 
+#: The Hub presence that means "not labelled yet": the reader skips the field (no label).
+HUB_UNLABELED = "unlabeled"
+#: Every presence the Hub reader accepts; the Hub importer writes no other. A tuple, not a
+#: set: ``in`` must answer False for an unhashable value (a list code), never raise.
+HUB_PRESENCES: tuple[str, ...] = (*PRESENCES, HUB_UNLABELED)
 INTERIM_TRUTH = ("gap_fill", "derived", "correction")
 #: The rank of an interim label whose ``use_as_truth`` contradicts its status: recorded, never truth.
 FLAG_MISMATCH_RANK = "interim:flag_mismatch"
@@ -189,10 +196,10 @@ def _read_hub(snap: LabelSnapshot, row: Row, out: LayerRead, unverified: frozens
             out.findings.append(ctx.bad("a field must be {value, presence}", doc, fname))
             continue
         presence = lab["presence"]
-        if presence == "unlabeled":
-            continue
-        if presence not in PRESENCES:
+        if presence not in HUB_PRESENCES:
             out.findings.append(ctx.bad(f"unknown presence {presence!r}", doc, fname))
+            continue
+        if presence == HUB_UNLABELED:
             continue
         if presence == "populated" and lab["value"] is None:
             out.findings.append(ctx.bad(_POPULATED_NULL, doc, fname))

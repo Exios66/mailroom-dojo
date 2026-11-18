@@ -22,6 +22,8 @@ presence codes (``corpus.normalize_rows``: ``expected_fields`` is the parsed ``g
   A key ``gt_fields`` lacks gets the value null (counted in ``presence_without_value``),
   except that a ``populated`` code with no value (missing or null) makes the row
   unreadable: it is listed in ``unparseable_gt_fields`` and the import is refused.
+  So does any code that, after that mapping, is not a presence the Hub reader accepts
+  (``layers.HUB_PRESENCES``: an unknown string, a number, a null, a list, ...).
 - A ``not_applicable`` key that is **not a field of the document's class in the profile**
   (the dataset carries every class's keys on every row as placeholders) is omitted:
   omitted means not_applicable. A ``not_applicable`` key the class does define is kept.
@@ -56,7 +58,7 @@ from mailroom_labels.importers.common import (
     read_source,
     refuse_dropped,
 )
-from mailroom_labels.layers import CURRENT_LAYER_SCHEMA
+from mailroom_labels.layers import CURRENT_LAYER_SCHEMA, HUB_PRESENCES
 from mailroom_labels.models import SnapshotManifest
 from mailroom_labels.profile import ClientProfile, load_unique_yaml
 from mailroom_labels.snapshot import write_snapshot
@@ -229,9 +231,19 @@ def _fields(row: dict[str, Any], profile: ClientProfile, tally: _Tally) -> dict[
             if code == "not_applicable" and spec is None:
                 tally.omitted[str(doc_class)][key] += 1
                 continue
-            if code in _MAPPED_PRESENCE:
+            if isinstance(code, str) and code in _MAPPED_PRESENCE:
                 tally.mapped[f"{code}->{_MAPPED_PRESENCE[code]}"] += 1
                 code = _MAPPED_PRESENCE[code]
+            if not (isinstance(code, str) and code in HUB_PRESENCES):
+                # The reader refuses any other code as an unknown presence (a list code is
+                # unhashable: the str check comes first), so the row is never written.
+                tally.bad_gt_fields.append(
+                    {
+                        "document_id": row.get("document_id"),
+                        "reason": f"gt_presence code {code!r} for {key!r} is not a known presence",
+                    }
+                )
+                return None
             if code == "populated" and value is None:
                 # The reader refuses a populated null, so the row is never written: it is
                 # unreadable source data, like a gt_fields that is not an object.

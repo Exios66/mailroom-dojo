@@ -1727,3 +1727,26 @@ def test_hub_absent_presence_without_a_value_is_kept_and_counted(tmp_path: Path,
     assert hub_rows(tmp_path / "hub-x")["D9"]["fields"]["recipient"] == {"value": None, "presence": want}
     assert manifest.source["presence_without_value"] == {"recipient": 1}
     assert "malformed_record" not in _gate_kinds(tmp_path, tmp_path / "hub-x")
+
+
+@pytest.mark.parametrize(
+    "code", ["flagged", 1, None, ["populated"]], ids=["unknown_string", "int", "null", "list"]
+)
+def test_hub_presence_code_the_reader_refuses_refuses_the_import(tmp_path: Path, code: Any) -> None:
+    """A ``gt_presence`` code that is not one the Hub reader accepts (after the
+    ``pending_annotation`` mapping) is never written: the reader would refuse the row as an
+    unknown presence. The row is unreadable source data like a populated null: listed in
+    ``unparseable_gt_fields`` by document, key and code, and the import refused unless
+    ``--allow-rejected``. A list code must not crash the importer."""
+    bad = gt_row("D9", "letter", "email", "train", {"sender": "Zed"}, {"sender": code})
+    data = write_dataset(tmp_path / "data", extra=[bad])
+    with pytest.raises(ImportRefused, match="unparseable_gt_fields 1"):
+        hub_build(tmp_path / "hub-x", data)
+    manifest = hub_build(tmp_path / "hub-x", data, allow_rejected=True)
+    assert manifest.source["unparseable_gt_fields"] == [
+        {"document_id": "D9", "reason": f"gt_presence code {code!r} for 'sender' is not a known presence"}
+    ]
+    assert "D9" not in hub_rows(tmp_path / "hub-x")
+    kinds = _gate_kinds(tmp_path, tmp_path / "hub-x")
+    assert "dropped_source_data" in kinds and "malformed_record" not in kinds
+
