@@ -63,7 +63,7 @@ from mailroom_labels.importers.common import (
 )
 from mailroom_labels.layers import CURRENT_LAYER_SCHEMA
 from mailroom_labels.models import SnapshotManifest
-from mailroom_labels.snapshot import write_snapshot
+from mailroom_labels.snapshot import json_problem, write_snapshot
 from mailroom_record.hashing import canonical_json
 
 __all__ = [
@@ -392,7 +392,14 @@ def build_review(
                     if kind == "decisions"
                     else _from_desk(line, rejected, not_imported, undecided)
                 )
-                if row is not None:
+                # a desk line's value moves under ``entry``, one level deeper than the
+                # line: refuse the row the reader would refuse, as the line check does
+                problem = None if row is None else json_problem(row)
+                if problem is not None:
+                    rejected.append(
+                        {"file": line.file, "line": line.line, "reason": f"not a snapshot row: {problem}"}
+                    )
+                elif row is not None:
                     rows.append(row)
 
     superseded: list[dict[str, Any]] = []

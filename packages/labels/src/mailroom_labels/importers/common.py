@@ -22,6 +22,7 @@ from typing import Any
 
 from mailroom_labels.errors import LabelsError
 from mailroom_labels.models import SnapshotManifest
+from mailroom_labels.snapshot import json_problem
 
 __all__ = [
     "BUILDER_VERSION",
@@ -161,7 +162,9 @@ def parse_jsonl_lenient(data: bytes, name: str) -> tuple[list[SourceLine], list[
     is how the file is named in the manifest. A
     UTF-8 byte-order mark at the start of the file is not data and is skipped (anywhere else
     it is, and the line is rejected). A line with a repeated key, a non-finite number or
-    nesting too deep to parse is rejected."""
+    nesting too deep to parse is rejected, and so is an object the snapshot reader would
+    refuse as a row (``snapshot.json_problem``: nested deeper than ``MAX_JSON_DEPTH``, or a
+    string holding a lone surrogate)."""
     rows: list[SourceLine] = []
     rejected: list[dict[str, Any]] = []
     with io.BytesIO(data) as fh:
@@ -187,6 +190,10 @@ def parse_jsonl_lenient(data: bytes, name: str) -> tuple[list[SourceLine], list[
                 rejected.append(
                     {"file": name, "line": number, "reason": f"not a JSON object ({type(obj).__name__})"}
                 )
+                continue
+            problem = json_problem(obj)
+            if problem is not None:
+                rejected.append({"file": name, "line": number, "reason": f"not a snapshot row: {problem}"})
                 continue
             rows.append(SourceLine(name, number, obj))
     return rows, rejected

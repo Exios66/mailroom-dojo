@@ -1876,3 +1876,54 @@ def test_hub_row_with_a_non_string_document_id_is_refused(doc_id: Any) -> None:
     raw = gt_row("X1", "letter", "email", "train", {"sender": "a"}, {"sender": "populated"})
     assert hub._fields({**raw, "document_id": doc_id}, profile(), tally) is None
     assert [e["reason"] for e in tally.bad_gt_fields] == ["document_id must be a non-empty string"]
+
+
+def _nested(depth: int) -> list[Any]:
+    """A list ``depth`` lists deep (``[]`` is 1)."""
+    value: list[Any] = []
+    for _ in range(depth - 1):
+        value = [value]
+    return value
+
+
+TOO_DEEP = "JSON nested too deeply (more than 64 levels)"
+SURROGATE = "a string holds a lone surrogate (not encodable as UTF-8)"
+
+
+def test_an_overlay_row_the_reader_would_refuse_is_a_rejected_line(tmp_path: Path) -> None:
+    """A source row nested deeper than the snapshot reader allows, or holding a lone
+    surrogate, is listed in ``rejected_lines`` like any other bad line: never a crash."""
+    good = interim_row("D1", {"sender": ("gap_fill", "Ann")})
+    deep = interim_row("D2", {"sender": ("gap_fill", _nested(80))})
+    lone = interim_row("D3", {"sender": ("gap_fill", "a\ud800b")})
+    src = write_overlay(tmp_path / "src", {"letter.jsonl": jsonl(good, deep, lone)})
+    with pytest.raises(ImportRefused, match="rejected_lines 2"):
+        overlay(tmp_path / "interim-x", src)
+    manifest = overlay(tmp_path / "interim-x", src, allow_rejected=True)
+    assert [r.data for r in load_snapshot(tmp_path / "interim-x").rows()] == [good]
+    assert manifest.source["rejected_lines"] == [
+        {"file": "letter.jsonl", "line": 2, "reason": f"not a snapshot row: {TOO_DEEP}"},
+        {"file": "letter.jsonl", "line": 3, "reason": f"not a snapshot row: {SURROGATE}"},
+    ]
+
+
+def test_a_review_line_the_reader_would_refuse_is_a_rejected_line(tmp_path: Path) -> None:
+    """The same for the review importer, including a desk line that fits the depth limit as
+    a source line but not once its value is moved under ``entry``."""
+    lone = decision("D2", "sender", "Bo")
+    lone["note"] = "a\ud800b"
+    edge = desk("D4", "sender", _nested(63))  # the line is 64 deep; the written row 65
+    with pytest.raises(ImportRefused, match="rejected_lines 3"):
+        review(tmp_path, [decision("D1", "sender", "Ann"), decision("D3", "sender", _nested(80)), lone], [edge])
+    manifest, rows = review(
+        tmp_path,
+        [decision("D1", "sender", "Ann"), decision("D3", "sender", _nested(80)), lone],
+        [edge],
+        allow_rejected=True,
+    )
+    assert [r["doc_id"] for r in rows] == ["D1"]
+    assert manifest.source["rejected_lines"] == [
+        {"file": "review/decisions.jsonl", "line": 2, "reason": f"not a snapshot row: {TOO_DEEP}"},
+        {"file": "review/decisions.jsonl", "line": 3, "reason": f"not a snapshot row: {SURROGATE}"},
+        {"file": "sandbox/human_reviews.jsonl", "line": 1, "reason": f"not a snapshot row: {TOO_DEEP}"},
+    ]
