@@ -333,6 +333,18 @@ def _check_decisions(records: Sequence[LayerRecord], out: _Once) -> None:
                 )
 
 
+def _text_unverified_owners(snapshots: Sequence[LabelSnapshot]) -> dict[str, str]:
+    """Document id -> the first Hub snapshot (in the order given, as ``corpus_index`` keeps
+    the first entry) whose manifest lists it under ``text_unverified_documents``."""
+    owners: dict[str, str] = {}
+    for snap in snapshots:
+        listed = snap.manifest.source.get("text_unverified_documents") if snap.kind == "hub" else None
+        for doc in listed if isinstance(listed, list) else ():
+            if isinstance(doc, str):
+                owners.setdefault(doc, snap.snapshot_id)
+    return owners
+
+
 def check_read(
     read: LayerRead,
     profile: ClientProfile,
@@ -351,6 +363,7 @@ def check_read(
         if n > 1:
             out.add(finding("duplicate_document", doc=doc, layer="hub", detail=f"indexed {n} times"))
     index = corpus_index(read.corpus)
+    unverified_in = _text_unverified_owners(snapshots)
     for entry in sorted(index.values(), key=lambda e: e.document_id):
         if not entry.text_verified:
             out.add(
@@ -359,6 +372,8 @@ def check_read(
                     doc=entry.document_id,
                     layer="hub",
                     detail="Hub text did not hash to content_sha256 at import",
+                    # the Hub snapshot that lists it, so only that snapshot can accept it
+                    location=unverified_in.get(entry.document_id),
                 )
             )
         spec = profile.classes.get(entry.doc_class)

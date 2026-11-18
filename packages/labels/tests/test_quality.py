@@ -512,3 +512,34 @@ def test_stale_warnings_of_two_files_stay_separate_so_a_file_scoped_acceptance_i
     got = sorted((f.kind, f.location.split(":")[0].split("/")[1], f.known) for f in report.findings)
     assert got == [("subclass_mismatch", "a.jsonl", True), ("subclass_mismatch", "b.jsonl", False)]
     assert verify(report) == 0 and verify(report, strict=True) == 1
+
+
+def test_a_text_unverified_warning_is_accepted_only_by_the_hub_snapshot_that_holds_it(
+    tmp_path: Path,
+) -> None:
+    accept = ({"kind": "text_unverified", "doc": "D9", "field": None, "reason": "checked by hand"},)
+    a = make_snapshot(
+        tmp_path,
+        "hub",
+        [hub_row("D9", fields={"sender": "Ann"})],
+        snapshot_id="hub-a",
+        source={"text_unverified_documents": ["D9"]},
+    )
+    b = make_snapshot(
+        tmp_path, "hub", [hub_row("D8", fields={"sender": "Bo"})], snapshot_id="hub-b", known_warnings=accept
+    )
+    report, _ = check_dirs([a, b], profile())
+    got = [(f.kind, f.location, f.known) for f in report.findings if f.kind == "text_unverified"]
+    assert got == [("text_unverified", "hub-a", False)]  # hub-b does not hold D9, so cannot accept it
+    assert verify(report, strict=True) == 1
+    a2 = make_snapshot(
+        tmp_path / "2",
+        "hub",
+        [hub_row("D9", fields={"sender": "Ann"})],
+        snapshot_id="hub-a",
+        source={"text_unverified_documents": ["D9"]},
+        known_warnings=accept,
+    )
+    report, _ = check_dirs([a2, b], profile())
+    assert [(f.location, f.known) for f in report.findings if f.kind == "text_unverified"] == [("hub-a", True)]
+    assert verify(report, strict=True) == 0
