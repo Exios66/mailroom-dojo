@@ -46,7 +46,13 @@ Rules
   ``manifest.json``); ``pack_run`` refuses a run past either (``PackRefused``). So unpack
   stages at most ``MAX_STAGED_BYTES`` bytes from the archive, in fewer than ``MAX_MEMBERS``
   files. The archive's zstd frame is decompressed a few whole blocks at a time,
-  never more than 4 MiB per step, so a decompression bomb costs time, not memory. A blob
+  never more than 4 MiB per step, and ``tarfile`` reads it through ``_TarIn``: a member's
+  tar headers (its own and any GNU long-name, long-link or PAX extension headers before
+  it, which ``tarfile`` would read whole into memory) may ask for at most
+  ``MAX_HEADER_BYTES`` (64 KiB) in all, and no single read for more than 1 MiB, else
+  ``PackCorrupt`` before the read; a chain of headers deep enough to exhaust ``tarfile``'s
+  recursion is ``PackCorrupt`` too. So a decompression bomb, in a member or in a header,
+  costs time, not memory. A blob
   member must be one the run names: a ``.zst`` member is decompressed as it streams and must
   hash to its name, a ``.tombstone`` member must be the record ``BlobStore.tombstone`` writes
   for its hash, and a blob member ``manifest.json``'s ``blobs`` does not list is refused; the
@@ -125,6 +131,7 @@ from mailroom_record.verify import _VANISHED, _blob_damage, _tombstone_damage, _
 
 __all__ = [
     "MAX_BLOB",
+    "MAX_HEADER_BYTES",
     "MAX_MEMBERS",
     "MAX_RUN_FILE",
     "MAX_SMALL_FILE",
@@ -164,6 +171,14 @@ MAX_TOMBSTONE = 64 * 1024  # a tombstone record (a hash, a reason and a time)
 # whole corpus (a few thousand documents, a few blobs each) is far below both.
 MAX_MEMBERS = 1 << 20  # 1,048,576 members
 MAX_STAGED_BYTES = 16 * MAX_BLOB  # 64 GiB staged in all
+# Tar header cap: the bytes ``tarfile`` may read for one member's headers (its own 512-byte
+# header and any GNU long-name, long-link or PAX extension headers before it). ``tarfile``
+# reads an extension header whole into memory, and follows a chain of them by recursion,
+# before any member cap applies; this bounds both. ``pack_run`` writes at most one PAX
+# header per member, for a name over 100 characters (the longest a pack holds is about
+# 330), so its members need under 2 KiB. Besides, no single read past the tar reader may
+# ask for more than ``_CHUNK`` (1 MiB) bytes.
+MAX_HEADER_BYTES = 64 * 1024
 _HEX64 = re.compile(rb"[0-9a-f]{64}")
 _SHA = r"[0-9a-f]{64}"
 _RUN_MEMBER = re.compile(
@@ -437,6 +452,72 @@ class _Hashing(io.RawIOBase):
         return data
 
 
+class _TarIn:
+    """The forward-only file object ``tarfile`` reads the decompressed archive through.
+
+    ``tarfile`` reads an extension header (GNU long name or long link, PAX) whole into
+    memory, and a chain of them by recursion, before ``_read_archive`` sees the member, so
+    the member caps cannot bound it. This reader can: while ``tarfile`` reads headers (until
+    ``data()`` is called for the member they belong to) the bytes it asks for add up, and
+    past ``MAX_HEADER_BYTES`` the read is ``PackCorrupt`` before anything is read; any single
+    read of more than ``_CHUNK`` bytes is ``PackCorrupt`` too. Seeking skips forward in
+    chunks (``tarfile`` skips a member's padding, or data left unread, that way).
+    """
+
+    def __init__(self, f: Any) -> None:
+        self._f = f
+        self._pos = 0
+        self._header_bytes = 0
+        self._in_data = False
+
+    def headers(self) -> None:
+        """``tarfile`` reads the next member's headers now: count them from zero."""
+        self._in_data, self._header_bytes = False, 0
+
+    def data(self) -> None:
+        """``tarfile`` returned a member: what is read now is its data."""
+        self._in_data = True
+
+    def read(self, size: int | None = -1) -> bytes:
+        n = -1 if size is None else size  # below zero: read everything, never allowed here
+        if not self._in_data:
+            self._header_bytes += max(n, 0)
+            if n < 0 or self._header_bytes > MAX_HEADER_BYTES:
+                raise PackCorrupt(f"a member's tar headers hold more than {MAX_HEADER_BYTES} bytes")
+        if n < 0 or n > _CHUNK:
+            raise PackCorrupt(f"a read of more than {_CHUNK} bytes from the tar stream")
+        data: bytes = self._f.read(n)
+        self._pos += len(data)
+        return data
+
+    def tell(self) -> int:
+        return self._pos
+
+    def seekable(self) -> bool:
+        return False
+
+    def seek(self, pos: int, whence: int = io.SEEK_SET) -> int:
+        if whence != io.SEEK_SET or pos < self._pos:
+            raise PackCorrupt("the tar stream asked to seek backwards")
+        while self._pos < pos:
+            chunk = self._f.read(min(pos - self._pos, _CHUNK))
+            if not chunk:
+                break
+            self._pos += len(chunk)
+        return self._pos
+
+
+def _members(tar: tarfile.TarFile, tin: _TarIn) -> Iterator[tarfile.TarInfo]:
+    """The members of ``tar``, with ``tin`` told which reads are headers and which data."""
+    while True:
+        tin.headers()
+        m = tar.next()
+        if m is None:
+            return
+        tin.data()
+        yield m
+
+
 def _read_archive(archive: Path, sink: Callable[[str, Iterator[bytes]], None]) -> _Read:
     """Stream ``archive``: check every member's name, type, hash and size against the
     manifest, handing each data member's chunks to ``sink(name, chunks)``."""
@@ -449,8 +530,9 @@ def _read_archive(archive: Path, sink: Callable[[str, Iterator[bytes]], None]) -
         with archive.open("rb") as raw:
             f = _Hashing(raw)
             z = _ZstdIn(f)
-            with tarfile.open(fileobj=io.BufferedReader(z, _CHUNK), mode="r|") as tar:
-                for m in tar:
+            tin = _TarIn(io.BufferedReader(z, _CHUNK))
+            with tarfile.TarFile(fileobj=tin, mode="r") as tar:
+                for m in _members(tar, tin):
                     name = m.name
                     if manifest_raw is not None:
                         raise PackCorrupt(f"member after {_MANIFEST}")
@@ -471,7 +553,7 @@ def _read_archive(archive: Path, sink: Callable[[str, Iterator[bytes]], None]) -
                     if member_file is None:
                         raise PackCorrupt("a member has no data")
                     if name == _MANIFEST:
-                        manifest_raw = member_file.read()
+                        manifest_raw = b"".join(iter(lambda: member_file.read(_CHUNK), b""))
                         continue
                     rm = _RUN_MEMBER.fullmatch(name)
                     bm = _BLOB_MEMBER.fullmatch(name)
@@ -506,7 +588,8 @@ def _read_archive(archive: Path, sink: Callable[[str, Iterator[bytes]], None]) -
             archive_sha = f.sha.hexdigest()
     except PackCorrupt:
         raise
-    except (tarfile.TarError, EOFError, zstandard.ZstdError) as exc:
+    except (tarfile.TarError, EOFError, zstandard.ZstdError, RecursionError) as exc:
+        # RecursionError: tarfile follows a chain of extension headers by recursion.
         raise PackCorrupt(f"{type(exc).__name__} while reading the archive") from None
     if manifest_raw is None:
         raise PackCorrupt(f"no {_MANIFEST}")

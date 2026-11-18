@@ -231,7 +231,13 @@ write a larger one (`PackRefused`). The archive as a whole is capped the same wa
 `MAX_MEMBERS` (1,048,576) members, `manifest.json` included, and at most `MAX_STAGED_BYTES`
 (64 GiB) in all the members unpack stages (every one but `manifest.json`), each checked from
 the tar header before the member is staged; `pack_run` refuses a run past either. The archive is decompressed a few zstd blocks at a time
-(at most 4 MiB per step), so a decompression bomb costs time, not memory. Only blobs the
+(at most 4 MiB per step), and the tar reader may ask for at most `MAX_HEADER_BYTES` (64 KiB)
+of headers per member (its own header and any GNU long-name, long-link or PAX extension
+headers before it, which `tarfile` would otherwise read whole into memory) and for at most
+1 MiB in any one read, else `PackCorrupt` before the read; a chain of extension headers that
+exhausts `tarfile`'s recursion is `PackCorrupt` too. `pack_run`'s own members need under
+2 KiB of headers (one PAX header for a name over 100 characters). So a decompression bomb,
+in a member or in a tar header, costs time, not memory. Only blobs the
 run's events name reach `root`, each checked against its name (a `.zst` must hash to it, a
 tombstone must be that hash's record); any other blob member is `PackCorrupt`. A blob the
 target already holds is never replaced, so a damaged one there is `UnpackVerifyFailed` before

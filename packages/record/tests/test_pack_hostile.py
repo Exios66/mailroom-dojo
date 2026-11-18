@@ -294,3 +294,107 @@ def test_pack_refuses_an_archive_unpack_would_refuse_whole(
     with pytest.raises(PackRefused, match="more than 2"):
         pack_run(s.root, "r1", tmp_path / "r1.tar.zst")
     assert not (tmp_path / "r1.tar.zst").exists()
+
+
+# --- second pre-PR review, finding 1: tar extension headers are capped too ----------------------
+
+
+def _header_bomb(path: Path, kind: bytes, size: int, *, chain: int = 1) -> Path:
+    """A ``.tar.zst`` whose first member is preceded by ``chain`` extension headers of type
+    ``kind`` (``L`` GNU long name, ``K`` GNU long link, ``x`` PAX, ``g`` PAX global), each
+    with ``size`` bytes of data, then one regular member. Streamed, so the test never holds
+    ``size`` bytes itself."""
+    import tarfile
+
+    def block(name: str, typ: bytes, n: int) -> bytes:
+        info = tarfile.TarInfo(name)
+        info.type, info.size = typ, n
+        return info.tobuf(format=tarfile.USTAR_FORMAT)
+
+    filler = (b"17 path=aaaaaaaa\n" if kind in (b"x", b"g") else b"a") * (MiB // 17)
+    cctx = zstandard.ZstdCompressor(level=3, write_checksum=True)
+    with path.open("wb") as raw, cctx.stream_writer(raw, closefd=False) as zf:
+        for _ in range(chain):
+            zf.write(block("././@LongLink", kind, size))
+            left = size
+            while left:
+                n = min(left, len(filler))
+                zf.write(filler[:n])
+                left -= n
+            zf.write(b"\0" * (-size % 512))
+        zf.write(block("manifest.json", tarfile.REGTYPE, 2) + b"{}" + b"\0" * 510 + b"\0" * 1024)
+    return path
+
+
+@pytest.mark.parametrize("kind", [b"L", b"K", b"x", b"g"])
+def test_an_oversized_extension_header_is_refused_before_it_is_read(tmp_path: Path, kind: bytes) -> None:
+    """A 64 MiB GNU long name or link, or PAX header, compresses to a few KiB; tarfile would
+    read it whole into memory before any member cap applies. It is refused at the header
+    cap instead, and reading it holds a few MiB at most."""
+    bomb = _header_bomb(tmp_path / "bomb.tar.zst", kind, 64 * MiB)
+    assert bomb.stat().st_size < 64 * 1024
+    root = tmp_path / "target"
+
+    def unpack() -> None:
+        with pytest.raises(PackCorrupt, match="tar headers"):
+            unpack_run(bomb, root)
+
+    assert peak_bytes(unpack) < 8 * MiB
+    assert store_tree(root) == {} and not list(root.glob(".unpack-*"))
+
+
+def test_an_oversized_extension_header_keeps_the_process_small(tmp_path: Path) -> None:
+    """The same check against the process's resident size, as the reviewer measured it."""
+    import resource
+
+    bomb = _header_bomb(tmp_path / "bomb.tar.zst", b"L", 256 * MiB)
+    before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # KiB on Linux
+    with pytest.raises(PackCorrupt, match="tar headers"):
+        unpack_run(bomb, tmp_path / "target")
+    grown = (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss - before) * 1024
+    assert grown < 32 * MiB
+
+
+@pytest.mark.parametrize("kind", [b"L", b"x"])
+def test_chained_extension_headers_are_refused(tmp_path: Path, kind: bytes) -> None:
+    """Many small extension headers before one member add up against the header cap, so a
+    chain cannot hold memory in tarfile's recursion either."""
+    bomb = _header_bomb(tmp_path / "chain.tar.zst", kind, 102, chain=5000)  # six whole PAX records
+    with pytest.raises(PackCorrupt, match="tar headers"):
+        unpack_run(bomb, tmp_path / "target")
+
+
+def test_a_header_chain_past_the_recursion_limit_is_pack_corrupt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the header cap lifted, a long chain makes tarfile recurse past the interpreter's
+    limit; that is ``PackCorrupt`` too, not a ``RecursionError``."""
+    monkeypatch.setattr(pack_module, "MAX_HEADER_BYTES", 1 << 40)
+    bomb = _header_bomb(tmp_path / "chain.tar.zst", b"L", 100, chain=5000)
+    with pytest.raises(PackCorrupt, match="RecursionError"):
+        unpack_run(bomb, tmp_path / "target")
+
+
+@pytest.mark.parametrize("size", [pack_module._CHUNK + 1, -1, None])
+def test_a_read_above_the_chunk_is_refused(size: int | None) -> None:
+    """No single read past the tar reader may ask for more than ``_CHUNK`` bytes, or for
+    everything (Python 3.11 and 3.12 read an extension header in one call; 3.13 reads it
+    in 1 MiB pieces, which the header cap bounds)."""
+    import io
+
+    tin = pack_module._TarIn(io.BytesIO(b"\0" * (2 * pack_module._CHUNK)))
+    tin.data()
+    with pytest.raises(PackCorrupt, match="a read of more than"):
+        tin.read(size)
+    assert tin.tell() == 0 and len(tin.read(pack_module._CHUNK)) == pack_module._CHUNK
+
+
+def test_the_longest_names_a_pack_writes_round_trip(tmp_path: Path) -> None:
+    """``pack_run`` writes a PAX header for a member name over 100 characters (a 200-character
+    run id); its headers stay far under the header cap and the archive unpacks."""
+    run_id = "r" * 200
+    s = build_sealed_store(tmp_path / "store", run_id=run_id)
+    archive = tmp_path / "long.tar.zst"
+    pack_run(s.root, run_id, archive)
+    assert any(len(name) > 100 for name, _ in archive_members(archive))
+    assert unpack_run(archive, tmp_path / "target") == run_id
