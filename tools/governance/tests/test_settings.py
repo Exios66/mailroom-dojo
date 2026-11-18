@@ -1,7 +1,8 @@
 """Checks on .claude/settings.json: hook wiring and the permission lists.
 
-Claude Code compiles each PreToolUse ``matcher`` as a regular expression and matches it
-against the whole tool name; these tests do the same, so a typo in a matcher (a tool that
+Claude Code compiles each PreToolUse ``matcher`` as a regular expression and searches the
+tool name with it, so the configured matchers anchor themselves (``^(...)$``); these tests
+search the same way, so a typo in a matcher (a tool that
 silently loses its hook) or a dangerous command slipping into ``allow`` turns a test red.
 """
 
@@ -22,13 +23,21 @@ def load() -> dict:
     return json.loads(SETTINGS.read_text(encoding="utf-8"))
 
 
+HOOK_ARG = re.compile(r'"\$CLAUDE_PROJECT_DIR/(\.claude/hooks/[^"]+)"')
+
+
+def hook_paths(command: str) -> list[str]:
+    """The full hook-script arguments in ``command`` (the whole quoted path, not a prefix)."""
+    return HOOK_ARG.findall(command)
+
+
 def hooks_for(tool_name: str) -> set[str]:
-    """The hook files Claude Code would run before ``tool_name``."""
+    """The hook files Claude Code would run before ``tool_name`` (matchers are searched)."""
     found: set[str] = set()
     for entry in load()["hooks"]["PreToolUse"]:
-        if re.fullmatch(entry["matcher"], tool_name):
+        if re.search(entry["matcher"], tool_name):
             for hook in entry["hooks"]:
-                found.update(re.findall(r"\.claude/hooks/([\w.]+\.py)", hook["command"]))
+                found.update(path.rsplit("/", 1)[-1] for path in hook_paths(hook["command"]))
     return found
 
 
@@ -48,6 +57,9 @@ def hooks_for(tool_name: str) -> set[str]:
         ("Read", set()),
         ("mcp__other__thing", set()),
         ("BashOutput", set()),
+        ("XBash", set()),
+        ("EditNotebook", set()),
+        ("ReadWrite", set()),
     ],
 )
 def test_matchers_route_each_tool_to_its_hooks(tool_name: str, expected: set[str]) -> None:
@@ -57,10 +69,23 @@ def test_matchers_route_each_tool_to_its_hooks(tool_name: str, expected: set[str
 def test_every_hook_command_points_at_an_existing_file() -> None:
     for entry in load()["hooks"]["PreToolUse"]:
         for hook in entry["hooks"]:
-            names = re.findall(r"\$CLAUDE_PROJECT_DIR/(\.claude/hooks/[\w.]+\.py)", hook["command"])
+            names = hook_paths(hook["command"])
             assert names, hook["command"]
             for name in names:
+                assert name in {f".claude/hooks/{GUARD}", f".claude/hooks/{NO_LINKS}"}, name
                 assert (REPO_ROOT / name).is_file(), name
+
+
+def test_hook_paths_reads_the_whole_argument() -> None:
+    """A suffixed name such as guard_paths.py.bak must not pass as guard_paths.py."""
+    command = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/guard_paths.py.bak"'
+    assert hook_paths(command) == [".claude/hooks/guard_paths.py.bak"]
+    assert not (REPO_ROOT / hook_paths(command)[0]).is_file()
+
+
+def test_matchers_are_anchored() -> None:
+    for entry in load()["hooks"]["PreToolUse"]:
+        assert entry["matcher"].startswith("^(") and entry["matcher"].endswith(")$"), entry["matcher"]
 
 
 def test_allow_list_holds_no_push_merge_tag_or_dangerous_git() -> None:
@@ -86,6 +111,8 @@ def test_mcp_comment_tools_are_denied_and_direct_writes_ask() -> None:
         assert f"mcp__github__{tool}" in perms["deny"], tool
         assert f"mcp__plugin_engineering_github__{tool}" in perms["deny"], tool
     assert "mcp__github__issue_write" in perms["ask"]
+    for tool in ("merge_pull_request", "enable_pr_auto_merge", "push_files", "create_or_update_file", "delete_file", "issue_write"):
+        assert f"mcp__plugin_engineering_github__{tool}" in perms["ask"], tool
     for tool in ("merge_pull_request", "enable_pr_auto_merge", "push_files", "create_or_update_file", "delete_file"):
         assert f"mcp__github__{tool}" in perms["ask"], tool
     # The documented flow overwrites a new PR body with update_pull_request: never gate it.
@@ -118,7 +145,9 @@ def test_no_deny_rule_catches_harmless_text_in_any_command() -> None:
     assert "Bash(* --real*)" in ask and "Bash(* --live*)" in ask
 
 
-@pytest.mark.parametrize("key", ["commit.gpgsign", "commit.gpgSign", "commit.GPGSIGN", "tag.gpgsign"])
+@pytest.mark.parametrize(
+    "key", ["commit.gpgsign", "commit.gpgSign", "commit.GPGSIGN", "tag.gpgsign", "tag.gpgSign", "tag.GPGSIGN"]
+)
 def test_signing_bypasses_are_denied(key: str) -> None:
     deny = load()["permissions"]["deny"]
     for rule in (f"Bash(git -c {key}=*)", f"Bash(git * -c {key}=*)", f"Bash(git config {key} *)", f"Bash(git config * {key} *)"):
@@ -132,6 +161,23 @@ def test_env_reads_are_denied_without_hiding_the_example() -> None:
         assert f"Read(./{name})" in deny and f"Read(./**/{name})" in deny, name
     # No negation (not supported) and no wildcard that would also deny .env.example.
     assert not [r for r in deny if "!" in r or ".env.*" in r or ".env*" in r]
+    # No exact deny of .env.example, at the root or nested.
+    assert not [r for r in deny if re.search(r"(^Read\(|/)\.env\.example\)$", r)]
+
+
+@pytest.mark.parametrize(
+    ("rule", "names_example"),
+    [
+        ("Read(./.env.example)", True),
+        ("Read(./**/.env.example)", True),
+        ("Read(./config/.env.example)", True),
+        ("Read(./.env)", False),
+        ("Read(./docs/env.example.md)", False),
+    ],
+)
+def test_env_example_check_is_exact(rule: str, names_example: bool) -> None:
+    """Positive and negative controls for the .env.example check above."""
+    assert bool(re.search(r"(^Read\(|/)\.env\.example\)$", rule)) is names_example
 
 
 def test_settings_is_the_file_claude_code_loads() -> None:

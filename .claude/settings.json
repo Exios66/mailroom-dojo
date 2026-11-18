@@ -36,7 +36,13 @@
       "mcp__github__delete_file",
       "Bash(* --real*)",
       "Bash(* --live*)",
-      "mcp__github__issue_write"
+      "mcp__github__issue_write",
+      "mcp__plugin_engineering_github__merge_pull_request",
+      "mcp__plugin_engineering_github__enable_pr_auto_merge",
+      "mcp__plugin_engineering_github__push_files",
+      "mcp__plugin_engineering_github__create_or_update_file",
+      "mcp__plugin_engineering_github__delete_file",
+      "mcp__plugin_engineering_github__issue_write"
     ],
     "deny": [
       "Read(./.env)",
@@ -92,6 +98,10 @@
       "Bash(git * -c tag.gpgSign=*)",
       "Bash(git config tag.gpgSign *)",
       "Bash(git config * tag.gpgSign *)",
+      "Bash(git -c tag.GPGSIGN=*)",
+      "Bash(git * -c tag.GPGSIGN=*)",
+      "Bash(git config tag.GPGSIGN *)",
+      "Bash(git config * tag.GPGSIGN *)",
       "Bash(gh pr comment:*)",
       "Bash(gh issue comment:*)",
       "Bash(gh pr review:*)",
@@ -122,7 +132,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|NotebookEdit|MultiEdit",
+        "matcher": "^(Edit|Write|NotebookEdit|MultiEdit)$",
         "hooks": [
           {
             "type": "command",
@@ -135,7 +145,7 @@
         ]
       },
       {
-        "matcher": "Bash|mcp__.*[Gg][Ii][Tt][Hh][Uu][Bb].*",
+        "matcher": "^(Bash|mcp__.*[Gg][Ii][Tt][Hh][Uu][Bb].*)$",
         "hooks": [
           {
             "type": "command",
