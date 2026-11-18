@@ -18,6 +18,7 @@ from desk_testkit import (
     policy,
     request,
     review_events,
+    seal_within,
     segment_files,
 )
 
@@ -240,7 +241,7 @@ def test_engine_review_event_counts_as_in_review(env: SimpleNamespace) -> None:
 
 def test_sealed_experiment_run_is_refused(env: SimpleNamespace) -> None:
     engine_append(env.root, "r1", "d1", "decision")
-    seal_run(env.log, "r1")
+    seal_within(env.log, "r1")
     before = segment_files(env.root)
     with pytest.raises(RunClosed) as info:
         env.desk.enqueue(request("d1", "flag_low"), env.policy)
@@ -257,7 +258,7 @@ def test_unsealed_experiment_and_sealed_service_runs_stay_open(tmp_path: Path) -
     make_run(tmp_path, "exp", "full_pipeline")
     log = log_of(tmp_path)
     engine_append(tmp_path, "svc", "d1")
-    seal_run(log, "svc")
+    seal_within(log, "svc")
     desk = Desk(tmp_path)
     pol = policy(sample={"rate": 0.0, "seed": ""})
     assert not desk.is_closed("svc") and not desk.is_closed("exp")
@@ -266,7 +267,7 @@ def test_unsealed_experiment_and_sealed_service_runs_stay_open(tmp_path: Path) -
     with seal_guard(tmp_path, "svc", timeout=1):
         assert Desk(tmp_path, lock_timeout=0.1).enqueue(request("d1", "flag_low", run_id="svc"), pol)
     assert desk.enqueue(request("d1", "flag_low", run_id="exp"), pol)
-    seal_run(log, "svc")
+    seal_within(log, "svc")
     assert verify_run(log, log.blobs, "svc").ok
 
 
@@ -286,7 +287,7 @@ def test_seal_cannot_land_between_the_closed_check_and_the_append(env: SimpleNam
         entered.wait(5)
         sealed.append(seal_run(env.log, "r1"))
 
-    t = threading.Thread(target=sealer)
+    t = threading.Thread(target=sealer, daemon=True)
     t.start()
     done = Desk(env.root, clock=clock).enqueue(request("d1", "flag_low"), env.policy)
     t.join(10)
@@ -303,7 +304,7 @@ def test_seal_guard_is_the_lock_seal_run_takes(env: SimpleNamespace) -> None:
     engine_append(env.root, "r1", "d1")
     done = threading.Event()
     with seal_guard(env.root, "r1", timeout=1):
-        t = threading.Thread(target=lambda: (seal_run(env.log, "r1"), done.set()))
+        t = threading.Thread(target=lambda: (seal_run(env.log, "r1"), done.set()), daemon=True)
         t.start()
         time.sleep(0.3)
         assert not done.is_set()
@@ -452,7 +453,7 @@ def test_threads_of_one_process_are_serialised(env: SimpleNamespace) -> None:
         with lock:
             outcomes.append(result)
 
-    threads = [threading.Thread(target=worker) for _ in range(6)]
+    threads = [threading.Thread(target=worker, daemon=True) for _ in range(6)]
     for t in threads:
         t.start()
     for t in threads:

@@ -125,6 +125,21 @@ def segment_files(root: Path, run_id: str = "r1") -> dict[str, bytes]:
     return {p.name: p.read_bytes() for p in sorted(d.glob("*.jsonl"))}
 
 
+def seal_within(log: EventLog, run_id: str, seconds: float = 30.0):
+    """``seal_run`` with a deadline. ``seal_run`` waits for the seal lock without a timeout,
+    so a lock the desk failed to release would hang the suite; here it fails the test."""
+    import threading
+
+    from mailroom_record.seal import seal_run
+
+    out: list = []
+    t = threading.Thread(target=lambda: out.append(seal_run(log, run_id)), daemon=True)
+    t.start()
+    t.join(seconds)
+    assert out, f"seal_run of {run_id!r} did not finish within {seconds} s (a seal lock is held)"
+    return out[0]
+
+
 class FakeClock:
     """An injectable desk clock that only moves when told to."""
 
@@ -160,7 +175,7 @@ def enqueue_in_child(root: str, run_id: str, doc_ids: list[str], barrier: Any, r
     """Wait at ``barrier``, then enqueue each document; put ``(doc_id, outcome)`` on ``results``."""
     from mailroom_desk import AlreadyInReview, Desk
 
-    desk = Desk(Path(root), clock=_SlowClock(pause), lock_timeout=60)
+    desk = Desk(Path(root), clock=_SlowClock(pause), lock_timeout=20)
     pol = policy(sample={"rate": 0.0, "seed": ""})
     barrier.wait()
     for doc_id in doc_ids:

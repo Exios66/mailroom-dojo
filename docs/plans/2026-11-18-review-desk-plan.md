@@ -132,7 +132,7 @@ failures (R8); `docs/test-strategy-desk.md` has the matrix.
 ## Follow-ups owned by other threads (not edited here)
 
 1. Engine: load nodes from the entry-point group `mailroom.nodes`; route on `Disposition`; wait, never write, while a document is in review; outage means wait.
-2. Record: a decision on whether `kind="review"` payload actions need a registered vocabulary; appending to a sealed run (the desk refuses it).
+2. Record: a decision on whether `kind="review"` payload actions need a registered vocabulary; appending to a sealed run (the desk refuses it). The record has no public "is this run closed" call or closing lock: the desk applies `verify`'s rule (an experiment run with a `seals/<n>.json`) and, for an experiment run, holds `runs/<run_id>/seals/.lock` (the lock `seal_run` takes) between its check and its append; a test pins that layout. A public API would remove the coupling.
 3. Labels: an explicit reviewer id field (today `reviewer` is exactly `{model, role}`, so the desk uses `role="desk:<id>"`); a class layer for human class decisions.
 4. Shared tooling: add `mailroom_desk` to the `WORKSPACE` tuple of the record and labels boundary tests and the dependency rule line in `README.md` and spec R9; add the desk tests to the root `pyproject.toml` `testpaths` and `.circleci/config.yml` (this PR makes the minimal edits it needs and says so).
 5. Launcher: the TUI technology decision (mailroom-reloaded has a browser terminal, not a terminal TUI); Compose service for `mailroom-desk serve` sharing the record volume.

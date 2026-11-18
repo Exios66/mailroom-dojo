@@ -19,8 +19,7 @@ Date: 2026-11-18. Stopped early on JJB's request to save usage.
 | Item | State |
 |---|---|
 | D0 plan, ADR-0007, README layout line | Done, committed |
-| D1 source: `packages/desk/src/mailroom_desk/` (models, policy, reviewers, lock, fold, desk, errors, _yaml), `config/review/default.yaml`, `config/review/reviewers.yaml` | Written by an Opus implementer that was **stopped mid-run**. Committed as WIP. Compiles (`compileall` exit 0). **No tests exist yet, nothing has been reviewed, nothing has been run beyond compile.** Treat it as a draft. |
-| `packages/desk/tests/`, `docs/test-strategy-desk.md`, boundary test, root `pyproject.toml` testpaths and `.circleci/config.yml` lines for desk | Not written |
+| D1: `packages/desk/src/mailroom_desk/` (models, policy, reviewers, lock, fold, desk, errors, _yaml), `config/review/`, `packages/desk/tests/` (268 tests), `docs/test-strategy-desk.md`, root `pyproject.toml` testpaths, CircleCI and README lines | Finished by a second implementer, with a mutation pass; awaiting a separate review |
 | D2-D5 | Not started |
 | D6 web desk UI, D7 Textual TUI | Next chunk, not started |
 
