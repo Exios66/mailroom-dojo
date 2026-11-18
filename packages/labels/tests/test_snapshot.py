@@ -395,3 +395,12 @@ def test_a_snapshot_id_with_a_trailing_newline_is_refused(tmp_path: Path) -> Non
     with pytest.raises(ManifestMismatch) as info:
         load_snapshot(d)
     assert info.value.kind == "manifest_invalid"
+
+
+def test_a_listed_file_replaced_by_a_dangling_symlink_is_missing(tmp_path: Path) -> None:
+    d = make_snapshot(tmp_path, "near_gold", [near_gold_row("D1", {"sender": "Ann"})], snapshot_id="ng-a")
+    (d / "rows.jsonl").unlink()
+    (d / "rows.jsonl").symlink_to(tmp_path / "nowhere.jsonl")
+    with pytest.raises(ManifestMismatch) as info:
+        load_snapshot(d)
+    assert info.value.kind == "missing"

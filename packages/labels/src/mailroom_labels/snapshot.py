@@ -322,7 +322,10 @@ def load_snapshot(directory: Path | str) -> LabelSnapshot:
         raise ManifestMismatch("extra", directory / stray[0], f"{len(stray)} unlisted directory(ies)")
     for entry in manifest.files:
         path = directory / entry.path
-        size = path.stat().st_size
+        try:
+            size = path.stat().st_size  # follows a symlink: a dangling one is a missing file
+        except OSError as exc:
+            raise ManifestMismatch("missing", path, f"cannot read: {exc.__class__.__name__}") from exc
         if size < entry.bytes:
             raise ManifestMismatch("truncated", path, f"{size} bytes, manifest says {entry.bytes}")
         if size > entry.bytes:
