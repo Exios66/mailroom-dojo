@@ -71,14 +71,22 @@ that has no newline yet, so a writer appending meanwhile can never hand it half 
 (the rest of a line it saw the start of). Memory is bounded by the longest line plus, for
 the ordered readers, a few machine words per event; never by the size of the run.
 
+Streaming means a strict reader can fail part way. ``iter_stored`` yields the lines before a
+corrupt one and then raises ``CorruptLine``; ``iter_events`` (pass two) yields the valid
+events before an invalid one and then raises its validation error. A caller that commits
+something derived from what it read (``seal_run``, an export) must therefore read
+everything first (``list(...)``) and act only once the read has finished, never while it is
+still yielding.
+
 Ordering contract. ``iter_stored``, ``iter_raw`` and the head readers go in segment-name
 order, then file order. ``iter_events`` (and ``scan(...).events()``) yield grouped by
 document in ``doc_id`` order, each document by ``seq``; two stored events with one
 ``(doc_id, seq)`` (a fork) both come back, in segment-name then file order. A segment is
 not sorted by document, so this order cannot be a streaming merge: ``scan`` makes two
 passes. Pass one streams every segment and keeps only ``(seq, segment, offset, length)``
-per event, packed in one ``array`` per document; pass two seeks to each line in order and
-parses it. Pass one parses every line, so a corrupt line raises ``CorruptLine`` before the
+per event, packed in one ``array`` per document (32 bytes per event); pass two walks each
+document's rows in order without copying them (they are a few ascending runs, one per
+hand-over, merged lazily; ``RunScan._ordered``), seeks to each line and parses it. Pass one parses every line, so a corrupt line raises ``CorruptLine`` before the
 first event is yielded; an event that fails validation raises when pass two reaches it.
 The tolerant mode (``strict=False``, for the index) records such lines as ``BadLine`` and
 skips them instead. ``spans`` limits a scan to byte ranges of named segments (the index's
@@ -95,13 +103,14 @@ from __future__ import annotations
 
 import copy
 import errno
-from array import array
 import fcntl
+import heapq
 import json
 import os
 import re
 import threading
 import weakref
+from array import array
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -128,6 +137,10 @@ __all__ = [
     "TornTail",
     "WriterInUse",
 ]
+
+# Above this many ascending runs in one document's rows (a damaged log), pass two sorts a
+# copy instead of merging the runs lazily (RunScan._ordered).
+_MAX_RUNS = 1024
 
 # A writer id names a file: letters, digits, "_" and "-" only (no dots: "<id>.<k>.jsonl"
 # names a writer's later segments).
@@ -394,19 +407,78 @@ class RunScan:
 
     def seqs(self, doc_id: str) -> list[int]:
         """Every stored ``seq`` of ``doc_id`` in this scan, sorted (a fork repeats one)."""
-        arr = self._docs.get(doc_id, array("q"))
-        return sorted(arr[0::4])
+        return [row[0] for row in self._ordered(doc_id)]
 
     def gaps(self) -> dict[str, int]:
-        """``doc_id -> first missing seq`` for each document whose seqs skip a number."""
+        """``doc_id -> first missing seq`` for each document whose seqs skip a number.
+
+        Walks each document's rows in order (``_ordered``): no list, set or ``range(max)``.
+        """
         out: dict[str, int] = {}
         for doc in self.doc_ids():
             expect = 0
-            for seq in sorted(set(self.seqs(doc))):  # walk the stored seqs, never range(max)
-                if seq != expect:
+            for seq, *_ in self._ordered(doc):
+                if seq > expect:
                     out[doc] = expect
                     break
-                expect += 1
+                expect = max(expect, seq + 1)
+        return out
+
+    def _ordered(self, doc_id: str) -> Iterator[tuple[int, int, int, int]]:
+        """``doc_id``'s rows ``(seq, segment, offset, length)`` in ``(seq, segment, offset)`` order.
+
+        Pass one appends rows in segment then file order, and an owner writes a document's
+        events in ``seq`` order, so the rows are a few ascending runs (one per hand-over
+        between segments). Those runs are merged lazily: memory is one small iterator per
+        run, not a copy of the rows. Only a damaged log (forks, lines out of order) with
+        more than ``_MAX_RUNS`` runs is sorted as a copy (a few hundred bytes per event).
+        """
+        arr = self._docs.get(doc_id)
+        if arr is None:
+            return iter(())
+        n = len(arr) // 4
+        starts = [0]
+        for i in range(1, n):
+            j = 4 * i
+            if (arr[j], arr[j + 1], arr[j + 2]) < (arr[j - 4], arr[j - 3], arr[j - 2]):
+                starts.append(i)
+                if len(starts) > _MAX_RUNS:
+                    return iter(sorted(tuple(arr[k : k + 4]) for k in range(0, len(arr), 4)))  # type: ignore[misc]
+
+        def run(a: int, b: int) -> Iterator[tuple[int, int, int, int]]:
+            for i in range(a, b):
+                j = 4 * i
+                yield arr[j], arr[j + 1], arr[j + 2], arr[j + 3]
+
+        bounds = list(zip(starts, starts[1:] + [n]))
+        if len(bounds) == 1:
+            return run(0, n)
+        return heapq.merge(*(run(a, b) for a, b in bounds))
+
+    def stored_hashes(self, doc_id: str, seq: int) -> list[str | None]:
+        """The stored ``hash`` of each line this scan holds for ``(doc_id, seq)`` (a fork has two).
+
+        Reads only those lines; a line that no longer parses, or no longer names
+        ``(doc_id, seq)``, gives ``None``.
+        """
+        arr = self._docs.get(doc_id)
+        out: list[str | None] = []
+        if arr is None:
+            return out
+        for j in range(0, len(arr), 4):
+            if arr[j] != seq:
+                continue
+            path, offset, length = self.segments[arr[j + 1]], arr[j + 2], arr[j + 3]
+            with path.open("rb") as f:
+                f.seek(offset)
+                data = f.read(length)
+            try:
+                raw = _parse_line(path.name, offset, data[:-1]) if data.endswith(b"\n") else None
+            except CorruptLine:
+                raw = None
+            ok = raw is not None and raw.get("doc_id") == doc_id and raw.get("seq") == seq
+            h = raw.get("hash") if ok and raw is not None else None
+            out.append(h if isinstance(h, str) else None)
         return out
 
     def __len__(self) -> int:
@@ -417,9 +489,7 @@ class RunScan:
         files: dict[int, Any] = {}
         try:
             for doc in self.doc_ids():
-                arr = self._docs[doc]
-                rows = sorted(tuple(arr[i : i + 4]) for i in range(0, len(arr), 4))
-                for seq, seg_idx, offset, length in rows:
+                for seq, seg_idx, offset, length in self._ordered(doc):
                     path = self.segments[seg_idx]
                     f = files.get(seg_idx)
                     if f is None:

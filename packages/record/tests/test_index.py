@@ -697,3 +697,134 @@ def test_no_table_holds_document_text_payloads_or_causes(store: SimpleNamespace,
         for row in con.execute(f"SELECT * FROM {table}"):
             assert SENTINEL not in json.dumps(row), table
     con.close()
+
+
+# --- fix pass 2: per-document reads are never silent (Task 8 review MAJOR 2, 3) ---------
+
+
+def _both(store: SimpleNamespace, idx: Index, doc: str) -> tuple[Any, Any]:
+    """What the log and the index give for ``doc``: the (seq, hash) list, or the error type."""
+    out = []
+    for read in (lambda: store.log.iter_events("r1", doc), lambda: idx.iter_events(store.log, "r1", doc)):
+        try:
+            out.append([(e.seq, e.hash) for e in read()])
+        except Exception as exc:  # noqa: BLE001 - the error type is the observable
+            out.append(type(exc).__name__)
+    return out[0], out[1]
+
+
+@pytest.mark.parametrize("where", ["first", "last", "middle"])
+def test_an_invalid_line_of_the_document_is_never_dropped_by_the_index(store: SimpleNamespace, tmp_path: Path, where: str) -> None:
+    # d1's line at one end (or in the middle) of its run of lines is valid JSON with doc_id
+    # and seq but an invalid field. The rebuild cannot say whose it is, so it is in no
+    # span; the index read must not quietly return d1 without it.
+    c = chain("d1", 3)
+    bad = c[{"first": 0, "last": 2, "middle": 1}[where]].model_dump(mode="json")
+    bad["kind"] = 12345
+    lines: list[Any] = [*c]
+    lines[{"first": 0, "last": 2, "middle": 1}[where]] = bad
+    write_lines(store.root, "w0.jsonl", chain("d0", 2) + lines + chain("d2", 2))
+    idx = built(store, tmp_path / "i.sqlite")
+    assert "invalid_event" in [p.kind for p in idx.problems()]  # plus a seq_gap when it is not the last
+    log_says, index_says = _both(store, idx, "d1")
+    assert log_says == index_says == "ValidationError"
+    # Documents without the bad line still read, and equal the log, through the index.
+    for doc in ("d0", "d2"):
+        assert _both(store, idx, doc)[1] == [(e.seq, e.hash) for e in store.log.iter_events("r1", doc)]
+
+
+@pytest.mark.parametrize(
+    "rewrite",
+    [
+        "reordered_same_size",
+        "moved_earlier_and_grown",
+        "middle_swapped_edges_kept",
+        "replaced_by_other_run_copy",
+        "new_document_inside_indexed_bytes",
+    ],
+)
+def test_a_segment_rewritten_under_the_index_is_read_from_the_log(store: SimpleNamespace, tmp_path: Path, rewrite: str) -> None:
+    pad = {"pad": "p" * 600}  # lines of a few hundred bytes, so 4 KiB edges hold several
+    a, b = chain("d1", 3, payload=pad), chain("d2", 3, payload=pad)
+    filler = chain("f", 12, payload=pad)
+    seg = store.root / "runs/r1/segments/w0.jsonl"
+    if rewrite == "middle_swapped_edges_kept":
+        first = filler[:6]
+        last = filler[6:]
+        write_lines(store.root, "w0.jsonl", first + a + b + last)
+    elif rewrite == "moved_earlier_and_grown":
+        write_lines(store.root, "w0.jsonl", b + a)
+    else:
+        write_lines(store.root, "w0.jsonl", a + b)
+    idx = built(store, tmp_path / "i.sqlite")
+    assert _both(store, idx, "d1")[1] == [(e.seq, e.hash) for e in a]
+    seg.unlink()
+    if rewrite == "reordered_same_size":
+        write_lines(store.root, "w0.jsonl", b + a)  # same bytes, d1 now after d2
+    elif rewrite == "moved_earlier_and_grown":
+        write_lines(store.root, "w0.jsonl", a + b + chain("d3", 1))
+    elif rewrite == "middle_swapped_edges_kept":
+        write_lines(store.root, "w0.jsonl", first + b + a + last)  # first and last 4 KiB unchanged
+    elif rewrite == "replaced_by_other_run_copy":  # same layout, other hashes (another history restored)
+        write_lines(store.root, "w0.jsonl", chain("d1", 3, payload=pad, agent="other") + b)
+    else:  # d5, unknown to the index (no head to check), now has lines inside the indexed bytes
+        write_lines(store.root, "w0.jsonl", chain("d5", 3, payload=pad) + a + b)
+    doc = "d5" if rewrite == "new_document_inside_indexed_bytes" else "d1"
+    log_says, index_says = _both(store, idx, doc)
+    assert index_says == log_says and isinstance(log_says, list) and len(log_says) == 3
+
+
+def test_the_head_check_alone_catches_moved_lines(store: SimpleNamespace, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # With the fingerprint check disabled, a rewrite that keeps the fingerprint is still
+    # caught because the recorded ranges no longer hold d1's indexed chain.
+    from mailroom_record import index as index_module
+
+    a, b = chain("d1", 3), chain("d2", 3)
+    seg = write_lines(store.root, "w0.jsonl", a + b)
+    idx = built(store, tmp_path / "i.sqlite")
+    seg.unlink()
+    write_lines(store.root, "w0.jsonl", b + a)
+    monkeypatch.setattr(index_module, "_fingerprint", lambda path, upto: "same")
+    with sqlite3.connect(tmp_path / "i.sqlite") as con:
+        con.execute("UPDATE segments SET fingerprint = 'same'")
+    log_says, index_says = _both(store, idx, "d1")
+    assert index_says == log_says == [(e.seq, e.hash) for e in a]
+
+
+# --- fix pass 2: a busy index is a typed, retryable error (Task 8 review MINOR 4) --------
+
+
+def test_apply_locked_out_by_a_long_rebuild_is_index_unavailable_busy(store_with_events: SimpleNamespace, tmp_path: Path) -> None:
+    store = store_with_events
+    path = tmp_path / "i.sqlite"
+    built(store, path)
+    idx = Index(path, busy_timeout=0.2)
+    e = append(store, doc_id="d3", node="n", kind="decision")
+    hold = sqlite3.connect(path, isolation_level=None)
+    hold.execute("BEGIN IMMEDIATE")  # stands in for a rebuild's write transaction
+    try:
+        with pytest.raises(IndexUnavailable) as caught:
+            idx.apply(e)
+        assert caught.value.status == "busy" and "retry" in str(caught.value)
+        assert [d.doc_id for d in idx.documents("r1")] == ["d1", "d2"]  # readers do not wait
+    finally:
+        hold.execute("ROLLBACK")
+        hold.close()
+    idx.apply(e)  # the retry succeeds and nothing was half-applied
+    assert idx.drift(store.log) == []
+
+
+# --- fix pass 2: the review rule for a document that opens with a review (MINOR 8) -------
+
+
+def test_a_document_whose_first_event_is_a_review_is_in_the_queue(store: SimpleNamespace, tmp_path: Path) -> None:
+    idx = built(store, tmp_path / "i.sqlite")
+    idx.add_run(store.run)
+    first = append(store, doc_id="d9", node="triage", kind="review")
+    assert first.seq == 0
+    idx.apply(first)
+    assert [(d.doc_id, d.events, d.in_review) for d in idx.review_queue("r1")] == [("d9", 1, True)]
+    rebuilt = built(store, tmp_path / "j.sqlite")
+    assert [d.doc_id for d in rebuilt.review_queue("r1")] == ["d9"]
+    idx.apply(append(store, doc_id="d9", node="triage", kind="decision"))
+    assert idx.review_queue("r1") == [] and idx.drift(store.log) == []

@@ -16,15 +16,21 @@ not SQLite, damaged (``PRAGMA quick_check`` fails or SQLite reports corruption),
 rebuilds it from the log. Each ``Index`` object runs ``quick_check`` before a query or
 ``apply`` whenever the file (or its ``-wal``) changed since that object last checked or
 wrote it, so a page damaged by anything but SQLite is caught even when the query would
-not touch it; damage SQLite itself trips over is reported the same way. A file SQLite cannot read is deleted (with its ``-wal`` and
-``-shm``) and recreated; a readable one is rebuilt in place.
+not touch it; damage SQLite itself trips over is reported the same way. ``quick_check``
+checks SQLite's own structure only: an index that is well-formed SQLite but holds wrong
+rows (edited by hand, or left behind by a bug) passes it; ``drift(log)`` finds that, by
+comparing every table with a fresh rebuild. A file SQLite cannot read is deleted (with its
+``-wal`` and ``-shm``) and recreated; a readable one is rebuilt in place.
 
 No half-built index is ever visible. A rebuild is one write transaction: drop every table,
 create the current schema, fill it, write ``meta``, commit. WAL readers keep seeing the
 previous committed index until the commit; a crash or kill at any point before it (an
 exception, a full disk, ``SIGKILL``) rolls back to the previous index, or, if there was
 none, to an empty file whose status is ``missing``. ``apply`` calls wait for a running
-rebuild (SQLite's busy timeout, ``busy_timeout`` seconds) and then apply on the new index.
+rebuild (SQLite's busy timeout, ``busy_timeout`` seconds) and then apply on the new index;
+one that is still locked out after ``busy_timeout`` raises ``IndexUnavailable`` with status
+``busy`` (nothing applied; retry), never a raw ``sqlite3.OperationalError``. Queries do not
+wait: WAL readers keep reading the last committed index during a rebuild.
 The file is never renamed into place: renaming a WAL database under live connections can
 pair it with another file's ``-wal``.
 
@@ -40,8 +46,10 @@ Tables (no table holds document text, payloads, decisions or causes)
   and ``ts``.
 - ``problems``: what the last rebuild skipped or stopped at (kinds below).
 - ``segments`` and ``doc_spans``: where the last rebuild found each document's lines
-  (byte ranges per segment) and how far it read each segment. Only ``reindex`` writes them;
-  they let ``iter_events`` read one document without scanning the run.
+  (byte ranges per segment), how far it read each segment and a fingerprint of the bytes
+  it read. Only ``reindex`` writes them; they let ``iter_events`` read one document without
+  scanning the run, and let it notice when they no longer describe the log (see
+  ``Index.iter_events`` for when it reads the whole run instead).
 
 The review rule (domain-free, R4)
 ---------------------------------
@@ -94,6 +102,7 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import hashlib
 import os
 import sqlite3
 import urllib.parse
@@ -117,7 +126,7 @@ __all__ = [
     "RunRow",
 ]
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2: segments.fingerprint (the read path checks a segment is the one indexed)
 
 _DDL = (
     "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
@@ -133,7 +142,7 @@ _DDL = (
     "CREATE TABLE problems (run_id TEXT NOT NULL, doc_id TEXT, segment TEXT, byte_offset INTEGER, "
     "kind TEXT NOT NULL, detail TEXT NOT NULL)",
     "CREATE TABLE segments (run_id TEXT NOT NULL, segment TEXT NOT NULL, indexed_bytes INTEGER NOT NULL, "
-    "PRIMARY KEY (run_id, segment))",
+    "fingerprint TEXT NOT NULL, PRIMARY KEY (run_id, segment))",
     "CREATE TABLE doc_spans (run_id TEXT NOT NULL, doc_id TEXT NOT NULL, segment TEXT NOT NULL, "
     "first_offset INTEGER NOT NULL, end_offset INTEGER NOT NULL, PRIMARY KEY (run_id, doc_id, segment))",
 )
@@ -142,17 +151,26 @@ _DDL = (
 # access path that only a rebuild fills, so they are left out of equality checks.
 _DUMP_TABLES = ("runs", "documents", "chain_heads", "doc_runs", "review_queue", "problems")
 _CORRUPT_ERRORS = {"SQLITE_CORRUPT", "SQLITE_NOTADB"}
+_BUSY_ERRORS = {"SQLITE_BUSY", "SQLITE_LOCKED"}
 _SCAN_TRIES = 3
+_FINGERPRINT_BYTES = 4096
+# Problems that mean a line the rebuild could not attribute to a document: the read path
+# then reads the whole run, so the strict reader meets the line and raises.
+_UNATTRIBUTED = ("corrupt_line", "invalid_event")
 
 
 class IndexUnavailable(RuntimeError):
-    """The index file is not a complete, current index: rebuild it with ``reindex``.
+    """The index cannot answer now.
 
-    ``status`` is ``missing``, ``corrupt``, ``old_version`` or ``incomplete``.
+    ``status`` is ``missing``, ``corrupt``, ``old_version`` or ``incomplete`` (not a
+    complete, current index: rebuild it with ``reindex``), or ``busy`` (another connection,
+    usually a rebuild, held the write lock longer than ``busy_timeout``: retry; the index
+    itself is fine).
     """
 
     def __init__(self, path: Path, status: str, detail: str = "") -> None:
-        super().__init__(f"index {path} is {status}{': ' + detail if detail else ''}; run reindex")
+        advice = "retry" if status == "busy" else "run reindex"
+        super().__init__(f"index {path} is {status}{': ' + detail if detail else ''}; {advice}")
         self.path = path
         self.status = status
 
@@ -296,8 +314,11 @@ class Index:
         return con
 
     def _translate(self, exc: sqlite3.Error) -> Exception:
-        if getattr(exc, "sqlite_errorname", None) in _CORRUPT_ERRORS:
-            return IndexUnavailable(self.path, "corrupt", getattr(exc, "sqlite_errorname", ""))
+        name = getattr(exc, "sqlite_errorname", None)
+        if name in _CORRUPT_ERRORS:
+            return IndexUnavailable(self.path, "corrupt", name or "")
+        if name in _BUSY_ERRORS:
+            return IndexUnavailable(self.path, "busy", f"{name} after waiting {self.busy_timeout:g}s")
         return exc
 
     def _check_ready(self, con: sqlite3.Connection) -> None:
@@ -337,7 +358,7 @@ class Index:
     # --- status and rebuild ---------------------------------------------------------
 
     def status(self) -> str:
-        """``ready``, ``missing``, ``corrupt``, ``old_version`` or ``incomplete``. Never raises."""
+        """``ready``, ``missing``, ``corrupt``, ``old_version``, ``incomplete`` or ``busy``. Never raises."""
         if not self.path.exists():
             return "missing"
         try:
@@ -355,8 +376,8 @@ class Index:
         except IndexUnavailable as exc:
             return exc.status
         except sqlite3.Error as exc:
-            if getattr(exc, "sqlite_errorname", None) == "SQLITE_BUSY":
-                raise
+            if getattr(exc, "sqlite_errorname", None) in _BUSY_ERRORS:
+                return "busy"
             return "corrupt"
         finally:
             con.close()
@@ -531,17 +552,32 @@ class Index:
 
         Reads the byte ranges the last rebuild found for the document, plus every byte the
         rebuild did not see (each segment past ``indexed_bytes``, and new segments), so the
-        result is always the log's, however far the index lags. Falls back to a full scan
-        when the index is unavailable or the segments no longer match it (a segment gone or
-        shorter, or a line not where the index says). Corruption in other documents' lines
-        outside those ranges is not seen here; ``verify_run`` reports it.
+        result is always the log's, however far the index lags. It falls back to the full
+        read (``log.iter_events``) whenever the index cannot vouch for those ranges:
+
+        - the index is unavailable, or does not know the run;
+        - the last rebuild recorded a ``corrupt_line`` or ``invalid_event`` in the run (a bad
+          line names no document the index can trust, so it may be this one's: the full
+          read meets it and raises, as the log's own reader does, never skipping it);
+        - a segment the index read is gone, shorter, or not the file it read (its
+          fingerprint, a hash of its first and last ``4096`` indexed bytes, changed);
+        - the ranges read do not hold the document's indexed chain: every ``seq`` from 0 to
+          the indexed head, with the head's hash at the head (a segment rewritten in place
+          with its edges kept, lines moved out of the recorded ranges);
+        - a strict read of the ranges raises (a line damaged since the rebuild).
+
+        Corruption that appears after the rebuild in another document's lines outside those
+        ranges is not seen here (the full read would raise on it); ``verify_run`` reports it.
         """
-        spans = self._spans_for(log, run_id, doc_id)
+        found = self._spans_for(log, run_id, doc_id)
         scan: RunScan | None = None
-        if spans is not None:
+        if found is not None:
+            spans, head = found
             try:
                 scan = log.scan(run_id, doc_id, spans=spans)
-            except (CorruptLine, ValueError):
+                if head is not None and not _holds_head(scan, doc_id, head):
+                    scan = None
+            except (CorruptLine, ValueError, OSError):
                 scan = None
         if scan is None:
             yield from log.iter_events(run_id, doc_id)
@@ -549,38 +585,89 @@ class Index:
         for located in scan.events():
             yield located.event
 
-    def _spans_for(self, log: EventLog, run_id: str, doc_id: str) -> dict[str, list[tuple[int, int | None]]] | None:
+    def _spans_for(
+        self, log: EventLog, run_id: str, doc_id: str
+    ) -> tuple[dict[str, list[tuple[int, int | None]]], tuple[int, str] | None] | None:
+        """The ranges to read for ``doc_id`` and its indexed head, or ``None`` to read the whole run."""
         try:
             with self._txn(write=False) as con:
                 if con.execute("SELECT 1 FROM runs WHERE run_id = ?", (run_id,)).fetchone() is None:
                     return None
-                known = dict(con.execute("SELECT segment, indexed_bytes FROM segments WHERE run_id = ?", (run_id,)))
+                bad = con.execute(
+                    f"SELECT 1 FROM problems WHERE run_id = ? AND kind IN ({', '.join('?' * len(_UNATTRIBUTED))}) LIMIT 1",
+                    (run_id, *_UNATTRIBUTED),
+                ).fetchone()
+                if bad is not None:
+                    return None
+                known = {
+                    seg: (size, fp)
+                    for seg, size, fp in con.execute(
+                        "SELECT segment, indexed_bytes, fingerprint FROM segments WHERE run_id = ?", (run_id,)
+                    )
+                }
                 ranges = con.execute(
                     "SELECT segment, first_offset, end_offset FROM doc_spans WHERE run_id = ? AND doc_id = ?",
                     (run_id, doc_id),
                 ).fetchall()
+                row = con.execute(
+                    "SELECT seq, hash FROM chain_heads WHERE run_id = ? AND doc_id = ?", (run_id, doc_id)
+                ).fetchone()
         except IndexUnavailable:
             return None
         on_disk = {p.name: p for p in log.segment_paths(run_id)}
         if set(known) - set(on_disk):
             return None
         spans: dict[str, list[tuple[int, int | None]]] = {}
-        for name, path in on_disk.items():
-            if name not in known:
-                spans[name] = [(0, None)]
-                continue
-            size = path.stat().st_size
-            if size < known[name]:
-                return None
-            mine: list[tuple[int, int | None]] = [(a, b) for seg, a, b in ranges if seg == name]
-            if size > known[name]:
-                mine.append((known[name], None))
-            if mine:
-                spans[name] = mine
-        return spans
+        try:
+            for name, path in on_disk.items():
+                if name not in known:
+                    spans[name] = [(0, None)]
+                    continue
+                indexed, fingerprint = known[name]
+                size = path.stat().st_size
+                if size < indexed or _fingerprint(path, indexed) != fingerprint:
+                    return None
+                mine: list[tuple[int, int | None]] = [(a, b) for seg, a, b in ranges if seg == name]
+                if size > indexed:
+                    mine.append((indexed, None))
+                if mine:
+                    spans[name] = mine
+        except OSError:  # a segment vanished or cannot be read: let the full read report it
+            return None
+        return spans, (None if row is None else (row[0], row[1]))
 
 
 # --- building ---------------------------------------------------------------------
+
+
+def _fingerprint(path: Path, upto: int) -> str:
+    """A hash of the first and last ``_FINGERPRINT_BYTES`` of ``path``'s first ``upto`` bytes.
+
+    Segments are append-only, so these bytes never change while the file is the one the
+    index read; a segment rewritten, replaced or restored from elsewhere almost always
+    changes them. Reads at most ``2 * _FINGERPRINT_BYTES``.
+    """
+    digest = hashlib.sha256(str(upto).encode())
+    with path.open("rb") as f:
+        digest.update(f.read(min(upto, _FINGERPRINT_BYTES)))
+        tail = max(_FINGERPRINT_BYTES, upto - _FINGERPRINT_BYTES)
+        if tail < upto:
+            f.seek(tail)
+            digest.update(f.read(upto - tail))
+    return digest.hexdigest()
+
+
+def _holds_head(scan: RunScan, doc_id: str, head: tuple[int, str]) -> bool:
+    """Whether ``scan`` holds every ``seq`` 0..head of ``doc_id`` and the head's hash at the head."""
+    seq, h = head
+    expect = 0
+    for s, *_ in scan._ordered(doc_id):
+        if s > expect or expect > seq:
+            break
+        expect = max(expect, s + 1)
+    if expect <= seq:
+        return False
+    return h in scan.stored_hashes(doc_id, seq)
 
 
 def _dump(con: sqlite3.Connection) -> dict[str, list[tuple[Any, ...]]]:
@@ -669,7 +756,11 @@ def _build(con: sqlite3.Connection, log: EventLog) -> IndexStats:
         n_docs += len(heads)
         n_events += sum(h.seq + 1 for h in heads.values())
         con.executemany(
-            "INSERT INTO segments VALUES (?, ?, ?)", [(run_id, p.name, scan.ends.get(p.name, 0)) for p in scan.segments]
+            "INSERT INTO segments VALUES (?, ?, ?, ?)",
+            [
+                (run_id, p.name, scan.ends.get(p.name, 0), _fingerprint(p, scan.ends.get(p.name, 0)))
+                for p in scan.segments
+            ],
         )
         con.executemany(
             "INSERT INTO doc_spans VALUES (?, ?, ?, ?, ?)",
