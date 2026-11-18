@@ -26,7 +26,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from mailroom_labels.importers.common import ImportRefused, builder_name, file_sha256, read_jsonl_lenient
+from mailroom_labels.importers.common import ImportRefused, builder_name, file_sha256, read_jsonl_lenient, refuse_dropped
 from mailroom_labels.layers import CURRENT_LAYER_SCHEMA
 from mailroom_labels.models import SnapshotManifest
 from mailroom_labels.snapshot import write_snapshot
@@ -60,6 +60,7 @@ def build_overlay(
     command: str,
     snapshot_id: str | None = None,
     known_warnings: Sequence[Mapping[str, str | None]] = (),
+    allow_rejected: bool = False,
 ) -> SnapshotManifest:
     """Write an ``interim`` or ``near_gold`` snapshot from a sandbox overlay directory.
 
@@ -73,7 +74,7 @@ def build_overlay(
     if not man_path.is_file():
         raise ImportRefused(f"no {_MANIFEST} in {source_dir}")
     try:
-        man = json.loads(man_path.read_text(encoding="utf-8"))
+        man = json.loads(man_path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as exc:
         raise ImportRefused(f"{_MANIFEST} is not JSON: {exc}") from exc
     if not isinstance(man, dict) or man.get("schema") != OVERLAY_SCHEMA:
@@ -105,6 +106,7 @@ def build_overlay(
             for label in (labels.values() if isinstance(labels, dict) else ()):
                 counts[name[: -len(".jsonl")]][_status_key(label)] += 1
 
+    refuse_dropped({"rejected_lines": rejected}, allow=allow_rejected)
     source = {
         "repository": repository,
         "commit": commit,

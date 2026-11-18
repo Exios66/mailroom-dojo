@@ -70,9 +70,9 @@ GT_TEST = [
 TEXT = {f"{d}.txt": f"text-{d}" for d in ("D1", "D2", "F1", "D3")}
 
 
-def write_dataset(root: Path, *, tamper: str | None = None, unlisted: bool = False) -> Path:
+def write_dataset(root: Path, *, tamper: str | None = None, unlisted: bool = False, extra: list | None = None) -> Path:
     files: dict[str, bytes] = {}
-    for config, split, rows in (("ground_truth", "train", GT_TRAIN), ("ground_truth", "test", GT_TEST),
+    for config, split, rows in (("ground_truth", "train", GT_TRAIN + list(extra or ())), ("ground_truth", "test", GT_TEST),
                                 ("default", "train", [{"filename": f, "doc_text": t} for f, t in TEXT.items()
                                                       if f.startswith(("D1", "D2"))]),
                                 ("default", "test", [{"filename": f, "doc_text": t} for f, t in TEXT.items()
@@ -93,9 +93,9 @@ def write_dataset(root: Path, *, tamper: str | None = None, unlisted: bool = Fal
     return root
 
 
-def hub_build(out: Path, data: Path, *, default: bool = True):
+def hub_build(out: Path, data: Path, *, default: bool = True, **kw):
     return build_hub(out, dataset_dir=data, profile=profile(), profile_sha256=sha(PROFILE_PATH.read_bytes()),
-                     repository="example/synthetic", revision="0" * 40, default_dir=data if default else None)
+                     repository="example/synthetic", revision="0" * 40, default_dir=data if default else None, **kw)
 
 
 def hub_rows(directory: Path) -> dict[str, dict]:
@@ -202,7 +202,10 @@ def test_interim_rows_are_copied_unchanged_and_bad_lines_listed(tmp_path: Path) 
     stale = interim_row("D2", {"sender": ("gap_fill", "Bo")}, sha="0" * 16)
     no_labels = {k: v for k, v in interim_row("D3", {}).items() if k != "labels"}
     src = write_overlay(tmp_path / "src", {"letter.jsonl": jsonl(good, b"{not json", stale, no_labels, b"[1]")})
-    manifest = overlay(tmp_path / "interim-x", src)
+    with pytest.raises(ImportRefused, match="rejected_lines 2"):
+        overlay(tmp_path / "interim-x", src)
+    assert not (tmp_path / "interim-x").exists()  # refused: nothing written
+    manifest = overlay(tmp_path / "interim-x", src, allow_rejected=True)
     rows = [r.data for r in load_snapshot(tmp_path / "interim-x").rows()]
     assert rows[0] == good  # unchanged, disputed included
     assert [r["doc_id"] for r in rows] == ["D1", "D2", "D3"]
@@ -283,19 +286,19 @@ def desk(doc: str, field: str, value: Any, decision_: str = "correct", at: str |
             "reviewed_at": at, "source": "review_desk"}
 
 
-def review(tmp_path: Path, decisions: list, desks: list, name: str = "gold-review-x"):
+def review(tmp_path: Path, decisions: list, desks: list, name: str = "gold-review-x", *, bom: bool = False, **kw):
     dpath, kpath = tmp_path / "decisions.jsonl", tmp_path / "desk.jsonl"
     dpath.write_bytes(jsonl(*decisions))
-    kpath.write_bytes(jsonl(*desks))
+    kpath.write_bytes((b"\xef\xbb\xbf" if bom else b"") + jsonl(*desks))
     manifest = build_review(tmp_path / name, decisions=[(dpath, "review/decisions.jsonl")],
-                            desk=[(kpath, "sandbox/human_reviews.jsonl")], provenance={"origin": "synthetic"})
+                            desk=[(kpath, "sandbox/human_reviews.jsonl")], provenance={"origin": "synthetic"}, **kw)
     rows = [r.data for r in load_snapshot(tmp_path / name).rows()]
     return manifest, rows
 
 
 def test_desk_decisions_are_gold_and_map_their_verdicts(tmp_path: Path) -> None:
     manifest, rows = review(tmp_path, [], [desk("D1", "sender", "Ann", "keep"), desk("D2", "sender", "Bo", "use_suggestion"),
-                                           desk("D3", "sender", "Cy", "unsure")])
+                                           desk("D3", "sender", "Cy", "unsure")], allow_rejected=True)
     assert [(r["doc_id"], r["verdict"], r["reviewer"]) for r in rows] == [
         ("D1", "accept", {"model": "human", "role": "review_desk"}),
         ("D2", "correct", {"model": "human", "role": "review_desk"})]
@@ -344,7 +347,8 @@ def test_claude_duplicates_merge_and_bad_lines_are_rejected(tmp_path: Path) -> N
     missing = decision("D2", "sender", "X")
     del missing["reviewer"]
     manifest, rows = review(tmp_path, [decision("D1", "sender", "Ann"), decision("D1", "sender", "Ann", evidence=False),
-                                       missing, b"{oops"], [{k: v for k, v in desk("D3", "sender", "Y").items() if k != "reviewed_at"}])
+                                       missing, b"{oops"], [{k: v for k, v in desk("D3", "sender", "Y").items() if k != "reviewed_at"}],
+                            allow_rejected=True)
     assert len(rows) == 1 and rows[0]["origin"] == ["review/decisions.jsonl:1", "review/decisions.jsonl:2"]
     assert manifest.source["merged_duplicates"] == {"other": 1}
     assert manifest.source["rejected_lines"] == [
@@ -432,3 +436,63 @@ def test_fetch_hub_verifies_every_file_against_manifest_txt(tmp_path: Path, monk
     assert fetch.fetch(tmp_path / "out3", ["parquet/not/listed.parquet"], revision="0" * 40) == 1
     assert fetch.fetch(tmp_path / "out", [good], revision="0" * 40) == 2  # not empty
     assert fetch.fetch(tmp_path / "out4", [good], revision="main") == 2
+
+
+# --- dropped source data refuses the import (and fails the gate when allowed) ---------------
+
+
+def _gate_kinds(tmp_path: Path, *snapshots: Path) -> set[str]:
+    from labels_testkit import hub_row, make_snapshot
+
+    dirs = list(snapshots)
+    if not any(load_snapshot(d).kind == "hub" for d in dirs):
+        hub = make_snapshot(tmp_path / "gate", "hub", [hub_row(d, fields={"sender": "Hub"}) for d in ("D1", "D2", "D3")])
+        dirs.append(hub)
+    report, _ = check_dirs(dirs, profile())
+    return {f.kind for f in report.errors}
+
+
+def test_a_bom_at_the_start_of_an_interim_file_is_not_a_rejected_line(tmp_path: Path) -> None:
+    row = interim_row("D1", {"sender": ("gap_fill", "Ann")})
+    src = write_overlay(tmp_path / "src", {"letter.jsonl": b"\xef\xbb\xbf" + jsonl(row, interim_row("D2", {}))})
+    manifest = overlay(tmp_path / "interim-x", src)
+    assert manifest.source["rejected_lines"] == []
+    assert [r.data for r in load_snapshot(tmp_path / "interim-x").rows()][0] == row
+
+
+def test_an_extra_corrupt_line_refuses_the_import_and_fails_the_gate_when_allowed(tmp_path: Path) -> None:
+    row = interim_row("D1", {"sender": ("gap_fill", "Ann")})
+    src = write_overlay(tmp_path / "src", {"letter.jsonl": jsonl(row, b'{"doc_id": "D2", ')})
+    with pytest.raises(ImportRefused, match="rejected_lines 1"):
+        overlay(tmp_path / "interim-x", src)
+    out = tmp_path / "interim-x"
+    overlay(out, src, allow_rejected=True)
+    assert "dropped_source_data" in _gate_kinds(tmp_path, out)
+    args = ["import-interim", "--out", str(tmp_path / "interim-y"), "--source-dir", str(src), "--source-path", "x",
+            "--repository", "example/sandbox", "--commit", "1" * 40]
+    assert runner.invoke(app, args).exit_code == 1
+    assert runner.invoke(app, [*args, "--allow-rejected"]).exit_code == 0
+
+
+def test_a_hub_row_whose_presence_is_not_an_object_refuses_the_import(tmp_path: Path) -> None:
+    bad = gt_row("D9", "letter", "email", "train", {"sender": "Zed"}, {})
+    bad["gt_fields"] = json.dumps({"sender": "Zed", "gt_presence": "[1,2]"})
+    data = write_dataset(tmp_path / "data", extra=[bad])
+    with pytest.raises(ImportRefused, match="unparseable_gt_fields 1"):
+        hub_build(tmp_path / "hub-x", data)
+    manifest = hub_build(tmp_path / "hub-x", data, allow_rejected=True)
+    assert manifest.source["unparseable_gt_fields"] == [{"document_id": "D9", "reason": "gt_presence is not a JSON object"}]
+    assert "D9" not in hub_rows(tmp_path / "hub-x")
+    assert "dropped_source_data" in _gate_kinds(tmp_path, tmp_path / "hub-x")
+
+
+def test_a_desk_file_with_a_bom_imports_every_decision(tmp_path: Path) -> None:
+    manifest, rows = review(tmp_path, [], [desk("D1", "sender", "Ann"), desk("D2", "sender", "Bo")], bom=True)
+    assert [r["doc_id"] for r in rows] == ["D1", "D2"] and manifest.source["rejected_lines"] == []
+
+
+def test_an_undecided_desk_verdict_refuses_the_review_import(tmp_path: Path) -> None:
+    with pytest.raises(ImportRefused, match="not_imported 1"):
+        review(tmp_path, [], [desk("D1", "sender", "Ann", "unsure")])
+    review(tmp_path, [], [desk("D1", "sender", "Ann", "unsure"), desk("D2", "sender", "Bo")], allow_rejected=True)
+    assert "dropped_source_data" in _gate_kinds(tmp_path, tmp_path / "gold-review-x")

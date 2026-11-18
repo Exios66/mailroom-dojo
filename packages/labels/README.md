@@ -91,7 +91,15 @@ the manifest's `source` (for example `presence_mapped` for `pending_annotation` 
 | --- | --- | --- |
 | `import-hub` | `manifest.txt` and the `ground_truth` parquet shards from `fetch_hub.py`; with `--default-dir`, the `default` shards for the text check | a missing shard, or one not listed in or whose sha256 differs from `manifest.txt`. Documents whose text does not hash to the Hub's `content_sha256` (all of them without `--default-dir`) are listed in `source.text_unverified_documents` |
 | `import-interim`, `import-near-gold` | a sandbox overlay directory (`MANIFEST.json` + `.jsonl`) at a named commit | a listed file that is missing or whose sha256 differs from the overlay's `MANIFEST.json` (the overlay manifest records no row counts; the rows read are recorded in the snapshot's `source.files`), or a `.jsonl` file it does not list |
-| `import-review` | review decision files and the review desk log | nothing outright: a malformed line is listed under `source.rejected_lines`, an `unsure` desk verdict under `not_imported`, a decision replaced by a later or human one under `superseded` |
+| `import-review` | review decision files and the review desk log | a source with a malformed line or an undecided (`unsure`) desk verdict (see below). A decision replaced by a later or a human one is listed under `superseded` with its reason |
+
+A source the importer cannot take whole is refused (exit 1, nothing written): a line that is
+not a JSON object or lacks a required key (`source.rejected_lines`), a Hub row whose
+`gt_fields` or `gt_presence` is not an object (`unparseable_gt_fields`), an undecided desk
+verdict (`not_imported`). `--allow-rejected` writes the snapshot anyway, for inspection: the
+left-out items are listed under those keys and `verify` reports each non-empty one as a
+`dropped_source_data` error, so such a snapshot never passes the gate. A UTF-8 byte-order
+mark at the start of a source file is skipped, not rejected.
 
 `--known-warnings` takes `config/clients/<client>/known-warnings.yaml`; each entry needs a
 `reason`, and the importer records the snapshot's entries in its manifest.

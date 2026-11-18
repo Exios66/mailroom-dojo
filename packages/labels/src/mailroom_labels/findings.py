@@ -22,6 +22,9 @@ SEVERITY: dict[str, str] = {
     "corrupt_line": "error",
     "malformed_record": "error",
     "missing_hub": "error",
+    # the importer left source data out (rejected lines, unparseable rows, undecided
+    # decisions): the snapshot is incomplete, whatever it holds is not the whole source
+    "dropped_source_data": "error",
     # against the corpus index
     "unknown_document": "error",
     "duplicate_document": "error",

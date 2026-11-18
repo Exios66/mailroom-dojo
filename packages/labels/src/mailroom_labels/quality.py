@@ -32,7 +32,7 @@ from mailroom_labels.errors import (
 )
 from mailroom_labels.findings import finding
 from mailroom_labels.layers import LayerRead, corpus_index, hash_matches, read_layer, supports
-from mailroom_labels.models import Finding, LayerRecord
+from mailroom_labels.models import DROPPED_SOURCE_KEYS, Finding, LayerRecord
 from mailroom_labels.profile import ClientProfile
 from mailroom_labels.snapshot import LabelSnapshot, load_snapshot
 from mailroom_record.hashing import canonical_json
@@ -281,6 +281,13 @@ def check(snapshots: Sequence[LabelSnapshot], profile: ClientProfile) -> Quality
                                  detail=f"{exc.kind}: {exc.detail}"))
             continue
         read.extend(part)
+    for snap in snapshots:
+        for key in DROPPED_SOURCE_KEYS:
+            entries = snap.manifest.source.get(key)
+            if entries:
+                n = len(entries) if isinstance(entries, (list, dict)) else 1
+                extra.append(finding("dropped_source_data", layer=snap.kind, location=snap.snapshot_id,
+                                     detail=f"the importer left {n} source item(s) out (source.{key})"))
     return check_read(read, profile, snapshots, extra)
 
 

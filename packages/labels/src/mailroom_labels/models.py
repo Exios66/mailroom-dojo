@@ -58,6 +58,11 @@ SEVERITIES: tuple[str, ...] = Severity.__args__  # type: ignore[attr-defined]
 #: ``not_applicable``, because the sandbox lets interim ``gap_fill`` / ``derived`` replace a
 #: Hub absence (``interim_labels.apply_overlay`` skips only a populated Hub field) while a
 #: near_gold label never does (``gold_labels.apply_near_gold``).
+#: Manifest ``source`` keys where an importer lists source data it left out. A non-empty
+#: one means the snapshot is incomplete: the importer refuses it unless told to keep it
+#: for inspection, and the quality gate reports it as an error.
+DROPPED_SOURCE_KEYS: tuple[str, ...] = ("rejected_lines", "unparseable_gt_fields", "not_imported", "unexplained_superseded")
+
 RANK_STATUS: dict[str, str] = {
     "review:gold": "gold",
     "interim:correction": "interim",

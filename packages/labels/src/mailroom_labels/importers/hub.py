@@ -46,7 +46,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from mailroom_labels.importers.common import ImportRefused, builder_name, file_sha256
+from mailroom_labels.importers.common import ImportRefused, builder_name, file_sha256, refuse_dropped
 from mailroom_labels.layers import CURRENT_LAYER_SCHEMA
 from mailroom_labels.models import SnapshotManifest
 from mailroom_labels.profile import ClientProfile
@@ -242,6 +242,7 @@ def build_hub(
     default_dir: Path | str | None = None,
     snapshot_id: str | None = None,
     known_warnings: Sequence[Mapping[str, str | None]] = (),
+    allow_rejected: bool = False,
 ) -> SnapshotManifest:
     """Write the Hub snapshot to ``out_dir`` (see the module docstring); return its manifest."""
     out_dir, dataset_dir = Path(out_dir), Path(dataset_dir)
@@ -269,6 +270,8 @@ def build_hub(
                 "filename": _name_or_none(raw.get("filename")),
                 "fields": fields,
             })
+
+    refuse_dropped({"unparseable_gt_fields": tally.bad_gt_fields}, allow=allow_rejected)
 
     text_files: list = []
     unverified: list = []

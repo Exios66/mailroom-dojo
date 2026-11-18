@@ -38,17 +38,27 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from mailroom_labels.importers.common import SourceLine, builder_name, file_sha256, read_jsonl_lenient
+from mailroom_labels.importers.common import (
+    SourceLine,
+    builder_name,
+    file_sha256,
+    read_jsonl_lenient,
+    refuse_dropped,
+)
 from mailroom_labels.layers import CURRENT_LAYER_SCHEMA
 from mailroom_labels.models import SnapshotManifest
 from mailroom_labels.snapshot import write_snapshot
 from mailroom_record.hashing import canonical_json
 
-__all__ = ["DESK_VERDICTS", "HUMAN_MODEL", "build_review"]
+__all__ = ["DESK_VERDICTS", "HUMAN_MODEL", "SUPERSEDED_REASONS", "build_review"]
 
 HUMAN_MODEL = "human"
 #: Desk ``decision`` -> review verdict. A decision not listed here (``unsure``) decides nothing.
 DESK_VERDICTS: dict[str, str] = {"keep": "accept", "use_suggestion": "correct", "correct": "correct"}
+_LATER = "a later reviewed_at decision on the same label"
+_HUMAN = "a human decision on the same label"
+#: Every reason a decision may be superseded for; any other would be a builder bug and is refused.
+SUPERSEDED_REASONS = (_LATER, _HUMAN)
 _DESK_REQUIRED = ("doc_id", "field", "decision", "value", "reviewed_at", "source")
 _DECISION_REQUIRED = ("doc_id", "field", "verdict", "reviewer", "entry")
 
@@ -134,7 +144,7 @@ def _collapse(group: list[dict[str, Any]], *, by_time: bool, superseded: list, m
                     _merge_into(winner, other)
                     merged["human"] += 1
                 elif other["reviewed_at"] is not None:
-                    superseded.append(_summary(other, "a later reviewed_at decision on the same label"))
+                    superseded.append(_summary(other, _LATER))
                 else:
                     undated.append(dict(other))  # cannot be ordered: kept, so the gate reports it
             return [winner, *undated]
@@ -157,6 +167,7 @@ def build_review(
     provenance: Mapping[str, Any] | None = None,
     snapshot_id: str | None = None,
     known_warnings: Sequence[Mapping[str, str | None]] = (),
+    allow_rejected: bool = False,
 ) -> SnapshotManifest:
     """Write the review snapshot. ``decisions`` and ``desk`` are ``(local path, name)`` pairs;
     the name (never the local path) is what the manifest records. ``provenance`` (where the
@@ -186,10 +197,13 @@ def build_review(
         human, other = groups[key][True], groups[key][False]
         if human:
             out.extend(_collapse(human, by_time=True, superseded=superseded, merged=merged))
-            superseded.extend(_summary(r, "a human decision on the same label") for r in other)
+            superseded.extend(_summary(r, _HUMAN) for r in other)
         elif other:
             out.extend(_collapse(other, by_time=False, superseded=superseded, merged=merged))
 
+    unexplained = [s for s in superseded if s["reason"] not in SUPERSEDED_REASONS]
+    refuse_dropped({"rejected_lines": rejected, "not_imported": not_imported, "unexplained_superseded": unexplained},
+                   allow=allow_rejected)
     by_reviewer = Counter(f"{r['reviewer'].get('model')}:{r['reviewer'].get('role')}" for r in out)
     source = {
         **dict(provenance or {}),
@@ -200,6 +214,7 @@ def build_review(
         "superseded": sorted(superseded, key=lambda s: (s["doc_id"], s["field"], s["origin"])),
         "not_imported": not_imported,
         "rejected_lines": rejected,
+        **({"unexplained_superseded": unexplained} if unexplained else {}),
         "reviewer_initials": "not recorded: the reviewer field holds the role the source states",
     }
     return write_snapshot(

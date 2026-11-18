@@ -9,7 +9,11 @@
              build a snapshot from local source files (never the network). With
              ``--check`` they build into a temporary directory and compare it byte for
              byte with the committed snapshot instead of writing: exit 0 identical,
-             1 different. A source that fails an integrity check exits 1.
+             1 different. A source that fails an integrity check exits 1, and so does
+             a source with data the importer has to leave out (rejected lines,
+             unparseable rows, undecided decisions) unless ``--allow-rejected`` is
+             given; then it is listed in the manifest and ``verify`` reports it as an
+             error.
 
 Usage errors (a missing option, a profile that does not validate) exit 2.
 """
@@ -101,6 +105,9 @@ def coverage(
 OutOpt = Annotated[Path, typer.Option("--out", help="Snapshot directory to write (or to compare with --check).")]
 CheckOpt = Annotated[bool, typer.Option("--check", help="Compare a fresh build with --out; write nothing.")]
 IdOpt = Annotated[str | None, typer.Option("--snapshot-id", help="Snapshot id (default: the --out directory name).")]
+AllowOpt = Annotated[bool, typer.Option(
+    "--allow-rejected",
+    help="Write the snapshot even though source data was left out (listed in the manifest; verify then fails).")]
 KnownOpt = Annotated[Path | None, typer.Option(
     "--known-warnings", help="YAML {snapshot_id: [{kind, doc, field, reason}]}: warnings accepted in the manifest.")]
 
@@ -131,6 +138,7 @@ def import_hub(
     default_dir: Annotated[Path | None, typer.Option("--default-dir", help="parquet/default shards: run the text check.")] = None,
     snapshot_id: IdOpt = None,
     known_warnings: KnownOpt = None,
+    allow_rejected: AllowOpt = False,
     check: CheckOpt = False,
 ) -> None:
     """Import the Hub ground_truth config (verified against manifest.txt)."""
@@ -139,7 +147,7 @@ def import_hub(
     _run_import(out, check, lambda d: build_hub(
         d, dataset_dir=dataset_dir, profile=prof, profile_sha256=file_sha256(profile), repository=repository,
         revision=revision, default_dir=default_dir, snapshot_id=sid,
-        known_warnings=known_warnings_for(known_warnings, sid)))
+        known_warnings=known_warnings_for(known_warnings, sid), allow_rejected=allow_rejected))
 
 
 def _overlay_command(name: str, build: Callable[..., Any], what: str) -> None:
@@ -151,12 +159,13 @@ def _overlay_command(name: str, build: Callable[..., Any], what: str) -> None:
         commit: Annotated[str, typer.Option("--commit", help="The repository commit the files are from.")],
         snapshot_id: IdOpt = None,
         known_warnings: KnownOpt = None,
+        allow_rejected: AllowOpt = False,
         check: CheckOpt = False,
     ) -> None:
         sid = snapshot_id or out.name
         _run_import(out, check, lambda d: build(
             d, source_dir=source_dir, source_path=source_path, repository=repository, commit=commit,
-            snapshot_id=sid, known_warnings=known_warnings_for(known_warnings, sid)))
+            snapshot_id=sid, known_warnings=known_warnings_for(known_warnings, sid), allow_rejected=allow_rejected))
 
     command.__doc__ = f"Import the sandbox {what} overlay (hashes checked against its MANIFEST.json)."
     app.command(name)(command)
@@ -184,6 +193,7 @@ def import_review(
     provenance: Annotated[str, typer.Option("--provenance", help="JSON object recorded as the source's origin.")] = "{}",
     snapshot_id: IdOpt = None,
     known_warnings: KnownOpt = None,
+    allow_rejected: AllowOpt = False,
     check: CheckOpt = False,
 ) -> None:
     """Import review decisions: human desk decisions are gold, Claude audit decisions near_gold."""
@@ -198,7 +208,7 @@ def import_review(
     sid = snapshot_id or out.name
     _run_import(out, check, lambda d: build_review(
         d, decisions=_named(decisions, decisions_root), desk=_named(desk, desk_root), provenance=prov,
-        snapshot_id=sid, known_warnings=known_warnings_for(known_warnings, sid)))
+        snapshot_id=sid, known_warnings=known_warnings_for(known_warnings, sid), allow_rejected=allow_rejected))
 
 
 def main() -> None:  # pragma: no cover - console entry convenience

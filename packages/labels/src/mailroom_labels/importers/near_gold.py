@@ -20,8 +20,10 @@ __all__ = ["build_near_gold"]
 
 def build_near_gold(out_dir: Path | str, *, source_dir: Path | str, source_path: str, repository: str,
                     commit: str, snapshot_id: str | None = None,
-                    known_warnings: Sequence[Mapping[str, str | None]] = ()) -> SnapshotManifest:
+                    known_warnings: Sequence[Mapping[str, str | None]] = (),
+                    allow_rejected: bool = False) -> SnapshotManifest:
     """Write the near-gold snapshot (see ``overlay.build_overlay``)."""
     return build_overlay(out_dir, kind="near_gold", source_dir=source_dir, source_path=source_path,
                          repository=repository, commit=commit, command="import-near-gold",
-                         snapshot_id=snapshot_id, known_warnings=known_warnings)
+                         snapshot_id=snapshot_id, known_warnings=known_warnings,
+                         allow_rejected=allow_rejected)

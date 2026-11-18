@@ -32,6 +32,7 @@ __all__ = [
     "file_sha256",
     "known_warnings_for",
     "read_jsonl_lenient",
+    "refuse_dropped",
 ]
 
 BUILDER_VERSION = "0.1.0"
@@ -88,13 +89,19 @@ class SourceLine:
         return f"{self.file}:{self.line}"
 
 
+_BOM = b"\xef\xbb\xbf"
+
+
 def read_jsonl_lenient(path: Path, name: str) -> tuple[list[SourceLine], list[dict[str, Any]]]:
     """Every JSON-object line of ``path`` and a ``rejected`` entry for every other non-blank
-    line (``{file, line, reason}``). ``name`` is how the file is named in the manifest."""
+    line (``{file, line, reason}``). ``name`` is how the file is named in the manifest. A
+    UTF-8 byte-order mark at the start of the file is not data and is skipped."""
     rows: list[SourceLine] = []
     rejected: list[dict[str, Any]] = []
     with Path(path).open("rb") as fh:
         for number, raw in enumerate(fh, start=1):
+            if number == 1 and raw.startswith(_BOM):
+                raw = raw[len(_BOM):]
             if not raw.strip():
                 continue
             try:
@@ -107,6 +114,17 @@ def read_jsonl_lenient(path: Path, name: str) -> tuple[list[SourceLine], list[di
                 continue
             rows.append(SourceLine(name, number, obj))
     return rows, rejected
+
+
+def refuse_dropped(dropped: dict[str, list[Any]], *, allow: bool) -> None:
+    """Refuse an import that left source data out (``{manifest source key: entries}``),
+    unless ``allow`` (the ``--allow-rejected`` flag). When allowed, the entries are still
+    written to the manifest's ``source`` under the same keys, and the quality gate reports
+    each non-empty one as a ``dropped_source_data`` error, so the snapshot never verifies."""
+    counts = {key: len(entries) for key, entries in sorted(dropped.items()) if entries}
+    if counts and not allow:
+        detail = ", ".join(f"{key} {n}" for key, n in counts.items())
+        raise ImportRefused(f"source data left out ({detail}); see --allow-rejected to write it for inspection")
 
 
 @dataclass
