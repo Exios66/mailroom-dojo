@@ -36,7 +36,10 @@ Rows are put in the source's order by ``payload.order`` (``started_order`` for a
 the importer records it; rows without one (a native run) follow by time, then document and
 ``seq``. From there the timing rules are the sandbox's own, step for step: a row's time
 places it when known; an event marked ``ts_absent`` has no time, and a run with no time at
-all falls back to document order, labelled ``synthetic_timing``. An untimed start lands at
+all falls back to document order, labelled ``synthetic_timing``. A ``started_ts`` is read as
+the sandbox reads a time: a naive value is UTC, never the process's local zone; one that is
+not an ISO string or does not parse is untimed (counted in the warning), never an error. A
+native start with no time sorts just before its finish. An untimed start lands at
 the latest row; an untimed finish lands at its start plus ``ms`` when the two pair by
 ``(doc, node, step)``, the finish's step being its own row's (``payload.finish_step``) or
 none, as in the sandbox, which writes ``step`` on running rows only (a step stored
@@ -54,7 +57,7 @@ timeline longer than seven days (the sandbox's limits).
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from mailroom_record.hashing import canonical_json
@@ -79,7 +82,23 @@ _KEPT = frozenset({"prepared", "running", "paused"})
 
 
 def _seconds(ts: str) -> float:
+    """An event's ``ts`` (always ``YYYY-MM-DDTHH:MM:SS[.ffffff]Z``, checked by ``Event``)."""
     return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+
+
+def _started_seconds(value: Any) -> float | None:
+    """A ``payload.started_ts`` as epoch seconds, read as the sandbox's ``_parse_time`` reads
+    an ISO time: a naive value is UTC (never the process's local zone). Anything that is not
+    an ISO string, or does not parse, is ``None``: the start is untimed."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        stamp = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=timezone.utc)
+        return stamp.timestamp()
+    except (ValueError, OverflowError, OSError):
+        return None
 
 
 def _int(value: Any) -> int | None:
@@ -110,9 +129,13 @@ class _Rows:
         self.source: dict[str, str] = {}
         self.untimed = 0
 
-    def _key(self, order: Any, e: Event, t: float | None) -> tuple[Any, ...]:
+    def _key(self, order: Any, e: Event, t: float | None, *, start: bool = False) -> tuple[Any, ...]:
+        """Source order when the row has one; else time, document, ``seq``, and a start
+        before its own finish (an untimed start sorts at its finish's time)."""
         o = _int(order)
-        return (0, o) if o is not None else (1, t if t is not None else float("inf"), e.doc_id, e.seq)
+        if o is not None:
+            return (0, o)
+        return (1, t if t is not None else float("inf"), e.doc_id, e.seq, 0 if start else 1)
 
     def _time(self, e: Event) -> float | None:
         if e.payload.get("ts_absent") is True:
@@ -149,14 +172,14 @@ class _Rows:
             t = self._time(e)
             self.nodes.append((self._key(p.get("order"), e, t), t, base | {"status": "running"}, e.doc_id, pair))
             return
+        t = self._time(e)
         if "started_ts" in p or "started_order" in p:
-            started = p.get("started_ts")
-            st = _seconds(started) if isinstance(started, str) else None
+            st = _started_seconds(p.get("started_ts"))
             if st is None:
                 self.untimed += 1
             start = base | {"status": "running"}
-            self.nodes.append((self._key(p.get("started_order"), e, st), st, start, e.doc_id, pair))
-        t = self._time(e)
+            sort_t = st if st is not None else t
+            self.nodes.append((self._key(p.get("started_order"), e, sort_t, start=True), st, start, e.doc_id, pair))
         row = base | {
             "status": status,
             "stage": p.get("stage"),

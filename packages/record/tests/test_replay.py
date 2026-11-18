@@ -15,6 +15,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -544,3 +545,49 @@ def test_a_free_text_step_pairs_and_does_not_crash(tmp_path: Path, finish_names_
         want, want_meta = sandbox.build_timeline(folder)
         _same(normalise(timeline), normalise(want))
         _same_meta(meta, want_meta)
+
+
+def _native_start(store: SimpleNamespace, started: Any) -> tuple[list[tuple[float, dict[str, Any]]], dict[str, Any]]:
+    """One native node event finishing at 00:00:10Z whose ``payload.started_ts`` is ``started``."""
+    with store.log.open_writer("r1", "w0") as w:
+        w.append(
+            doc_id="d1", node="classify", kind="decision", latency_ms=5000.0,
+            payload={"started_ts": started}, ts="2026-01-01T00:00:10.000000Z",
+        )
+    return replay_timeline(store.log, "r1")
+
+
+@pytest.fixture
+def new_york(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """The process's local time zone set to America/New_York for the test, then restored."""
+    import time
+
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is not available on this platform")
+    monkeypatch.setenv("TZ", "America/New_York")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+@pytest.mark.parametrize("local_tz", ["process", "new_york"])
+def test_a_naive_started_ts_is_read_as_utc(store: SimpleNamespace, local_tz: str, request: pytest.FixtureRequest) -> None:
+    """A naive ``started_ts`` is UTC, as the sandbox's ``_parse_time`` reads it, whatever the
+    process's local zone: the start is 5 s before the finish, not hours away."""
+    if local_tz == "new_york":
+        request.getfixturevalue("new_york")
+    timeline, meta = _native_start(store, "2026-01-01T00:00:05")
+    nodes = [(at, e["node"]["status"]) for at, e in timeline if "node" in e]
+    assert nodes == [(0.0, "running"), (5.0, "done")]
+    assert meta["warnings"] == [] and not meta["synthetic_timing"]
+
+
+@pytest.mark.parametrize("started", ["not a time", "", "2026-13-45T99:00:00", 12, None, ["x"]])
+def test_an_unparsable_started_ts_is_untimed(store: SimpleNamespace, started: Any) -> None:
+    """An unparsable ``started_ts`` never raises: the start is untimed (counted in the
+    warning) and lands at the latest row, as the sandbox places a start with no usable time."""
+    timeline, meta = _native_start(store, started)
+    nodes = [(at, e["node"]["status"]) for at, e in timeline if "node" in e]
+    assert nodes == [(0.0, "running"), (0.0, "done")]
+    assert meta["warnings"] == ["1 rows had no source time"]

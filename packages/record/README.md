@@ -155,7 +155,9 @@ floor replay of any stored or imported run from the record alone, under the cont
 sandbox's `tui/floor_replay.py:build_timeline`: a sorted list of `(at_seconds, event)` with
 `{"node": ...}`, `{"item": ...}` and `{"checkpoint": ...}` events, and a `meta` dict. A node
 start is played at its `started_ts`, its finish at the event's `ts`; a node in flight when
-the run stopped replays as `running`. The timeline holds no document text and no extracted
+the run stopped replays as `running`. A naive `started_ts` is read as UTC (as the sandbox
+reads it), never in the process's local zone; one that does not parse makes the start
+untimed (counted in `meta["warnings"]`), never an error. The timeline holds no document text and no extracted
 value. `tests/test_replay.py` checks it against the sandbox's own `build_timeline` when
 `MAILROOM_SANDBOX_CHECKOUT` names a sandbox checkout, and skips that check otherwise.
 
