@@ -4,11 +4,16 @@ The corpus (``fixtures/differential/extraction_cases.jsonl``) holds the old gold
 run's ``score_extraction`` calls (tied to the old ``scores.json``), the calls the old
 Dojo's tests make into the extraction layers, and seeded generated inputs (lists,
 audits with document text, presence, trace shapes, CMS rows, every mailroom class,
-unknown and retired classes, hostile values, non-default settings, fake embedding
-backends), each with the old output computed at commit 23f8234c. A case's
-``settings`` are old settings that differ from the defaults; they are built into a
-variant of the mailroom profile here, so the new code reads them from its profile.
-Outputs are compared as canonical JSON.
+unknown and retired classes, hostile values, non-default settings), each with the
+old output computed at commit 23f8234c. A case's ``settings`` are old settings that
+differ from the defaults; they are built into a variant of the mailroom profile
+here, so the new code reads them from its profile. Outputs are compared as
+canonical JSON.
+
+The generator also builds 180 cases with fake embedding backends (lists, presence,
+``score_extraction``), but the encoder skips them silently (their ``$similarity``
+argument is refused), so the committed corpus holds none; the replay code for them
+below is unused until the corpus is regenerated.
 """
 
 from __future__ import annotations
