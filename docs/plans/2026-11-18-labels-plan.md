@@ -103,36 +103,11 @@ coverage report, the boundary test, CI wiring. All against small synthetic snaps
 ### Task 2: the real data (one Opus implementer, then an independent Opus review)
 The importers and committed snapshots, the profile generator, quality run over the real data, coverage
 report, CLI (`mailroom-labels verify|coverage|resolve|import-*`), golden tests that pin counts on the
-committed snapshots, README and layout-map updates, the handoff.
+committed snapshots, README and layout-map updates, the handoff (`docs/handoff/2026-11-18-labels.md`).
 
 ## Test strategy (R8): real behavior and failure states
 
-- **Tamper matrix.** For every snapshot file and the manifest: flip one byte, truncate, append a line,
-  delete, add an unlisted file, swap two rows, edit the manifest count. Each must raise the exact typed
-  error. Positive control: the untouched snapshot loads.
-- **Determinism.** Building a snapshot twice from the same source gives byte-identical files and the same
-  `manifest_hash`; a one-label change changes exactly one file hash and the `manifest_hash`.
-- **Precedence is tested against an oracle.** A tiny, independent, table-driven reference resolver in the
-  tests; `hypothesis` generates random layer sets and asserts the real resolver equals the oracle, that
-  every resolved status and value comes from some layer, that Hub is never replaced by `gap_fill`,
-  `derived` or `near_gold`, that a gold decision always wins, that results do not depend on input order,
-  and that resolving twice gives the same result.
-- **Failure states are reported, not swallowed.** Malformed JSON line (reported with file and line),
-  duplicate (document, field), unknown status, unknown field, wrong type, vocabulary violation,
-  document missing from the Hub index, content-hash mismatch, decision aimed at nothing, conflicting
-  decisions: each has a test asserting the finding kind and that valid neighbours still load.
-- **Real data golden checks** (no network, committed snapshots only): document and label counts per layer
-  and class; zero quality errors; the coverage table; the known facts from the review (1,038 of the 1,039
-  correspondence audit decisions equal the near-gold catalog value, one differs: DOC-672cec2c85c83c39
-  action_items); the 8 human desk decisions resolve to `gold`.
-- **Parity with today's behavior.** A test restates the sandbox rules (Hub wins over `gap_fill`, `derived`
-  and `near_gold`; `correction` replaces; document hash mismatch leaves the document untouched) and runs
-  them on fixtures.
-- **Boundary.** `mailroom_labels` imports only `mailroom_record` among workspace packages; `record`
-  still imports none.
-- **Mutation check.** The reviewer applies at least five source mutations (skip the hash check, swap two
-  precedence ranks, drop the duplicate check, treat `disputed` as truth, ignore vocabulary) and every
-  one must fail a test.
+Moved to `docs/test-strategy-labels.md` (one test strategy per package, `AGENTS.md`).
 
 ## Not verified by this chunk
 
