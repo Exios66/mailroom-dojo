@@ -4,6 +4,41 @@
 
 2026-11-18 · JJB
 
+## Top-level goal
+
+Set by JJB on 2026-11-18. Every project plan is judged against it first.
+
+**Fit American Family Insurance's problem better than the current pipeline does, and be modular, expandable and customizable enough to be a true document-intelligence mailroom ingress benchmark.**
+
+### Success criteria for AmFam
+
+Each is measured by the Dojo on the same draws, new stack against the current pipeline, and reported per document class.
+
+| Need | Criterion |
+| --- | --- |
+| Fewer wrong archives | Wrong-archive rate at or below the current pipeline's at the same review rate, and at most 2% per class where the class can reach it (the Set F rule) |
+| Less human review | A lower review rate at the same wrong-archive rate, and no document parked because of a provider outage |
+| Lower cost | Cost per 1,000 documents within 10% of today's at worst, reported beside the review cost it saves |
+| Auditability | Every decision rebuilt from the record alone; every chain verifies; document versions (original, transcript, attempts, archived record, human corrections) visible to a reviewer |
+| Throughput | At least 249 documents a minute with the fake model and durable writes on |
+
+### Modular, expandable and customizable
+
+New clients and document types plug in through configuration and registered plug-ins, never through a code fork.
+
+| Extension point | How it plugs in | Where |
+| --- | --- | --- |
+| Document classes and subclasses | A class registry entry (name, subclasses, thresholds) in a client profile | Labels and Dojo read it; the engine routes on it |
+| Extraction schemas | A schema per class, versioned, with field types the Dojo scores by type | Labels and Dojo |
+| Nodes and agents | Registered node types with typed handoffs; a policy wires them | Engine |
+| Routing policies | A policy file: graph, thresholds, decision slots; its hash is stored on every run | Engine |
+| Prompts | Prompt sets as overlays on a default, each hashed into the run | Engine, measured by the Dojo |
+| Backends | A backend adapter that reports the fields it can; the rest are recorded as absent | Launcher |
+| Labels | Label snapshots per client with status and source | Labels package |
+| Scoring and reports | Registered metrics and report builders over records | Dojo |
+
+The record package is domain-free: it stores node names, class labels, decision payloads and blob roles as data, so no class, node or client is hard-coded in it. A benchmark run is a client profile plus a policy plus a label snapshot plus a draw; anyone can add a new one without changing the record, the Dojo's core or the engine's executor.
+
 ## Summary
 
 Build one new workspace that replaces llm-mailroom, llm-dojo-scoring and most of the sandbox with three small packages around a single run record. The current repos keep shipping the 0.30 line while this is built, and the new stack takes over only after it reproduces today's results and Set F confirms it.
