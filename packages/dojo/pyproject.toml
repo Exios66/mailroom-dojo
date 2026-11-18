@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mailroom-dojo"
+version = "0.1.0"
+description = "Deterministic scoring for the Mailroom: field-type scorers, label folding and client scoring profiles."
+readme = "README.md"
+requires-python = ">=3.11"
+# Every dependency is required: a missing one is an import error, never a quiet change
+# of algorithm (jellyfish for name similarity, scipy and numpy for list matching,
+# python-dateutil for dates, PyYAML for scoring profiles).
+dependencies = [
+    "python-dateutil>=2.8",
+    "jellyfish>=1.0",
+    "scipy>=1.10",
+    "numpy>=1.24",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# Optional similarity backend for embedding rescue; never used unless a caller passes it.
+embeddings = ["sentence-transformers"]
+dev = ["pytest", "pytest-xdist", "hypothesis"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
