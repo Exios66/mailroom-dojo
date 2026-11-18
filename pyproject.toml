@@ -21,7 +21,8 @@ extend-exclude = [".venv"]
 # record is older than this config and was written to its own style; reformatting it is a
 # follow-up of its own (one mechanical commit), kept out of the threads now editing it.
 # Markdown is excluded: ruff would reformat the illustrative Python in docs/plans.
-format.exclude = ["packages/record/**", "*.md"]
+# tools/governance is owned by the governance files (AGENTS.md, section 14), not by a package.
+format.exclude = ["packages/record/**", "tools/governance/**", "*.md"]
 # record's test_record_machine.py uses a 3.12 f-string (a backslash inside the braces), which
 # is a SyntaxError on 3.11 although record declares requires-python >= 3.11. This only lets
 # ruff parse it; the follow-up is to fix that line in record and delete this entry.
@@ -47,6 +48,9 @@ select = [
 # auto-fixable simplifications). Follow-up: fix them in record in one commit and delete this
 # entry; until then ruff still enforces every other selected rule there.
 "packages/record/**" = ["E501", "E741", "I001", "B023", "B905", "UP017", "SIM300", "SIM905"]
+# The governance tests predate this config: long lines and one unused import (Path in
+# test_settings.py). Follow-up: fix them in the governance files and delete this entry.
+"tools/governance/**" = ["E501", "F401"]
 
 [tool.ruff.lint.isort]
 known-first-party = [
@@ -88,8 +92,14 @@ module = ["pyarrow", "pyarrow.*", "zstandard", "duckdb", "mailroom_record", "mai
 ignore_missing_imports = true
 
 [tool.codespell]
-skip = "./.venv,./.git,*.egg-info,./build,./dist,*.parquet,*.zst,*.lock"
+# Committed data is never edited to satisfy a spelling check: the Dojo's golden and differential
+# fixtures hold deliberately misspelled and garbled strings (scoring must handle them as given),
+# and the label snapshots under labels/ hold real document text, committed once and immutable.
+skip = "./.venv,./.git,*.egg-info,./build,./dist,*.parquet,*.zst,*.lock,./packages/dojo/tests/fixtures,./labels/*/*.jsonl"
 check-filenames = true
 # `caf` is the start of the byte escape in b"caf\xe9" (a non-UTF-8 test input).
+# `unparseable`, `nd` (the "2nd" ordinal suffix) and `thur` (a weekday abbreviation) are real
+# words and tokens the Dojo's date and value parsers match; `nmae`, `lable`, `nam` and `aproved`
+# are deliberate typos in tests that check misspelled field names and values are reported.
 # Add a word here only with the reason in the commit message.
-ignore-words-list = "caf"
+ignore-words-list = "caf,unparseable,nd,thur,nmae,lable,nam,aproved"
