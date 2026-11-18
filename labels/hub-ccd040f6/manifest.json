@@ -1,0 +1,182 @@
+{
+  "builder": "mailroom-labels import-hub 0.1.0",
+  "files": [
+    {
+      "bytes": 8930752,
+      "path": "documents.jsonl",
+      "rows": 3302,
+      "sha256": "f4f6516106dd71b894b288412ecd0ef21e8d0632600eae2e67b991351f85acc9"
+    }
+  ],
+  "kind": "hub",
+  "known_warnings": [],
+  "layer_schema": "mailroom-labels/hub/v1",
+  "manifest_hash": "9b4eec64675844620d223ea5765b80174364366fffc131df9f8d5d2aa188795e",
+  "manifest_schema": "mailroom-labels/manifest/v1",
+  "snapshot_id": "hub-ccd040f6",
+  "source": {
+    "builder": {
+      "name": "mailroom_labels.importers.hub",
+      "version": "0.1.0"
+    },
+    "dataset_manifest": {
+      "path": "manifest.txt",
+      "sha256": "71001688f804aa338e4d72fc5b75cb40d17da42b8bf5b72f8334c7f77445f8ee"
+    },
+    "decoded_json_lists": {
+      "denial_reasons": 1100,
+      "keywords": 2550,
+      "supporting_documents": 1100
+    },
+    "excluded_metadata_keys": {
+      "clause_count": 3302,
+      "context_window_band": 3302,
+      "intent_confidence": 3302,
+      "intent_source": 3302,
+      "intent_status": 3302,
+      "label_evidence": 2741,
+      "maud_label_count": 3302,
+      "related_document_ids": 3302,
+      "relationships": 3302,
+      "sentiment_evidence": 2650,
+      "sentiment_score": 2650,
+      "token_estimate": 3302,
+      "topic_evidence": 2650
+    },
+    "fields_without_presence": {},
+    "files": [
+      {
+        "path": "parquet/ground_truth/train/train-00000-of-00001.parquet",
+        "sha256": "2b30be9e2f864f86a3c42c2d5fa6237bfd4e2210f82a0883bc3de6da9c9601d2"
+      },
+      {
+        "path": "parquet/ground_truth/test/test-00000-of-00001.parquet",
+        "sha256": "769334cf81c2dc6dc9c64dc30f8676794adc48b2b8df19f013d19d337116f75a"
+      },
+      {
+        "path": "parquet/default/train/train-00000-of-00001.parquet",
+        "sha256": "008165a2e66da9a8f0df9b800493746e68823458845104378e36991b55fb86f7"
+      },
+      {
+        "path": "parquet/default/test/test-00000-of-00001.parquet",
+        "sha256": "1f6a9877b2e9c884a3c3484dceb60ccf6e1a4f37d0de0d1c2da887241d62ade9"
+      }
+    ],
+    "not_applicable_placeholders_nulled": {
+      "intent=''": 152,
+      "keywords=''": 152,
+      "subject_matter=''": 152
+    },
+    "omitted_means": "not_applicable",
+    "omitted_not_applicable_placeholders": {
+      "contract": {
+        "adjuster": 600,
+        "claim_number": 600,
+        "claim_type": 600,
+        "claimed_amount": 600,
+        "content_topic": 600,
+        "coverage_determination": 600,
+        "damages_description": 600,
+        "date_filed": 600,
+        "date_of_loss": 600,
+        "denial_reasons": 600,
+        "insured_party": 600,
+        "insurer": 600,
+        "intent": 600,
+        "keywords": 600,
+        "maud_clause_labels": 600,
+        "policy_number": 600,
+        "sentiment_label": 600,
+        "subject_matter": 600,
+        "supporting_documents": 600
+      },
+      "corporate_record": {
+        "adjuster": 450,
+        "claim_number": 450,
+        "claim_type": 450,
+        "claimed_amount": 450,
+        "content_topic": 450,
+        "coverage_determination": 450,
+        "cuad_clause_labels": 450,
+        "damages_description": 450,
+        "date_filed": 450,
+        "date_of_loss": 450,
+        "denial_reasons": 450,
+        "insured_party": 450,
+        "insurer": 450,
+        "maud_clause_labels": 450,
+        "policy_number": 450,
+        "sentiment_label": 450,
+        "supporting_documents": 450
+      },
+      "correspondence": {
+        "adjuster": 1000,
+        "claim_number": 1000,
+        "claim_type": 1000,
+        "claimed_amount": 1000,
+        "coverage_determination": 1000,
+        "cuad_clause_labels": 1000,
+        "damages_description": 1000,
+        "date_filed": 1000,
+        "date_of_loss": 1000,
+        "denial_reasons": 1000,
+        "insured_party": 1000,
+        "insurer": 1000,
+        "maud_clause_labels": 1000,
+        "policy_number": 1000,
+        "supporting_documents": 1000
+      },
+      "insurance_claim": {
+        "content_topic": 1100,
+        "cuad_clause_labels": 1100,
+        "maud_clause_labels": 1100,
+        "sentiment_label": 1100
+      },
+      "merger_agreement": {
+        "adjuster": 152,
+        "claim_number": 152,
+        "claim_type": 152,
+        "claimed_amount": 152,
+        "content_topic": 152,
+        "coverage_determination": 152,
+        "cuad_clause_labels": 152,
+        "damages_description": 152,
+        "date_filed": 152,
+        "date_of_loss": 152,
+        "denial_reasons": 152,
+        "insured_party": 152,
+        "insurer": 152,
+        "policy_number": 152,
+        "sentiment_label": 152,
+        "supporting_documents": 152
+      }
+    },
+    "presence_mapped": {
+      "pending_annotation->unlabeled": 91
+    },
+    "presence_without_value": {
+      "filing_number": 314,
+      "jurisdiction": 53,
+      "signatories": 53
+    },
+    "profile": {
+      "client": "mailroom-dataset",
+      "sha256": "4fa6ce51a87a01347fb2226579de6ef775684d604952f75d5850c3cec7fbc5fe"
+    },
+    "repository": "Lucius-Morningstar/mailroom-dataset",
+    "revision": "ccd040f6a1b6b414bdefd161cdc622b68f6dacf8",
+    "rows": 3302,
+    "text_check": {
+      "checked": 3302,
+      "duplicate_text_filenames": 0,
+      "run": true,
+      "text_rows": 3302,
+      "unverified": 0,
+      "unverified_by_reason": {},
+      "verified": 3302
+    },
+    "text_unverified_documents": [],
+    "undecodable_list_values": {},
+    "unparseable_gt_fields": []
+  }
+}
