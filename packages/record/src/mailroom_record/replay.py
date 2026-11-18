@@ -39,7 +39,8 @@ places it when known; an event marked ``ts_absent`` has no time, and a run with 
 all falls back to document order, labelled ``synthetic_timing``. An untimed start lands at
 the latest row; an untimed finish lands at its start plus ``ms`` when the two pair by
 ``(doc, node, step)``, the finish's step being its own row's (``payload.finish_step``) or
-none, as in the sandbox, which writes ``step`` on running rows only; else 0.1 s after the
+none, as in the sandbox, which writes ``step`` on running rows only (a step stored
+scrubbed, free text kept as its SHA-256 and length, pairs by its canonical JSON); else 0.1 s after the
 latest row. An untimed item lands at its document's last finish, else 0.5 s after the
 latest row. Only ``done`` and
 ``failed`` final states count as complete; ``cancelled`` replays as ``failed``.
@@ -55,6 +56,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from mailroom_record.hashing import canonical_json
 from mailroom_record.log import EventLog
 from mailroom_record.models import Event
 
@@ -81,6 +83,12 @@ def _seconds(ts: str) -> float:
 
 def _int(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _pairable(step: Any) -> Any:
+    """``step`` as a dict key: a step stored scrubbed (a dict, or a list) by its canonical JSON,
+    so two rows naming the same text step still pair; anything else as stored."""
+    return canonical_json(step) if isinstance(step, (dict, list)) else step
 
 
 def _decisions(decision: Any) -> list[Any]:
@@ -135,9 +143,10 @@ class _Rows:
         elif isinstance(status, (dict, list)):
             status = None  # free text, stored as its SHA-256 and length: the sandbox's text is lost
         base = {"doc": e.doc_id, "node": e.node, "agent": e.agent, "model": e.model, "step": p.get("step")}
+        pair = _pairable(base["step"])
         if status == "running":
             t = self._time(e)
-            self.nodes.append((self._key(p.get("order"), e, t), t, base | {"status": "running"}, e.doc_id, base["step"]))
+            self.nodes.append((self._key(p.get("order"), e, t), t, base | {"status": "running"}, e.doc_id, pair))
             return
         if "started_ts" in p or "started_order" in p:
             started = p.get("started_ts")
@@ -145,7 +154,7 @@ class _Rows:
             if st is None:
                 self.untimed += 1
             start = base | {"status": "running"}
-            self.nodes.append((self._key(p.get("started_order"), e, st), st, start, e.doc_id, base["step"]))
+            self.nodes.append((self._key(p.get("started_order"), e, st), st, start, e.doc_id, pair))
         t = self._time(e)
         row = base | {
             "status": status,
@@ -155,7 +164,7 @@ class _Rows:
         }
         # The sandbox pairs a finish with its start by (doc, node, step), and writes ``step``
         # on running rows only: a finish pairs by step only when its own row named one.
-        pair_step = base["step"] if p.get("finish_step") is True else None
+        pair_step = pair if p.get("finish_step") is True else None
         self.nodes.append((self._key(p.get("order"), e, t), t, row, e.doc_id, pair_step))
 
     def _item(self, e: Event) -> None:

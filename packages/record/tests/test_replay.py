@@ -520,3 +520,27 @@ def test_a_non_token_status_replays_as_stored(tmp_path: Path, status: Any, shown
         assert [e["node"]["status"] for _, e in want if "node" in e] == ["running", status]
         if shown == status:
             _same(normalise(timeline), normalise(want))
+@pytest.mark.parametrize("finish_names_step", [True, False], ids=["finish-names-step", "finish-without-step"])
+def test_a_free_text_step_pairs_and_does_not_crash(tmp_path: Path, finish_names_step: bool) -> None:
+    """A step that is not a token is stored scrubbed (a dict); pairing used it as a dict key
+    and raised TypeError. It pairs by a hashable form instead: an untimed finish naming the
+    same text step lands at its start plus ms, as in the sandbox; one without a step does
+    not pair and lands 0.1 s after the latest row."""
+    start = {"doc": D0, "node": "intake", "status": "running", "agent": None, "model": None, "ts": T0,
+             "step": "step one"}
+    finish = {"doc": D0, "node": "intake", "status": "done", "agent": None, "model": None,
+              "ms": 50.0, "stage": "s", "decisions": []}
+    if finish_names_step:
+        finish["step"] = "step one"
+    folder = _folder_with(tmp_path, 1, [start, finish], [_item(D0, T0 + 0.2)])
+    store = _store(tmp_path / "store")
+    r = import_sandbox_run(folder, store.log, store.blobs)
+    timeline, meta = replay_timeline(store.log, r.run_id)
+    at = {e["node"]["status"]: t for t, e in timeline if "node" in e}
+    assert at == {"running": 0.0, "done": 0.05 if finish_names_step else 0.1}
+    assert meta["warnings"] == ["1 rows had no source time"]
+    sandbox = _sandbox_floor_replay()
+    if sandbox is not None:
+        want, want_meta = sandbox.build_timeline(folder)
+        _same(normalise(timeline), normalise(want))
+        _same_meta(meta, want_meta)
