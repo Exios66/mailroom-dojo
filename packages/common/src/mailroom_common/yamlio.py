@@ -85,10 +85,31 @@ _StrictLoader.add_constructor("tag:yaml.org,2002:binary", _refuse("binary"))
 _StrictLoader.add_constructor("tag:yaml.org,2002:set", _refuse("set"))
 
 
+_MERGE_TAG = "tag:yaml.org,2002:merge"
+
+
+def _merge_sources(node: yaml.Node) -> list[yaml.MappingNode]:
+    """The mapping nodes named by a ``<<`` key (one mapping, or a sequence of mappings)."""
+    if isinstance(node, yaml.MappingNode):
+        return [node]
+    if isinstance(node, yaml.SequenceNode) and all(isinstance(item, yaml.MappingNode) for item in node.value):
+        return list(node.value)
+    raise yaml.constructor.ConstructorError(
+        None, None, "a merge key (<<) needs a mapping or a list of mappings", node.start_mark
+    )
+
+
 def _construct_mapping(loader: _StrictLoader, node: yaml.MappingNode, deep: bool = False) -> dict[str, Any]:
-    loader.flatten_mapping(node)
-    mapping: dict[str, Any] = {}
+    # Merge keys are handled here, not by flatten_mapping, so that a key written next to
+    # ``<<`` overrides the merged value (valid YAML) while two written keys still collide.
+    explicit: dict[str, Any] = {}
+    merged: dict[str, Any] = {}
     for key_node, value_node in node.value:
+        if key_node.tag == _MERGE_TAG:
+            for source in _merge_sources(value_node):  # earlier sources win, as in YAML
+                for key, value in _construct_mapping(loader, source, deep=True).items():
+                    merged.setdefault(key, value)
+            continue
         key = loader.construct_object(key_node, deep=True)
         if not isinstance(key, str):
             raise yaml.constructor.ConstructorError(
@@ -97,12 +118,12 @@ def _construct_mapping(loader: _StrictLoader, node: yaml.MappingNode, deep: bool
                 f"mapping key must be a string, got {type(key).__name__} ({key!r})",
                 key_node.start_mark,
             )
-        if key in mapping:
+        if key in explicit:
             raise yaml.constructor.ConstructorError(
                 None, None, f"duplicate mapping key {key!r}", key_node.start_mark
             )
-        mapping[key] = loader.construct_object(value_node, deep=deep)
-    return mapping
+        explicit[key] = loader.construct_object(value_node, deep=deep)
+    return {**merged, **explicit}
 
 
 _StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping)

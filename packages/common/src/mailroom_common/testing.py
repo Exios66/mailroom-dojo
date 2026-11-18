@@ -142,6 +142,9 @@ def _target(root: Path, name: str | Path) -> Path:
     if relative.is_absolute() or ".." in relative.parts:
         raise ValueError(f"path must be relative and stay inside {root}: {name}")
     path = root / relative
+    # A symlink inside root must not let a writer escape it: check where the file really lands.
+    if not path.parent.resolve().is_relative_to(root.resolve()):
+        raise ValueError(f"path must be relative and stay inside {root}: {name}")
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 

@@ -210,3 +210,16 @@ def test_capture_installs_and_restores_root_level() -> None:
     assert (root.level, root.handlers) == (before_level, before_handlers)
     assert [r["event"] for r in capture.records] == ["token=[REDACTED]"]
     assert len(capture) == 1
+
+
+def test_writers_refuse_to_follow_a_symlink_out_of_root(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "link").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="must be relative and stay inside"):
+        write_json(root, "link/x.json", {"a": 1})
+    with pytest.raises(ValueError, match="must be relative and stay inside"):
+        write_yaml(root, "link/deeper/x.yaml", {"a": 1})
+    assert list(outside.iterdir()) == []

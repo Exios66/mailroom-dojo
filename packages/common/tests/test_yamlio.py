@@ -115,3 +115,33 @@ def test_non_utf8_file_is_a_config_error(tmp_path: Path) -> None:
 def test_anchors_and_merge_keys_still_work() -> None:
     text = "base: &b {x: 1}\nchild:\n  <<: *b\n  y: 2\n"
     assert loads_yaml(text)["child"] == {"x": 1, "y": 2}
+
+
+def test_explicit_key_overrides_a_merged_key() -> None:
+    text = "base: &b {x: 1, y: 1}\nchild:\n  <<: *b\n  x: 2\n"
+    assert loads_yaml(text)["child"] == {"x": 2, "y": 1}
+
+
+def test_explicit_key_before_the_merge_key_still_wins() -> None:
+    text = "base: &b {x: 1}\nchild:\n  x: 2\n  <<: *b\n"
+    assert loads_yaml(text)["child"] == {"x": 2}
+
+
+def test_earlier_merge_source_wins_over_later_ones() -> None:
+    text = "a: &a {x: 1}\nb: &b {x: 2, y: 2}\nchild:\n  <<: [*a, *b]\n"
+    assert loads_yaml(text)["child"] == {"x": 1, "y": 2}
+
+
+def test_two_written_keys_next_to_a_merge_are_still_a_duplicate() -> None:
+    with pytest.raises(ConfigError, match="duplicate mapping key 'x'"):
+        loads_yaml("base: &b {x: 1}\nchild:\n  <<: *b\n  x: 2\n  x: 3\n")
+
+
+def test_merge_of_a_scalar_is_refused() -> None:
+    with pytest.raises(ConfigError, match="merge key"):
+        loads_yaml("child:\n  <<: 5\n")
+
+
+def test_nested_merge_keys_resolve() -> None:
+    text = "a: &a {x: 1}\nb: &b\n  <<: *a\n  y: 2\nc:\n  <<: *b\n  x: 9\n"
+    assert loads_yaml(text)["c"] == {"x": 9, "y": 2}
