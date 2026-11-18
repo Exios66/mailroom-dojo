@@ -483,27 +483,28 @@ def test_building_into_a_directory_with_other_content_is_refused_untouched(
 def test_rows_are_parsed_from_the_bytes_that_were_verified(
     snap: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # A file that changes right after a separate verification pass must never feed rows:
-    # the stream parses exactly the bytes it hashed.
+    # A file that changes right after rows() read it must never feed rows: the stream parses
+    # exactly the bytes it hashed. The change is injected at _jsonl_lines, which rows() calls
+    # on the bytes it has just read, before it hashes and parses them.
     import mailroom_labels.snapshot as snapshot_module
 
     loaded = load_snapshot(snap)
     original = [r.data for r in loaded.rows()]
-    real_facts = snapshot_module._file_facts
+    real_lines = snapshot_module._jsonl_lines
+    fired: list[int] = []
 
-    def facts_then_tamper(path: Path, *, parse: bool):
-        result = real_facts(path, parse=parse)
-        path.write_bytes(path.read_bytes().replace(b'"S0"', b'"XX"'))
+    def lines_then_tamper(data: bytes) -> list[bytes]:
+        result = real_lines(data)
+        target = snap / "a.jsonl"
+        target.write_bytes(target.read_bytes().replace(b'"S0"', b'"XX"'))
+        fired.append(1)
         return result
 
-    monkeypatch.setattr(snapshot_module, "_file_facts", facts_then_tamper)
-    yielded = []
-    try:
-        for row in loaded.rows():
-            yielded.append(row.data)
-    except ManifestMismatch:
-        pass  # refusing is fine; yielding a row that was never verified is not
-    assert all(r in original for r in yielded)
+    monkeypatch.setattr(snapshot_module, "_jsonl_lines", lines_then_tamper)
+    yielded = [row.data for row in loaded.rows()]
+    assert fired, "the tamper was never injected"
+    assert b'"XX"' in (snap / "a.jsonl").read_bytes()
+    assert yielded == original
 
 
 def test_rows_split_lines_like_a_binary_file_read(tmp_path: Path) -> None:
