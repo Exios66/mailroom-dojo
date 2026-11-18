@@ -224,7 +224,11 @@ def chain_damage(doc_id: str, events: tuple[Event, ...] | list[Event]) -> list[D
 
 
 def stable_scan(log: EventLog, run_id: str, doc_id: str | None = None) -> RunScan:
-    """A tolerant scan, re-read while it shows a gap that a second read does not confirm."""
+    """A tolerant scan, re-read while it shows a gap that a second read does not confirm.
+
+    The same rule as ``index._stable_scan`` (a deliberate copy: index.py is not imported
+    for a private helper); change both together.
+    """
     previous: dict[str, int] | None = None
     scan = log.scan(run_id, doc_id, strict=False)
     for _ in range(_SCAN_TRIES - 1):
