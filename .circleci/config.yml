@@ -1,0 +1,65 @@
+version: 2.1
+
+jobs:
+  test:
+    # The package declares requires-python >= 3.11, so the suite runs on every supported
+    # minor version: 3.11 (the oldest), 3.12, and 3.13 (the one local development uses).
+    parameters:
+      python:
+        type: string
+    docker:
+      - image: cimg/python:<< parameters.python >>
+    steps:
+      - checkout
+      - run:
+          name: Install mailroom_record
+          command: |
+            python -m venv .venv
+            .venv/bin/pip install -e "packages/record[dev,analysis]"
+      - run:
+          name: Run tests
+          command: .venv/bin/python -m pytest packages/record/tests -q
+
+  no-session-links:
+    docker:
+      - image: cimg/python:3.12.7
+    steps:
+      - checkout
+      - run:
+          name: Reject session links in commit messages and tracked files
+          # The bracketed letters keep this file from matching its own patterns.
+          command: |
+            pattern='claude\.ai/[c]ode|Claude-[S]ession:'
+            if ! git fetch --quiet origin main:refs/remotes/origin/main \
+                || ! git rev-parse --verify --quiet origin/main >/dev/null; then
+              echo "Cannot resolve origin/main, so the branch's commit messages cannot be checked."
+              exit 1
+            fi
+            status=0
+            log=$(git log --format='%H%n%B' origin/main..HEAD)
+            rc=0; printf '%s\n' "$log" | grep -nE "$pattern" || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "A commit message on this branch contains a session link."
+              status=1
+            elif [ "$rc" -gt 1 ]; then
+              echo "grep failed with exit $rc while scanning commit messages."
+              status=1
+            fi
+            rc=0; git grep -nE "$pattern" || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "A tracked file contains a session link."
+              status=1
+            elif [ "$rc" -gt 1 ]; then
+              echo "git grep failed with exit $rc."
+              status=1
+            fi
+            exit $status
+
+workflows:
+  checks:
+    jobs:
+      - test:
+          matrix:
+            parameters:
+              python: ["3.11.14", "3.12.7", "3.13.9"]
+      - no-session-links

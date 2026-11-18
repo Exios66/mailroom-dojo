@@ -1,0 +1,9 @@
+# Workspace root for mailroom-dojo. Not a package itself: it holds shared tool config.
+# Each package lives under packages/ and is installed on its own, e.g.
+#   pip install -e "packages/record[dev,analysis]"
+
+[tool.pytest.ini_options]
+testpaths = ["packages/record/tests"]
+addopts = "--import-mode=importlib"
+# Lets tests import shared helpers from packages/record/tests/record_testkit.py.
+pythonpath = ["packages/record/tests"]
