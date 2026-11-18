@@ -55,7 +55,7 @@ from mailroom_labels.importers.common import (
 )
 from mailroom_labels.layers import CURRENT_LAYER_SCHEMA
 from mailroom_labels.models import SnapshotManifest
-from mailroom_labels.profile import ClientProfile
+from mailroom_labels.profile import ClientProfile, load_unique_yaml
 from mailroom_labels.snapshot import write_snapshot
 
 __all__ = ["DEFAULT_SHARDS", "SPLITS", "build_hub", "load_hub_pins", "parse_dataset_manifest", "shard_path"]
@@ -99,10 +99,14 @@ _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 def load_hub_pins(path: Path | str) -> dict[str, dict[str, str]]:
     """The pinned file hashes of each dataset revision from a YAML file
-    (``{<40-hex revision>: {manifest.txt: <sha256>, <shard path>: <sha256>, ...}}``)."""
+    (``{<40-hex revision>: {manifest.txt: <sha256>, <shard path>: <sha256>, ...}}``). A key
+    repeated in the file is refused, so a second pin can never silently replace the first."""
     import yaml
 
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    try:
+        raw = load_unique_yaml(Path(path).read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ImportRefused(f"{path}: not valid YAML: {exc}") from exc
     if not isinstance(raw, dict) or not raw:
         raise ImportRefused(f"{path}: expected {{revision: {{path: sha256}}}}")
     out: dict[str, dict[str, str]] = {}

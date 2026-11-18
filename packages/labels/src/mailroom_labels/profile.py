@@ -40,6 +40,7 @@ __all__ = [
     "FieldSpec",
     "is_field_type",
     "load_profile",
+    "load_unique_yaml",
     "parse_profile",
 ]
 
@@ -141,6 +142,12 @@ def _construct_mapping(loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: b
 
 
 _UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping)
+
+
+def load_unique_yaml(text: str) -> Any:
+    """Parse YAML with the safe loader, refusing (``yaml.YAMLError``) a mapping that holds
+    the same key twice. Every configuration file of this package is read through it."""
+    return yaml.load(text, Loader=_UniqueKeyLoader)  # noqa: S506 - a SafeLoader subclass
 
 
 def _is_name(value: object) -> bool:
@@ -290,7 +297,7 @@ def load_profile(path: Path | str) -> ClientProfile:
     except OSError as exc:
         raise ProfileError(path, [f"cannot read: {exc}"]) from exc
     try:
-        raw = yaml.load(text, Loader=_UniqueKeyLoader)  # noqa: S506 - a SafeLoader subclass
+        raw = load_unique_yaml(text)
     except yaml.YAMLError as exc:
         raise ProfileError(path, [f"not valid YAML: {exc}"]) from exc
     return parse_profile(raw, path)

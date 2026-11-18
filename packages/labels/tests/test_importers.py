@@ -1624,3 +1624,37 @@ def test_fetch_hub_rejects_a_download_that_ends_before_its_declared_length(
     assert target.read_bytes() == b"x" * 40
     Short.headers = {}  # no declared length: nothing to compare, kept as before
     assert fetch._fetch_one("https://example.invalid/y", tmp_path / "out" / "y.parquet") is not None
+
+
+# --- duplicate YAML keys in the configuration files the importers read --------------------------
+
+
+def test_hub_pins_refuse_a_duplicated_shard_path(tmp_path: Path) -> None:
+    from mailroom_labels.importers.hub import load_hub_pins
+
+    rel = "parquet/ground_truth/train/train-00000-of-00001.parquet"
+    path = tmp_path / "pins.yaml"
+    path.write_text(f"'{'0' * 40}':\n  manifest.txt: {'a' * 64}\n  {rel}: {'b' * 64}\n  {rel}: {'c' * 64}\n")
+    with pytest.raises(ImportRefused, match="duplicate key"):
+        load_hub_pins(path)
+    path.write_text(f"'{'0' * 40}':\n  manifest.txt: {'a' * 64}\n  {rel}: {'b' * 64}\n")
+    assert load_hub_pins(path) == {"0" * 40: {"manifest.txt": "a" * 64, rel: "b" * 64}}
+
+
+def test_known_warnings_refuse_a_duplicated_snapshot_key(tmp_path: Path) -> None:
+    entry = "  - {kind: orphan_decision, doc: D1, field: sender, reason: added by review}\n"
+    path = tmp_path / "known.yaml"
+    path.write_text("snap-a:\n" + entry + "snap-a:\n" + entry.replace("D1", "D2"))
+    with pytest.raises(ImportRefused, match="duplicate key"):
+        known_warnings_for(path, "snap-a")
+    path.write_text("snap-a:\n" + entry)
+    assert [w["doc"] for w in known_warnings_for(path, "snap-a")] == ["D1"]
+
+
+def test_build_profile_refuses_a_duplicated_key_in_the_field_registry(tmp_path: Path) -> None:
+    bp = _load_build_profile()
+    registry = tmp_path / bp.FIELDS_YAML
+    registry.parent.mkdir(parents=True)
+    registry.write_text("vocabularies:\n  urgency: [routine]\n  urgency: [urgent]\n")
+    with pytest.raises(bp.BuildError, match="duplicate key 'urgency'"):
+        bp.build(tmp_path, "0" * 40, tmp_path, [], {})
