@@ -40,7 +40,7 @@ mailroom-dojo/
 └── .circleci/                 CI (CircleCI only)
 ```
 
-Rules: dependencies point one way and a test enforces them (`tests/test_workspace_boundaries.py`, table in `scripts/check_boundaries.py`): every package may import `common`, which imports nothing of ours; `dictionaries` imports only `common`; `labels`, `dojo` and `engine` may also import `dictionaries`; `labels` imports `record`; `dojo` imports `record` and `labels`; `engine` imports `record` (and reads client profiles from `config/`); `launcher` may import all of them; the Dojo never imports the engine, and `record` imports nothing of ours (adopting `common` is a planned follow-up). Tuning lives in `config/` and `labels/`, never in code. A new folder needs a line in this map. Names say what a thing is, in full words; nesting goes from general to specific.
+Rules: dependencies point one way and a test enforces them (`tests/test_workspace_boundaries.py`, table in `scripts/check_boundaries.py`): every package except `record` (for now) may import `common`, which imports nothing of ours; `dictionaries` imports only `common`; `labels`, `dojo` and `engine` may also import `dictionaries`; `labels` imports `record`; `dojo` imports `record` and `labels`; `engine` imports `record` (and reads client profiles from `config/`); `launcher` may import all of them; the Dojo never imports the engine, and `record` imports nothing of ours (adopting `common` is a planned follow-up). Tuning lives in `config/` and `labels/`, never in code. A new folder needs a line in this map. Names say what a thing is, in full words; nesting goes from general to specific.
 
 Folders marked with a later project do not exist yet. Requirements behind this layout: `docs/specs/2026-11-18-lean-rewrite-design.md`, R9. `scripts/check_layout.py` checks this map against the real folders.
 
@@ -51,10 +51,10 @@ The `Makefile` is the one entry point, used the same way locally and in CI (`mak
 ```bash
 make install     # .venv with every package (dependency order, dev extras) and the dev tools
 make test-fast   # pytest -x -q -n auto over every package and tests/
-make check       # every gate in CI order: lint, typecheck, spell, boundaries, layout, test
+make check       # every gate: lint, typecheck, spell, boundaries, layout, session-links, test
 make hooks       # install the pre-commit hooks (ruff, codespell, file hygiene, no session links)
 ```
 
-`make format` applies ruff's fixes and formatting. Set `PY` to choose the interpreter that creates the venv, or `VENV` for its location.
+`make session-links` checks commit messages only when `origin/main` resolves (it notes the skip otherwise); CI's `no-session-links` job fetches `origin/main` and runs the same script with `--require-base`, so there the check cannot be skipped. `make format` applies ruff's fixes and formatting. Set `PY` to choose the interpreter that creates the venv, or `VENV` for its location.
 
 Commit messages follow `.gitmessage` (`git config commit.template .gitmessage`).

@@ -30,8 +30,10 @@ data, not code.
 - **`common` is domain-free:** no document classes, node names or client names. Anything that
   names the domain belongs in `dictionaries` (as data) or in the package that owns it.
 - **Vocabularies are data:** YAML files with a version, loaded and validated by
-  `dictionaries`, and locked by version so a run records which vocabulary it used and an old
-  run can be re-read with the vocabulary it was made with.
+  `dictionaries`, and locked by version so a run records which vocabulary it used: the
+  manifest pins each dictionary's version and content hash (and whether it was shipped or a
+  client override). An old version is recovered from git history by looking up that hash;
+  no API loads a past version.
 - **Client extensions add dictionaries, not code:** a client that needs another class or
   term ships a dictionary file in its profile; no package changes.
 

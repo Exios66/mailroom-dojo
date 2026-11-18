@@ -2,8 +2,9 @@
 
 Every package under ``packages/<name>/`` ships the module ``mailroom_<name>``. ``ALLOWED``
 says which sibling packages each one may import. The check parses (never imports or runs)
-every ``.py`` file under a package's ``src/``, ``tests/`` and ``scripts/`` folders and
-reports, as problems:
+every ``.py`` file anywhere in a package's folder (``conftest.py`` and setup files at its root
+included; ``.venv``, ``build``, ``dist``, ``__pycache__`` and ``*.egg-info`` folders excluded)
+and reports, as problems:
 
 - an absolute ``import mailroom_x`` or ``from mailroom_x import y`` that the table does not
   allow, wherever it sits (module level, inside a function, under ``if TYPE_CHECKING:`` or
@@ -37,7 +38,8 @@ __all__ = [
 ]
 
 MODULE_PREFIX = "mailroom_"
-SCANNED_FOLDERS = ("src", "tests", "scripts")
+#: Folders inside a package that are never scanned (tooling output, not package code).
+SKIPPED_FOLDERS = frozenset({".venv", "build", "dist", "__pycache__"})
 
 _EVERY_OTHER = frozenset({"common", "dictionaries", "record", "labels", "dojo", "engine"})
 
@@ -115,10 +117,10 @@ def _package_dirs(packages_root: Path) -> list[Path]:
 
 
 def _python_files(package_dir: Path) -> Iterator[Path]:
-    for folder in SCANNED_FOLDERS:
-        base = package_dir / folder
-        if base.is_dir():
-            yield from sorted(p for p in base.rglob("*.py") if "__pycache__" not in p.parts)
+    for path in sorted(package_dir.rglob("*.py")):
+        folders = path.relative_to(package_dir).parts[:-1]
+        if not any(part in SKIPPED_FOLDERS or part.endswith(".egg-info") for part in folders):
+            yield path
 
 
 def check_workspace(
