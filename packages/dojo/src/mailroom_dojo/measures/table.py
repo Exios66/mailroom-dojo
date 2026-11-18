@@ -6,7 +6,8 @@ immutable :class:`MetricTable`. A problem raises :class:`MetricTableError` namin
 YAML path, for example ``metrics[3].direction: 'up' is not one of higher, lower, none``.
 
 The table replaces the old registry's tiers, bundles and profiles: the dashboard view
-is a query (:meth:`MetricTable.headline_rows`, :meth:`MetricTable.rows_for_agent`).
+is a query (:meth:`MetricTable.headline_rows`, :meth:`MetricTable.rows_for_agent`), over
+kept rows unless ``include_not_ported=True``.
 :attr:`MetricTable.content_hash` is the SHA-256 of the table's canonical JSON form
 (sorted keys, no whitespace, defaults filled in), so every scorecard can say which
 table defined its numbers. Mapping key order and YAML comments never change it; row
@@ -354,14 +355,22 @@ class MetricTable:
         row = self.get(metric)
         return row if row.alias_of is None else self.get(row.alias_of)
 
-    def headline_rows(self) -> tuple[MetricRow, ...]:
-        """The headline metrics, in table order."""
-        return tuple(row for row in self.rows if row.headline)
-
-    def rows_for_agent(self, agent: str, *, headline_only: bool = False) -> tuple[MetricRow, ...]:
-        """The metrics that apply to ``agent`` (rows for ``ALL`` included)."""
+    def headline_rows(self, *, include_not_ported: bool = False) -> tuple[MetricRow, ...]:
+        """The headline metrics, in table order; ``not_ported`` rows only when asked for."""
         return tuple(
-            row for row in self.rows if row.applies_to(agent) and (row.headline or not headline_only)
+            row for row in self.rows if row.headline and (include_not_ported or row.status != "not_ported")
+        )
+
+    def rows_for_agent(
+        self, agent: str, *, headline_only: bool = False, include_not_ported: bool = False
+    ) -> tuple[MetricRow, ...]:
+        """The metrics that apply to ``agent`` (rows for ``ALL`` included), kept rows unless asked."""
+        return tuple(
+            row
+            for row in self.rows
+            if row.applies_to(agent)
+            and (row.headline or not headline_only)
+            and (include_not_ported or row.status != "not_ported")
         )
 
     def rows_for_reader(self, reader: str) -> tuple[MetricRow, ...]:
@@ -370,10 +379,13 @@ class MetricTable:
             raise UnknownMetricError(f"unknown reader {reader!r}; known: {', '.join(READERS)}")
         return tuple(row for row in self.rows if reader in row.readers)
 
-    def headlines_by_agent(self) -> Mapping[str, tuple[str, ...]]:
-        """Each named agent and the headline ids that name it (``ALL`` rows under ``ALL``)."""
+    def headlines_by_agent(self, *, include_not_ported: bool = False) -> Mapping[str, tuple[str, ...]]:
+        """Each named agent and the headline ids that name it (``ALL`` rows under ``ALL``).
+
+        Kept rows only, unless ``include_not_ported``: a dropped headline is no dashboard number.
+        """
         out: dict[str, list[str]] = {}
-        for row in self.headline_rows():
+        for row in self.headline_rows(include_not_ported=include_not_ported):
             for agent in row.expanded_agents:
                 out.setdefault(agent, []).append(row.id)
         return MappingProxyType({agent: tuple(ids) for agent, ids in sorted(out.items())})

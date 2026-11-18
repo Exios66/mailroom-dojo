@@ -320,7 +320,7 @@ def test_metric_ids_are_the_old_canonical_ids(table: MetricTable) -> None:
 
 def test_headline_ids_match_metric_ids_md(table: MetricTable) -> None:
     doc = OLD["metric_ids"]["doc"]
-    headline = table.headline_rows()
+    headline = table.headline_rows(include_not_ported=True)
     assert {row.id for row in headline} == {
         name for name, entry in OLD["metrics"].items() if entry["tier"] == 0
     }
@@ -392,7 +392,8 @@ def test_counts(table: MetricTable) -> None:
     """The table's shape, so a change to it is a visible, reviewed change."""
     statuses = [row.status for row in table.rows]
     assert len(table.rows) == 184 + 10 + len(DESIGN_ROWS)
-    assert len(table.headline_rows()) == 14
+    assert len(table.headline_rows(include_not_ported=True)) == 14
+    assert len(table.headline_rows()) == 13  # bert_elapsed_ms is not ported
     assert {status: statuses.count(status) for status in set(statuses)} == {
         "implemented": 19,
         "planned": 107,

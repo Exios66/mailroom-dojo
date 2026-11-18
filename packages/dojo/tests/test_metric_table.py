@@ -573,6 +573,23 @@ def test_queries_replace_tiers() -> None:
         table.get("tier0")
 
 
+def test_dashboard_queries_leave_out_dropped_rows_unless_asked() -> None:
+    """A not_ported headline (bert_elapsed_ms, dropped with the BERT fast path) is no dashboard number."""
+    table = load_metric_table()
+    assert table.get("bert_elapsed_ms").headline and table.get("bert_elapsed_ms").status == "not_ported"
+    assert all(row.status != "not_ported" for row in table.headline_rows())
+    assert "bert_elapsed_ms" not in {row.id for row in table.rows_for_agent("intake")}
+    assert "bert_elapsed_ms" not in table.headlines_by_agent().get("intake", ())
+    assert all(
+        table.get(metric).status != "not_ported"
+        for ids in table.headlines_by_agent().values()
+        for metric in ids
+    )
+    assert "bert_elapsed_ms" in {row.id for row in table.headline_rows(include_not_ported=True)}
+    assert "bert_elapsed_ms" in {row.id for row in table.rows_for_agent("intake", include_not_ported=True)}
+    assert table.headlines_by_agent(include_not_ported=True)["intake"] == ("bert_elapsed_ms",)
+
+
 def _ci(low: float, high: float) -> ConfidenceInterval:
     return ConfidenceInterval(low=low, high=high, level=0.95, method="wilson")
 

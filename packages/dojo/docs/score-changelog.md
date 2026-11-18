@@ -179,6 +179,11 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   `intake_changed_rate`, `intake_messy_rate`, `intake_hyphen_unwraps` and
   `intake_collapsed_blanks` are `not_ported`. The old golden intake suite emits them, so D3b
   lists them as intended differences of the parity gate.
+- **The headline `bert_elapsed_ms` is dropped with the BERT fast path.** It was an old tier-0
+  (headline) metric of intake; the port design drops llm-mailroom's BERT intake gate (section
+  7), so the row is `not_ported`. The dashboard queries (`headline_rows`, `rows_for_agent`,
+  `headlines_by_agent`) leave `not_ported` rows out unless called with
+  `include_not_ported=True`, so intake shows no headline from the old tier 0.
 - **Units have one spelling.** `usd` is written `USD` and `int` `count`; `confusion_matrix`,
   `per_class_stats` and `bootstrap_ci` are `structure`, not `float[0,1]`. The meaning is
   unchanged; a `structure` row is never reported as one number.
