@@ -100,11 +100,11 @@ def test_every_scorer_returns_a_bounded_float_for_any_input(name, predicted, exp
 def test_a_value_matches_itself(name, value):
     """id, name, money and containment give any text a full match against itself.
 
-    The one exception is money text that parses to infinity ("inf", "INF"): the old
+    The one exception is money text that parses to infinity or NaN ("inf", "NAN"): the old
     scorer compares the two values by subtraction, which is NaN, and scores 0.0. That is
     kept for parity and recorded in the score changelog.
     """
-    if name == "money" and (parsed := parse_money(value)) is not None and math.isinf(parsed):
+    if name == "money" and (parsed := parse_money(value)) is not None and not math.isfinite(parsed):
         assert BUILTIN_SCORERS[name](value, value) == 0.0
         return
     assert BUILTIN_SCORERS[name](value, value) == 1.0
