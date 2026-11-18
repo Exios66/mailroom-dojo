@@ -1,0 +1,76 @@
+# Warnings accepted in each snapshot's manifest (known_warnings), each with its reason.
+# Every entry comes from `mailroom-labels verify` on the committed set; an importer refuses an
+# entry without a reason. Explained in docs/reports/labels/data-quality-2026-11-18.md.
+gold-review-2026-11-18:
+- doc: DOC-6f036492d91cc9c4
+  field: additional_recipients
+  kind: orphan_decision
+  reason: 'missing-field entry (gold-label-review REVIEW.md, Not covered: the catalog has no entry for
+    this field); the Claude audit decision adds the label, ranked near_gold.'
+- doc: DOC-998bd08aa3861cb3
+  field: additional_recipients
+  kind: orphan_decision
+  reason: 'missing-field entry (gold-label-review REVIEW.md, Not covered: the catalog has no entry for
+    this field); the Claude audit decision adds the label, ranked near_gold.'
+- doc: DOC-ba0a00b00ba2ed62
+  field: effective_date
+  kind: orphan_decision
+  reason: owner review-desk decision on a gold-catalog label that was still a candidate, so no committed
+    layer carries it; the owner's decision is the label (gold).
+- doc: DOC-bda69bc956881bab
+  field: effective_date
+  kind: orphan_decision
+  reason: owner review-desk decision on a gold-catalog label that was still a candidate, so no committed
+    layer carries it; the owner's decision is the label (gold).
+- doc: DOC-bda69bc956881bab
+  field: jurisdiction
+  kind: orphan_decision
+  reason: owner review-desk decision on a gold-catalog label that was still a candidate, so no committed
+    layer carries it; the owner's decision is the label (gold).
+- doc: DOC-bda69bc956881bab
+  field: signatories
+  kind: orphan_decision
+  reason: owner review-desk decision on a gold-catalog label that was still a candidate, so no committed
+    layer carries it; the owner's decision is the label (gold).
+- doc: DOC-ca359bac49205614
+  field: communication_date
+  kind: orphan_decision
+  reason: 'missing-field entry (gold-label-review REVIEW.md, Not covered: the catalog has no entry for
+    this field); the Claude audit decision adds the label, ranked near_gold.'
+interim-2026-11-01:
+- doc: DOC-033adce2fbdff0ec
+  field: null
+  kind: subclass_mismatch
+  reason: 'the interim label was built at dataset revision bc9eab28 when this document was filed as articles_of_incorporation;
+    Hub ccd040f6 files it as rights_instrument. The label is stale: never truth, and the document is unverified
+    (not scored) until the interim overlay is rebuilt on ccd040f6.'
+- doc: DOC-4a8f1db0546e42be
+  field: null
+  kind: subclass_mismatch
+  reason: 'the interim label was built at dataset revision bc9eab28 when this document was filed as articles_of_incorporation;
+    Hub ccd040f6 files it as bylaws. The label is stale: never truth, and the document is unverified (not
+    scored) until the interim overlay is rebuilt on ccd040f6.'
+- doc: DOC-5c087a08edcb4a91
+  field: null
+  kind: subclass_mismatch
+  reason: 'the interim label was built at dataset revision bc9eab28 when this document was filed as powers_of_attorney;
+    Hub ccd040f6 files it as bylaws. The label is stale: never truth, and the document is unverified (not
+    scored) until the interim overlay is rebuilt on ccd040f6.'
+- doc: DOC-691191d21d96b75d
+  field: null
+  kind: subclass_mismatch
+  reason: 'the interim label was built at dataset revision bc9eab28 when this document was filed as articles_of_incorporation;
+    Hub ccd040f6 files it as rights_instrument. The label is stale: never truth, and the document is unverified
+    (not scored) until the interim overlay is rebuilt on ccd040f6.'
+- doc: DOC-e00ef4799dbd6b37
+  field: null
+  kind: subclass_mismatch
+  reason: 'the interim label was built at dataset revision bc9eab28 when this document was filed as powers_of_attorney;
+    Hub ccd040f6 files it as bylaws. The label is stale: never truth, and the document is unverified (not
+    scored) until the interim overlay is rebuilt on ccd040f6.'
+- doc: DOC-ea4b0e70dc4677d1
+  field: null
+  kind: subclass_mismatch
+  reason: 'the interim label was built at dataset revision bc9eab28 when this document was filed as other;
+    Hub ccd040f6 files it as articles_of_incorporation. The label is stale: never truth, and the document
+    is unverified (not scored) until the interim overlay is rebuilt on ccd040f6.'
