@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 from record_testkit import (
+    DEEP_BUT_PARSABLE,
     DEEP_UNPARSABLE,
     SENTINEL,
     chain,
@@ -175,3 +176,79 @@ def test_counts_are_bounded_at_append_so_nothing_unexportable_is_stored(store: S
     assert seal.event_count == 1
     _index(s).reindex(s.log)
     assert [d.events for d in _index(s).documents("r1")] == [1]
+
+
+# --- stored keys never reach an error message (Task 9 review) ---------------------------
+
+LEAKY_KEY = f"{SENTINEL} 4111-1111-1111-1111"
+
+
+def _assert_no_sentinel(*texts: str) -> None:
+    for text in texts:
+        assert SENTINEL not in text and "4111" not in text, text
+
+
+def test_an_unknown_key_in_an_event_is_named_without_its_text(store: SimpleNamespace) -> None:
+    s = store
+    raw = hand_line("r1", "d1", 0, GENESIS)
+    raw[LEAKY_KEY] = 1  # an extra top-level key: pydantic's loc would be the key itself
+    raw["payload"] = {LEAKY_KEY: "x"}  # fine: payload keys are not validated
+    raw["decision"] = {LEAKY_KEY: LEAKY_KEY}
+    raw["hash"] = event_hash(raw)
+    write_lines(s.root, "w0.jsonl", [raw])
+
+    with pytest.raises(CorruptLine) as sealed:
+        seal_run(s.log, "r1")
+    assert "<key>: extra_forbidden" in str(sealed.value)
+    scan = s.log.scan("r1", strict=False)
+    list(scan.events())
+    stats = _index(s).reindex(s.log)
+    report = verify(s)
+    _assert_no_sentinel(
+        str(sealed.value),
+        *(b.detail for b in scan.bad),
+        *(p.detail for p in stats.problems),
+        *(p.detail for p in report.problems),
+    )
+    assert [b.detail for b in scan.bad] == ["invalid event: <key>: extra_forbidden"]
+    assert ("invalid_event", "d1") in [(p.kind, p.doc_id) for p in report.problems]
+
+
+def test_a_seal_file_with_stored_keys_and_values_is_named_without_them(store_with_events: SimpleNamespace) -> None:
+    s = store_with_events
+    seal_run(s.log, "r1", sealed_at="2026-11-18T13:00:00Z")
+    path = s.root / "runs/r1/seals/0.json"
+    raw = json.loads(path.read_bytes())
+    raw[LEAKY_KEY] = LEAKY_KEY
+    raw["doc_heads"] = {LEAKY_KEY: LEAKY_KEY}
+    path.write_bytes(canonical_json(raw))
+    with pytest.raises(SealCorrupt) as listed:
+        list_seals(s.log, "r1")
+    with pytest.raises(SealCorrupt) as sealed:
+        seal_run(s.log, "r1")
+    stats = _index(s).reindex(s.log)
+    report = verify(s)
+    _assert_no_sentinel(
+        str(listed.value), str(sealed.value), *(p.detail for p in stats.problems), *(p.detail for p in report.problems)
+    )
+    assert "seal_corrupt" in {p.kind for p in report.problems}
+
+
+def test_a_decision_nested_too_deep_is_an_invalid_event_for_every_reader(store_with_events: SimpleNamespace) -> None:
+    # Task 9 finding: a hash-correct line whose decision nests ~600 deep made the upgrade's
+    # copy raise RecursionError out of the tolerant scan, aborting reindex and ensure.
+    s = store_with_events
+    nested: object = []
+    for _ in range(DEEP_BUT_PARSABLE):
+        nested = [nested]
+    raw = hand_line("r1", "d9", 0, GENESIS)
+    raw["decision"] = [nested]
+    raw["hash"] = event_hash(raw)
+    write_lines(s.root, "w9.jsonl", [raw])
+    stats = _index(s).reindex(s.log)  # never aborts
+    assert [(p.kind, p.segment) for p in stats.problems] == [("invalid_event", "w9.jsonl")]
+    assert _index(s).ensure(s.log) is None
+    with pytest.raises(ValueError) as strict:
+        list(s.log.iter_events("r1"))
+    assert not isinstance(strict.value, UNEXPECTED)
+    assert ("invalid_event", "d9", 0) in [(p.kind, p.doc_id, p.seq) for p in verify(s).problems]

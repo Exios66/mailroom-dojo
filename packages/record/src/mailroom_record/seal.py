@@ -129,7 +129,7 @@ import pyarrow.parquet as pq
 from mailroom_record.blobs import _fsync_dir, _makedirs_durable, _open_fd_for_write, write_exclusive
 from mailroom_record.hashing import canonical_json
 from mailroom_record.log import CorruptLine, EventLog, StoredLine, _Heads, _safe_detail
-from mailroom_record.models import GENESIS, Event, Seal, event_hash, seal_hash, utc_now
+from mailroom_record.models import GENESIS, Event, Seal, event_hash, seal_hash, utc_now, validation_detail
 
 __all__ = ["EVENT_COLUMNS", "SealCorrupt", "SealRefused", "list_seals", "seal_run"]
 
@@ -360,9 +360,9 @@ def _seal_lock(seals_dir: Path) -> Iterator[None]:
 
 def _invalid(s: StoredLine, exc: Exception) -> CorruptLine:
     # Name the fields and error types only: input values may hold document text.
-    errors = getattr(exc, "errors", None)
-    if callable(errors):
-        what = "; ".join(".".join(map(str, e["loc"])) + ": " + e["type"] for e in errors())
+    detail = validation_detail(exc)  # stored keys become <key>, values never appear
+    if detail is not None:
+        what = detail
     elif type(exc).__name__ == "UnknownSchemaVersion":
         what = "schema_version: UnknownSchemaVersion"
     else:  # the type only: Arrow and upgrade messages can quote the stored value

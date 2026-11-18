@@ -118,7 +118,7 @@ from typing import Any, Literal
 
 from mailroom_record.blobs import BlobStore, _fsync_dir, _makedirs_durable, write_exclusive
 from mailroom_record.hashing import canonical_json
-from mailroom_record.models import GENESIS, INT64_MAX, BlobRef, Event, Run, utc_now
+from mailroom_record.models import GENESIS, INT64_MAX, BlobRef, Event, Run, utc_now, validation_detail
 
 __all__ = [
     "BadLine",
@@ -329,13 +329,9 @@ def _iter_segment_stored(path: Path) -> Iterator[StoredLine]:
 
 def _safe_detail(exc: BaseException) -> str:
     """An error description without the input it rejected (no stored content leaks)."""
-    errors = getattr(exc, "errors", None)
-    if callable(errors):  # pydantic ValidationError: field locations and error types only
-        try:
-            parts = [".".join(str(x) for x in e.get("loc", ())) + ": " + str(e.get("type")) for e in errors()]
-            return "invalid event: " + "; ".join(parts)
-        except Exception:  # noqa: BLE001 - fall through to the type name
-            pass
+    detail = validation_detail(exc)  # field names and error types; stored keys become <key>
+    if detail is not None:
+        return "invalid event: " + detail
     if isinstance(exc, CorruptLine):
         return str(exc).split(": ", 1)[-1]
     # UnknownSchemaVersion names the version's type or number, never a stored value.

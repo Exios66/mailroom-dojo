@@ -120,7 +120,7 @@ import zstandard
 from mailroom_record.blobs import BlobStore, _zstd_frame_whole
 from mailroom_record.hashing import canonical_json
 from mailroom_record.log import EventLog, OverlongLine, RawLine, StoredLine, TornTail, iter_raw_segment
-from mailroom_record.models import GENESIS, Event, Run, Seal, event_hash, seal_hash
+from mailroom_record.models import GENESIS, Event, Run, Seal, event_hash, seal_hash, validation_detail
 from mailroom_record.seal import EVENT_SCHEMA, _columns_path, _row, _seals_dir
 
 __all__ = ["PROBLEM_KINDS", "Problem", "ProblemKind", "VerifyReport", "verify_run"]
@@ -798,10 +798,5 @@ def _oserror(exc: OSError) -> str:
 
 def _why(exc: BaseException) -> str:
     """Field locations and error types only: values may hold document text."""
-    errors = getattr(exc, "errors", None)
-    if callable(errors):
-        try:
-            return "; ".join(".".join(map(str, e["loc"])) + ": " + e["type"] for e in errors())
-        except (TypeError, KeyError):
-            pass
-    return type(exc).__name__
+    detail = validation_detail(exc)  # stored keys become <key>, values never appear
+    return type(exc).__name__ if detail is None else detail

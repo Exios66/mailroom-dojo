@@ -55,6 +55,7 @@ __all__ = [
     "event_hash",
     "seal_hash",
     "utc_now",
+    "validation_detail",
 ]
 
 GENESIS = "0" * 64
@@ -164,6 +165,30 @@ def event_hash(fields_without_hash: Mapping[str, Any]) -> str:
 def seal_hash(fields_without_hash: Mapping[str, Any]) -> str:
     """``hash_obj`` of every seal field except ``hash`` (same rule as ``event_hash``)."""
     return hash_obj(_without_hash(fields_without_hash))
+
+
+def validation_detail(exc: BaseException) -> str | None:
+    """A pydantic ``ValidationError`` as field locations and error types, never stored content.
+
+    A location step that is a field name of the record's models, or a list index, is kept;
+    any other step (an unknown top-level key, a key inside ``payload``, ``decision`` or
+    ``doc_heads``, a union branch tag) is a stored key, so it is shown as ``<key>``. Input
+    values never appear. Returns ``None`` for an exception that is not a validation error.
+    """
+    errors = getattr(exc, "errors", None)
+    if not callable(errors):
+        return None
+    try:
+        parts = []
+        for e in errors():
+            loc = ".".join(
+                str(x) if isinstance(x, int) or x in _FIELD_NAMES else "<key>" for x in e.get("loc", ())
+            )
+            kind = e.get("type")
+            parts.append(f"{loc or '<record>'}: {kind if isinstance(kind, str) and kind.isidentifier() else 'invalid'}")
+        return "; ".join(parts)
+    except Exception:  # noqa: BLE001 - an unexpected error shape: say only that it is invalid
+        return "invalid"
 
 
 class _Frozen(BaseModel):
@@ -279,3 +304,7 @@ class Seal(_Frozen):
     def from_stored(cls, raw: Mapping[str, Any]) -> Seal:
         """Validate a stored seal after upgrading it. Does not check the hash."""
         return cls.model_validate(upgrade_seal(raw))
+
+
+# Location steps ``validation_detail`` may show: the field names of every model above.
+_FIELD_NAMES = frozenset(f for m in (BlobRef, Run, Event, Seal) for f in m.model_fields)
