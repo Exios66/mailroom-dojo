@@ -185,6 +185,9 @@ labels.label_snapshot_ids() # Run.label_snapshot_ids: ["<snapshot_id>@<manifest_
 ```
 
 `load_label_set` verifies every manifest, runs the quality gate and raises
-`QualityGateFailed` (with the full report) when it finds an error (with `strict=True`, also
-on a warning the snapshot raising it does not accept, as `verify --strict` does), so a run can never be
-scored against a set that does not pass `mailroom-labels verify`.
+`QualityGateFailed` (with the full report) when it finds an error or a warning that the
+snapshot raising it does not accept: it is strict by default, the same rule as
+`verify --strict`, so a run can never be scored against a set that does not pass
+`mailroom-labels verify --strict` (for example a Hub import whose text was not checked,
+which only warns `text_unchecked`). `strict=False` loads such a set for inspection, with
+the warnings in `report`; a scorer never passes it.
