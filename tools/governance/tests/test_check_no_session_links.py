@@ -18,10 +18,12 @@ from pathlib import Path
 
 import pytest
 from governance_testkit import (
+    BARE_SESSION_ID,
     BARE_TRAILER,
     DOT_AI,
     FOOTER,
     GUARD_SCRIPT,
+    LEAK_FRAGMENTS,
     NO_LINKS_HOOK,
     PLAIN_FOOTER,
     PROJECT_LINK,
@@ -39,11 +41,11 @@ CLEAN_MESSAGE = (
 
 
 def assert_no_leak(result: subprocess.CompletedProcess[str]) -> None:
-    """The script names commits and files, never the matched text."""
-    out = result.stdout + result.stderr
-    assert "session_0123" not in out
-    assert "/project/0000" not in out
-    assert DOT_AI + "/" not in out.lower()
+    """The script names commits and files, never the matched text (links, trailers, footers)."""
+    out = (result.stdout + result.stderr).lower()
+    leaked = [i for i, fragment in enumerate(LEAK_FRAGMENTS) if fragment in out]
+    # Report indexes, not the fragments: the assertion message lands in the CI log.
+    assert not leaked, f"guard output echoes forbidden fragment(s) #{leaked}"
 
 
 def on_branch(repo: Repo, name: str = "feature") -> None:
@@ -90,6 +92,10 @@ def test_trailer_in_middle_commit_body_fails_and_names_only_that_commit(repo: Re
         pytest.param(FOOTER, id="footer-markdown"),
         pytest.param(PLAIN_FOOTER, id="footer-plain"),
         pytest.param("> **" + PLAIN_FOOTER.upper() + "**", id="footer-quoted-uppercase"),
+        pytest.param("id " + BARE_SESSION_ID, id="bare-session-id"),
+        pytest.param("Claude" + " Session: abc", id="trailer-space"),
+        pytest.param("Claude" + "_Session: abc", id="trailer-underscore"),
+        pytest.param("Gene" + "rated using [Claude Code](x)", id="footer-using"),
     ],
 )
 def test_each_forbidden_form_fails(repo: Repo, bad_text: str) -> None:
@@ -148,6 +154,61 @@ def test_main_checks_only_head(repo: Repo) -> None:
     assert_no_leak(result)
 
 
+def test_main_checks_every_commit_a_merge_brought_in(repo: Repo) -> None:
+    repo.git("switch", "--quiet", "-c", "side")
+    bad = repo.commit("fix: side\n\n" + BARE_TRAILER + "\n", rel="side.txt")
+    repo.commit(CLEAN_MESSAGE, rel="side.txt")
+    repo.git("switch", "--quiet", "main")
+    repo.commit(CLEAN_MESSAGE)
+    repo.git("merge", "--quiet", "--no-ff", "-m", "Merge branch side", "side")
+    result = repo.run_guard({"CIRCLE_BRANCH": "main"})
+    assert result.returncode == 1, result.stdout
+    assert "HEAD --not HEAD^1" in result.stderr
+    named = re.findall(r"^  ([0-9a-f]{7,})$", result.stderr, flags=re.M)
+    assert named == [bad]
+    assert_no_leak(result)
+
+
+def shallow_clone(repo: Repo, tmp_path: Path) -> Repo:
+    """A depth-1 clone of origin's main, with signing off like the fixture repo."""
+    clone = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "--quiet", "--depth", "1", "--branch", "main", f"file://{repo.origin}", str(clone)],
+        env=repo.env,
+        check=True,
+    )
+    r = Repo(path=clone, origin=repo.origin, env=repo.env)
+    r.git("config", "commit.gpgsign", "false")
+    assert r.git("rev-parse", "--is-shallow-repository").strip() == "true"
+    return r
+
+
+def test_shallow_clone_is_unshallowed_before_checking(repo: Repo, tmp_path: Path) -> None:
+    # main's HEAD is a merge whose bad commit a depth-1 clone cannot see.
+    repo.git("switch", "--quiet", "-c", "side")
+    bad = repo.commit("fix: side\n\n" + FOOTER + "\n", rel="side.txt")
+    repo.git("switch", "--quiet", "main")
+    repo.commit(CLEAN_MESSAGE)
+    repo.git("merge", "--quiet", "--no-ff", "-m", "Merge branch side", "side")
+    repo.push_main()
+    clone = shallow_clone(repo, tmp_path)
+    result = clone.run_guard({"CIRCLE_BRANCH": "main"})
+    assert result.returncode == 1, result.stdout
+    assert f"  {bad}" in result.stderr
+    assert clone.git("rev-parse", "--is-shallow-repository").strip() == "false"
+
+
+def test_shallow_clone_fails_when_it_cannot_be_unshallowed(repo: Repo, tmp_path: Path) -> None:
+    repo.commit(CLEAN_MESSAGE)
+    repo.push_main()
+    clone = shallow_clone(repo, tmp_path)
+    shutil.rmtree(repo.origin)
+    for branch in ("main", "feature"):
+        result = clone.run_guard({"CIRCLE_BRANCH": branch})
+        assert result.returncode == 1, (branch, result.stdout)
+        assert "shallow" in result.stderr
+
+
 def test_branch_fails_closed_when_origin_main_cannot_be_fetched(repo: Repo) -> None:
     on_branch(repo)
     repo.commit(CLEAN_MESSAGE)
@@ -186,34 +247,68 @@ def test_untracked_file_is_ignored(repo: Repo) -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_git_grep_error_fails(repo: Repo, tmp_path: Path) -> None:
+    """A git grep that errors (exit > 1) must fail the run, not read as "no match"."""
+    real_git = shutil.which("git")
+    assert real_git
+    bin_dir = tmp_path / "gitbin"
+    bin_dir.mkdir()
+    fake = bin_dir / "git"
+    fake.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = grep ]; then echo "fatal: simulated" >&2; exit 2; fi\n'
+        f'exec {real_git} "$@"\n',
+        encoding="utf-8",
+    )
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    on_branch(repo)
+    repo.commit(CLEAN_MESSAGE)
+    result = repo.run_guard({"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"})
+    assert result.returncode == 1, result.stdout
+    assert "git grep failed with exit 2" in result.stderr
+    assert "ok: no session links or footers in tracked files" not in result.stdout
+
+
 # --- pull request title and description -------------------------------------------
 
 
-def stub_curl(tmp_path: Path, responses: dict[str, dict[str, str] | None]) -> dict[str, str]:
+def stub_curl(tmp_path: Path, responses: dict[str, object]) -> dict[str, str]:
     """Put a fake ``curl`` first on PATH that serves ``responses`` keyed by PR number.
 
-    A value of None makes the stub fail like ``curl -f`` on an HTTP error.
+    A value of None makes the stub fail like ``curl -f`` on an HTTP error; a plain string
+    is printed as is (to test a body that is not JSON). Every call appends its argv, and
+    the config it read on stdin for ``--config -``, to ``curl-calls.jsonl``.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     data = tmp_path / "responses.json"
     data.write_text(json.dumps(responses), encoding="utf-8")
+    calls = tmp_path / "curl-calls.jsonl"
     fake = bin_dir / "curl"
     fake.write_text(
         "#!/usr/bin/env python3\n"
         "import json, sys\n"
         f"responses = json.load(open({str(data)!r}, encoding='utf-8'))\n"
-        "url = sys.argv[-1]\n"
+        "args = sys.argv[1:]\n"
+        "config = sys.stdin.read() if '--config' in args else ''\n"
+        f"with open({str(calls)!r}, 'a', encoding='utf-8') as log:\n"
+        "    log.write(json.dumps({'argv': args, 'config': config}) + '\\n')\n"
+        "url = args[-1]\n"
         "number = url.rstrip('/').rsplit('/', 1)[-1]\n"
         "assert '/pulls/' in url, url\n"
         "body = responses.get(number)\n"
         "if body is None:\n"
         "    sys.exit(22)\n"
-        "print(json.dumps(body))\n",
+        "print(body if isinstance(body, str) else json.dumps(body))\n",
         encoding="utf-8",
     )
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
     return {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+
+def curl_calls(tmp_path: Path) -> list[dict[str, object]]:
+    path = tmp_path / "curl-calls.jsonl"
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
 PR = "https://github.com/example-owner/mailroom-dojo/pull/{}"
@@ -261,13 +356,51 @@ def test_every_listed_pr_is_checked(repo: Repo, tmp_path: Path) -> None:
     assert f"description of {PR.format(1)}" in result.stdout
 
 
-def test_unreadable_pr_warns_but_does_not_fail(repo: Repo, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "response",
+    [pytest.param(None, id="http-error"), pytest.param("<html>not json</html>", id="not-json")],
+)
+def test_unreadable_pr_without_token_warns_but_does_not_fail(
+    repo: Repo, tmp_path: Path, response: str | None
+) -> None:
     on_branch(repo)
     repo.commit(CLEAN_MESSAGE)
-    env = stub_curl(tmp_path, {})
+    env = stub_curl(tmp_path, {"9": response})
     result = repo.run_guard({**env, "CIRCLE_PULL_REQUEST": PR.format(9)})
     assert result.returncode == 0, result.stderr
     assert "warning: could not read" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+TOKEN = "ghp_" + "TESTTOKENVALUE0123456789"
+
+
+@pytest.mark.parametrize(
+    "response",
+    [pytest.param(None, id="http-error"), pytest.param("<html>not json</html>", id="not-json")],
+)
+def test_unreadable_pr_with_token_fails(repo: Repo, tmp_path: Path, response: str | None) -> None:
+    on_branch(repo)
+    repo.commit(CLEAN_MESSAGE)
+    env = stub_curl(tmp_path, {"9": response})
+    result = repo.run_guard({**env, "CIRCLE_PULL_REQUEST": PR.format(9), "GITHUB_TOKEN": TOKEN})
+    assert result.returncode == 1, result.stdout
+    assert "error: could not read" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert TOKEN not in result.stdout + result.stderr
+
+
+def test_token_reaches_curl_on_stdin_and_is_never_printed(repo: Repo, tmp_path: Path) -> None:
+    on_branch(repo)
+    repo.commit(CLEAN_MESSAGE)
+    env = stub_curl(tmp_path, {"7": {"title": "feat: x", "body": "clean"}})
+    result = repo.run_guard({**env, "CIRCLE_PULL_REQUEST": PR.format(7), "GITHUB_TOKEN": TOKEN})
+    assert result.returncode == 0, result.stderr
+    assert TOKEN not in result.stdout + result.stderr
+    calls = curl_calls(tmp_path)
+    assert len(calls) == 1
+    assert all(TOKEN not in arg for arg in calls[0]["argv"])  # never on the command line
+    assert f"Authorization: Bearer {TOKEN}" in calls[0]["config"]  # positive control
 
 
 # --- the pattern itself and the repository's own files ----------------------------
@@ -286,42 +419,86 @@ CORPUS_BAD = [
     BARE_TRAILER,
     FOOTER,
     PLAIN_FOOTER,
+    BARE_SESSION_ID,
     "x " + DOT_AI.upper() + "/CHAT/1",
     "https://claude" + ".com/project/abc",
+    "https://claude" + ".com/session/abc",
+    "claude" + ".com/code/abc",
+    "claude" + ".com/chat/abc",
+    "claude" + ".com/artifact/abc",
+    "claude" + ".com/share/abc",
+    "Claude" + " Session: abc",
+    "Claude" + "_Session: abc",
+    "https://claude" + "&#46;ai/code/x",
+    "https://claude" + "&#x2E;ai",
+    "see claude" + "\\.ai/code/x",
+    "https://claude" + "%2Eai/code/x",
+    "claude" + ".ai%2Fcode%2Fx",
+    "**" + "Gene" + "rated with Claude Code**",
+    "Gene" + "rated using Claude Code",
+    "Gene" + "rated-with-Claude-Code",
+    "Gene" + "rated with *Claude Code*",
+    "Gene" + "rated with **Claude Code**",
+    "Gene" + "rated with _Claude_ Code",
+    "Gene" + "rated with [**Claude Code**](x)",
 ]
 CORPUS_OK = [
     "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
     "a claude" + ".ai session link, described in words",
     "pattern='claude\\.a[i]/[c]ode|Claude-[S]ession:'",
-    "Generated report for Claude Code users",  # no "with"/"by" before the name
+    "Generated report for Claude Code users",  # no "with"/"by"/"using" before the name
     "https://claude" + ".com/pricing",
+    "session" + "_id_for_the_run_in_this_test",  # underscores break the run
+    "session" + "_0123456789abcdefABC",  # 19 characters: too short for an id
+    "a Claude" + " session without a colon",
+]
+# Known limits, documented in AGENTS.md: both guards are line based and ASCII, so these
+# pass both. The test pins that they agree, so a change to one side shows up here.
+CORPUS_KNOWN_LIMITS = [
+    "Gene" + "rated with\nClaude Code",  # footer split across two lines
+    "Gene" + "rated with\u00a0Claude Code",  # non-breaking space
 ]
 
-
-@pytest.mark.parametrize(
-    "text",
-    CORPUS_BAD + CORPUS_OK,
-    # Numbered ids: a test id holding the forbidden text would print it into the CI log.
-    ids=[f"bad-{i}" for i in range(len(CORPUS_BAD))] + [f"ok-{i}" for i in range(len(CORPUS_OK))],
+CORPUS = (
+    [(text, True) for text in CORPUS_BAD]
+    + [(text, False) for text in CORPUS_OK]
+    + [(text, False) for text in CORPUS_KNOWN_LIMITS]
 )
-def test_script_and_hook_patterns_agree(text: str) -> None:
-    grep = subprocess.run(["grep", "-iE", script_pattern()], input=text + "\n", capture_output=True, text=True)
-    assert grep.returncode in (0, 1), grep.stderr
+CORPUS_IDS = (
+    [f"bad-{i}" for i in range(len(CORPUS_BAD))]
+    + [f"ok-{i}" for i in range(len(CORPUS_OK))]
+    + [f"known-limit-{i}" for i in range(len(CORPUS_KNOWN_LIMITS))]
+)
+
+
+# Numbered ids, and messages without the text: either would print it into the CI log.
+@pytest.mark.parametrize(("text", "expected_bad"), CORPUS, ids=CORPUS_IDS)
+def test_script_and_hook_patterns_agree(text: str, expected_bad: bool) -> None:
+    grep = subprocess.run(
+        ["grep", "-iE", script_pattern()],
+        input=text + "\n",
+        capture_output=True,
+        text=True,
+        env={**os.environ, "LC_ALL": "C"},  # as the script sets it
+    )
+    assert grep.returncode in (0, 1), "grep rejected the script pattern"
     hook = subprocess.run(
         ["python3", str(NO_LINKS_HOOK)],
         input=json.dumps({"tool_name": "Bash", "tool_input": {"command": text}}),
         capture_output=True,
         text=True,
     )
-    expected_bad = text in CORPUS_BAD
-    assert (grep.returncode == 0) is expected_bad, f"script pattern on {text!r}"
-    assert (hook.returncode == 2) is expected_bad, f"hook on {text!r}"
+    assert (grep.returncode == 0) is expected_bad, "script pattern disagrees with the expected verdict"
+    assert (hook.returncode == 2) is expected_bad, "hook disagrees with the expected verdict"
 
 
 def test_repository_passes_its_own_scan(repo: Repo) -> None:
-    """Copy every file this checkout tracks (or would add) into a repo and scan it on main."""
+    """Copy every file this checkout tracks into a repo and scan it on main.
+
+    Tracked files only, so untracked cruft (caches, scratch files) cannot change the result.
+    """
     listed = subprocess.run(
-        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        ["git", "ls-files", "-z", "--cached"],
         cwd=REPO_ROOT,
         capture_output=True,
         check=False,

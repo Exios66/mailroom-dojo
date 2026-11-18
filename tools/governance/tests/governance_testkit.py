@@ -26,6 +26,19 @@ SESSION_TRAILER = "Claude-" + "Session: " + SESSION_LINK
 BARE_TRAILER = "Claude-" + "Session: 0123abcdEXAMPLE"  # the trailer alone, no link in it
 FOOTER = "\U0001f916 " + "Gene" + "rated with [Claude Code](https://claude" + ".com/claude-code)"
 PLAIN_FOOTER = "Gene" + "rated by Claude Code"
+BARE_SESSION_ID = "session" + "_" + "0123456789abcdefABCDEF01"  # 24 characters after the underscore
+SETTINGS = REPO_ROOT / ".claude" / "settings.json"
+
+# Fragments that must never appear in the guard's output (lowercase).
+LEAK_FRAGMENTS = (
+    "session_0123",
+    "/project/0000",
+    DOT_AI + "/",
+    "claude-" + "session",
+    "gene" + "rated with",
+    "gene" + "rated by",
+    "gene" + "rated using",
+)
 
 
 def git_env(home: Path) -> dict[str, str]:
