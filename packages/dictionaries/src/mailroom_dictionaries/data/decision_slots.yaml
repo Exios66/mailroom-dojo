@@ -1,0 +1,35 @@
+name: decision_slots
+version: 1
+description: >-
+  The eight decision slots of mailroom #309, carried over by R10 of
+  docs/specs/2026-11-18-lean-rewrite-design.md. Each slot is off by default, has its own caps,
+  and is switched on and tuned in a policy file or run spec; every slot call is recorded as a
+  decision event with the slot as its node. Only `sorter_reviewer` exists as an identifier in
+  the current source (the agent and prompt name in llm-mailroom); the other keys are the
+  snake_case of the names R10 gives, because the source has no identifiers for them.
+ordered: false
+entries:
+  - key: sorter_reviewer
+    label: Sorter reviewer
+    description: A decision model reviews the sorter's classification (experiment Set A).
+  - key: archive_gate
+    label: Archive gate
+    description: A decision model gates whether a document is archived (experiment Set B).
+  - key: judge_replacement
+    label: Judge replacement
+    description: The judge replacement slot named in R10.
+  - key: judge_check
+    label: Judge check
+    description: The judge check slot named in R10.
+  - key: boss_check
+    label: Boss check
+    description: The boss check slot named in R10.
+  - key: arbiter_veto
+    label: Arbiter veto
+    description: The arbiter veto slot named in R10.
+  - key: closed_field_resolver
+    label: Closed-field resolver
+    description: The closed-field resolver slot named in R10.
+  - key: field_review
+    label: Field review
+    description: Field review, the field-level routing slot named in R10.

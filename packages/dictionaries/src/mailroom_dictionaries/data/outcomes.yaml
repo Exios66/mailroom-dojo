@@ -1,0 +1,25 @@
+name: outcomes
+version: 1
+description: >-
+  Where a document ends up when the pipeline stops processing it: the terminal values of
+  PipelineStage in llm-mailroom src/schemas/manifest.py (the other stages, inbox, processing
+  and classified, are not final). These are dispositions, not scores: whether an archive was
+  right is the Dojo's document outcome, scored separately.
+ordered: false
+entries:
+  - key: archived
+    label: Archived
+    description: >-
+      The document and its extraction were archived (stage `archived`, the archive bin;
+      move_to_archive in src/pipeline/bins.py).
+  - key: review
+    label: Review
+    description: >-
+      The document was parked for human review with at least one review cause (stage `review`,
+      the review bin; park_for_review in src/pipeline/bins.py).
+  - key: failed
+    label: Failed
+    description: >-
+      Processing stopped without an archive, or a reviewer rejected the document (stage
+      `failed`, the failed bin; the audit_failed terminal node in src/graph/build_graph.py
+      writes its row).

@@ -1,0 +1,67 @@
+name: doc_classes
+version: 1
+description: >-
+  The mailroom dataset's document classes, in taxonomy order. `label` and `description` are
+  the taxonomy's (llm-mailroom src/config/taxonomy.yaml doc_classes). `subclasses` are the
+  canonical subclass keys the sorter emits for the class (llm-dojo-scoring
+  llm_dojo_scoring/schemas/corpus.py DOC_TYPE_SUBCLASSES). `closed_label_fields` maps each
+  closed `label` field of the class to the dictionary holding its vocabulary (the taxonomy's
+  label_vocabularies). A client profile replaces this dictionary with its own to add classes.
+ordered: false
+entries:
+  - key: contract
+    label: Contract / Agreement
+    description: >-
+      CUAD commercial contracts and agreements (vendor, employment, NDA, license, etc.) — not
+      MAUD merger agreements
+    attributes:
+      subclasses: [affiliate, agency, collaboration, co_branding, consulting, development,
+                   distributor, endorsement, franchise, hosting, ip, joint_venture, license,
+                   maintenance, manufacturing, marketing, non_compete_no_solicit, outsourcing,
+                   promotion, reseller, service, sponsorship, strategic_alliance, supply,
+                   transportation]
+      closed_label_fields:
+        cuad_family: cuad_family
+  - key: merger_agreement
+    label: Merger Agreement
+    description: >-
+      MAUD merger agreements (agreement and plan of merger) — a distinct class from CUAD
+      commercial contracts. Subclass is consideration type (all_cash, all_stock, mixed, …).
+    attributes:
+      subclasses: [all_cash, all_stock, mixed_cash_stock, mixed_cash_stock_election, other]
+      closed_label_fields:
+        merger_consideration: merger_consideration
+        intent: merger_agreement_intent
+  - key: corporate_record
+    label: Corporate Record
+    description: >-
+      Bylaws, articles/certificates of incorporation, powers of attorney, stockholder rights
+      instruments, specimen stock (including those filed as SEC exhibits)
+    attributes:
+      subclasses: [bylaws, articles_of_incorporation, certificate_of_formation, charter_amendment,
+                   powers_of_attorney, subsidiary_list, rights_instrument, indenture,
+                   board_resolution, officer_certificate, other]
+      closed_label_fields:
+        intent: corporate_record_intent
+  - key: correspondence
+    label: Correspondence
+    description: Letters, emails, memos, notices, demand letters, press releases, meeting requests
+    attributes:
+      subclasses: [email, memo, letter, notice, demand, attorney_demand, press_release,
+                   meeting_request, other]
+      closed_label_fields:
+        communication_type: communication_type
+        urgency: urgency
+        intent: correspondence_intent
+  - key: insurance_claim
+    label: Insurance Claim
+    description: >-
+      Insurance claim documentation: FNOL forms, adjuster reports, demand packages, coverage
+      determinations, denial letters, CMS/DE-SynPUF claim tables (inpatient, outpatient, PDE,
+      carrier), and the v8 synthetic LOB lines — property FNOL bundles, auto decision letters
+    attributes:
+      subclasses: [carrier, inpatient, outpatient, pde, property, auto]
+      closed_label_fields:
+        claim_type: claim_type
+        coverage_determination: coverage_determination
+        intent: insurance_claim_intent

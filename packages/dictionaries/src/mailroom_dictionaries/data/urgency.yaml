@@ -1,0 +1,25 @@
+name: urgency
+version: 1
+description: >-
+  Closed vocabulary of the correspondence `urgency` field, ranked from least to most urgent in
+  the source's order. Never absent: a neutral message is routine. Source: llm-mailroom
+  src/config/taxonomy.yaml (doc_classes correspondence label_vocabularies) and llm-dojo-scoring
+  llm_dojo_scoring/schemas/corpus.py (URGENCY_LEVELS).
+ordered: true
+entries:
+  - key: routine
+    label: Routine
+    rank: 1
+    description: No time pressure; the value for a neutral message.
+  - key: time-sensitive
+    label: Time-sensitive
+    rank: 2
+    description: Has a deadline or time pressure.
+  - key: urgent
+    label: Urgent
+    rank: 3
+    description: Needs prompt action.
+  - key: critical
+    label: Critical
+    rank: 4
+    description: The most urgent level.
