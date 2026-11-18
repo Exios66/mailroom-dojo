@@ -379,3 +379,54 @@ def _epoch(ts: str) -> float:
     from datetime import datetime
 
     return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+
+
+# --- a pruned run (adversarial round 1, finding 2) --------------------------------------
+
+
+def _run_tree(root: Path) -> dict[str, bytes]:
+    run_dir = root / "runs" / RUN
+    return {str(p.relative_to(run_dir)): p.read_bytes() for p in sorted(run_dir.rglob("*")) if p.is_file()}
+
+
+@pytest.mark.parametrize("interrupted", [False, True], ids=["pruned", "prune-interrupted"])
+def test_reimport_of_a_pruned_run_refuses_and_writes_nothing(
+    tmp_store: SimpleNamespace, fixture_folder: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupted: bool
+) -> None:
+    """Import, pack, prune, import again: the segments are gone, so the import cannot check
+    them against the folder. It refuses with RunPruned naming the archive to unpack, and
+    writes nothing; after the unpack the same folder is already_imported."""
+    import mailroom_record.pack as pack_module
+    from mailroom_record.pack import pack_run, prune_run, unpack_run
+
+    import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    archive = tmp_path / "run.tar.zst"
+    pack_run(tmp_store.root, RUN, archive)
+    if interrupted:  # the prune dies after deleting the segments, before recording "done"
+        real = pack_module._write_replace
+
+        def write_replace(path: Path, body: bytes) -> None:
+            if b'"done"' in body:
+                raise OSError("injected: killed mid-prune")
+            real(path, body)
+
+        monkeypatch.setattr(pack_module, "_write_replace", write_replace)
+        with pytest.raises(OSError, match="injected"):
+            prune_run(tmp_store.root, RUN)
+        monkeypatch.undo()
+    else:
+        prune_run(tmp_store.root, RUN)
+    before = _run_tree(tmp_store.root)
+    blobs_before = sorted(p.name for p in (tmp_store.root / "blobs").rglob("*") if p.is_file())
+
+    # RunPruned is an ImportConflict, so callers that catch ImportConflict still stop
+    with pytest.raises(ImportConflict, match="unpack") as info:
+        import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    assert type(info.value).__name__ == "RunPruned"
+    assert str(archive) in str(info.value)
+    assert _run_tree(tmp_store.root) == before
+    assert sorted(p.name for p in (tmp_store.root / "blobs").rglob("*") if p.is_file()) == blobs_before
+
+    unpack_run(archive, tmp_store.root)
+    assert import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs).status == "already_imported"
+    assert verify_run(tmp_store.log, tmp_store.blobs, RUN).ok

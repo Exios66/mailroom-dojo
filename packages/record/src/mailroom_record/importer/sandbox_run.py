@@ -63,7 +63,11 @@ and returns ``already_imported`` without writing anything. An import that died p
 (any prefix of each chain on disk, sealed or not) is finished by the next one, which checks
 that each stored head is the expected event at that place and appends the rest. A stored
 event that differs, a different run header, or a document the folder does not hold raises
-``ImportConflict`` and writes nothing.
+``ImportConflict`` and writes nothing. A run that is pruned, or part way through a prune
+(``prune.json`` is there), raises ``RunPruned`` (an ``ImportConflict``) naming its archive,
+and writes nothing: its segments may be gone, so the import cannot check them against the
+folder, and reporting ``already_imported`` would claim what it has not checked. After
+``unpack_run`` the same folder is ``already_imported``.
 
 Write order: the writer is opened first, then every blob is put, then the events are
 appended, then the run is sealed. The open writer holds the store's maintenance lock
@@ -96,9 +100,10 @@ from mailroom_record.importer._folder import (
 )
 from mailroom_record.log import EventLog, RunExists
 from mailroom_record.models import GENESIS, BlobRef, Event, Run, validation_detail
+from mailroom_record.pack import pruned_archive
 from mailroom_record.seal import list_seals, seal_run
 
-__all__ = ["ImportConflict", "ImportResult", "SandboxFolderInvalid", "import_sandbox_run"]
+__all__ = ["ImportConflict", "ImportResult", "RunPruned", "SandboxFolderInvalid", "import_sandbox_run"]
 
 WRITER_ID = "import"
 RUN_DOC = "_run"
@@ -132,6 +137,20 @@ _EPOCH_ZERO = "1970-01-01T00:00:00.000000Z"
 
 class ImportConflict(RuntimeError):
     """The store already holds this run id with a different header or different events."""
+
+
+class RunPruned(ImportConflict):
+    """The store holds this run pruned (or part way through a prune): its segments may be
+    gone, so the import cannot check them against the folder. Unpack the archive first."""
+
+
+def _refuse_if_pruned(log: EventLog, run_id: str) -> None:
+    archive = pruned_archive(log, run_id)
+    if archive is not None:
+        raise RunPruned(
+            f"run {run_id!r} is pruned in this store, so its events cannot be checked against the folder; "
+            f"unpack {archive} first (mailroom-record unpack), then import again"
+        )
 
 
 @dataclass(frozen=True)
@@ -182,6 +201,7 @@ def import_sandbox_run(folder: Path, log: EventLog, blobs: BlobStore) -> ImportR
             return result("already_imported")
     else:
         with log.open_writer(run_id, WRITER_ID, flush_every=256) as writer:
+            _refuse_if_pruned(log, run_id)  # again under the writer's shared lock: a prune may have finished meanwhile
             for data, role in plan.blobs.values():
                 blobs.put(data, role)
             for doc_id, chain in plan.chains.items():
@@ -204,6 +224,7 @@ def _stored_heads(log: EventLog, plan: _Plan) -> dict[str, tuple[int, str]] | No
     if stored != plan.run:
         diff = sorted(k for k in Run.model_fields if getattr(stored, k) != getattr(plan.run, k))
         raise ImportConflict(f"run {run_id!r} is already stored with a different header ({', '.join(diff)})")
+    _refuse_if_pruned(log, run_id)
     heads = log.doc_head_seqs(run_id)
     for doc_id, (seq, h) in heads.items():
         expected = plan.hashes.get(doc_id)

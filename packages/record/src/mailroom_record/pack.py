@@ -567,6 +567,19 @@ def _maintenance(root: Path, timeout: float, *, exclusive: bool = True) -> Itera
         os.close(fd)  # releases the lock
 
 
+def pruned_archive(log: EventLog, run_id: str) -> str | None:
+    """The archive recorded for ``run_id`` when it is pruned or part way through a prune
+    (``prune.json`` is there), else ``None``. Its segments may be gone: unpack it first."""
+    run_dir = log.run_dir(run_id)
+    if not (run_dir / _PRUNE_RECORD).is_file():
+        return None
+    try:
+        archive = json.loads((run_dir / _PACK_RECORD).read_bytes())["archive"]
+    except (OSError, ValueError, RecursionError, KeyError, TypeError):
+        return "(the recorded archive is unreadable)"
+    return str(archive)
+
+
 def _names_elsewhere(log: EventLog, run_id: str) -> set[str]:
     """Every 64-hex string in other runs' segments, and the blobs of other runs packed
     without blobs: what pruning ``run_id`` must keep."""
