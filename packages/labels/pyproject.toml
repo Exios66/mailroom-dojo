@@ -16,7 +16,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-xdist", "hypothesis"]
+# Reading the Hub parquet shards (import-hub, scripts/build_profile.py) only.
+import = ["pyarrow"]
+# The importer tests write small parquet shards, so the dev extra needs pyarrow too.
+dev = ["pytest", "pytest-xdist", "hypothesis", "pyarrow"]
 
 [project.scripts]
 mailroom-labels = "mailroom_labels.cli:app"
