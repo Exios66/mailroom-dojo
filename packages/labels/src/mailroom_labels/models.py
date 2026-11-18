@@ -18,9 +18,10 @@ client profile defines.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Literal
+from types import MappingProxyType
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_serializer, field_validator
 
 __all__ = [
     "DROPPED_SOURCE_KEYS",
@@ -201,6 +202,16 @@ class DocumentLabels(BaseModel):
     fields: Mapping[str, FieldLabel]
     untrusted: Mapping[str, tuple[LayerFact, ...]] = {}
     scorable_fields: frozenset[str]
+
+    @field_validator("fields", "untrusted", mode="after")
+    @classmethod
+    def _read_only(cls, value: Mapping[str, Any]) -> Mapping[str, Any]:
+        """A read-only view, so nobody can change resolved labels after the gate passed."""
+        return MappingProxyType(dict(value))
+
+    @field_serializer("fields", "untrusted")
+    def _as_dict(self, value: Mapping[str, Any]) -> dict[str, Any]:
+        return dict(value)
 
 
 class Finding(BaseModel):

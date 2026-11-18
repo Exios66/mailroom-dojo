@@ -97,3 +97,17 @@ def test_a_file_changed_after_the_gate_raises_the_documented_error(tmp_path: Pat
         load_label_set(dirs, profile())
     assert isinstance(info.value.__cause__, ManifestMismatch)
     assert info.value.report.errors[0].kind == "manifest_mismatch"
+
+
+def test_resolved_labels_cannot_be_changed_after_the_gate(tmp_path: Path) -> None:
+    doc = load_label_set(standard_set(tmp_path), profile()).document("D1")
+    with pytest.raises(TypeError):
+        doc.fields["sender"] = doc.fields["urgency"]  # type: ignore[index]
+    with pytest.raises(TypeError):
+        del doc.fields["sender"]  # type: ignore[attr-defined]
+    with pytest.raises(TypeError):
+        doc.untrusted["x"] = ()  # type: ignore[index]
+    with pytest.raises(Exception):  # frozen model
+        doc.fields["sender"].value = "Mallory"  # type: ignore[misc]
+    assert isinstance(doc.model_dump()["fields"], dict) and doc == doc.model_copy()
+    assert DocumentLabels.model_validate_json(doc.model_dump_json()) == doc
