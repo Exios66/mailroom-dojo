@@ -1,9 +1,93 @@
 # Workspace root for mailroom-dojo. Not a package itself: it holds shared tool config.
 # Each package lives under packages/ and is installed on its own, e.g.
 #   pip install -e "packages/record[dev,analysis]"
+# `make install` installs every package in dependency order plus the dev tools; `make help`
+# lists the other targets.
 
 [tool.pytest.ini_options]
-testpaths = ["packages/record/tests"]
+# Every package's tests plus the workspace-level tests (dependency rule, layout, scripts).
+testpaths = ["packages/*/tests", "tests"]
 addopts = "--import-mode=importlib"
-# Lets tests import shared helpers from packages/record/tests/record_testkit.py.
-pythonpath = ["packages/record/tests"]
+# packages/record/tests: shared helpers in record_testkit.py.
+# scripts: the workspace tests import the checks they test (check_boundaries, check_layout).
+pythonpath = ["packages/record/tests", "scripts"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+# First-party detection for import sorting: each package's module lives under its src/.
+src = ["packages/*/src", "packages/*/tests", "scripts"]
+extend-exclude = [".venv"]
+# record is older than this config and was written to its own style; reformatting it is a
+# follow-up of its own (one mechanical commit), kept out of the threads now editing it.
+# Markdown is excluded: ruff would reformat the illustrative Python in docs/plans.
+format.exclude = ["packages/record/**", "*.md"]
+# record's test_record_machine.py uses a 3.12 f-string (a backslash inside the braces), which
+# is a SyntaxError on 3.11 although record declares requires-python >= 3.11. This only lets
+# ruff parse it; the follow-up is to fix that line in record and delete this entry.
+per-file-target-version = { "packages/record/tests/test_record_machine.py" = "py312" }
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors: real layout mistakes, line length at 110
+    "F",    # pyflakes: unused names, undefined names, shadowed imports
+    "I",    # isort: one import order everywhere, auto-fixed
+    "UP",   # pyupgrade: 3.11 idioms (X | None, builtin generics), auto-fixed
+    "B",    # bugbear: likely bugs (mutable defaults, loop-variable capture, zip without strict)
+    "SIM",  # simplify: dead branches and needless nesting, mostly auto-fixed
+    "PLE",  # pylint errors: code that fails at run time (bad format strings, return in init)
+]
+# Not selected: RUF100 (unused noqa) would flag noqa comments that name rules this set does
+# not enable (S506 in mailroom_common.yamlio, BLE001 in record tests), which document intent
+# for readers and other scanners; selecting it means churn for no defect found.
+
+[tool.ruff.lint.per-file-ignores]
+# record predates this config. These are the rules it breaks today (long lines, unsorted
+# imports, zip() without strict, loop variables captured in lambdas, `l` as a name, two
+# auto-fixable simplifications). Follow-up: fix them in record in one commit and delete this
+# entry; until then ruff still enforces every other selected rule there.
+"packages/record/**" = ["E501", "E741", "I001", "B023", "B905", "UP017", "SIM300", "SIM905"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "mailroom_common",
+    "mailroom_dictionaries",
+    "mailroom_record",
+    "mailroom_labels",
+    "mailroom_dojo",
+    "mailroom_engine",
+    "mailroom_launcher",
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+# Strict for the shared leaf packages and the workspace scripts. `make typecheck` runs mypy
+# once per entry so that test files with the same name in two packages do not collide.
+files = [
+    "packages/common/src",
+    "packages/common/tests",
+    "packages/dictionaries/src",
+    "packages/dictionaries/tests",
+    "scripts",
+    "tests",
+]
+mypy_path = ["scripts", "packages/record/tests"]
+
+[[tool.mypy.overrides]]
+# record is not type-checked yet: strict mode reports 5 errors there (pyarrow has no stubs, a
+# Literal role passed as str, an Any return, an unnarrowed Optional after a loop). Follow-up:
+# fix them in record, add its src and tests to `files` above, and delete this override.
+# Until then, packages that import record see its annotations but not its internal errors.
+module = ["mailroom_record", "mailroom_record.*", "record_testkit"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["pyarrow", "pyarrow.*", "zstandard", "duckdb"]
+ignore_missing_imports = true
+
+[tool.codespell]
+skip = "./.venv,./.git,*.egg-info,./build,./dist,*.parquet,*.zst,*.lock"
+check-filenames = true
+# No ignore-words-list today: the tree spells clean. If codespell misreads a real word, add
+# `ignore-words-list = "word"` here, one word per reason given in the commit message.

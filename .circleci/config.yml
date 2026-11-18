@@ -1,50 +1,62 @@
 version: 2.1
 
-jobs:
-  test:
+# CI runs the Makefile's targets so that CI and a local `make check` agree.
+
+executors:
+  python:
     docker:
       - image: cimg/python:3.12.7
+
+jobs:
+  test:
+    executor: python
     steps:
       - checkout
       - run:
-          name: Install mailroom_record
-          command: |
-            python -m venv .venv
-            .venv/bin/pip install -e "packages/record[dev,analysis]"
+          name: Install every package and the dev tools
+          command: make install
       - run:
-          name: Run tests
-          command: .venv/bin/python -m pytest packages/record/tests -q
+          name: Run every package's tests and the workspace tests
+          command: make test
+
+  lint:
+    executor: python
+    steps:
+      - checkout
+      - run:
+          name: Install every package and the dev tools
+          command: make install
+      - run:
+          name: ruff check and format check
+          command: make lint
+      - run:
+          name: mypy --strict
+          command: make typecheck
+      - run:
+          name: codespell
+          command: make spell
+      - run:
+          name: Dependency boundaries
+          command: make boundaries
+      - run:
+          name: Layout map
+          command: make layout
 
   no-session-links:
-    docker:
-      - image: cimg/python:3.12.7
+    executor: python
     steps:
       - checkout
       - run:
           name: Reject session links in commit messages and tracked files
-          # The bracketed letters keep this file from matching its own patterns.
+          # The patterns live in the script (also a pre-commit hook); --require-base fails the
+          # job if origin/main cannot be fetched instead of skipping the commit messages.
           command: |
-            pattern='claude\.ai/[c]ode|Claude-[S]ession:'
             git fetch --quiet origin main:refs/remotes/origin/main
-            git rev-parse --verify --quiet origin/main >/dev/null
-            status=0
-            log=$(git log --format='%H%n%B' origin/main..HEAD)
-            if printf '%s\n' "$log" | grep -nE "$pattern"; then
-              echo "A commit message on this branch contains a session link."
-              status=1
-            fi
-            rc=0; git grep -nE "$pattern" || rc=$?
-            if [ "$rc" -eq 0 ]; then
-              echo "A tracked file contains a session link."
-              status=1
-            elif [ "$rc" -gt 1 ]; then
-              echo "git grep failed with exit $rc."
-              status=1
-            fi
-            exit $status
+            scripts/check_no_session_links.sh --require-base
 
 workflows:
   checks:
     jobs:
       - test
+      - lint
       - no-session-links
