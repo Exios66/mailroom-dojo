@@ -66,7 +66,9 @@ event that differs, a different run header, or a document the folder does not ho
 ``ImportConflict`` and writes nothing.
 
 Write order: the writer is opened first, then every blob is put, then the events are
-appended, then the run is sealed.
+appended, then the run is sealed. The open writer holds the store's maintenance lock
+shared, so a concurrent ``prune_run`` cannot delete a blob this import has put but not yet
+named.
 """
 
 from __future__ import annotations
