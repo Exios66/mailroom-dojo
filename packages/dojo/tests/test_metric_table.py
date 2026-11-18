@@ -202,6 +202,71 @@ def _copy_view(agent: str, new_agent: str) -> Callable[[dict[str, Any]], None]:
     return lambda raw: raw["default_views"].__setitem__(new_agent, dict(raw["default_views"][agent]))
 
 
+def _not_ported(metric: str) -> Callable[[dict[str, Any]], None]:
+    def edit(raw: dict[str, Any]) -> None:
+        row = raw["metrics"][_row_index(raw, metric)]
+        row.update(status="not_ported", layer=None, readers=[], status_reason="dropped for the test")
+
+    return edit
+
+
+def _append(path: Callable[[dict[str, Any]], list[Any]], item: Any) -> Callable[[dict[str, Any]], None]:
+    return lambda raw: path(raw).append(item)
+
+
+#: One edit per column the canonical form carries that the test above does not touch.
+COLUMN_EDITS: dict[str, Callable[[dict[str, Any]], None]] = {
+    "same_as": _set("laziness_rate", "same_as", None),
+    "alias_of": _set("contracteval_false_no_related", "alias_of", None),
+    "pairing": _set("tokens_per_second", "pairing", "paired_percentile_bootstrap"),
+    "pairing_note": _set("f1_macro", "pairing_note", "a whole-set statistic"),
+    "readers": _append(lambda raw: raw["metrics"][_row_index(raw, "accuracy")]["readers"], "keep_rule"),
+    "status": _not_ported("judge_error_rate"),
+    "status_reason": _set("bert_elapsed_ms", "status_reason", "another reason"),
+    "agents": _set("judge_error_rate", "agents", ["ALL"]),
+    "ground_truth": _set("bert_elapsed_ms", "ground_truth", "optional"),
+    "headline": _set("bert_elapsed_ms", "headline", False),
+    "cost": _set("bert_elapsed_ms", "cost", True),
+    "metric_id": _set("bert_elapsed_ms", "metric_id", "pipeline.intake.bert_elapsed_ms"),
+    "view guard": _view("sorter", guard=_DELETE),
+    "view guard_confirmed": _view(GUARDED_AGENT, guard_confirmed=True),
+    "view label_layers": lambda raw: raw["default_views"]["sorter"]["label_layers"].pop(),
+    "view metric": _view("sorter", metric="accuracy", guard="f1_macro"),
+    "agent_families": _append(lambda raw: raw["agent_families"]["INTAKE"], "sorter"),
+    "agent_roster": lambda raw: raw["agent_roster"]["sorter"].__setitem__("note", "a note"),
+}
+
+
+def test_the_canonical_form_writes_every_row_and_view_field() -> None:
+    """A field left out of the canonical form could change without moving the hash."""
+    import dataclasses
+
+    from mailroom_dojo.measures import DefaultView, MetricRow
+
+    canonical = metric_table_canonical_form(load_metric_table())
+    row_fields = {field.name for field in dataclasses.fields(MetricRow)} - {"expanded_agents"}
+    view_fields = {field.name for field in dataclasses.fields(DefaultView)} - {"agent"}
+    assert set(canonical["metrics"][0]) == row_fields
+    assert all(set(view) == view_fields for view in canonical["default_views"].values())
+    assert set(canonical) == {
+        "table_format",
+        "version",
+        "source",
+        "agent_families",
+        "agent_roster",
+        "default_views",
+        "metrics",
+    }
+
+
+@pytest.mark.parametrize("edit", list(COLUMN_EDITS.values()), ids=list(COLUMN_EDITS))
+def test_every_column_is_part_of_the_hash(edit: Callable[[dict[str, Any]], None]) -> None:
+    """Each column the canonical form writes, edited alone on a valid table, moves the hash."""
+    raw = _raw()
+    edit(raw)
+    assert load_metric_table(raw).content_hash != load_metric_table().content_hash
+
+
 #: (id, edit, the expected start of the path and a fragment of the message).
 FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
     ("unknown top key", lambda raw: raw.__setitem__("tiers", {}), "tiers: unknown key"),
