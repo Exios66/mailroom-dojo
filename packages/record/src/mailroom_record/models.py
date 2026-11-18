@@ -44,6 +44,7 @@ from mailroom_record.upgrade import (
 __all__ = [
     "BLOB_ROLES",
     "GENESIS",
+    "INT64_MAX",
     "BlobRef",
     "BlobRole",
     "Event",
@@ -80,7 +81,11 @@ Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 NonEmpty = Annotated[str, StringConstraints(min_length=1)]
 # A run id names a directory (runs/<run_id>/), so it must be path-safe.
 RunId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")]
-Count = Annotated[int, Field(ge=0)]
+# Every count fits a signed 64-bit integer: the Parquet export and the SQLite index store
+# them as int64, and the streaming readers pack ``seq`` into ``array("q")``. A larger value
+# is rejected here, before it can reach the durable log.
+INT64_MAX = 2**63 - 1
+Count = Annotated[int, Field(ge=0, le=INT64_MAX)]
 FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
 
 # Used with fullmatch: ``$`` with ``match`` would accept a trailing newline.
@@ -107,6 +112,8 @@ def _json_dict(value: Any) -> Any:
         return json.loads(canonical_json(dict(value)))
     except (TypeError, ValueError) as exc:
         raise ValueError(f"not JSON-safe: {exc}") from exc
+    except RecursionError:
+        raise ValueError("not JSON-safe: nested too deeply") from None
 
 
 JsonDict = Annotated[dict[str, Any], BeforeValidator(_json_dict)]
@@ -125,6 +132,8 @@ def _json_dict_or_list(value: Any) -> Any:
         return json.loads(canonical_json(value))
     except (TypeError, ValueError) as exc:
         raise ValueError(f"not JSON-safe: {exc}") from exc
+    except RecursionError:
+        raise ValueError("not JSON-safe: nested too deeply") from None
 
 
 # ``decision`` holds one decision object, or a node's list of decisions (Task 10).

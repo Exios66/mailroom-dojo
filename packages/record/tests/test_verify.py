@@ -26,6 +26,7 @@ import zstandard
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from record_testkit import (
+    DEEP_UNPARSABLE,
     SENTINEL,
     Faults,
     append_in_child,
@@ -38,6 +39,7 @@ from record_testkit import (
     find_line,
     flip_byte,
     forge_event,
+    deep_payload_line,
     hand_line,
     kinds,
     last_seq,
@@ -855,18 +857,13 @@ def test_verify_never_raises_on_any_damage(tmp_path_factory: pytest.TempPathFact
 
 # --- fix pass: verify never raises on deep nesting (Task 7 review, BLOCKING 1) ----------
 
-DEEP = b"[" * 200_000 + b"]" * 200_000  # deeper than the JSON parser allows
+DEEP = DEEP_UNPARSABLE  # deeper than the JSON parser allows
 
 
 def _deep_payload_line(store: SimpleNamespace, doc_id: str, seq: int, prev: str) -> bytes:
-    # Parses, hashes and is canonical, but nests deeper than validation can recurse.
-    nested: Any = []
-    for _ in range(5000):
-        nested = [nested]
-    raw = hand_line("r1", doc_id, seq, prev)
-    raw["payload"] = {"x": nested}
-    raw["hash"] = event_hash(raw)
-    return canonical_json(raw) + b"\n"
+    # Parses, hashes and is canonical on every supported Python, but nests deeper than
+    # validation can recurse.
+    return deep_payload_line("r1", doc_id, seq, prev)
 
 
 @pytest.mark.parametrize("where", ["segment", "segment_payload", "seal", "run_header", "tombstone"])
@@ -1144,7 +1141,7 @@ def test_integer_parquet_cannot_hold_is_invalid_event(sealed_store: SimpleNamesp
     forge_event(s, "d4", last_seq(s, "d4") + 1, head, tokens_in=2**70)
     r = verify(s)
     assert failing(r) == [("invalid_event", "d4", 3)]
-    assert "int64" in r.problems[0].detail
+    assert "tokens_in" in r.problems[0].detail  # the model bounds every count to int64
     with pytest.raises(CorruptLine):  # seal_run refuses the same line
         seal_run(s.log, "r1")
 

@@ -576,11 +576,14 @@ def forge_event(store: Any, doc_id: str, seq: int, prev_hash: str, segment: str 
         tokens_in=None, tokens_out=None, tokens_cached=None, price_basis=None, latency_ms=None,
         decision=None, cause=None, inputs=[], outputs=[], payload={}, prev_hash=prev_hash,
     )
-    event = Event.build(**(base | fields))
+    # Build a valid event, then set ``fields`` on the stored dict and re-hash it, so a test
+    # can forge values the model itself rejects (an out-of-range count, a bad kind).
+    raw = Event.build(**base).model_dump(mode="json") | fields
+    raw["hash"] = event_hash(raw)
     path = store.root / "runs" / getattr(store, "run_id", "r1") / "segments" / segment
     with path.open("ab") as f:
-        f.write(canonical_json(event.model_dump(mode="json")) + b"\n")
-    return event
+        f.write(canonical_json(raw) + b"\n")
+    return raw
 
 
 # --- fix pass: busy logs, slowed readers, hand-made lines -----------------------------
@@ -848,3 +851,29 @@ def _make_slow_log() -> type:
 def slow_log(root: Any, blobs: Any, *, marker: str, after: int, pause: float) -> Any:
     """An EventLog whose ordered reads touch ``marker`` after ``after`` events, then sleep ``pause``."""
     return _make_slow_log()(root, blobs, marker=marker, after=after, pause=pause)
+
+
+# --- fix pass 2: hostile stored records, on every supported Python --------------------
+
+# Nesting that every supported Python (3.11 to 3.13) can parse and encode, but that is
+# deeper than copying or validating can recurse: a stored line like this hashes and is
+# canonical, so only the readers' recursion handling stands between it and a crash.
+# (3.11's C JSON encoder and decoder count against the recursion limit, so the deep
+# 5000-level form used before cannot even be written there.)
+DEEP_BUT_PARSABLE = 700
+
+# Deeper than any JSON parser allows: unparsable on every version.
+DEEP_UNPARSABLE = b"[" * 200_000 + b"]" * 200_000
+
+
+def deep_payload_line(run_id: str, doc_id: str, seq: int, prev_hash: str, depth: int = DEEP_BUT_PARSABLE) -> bytes:
+    """A canonical stored line with a correct hash whose payload nests ``depth`` lists deep."""
+    from mailroom_record.hashing import canonical_json
+
+    nested: Any = []
+    for _ in range(depth):
+        nested = [nested]
+    raw = hand_line(run_id, doc_id, seq, prev_hash)
+    raw["payload"] = {"x": nested}
+    raw["hash"] = event_hash(raw)
+    return canonical_json(raw) + b"\n"

@@ -109,7 +109,7 @@ from typing import Any, Literal
 
 from mailroom_record.blobs import BlobStore, _fsync_dir, _makedirs_durable, write_exclusive
 from mailroom_record.hashing import canonical_json
-from mailroom_record.models import GENESIS, BlobRef, Event, Run, utc_now
+from mailroom_record.models import GENESIS, INT64_MAX, BlobRef, Event, Run, utc_now
 
 __all__ = [
     "BadLine",
@@ -325,11 +325,13 @@ def _safe_detail(exc: BaseException) -> str:
             pass
     if isinstance(exc, CorruptLine):
         return str(exc).split(": ", 1)[-1]
+    # UnknownSchemaVersion names the version's type or number, never a stored value.
     return type(exc).__name__ + (f": {exc}" if type(exc).__name__ == "UnknownSchemaVersion" else "")
 
 
 def _is_seq(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+    """A ``seq`` the readers can hold: a non-bool int in ``0..INT64_MAX`` (``Count``)."""
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= INT64_MAX
 
 
 class RunScan:
@@ -371,15 +373,15 @@ class RunScan:
                 self._bad(name, offset, "corrupt_line", exc)
                 continue
             doc, seq = raw.get("doc_id"), raw.get("seq")
+            if self.doc_id is not None and isinstance(doc, str) and doc != self.doc_id:
+                continue  # another document's line: a per-document read validates only its own
             if not isinstance(doc, str) or not _is_seq(seq):
                 try:
                     Event.from_stored(raw)  # raises the validation error a reader expects
                     exc: BaseException = CorruptLine(f"{name} at byte {offset}: missing doc_id or seq")
-                except (ValueError, TypeError) as err:
+                except (ValueError, TypeError, RecursionError) as err:
                     exc = err
                 self._bad(name, offset, "invalid_event", exc)
-                continue
-            if self.doc_id is not None and doc != self.doc_id:
                 continue
             arr = self._docs.get(doc)
             if arr is None:
@@ -435,7 +437,7 @@ class RunScan:
                         continue
                     try:
                         event = Event.from_stored(raw)
-                    except (ValueError, TypeError) as exc:
+                    except (ValueError, TypeError, RecursionError) as exc:
                         self._bad(path.name, offset, "invalid_event", exc)
                         continue
                     yield LocatedEvent(path.name, offset, length, event)
@@ -484,10 +486,14 @@ class EventLog:
             raise RunExists(run.run_id)
 
     def read_run(self, run_id: str) -> Run:
+        """The run header. ``FileNotFoundError`` for an unknown run; ``ValueError`` or
+        ``TypeError`` for a damaged ``run.json`` (never ``RecursionError``)."""
         try:
             raw = json.loads((self.run_dir(run_id) / "run.json").read_bytes())
         except FileNotFoundError:
             raise FileNotFoundError(f"no run {run_id!r} under {self.root}") from None
+        except RecursionError:
+            raise ValueError(f"run.json of run {run_id!r} nests deeper than the JSON parser allows") from None
         return Run.from_stored(raw)
 
     # --- writers --------------------------------------------------------------------
@@ -606,6 +612,8 @@ class _Heads:
         doc, seq, h = raw.get("doc_id"), raw.get("seq"), raw.get("hash")
         if not isinstance(doc, str) or not isinstance(seq, int) or isinstance(seq, bool) or not isinstance(h, str):
             raise CorruptLine(f"{where.segment} at byte {where.byte_offset}: missing doc_id, seq or hash")
+        if not _is_seq(seq):  # negative, or past int64: no writer stores it, no reader can hold it
+            raise CorruptLine(f"{where.segment} at byte {where.byte_offset}: seq out of range 0..2**63-1")
         seqs = self._seqs.setdefault(doc, set())
         if seq in seqs:
             self.forks[doc] = min(seq, self.forks.get(doc, seq))

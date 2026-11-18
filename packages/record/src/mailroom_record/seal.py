@@ -118,7 +118,7 @@ import pyarrow.parquet as pq
 
 from mailroom_record.blobs import _fsync_dir, _makedirs_durable, _open_fd_for_write, write_exclusive
 from mailroom_record.hashing import canonical_json
-from mailroom_record.log import CorruptLine, EventLog, StoredLine, _Heads
+from mailroom_record.log import CorruptLine, EventLog, StoredLine, _Heads, _safe_detail
 from mailroom_record.models import GENESIS, Event, Seal, event_hash, seal_hash, utc_now
 
 __all__ = ["EVENT_COLUMNS", "SealCorrupt", "SealRefused", "list_seals", "seal_run"]
@@ -201,8 +201,8 @@ def _load_seals(log: EventLog, run_id: str) -> list[tuple[Seal, dict[str, Any]]]
         try:
             raw = json.loads(p.read_bytes())
             seal = Seal.from_stored(raw)
-        except (ValueError, TypeError) as exc:  # bad JSON, failed validation, unknown version
-            raise SealCorrupt(f"{p.name}: {exc}") from None
+        except (ValueError, TypeError, RecursionError) as exc:  # bad JSON, failed validation, unknown version, deep nesting
+            raise SealCorrupt(f"{p.name}: {_safe_detail(exc)}") from None
         if seal.n != int(m[1]) or seal.run_id != run_id:
             raise SealCorrupt(f"{p.name}: holds seal {seal.n} of run {seal.run_id!r}")
         seals.append((seal, raw))
@@ -351,8 +351,10 @@ def _invalid(s: StoredLine, exc: Exception) -> CorruptLine:
     errors = getattr(exc, "errors", None)
     if callable(errors):
         what = "; ".join(".".join(map(str, e["loc"])) + ": " + e["type"] for e in errors())
-    else:
-        what = f"{type(exc).__name__}: {exc}"
+    elif type(exc).__name__ == "UnknownSchemaVersion":
+        what = "schema_version: UnknownSchemaVersion"
+    else:  # the type only: Arrow and upgrade messages can quote the stored value
+        what = type(exc).__name__
     return CorruptLine(f"{s.segment} at byte {s.byte_offset}: not a valid event ({what})")
 
 
