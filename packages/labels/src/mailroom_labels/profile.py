@@ -208,7 +208,9 @@ def _check_field(where: str, raw: object, vocabularies: Mapping[str, Any], probl
     if not is_field_type(ftype):
         problems.append(f"{where}.type {ftype!r} is not a Dojo field type")
     vocab = raw.get("vocabulary")
-    if vocab is not None:
+    if vocab is not None and not _is_name(vocab):
+        problems.append(f"{where}.vocabulary must be a name, not {type(vocab).__name__}")
+    elif vocab is not None:
         if vocab not in vocabularies:
             problems.append(f"{where}.vocabulary {vocab!r} is not defined under vocabularies")
         if ftype != "label":

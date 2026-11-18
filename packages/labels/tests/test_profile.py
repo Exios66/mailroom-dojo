@@ -75,6 +75,8 @@ def _mutate(path: str, value: object) -> dict:
         ("client", " padded ", "client must be a non-empty name"),
         ("dataset", KeyError, "missing key 'dataset'"),
         ("extra_top", 1, "unknown key 'extra_top'"),
+        ("classes.letter.fields.urgency.vocabulary", ["urgency"], "vocabulary must be a name"),
+        ("classes.letter.fields.urgency.vocabulary", {"a": 1}, "vocabulary must be a name"),
     ],
 )
 def test_invalid_profile_is_refused_with_the_reason(path: str, value: object, expected: str) -> None:
