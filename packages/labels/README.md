@@ -88,7 +88,10 @@ sha256 of every input file) and its builder (`mailroom_labels.importers.<kind>` 
 `--check` rebuilds in memory and compares with the committed snapshot without writing.
 `--out` must be missing, empty or an earlier build of the same snapshot id, which is
 replaced whole (no file of the old build survives); anything else, an invalid snapshot id
-or an unreadable option file is a usage error (exit 2, one line).
+or an unreadable option file is a usage error (exit 2, one line). The new build is written
+into a temporary directory beside `--out` and swapped in only once every row is written
+and its manifest validates, so a refused or failed import leaves an earlier build exactly
+as it was and leaves no temporary directory behind.
 Nothing is dropped or repaired silently: every omission, mapping and refusal is counted in
 the manifest's `source` (for example `presence_mapped` for `pending_annotation` read as
 `unlabeled`, `decoded_json_lists`, `not_imported`).
@@ -97,12 +100,14 @@ the manifest's `source` (for example `presence_mapped` for `pending_annotation` 
 | --- | --- | --- |
 | `import-hub` | `manifest.txt` and the `ground_truth` parquet shards from `fetch_hub.py`; with `--default-dir`, the `default` shards for the text check | a revision with no entry in `--pins` (`hub-revisions.yaml`), a `manifest.txt` or shard whose sha256 is not the one pinned for `--revision`, a missing shard, or one not listed in or whose sha256 differs from `manifest.txt`. Documents whose text does not hash to the Hub's `content_sha256`, or have no `doc_text`, are listed in `source.text_unverified_documents`; `source.text_check.run` says whether the check ran, and without `--default-dir` it did not, so `verify` warns `text_unchecked` (unknown unless listed, so `--strict` fails) |
 | `import-interim`, `import-near-gold` | a sandbox overlay directory (`MANIFEST.json` + `.jsonl`) at a named commit | a listed file that is missing or whose sha256 differs from the overlay's `MANIFEST.json` (the overlay manifest records no row counts; the rows read are recorded in the snapshot's `source.files`), or a `.jsonl` file it does not list |
-| `import-review` | review decision files and the review desk log | a source with a malformed line or a desk decision word it does not know (see below). An `unsure` desk mark is a normal outcome, never a label and never refused: it is listed under `source.undecided` (with `replaced` when a later decision settled the label). A decision replaced by a later or a human one is listed under `superseded` with its reason |
+| `import-review` | review decision files and the review desk log | a source with a malformed line or a desk decision word it does not know (see below). An `unsure` desk mark is a normal outcome, never a label: it is listed under `source.undecided` (with `replaced` when a later dated human decision settled the label), and it is refused only when it cannot be ordered against a human decision on its label (see below). A decision replaced by a later decision or `unsure` mark, or by a human decision, is listed under `superseded` with its reason |
 
 A source the importer cannot take whole is refused (exit 1, nothing written): a line that is
-not a JSON object or lacks a required key (`source.rejected_lines`), a Hub row whose
+not a strict JSON object (a repeated key, `NaN`, `Infinity` or `-Infinity` included) or
+lacks a required key (`source.rejected_lines`), a Hub row whose
 `gt_fields` or `gt_presence` is not an object (`unparseable_gt_fields`), a desk decision
-word other than `keep`, `use_suggestion`, `correct` or `unsure` (`not_imported`). `--allow-rejected` writes the snapshot anyway, for inspection: the
+word other than `keep`, `use_suggestion`, `correct` or `unsure` (`not_imported`), an `unsure` mark
+that cannot be ordered against a human decision on its label (`unordered_undecided`). `--allow-rejected` writes the snapshot anyway, for inspection: the
 left-out items are listed under those keys and `verify` reports each non-empty one as a
 `dropped_source_data` error, so such a snapshot never passes the gate. A UTF-8 byte-order
 mark at the start of a source file is skipped, not rejected.
@@ -113,10 +118,17 @@ with a UTC offset, or null; anything else is a rejected line). Nothing is decide
 guess: the same instant written two ways is a tie, and an undated human decision cannot be
 ordered against a dated one, so a tie or an undated decision with another value is kept
 beside the winner and `verify` reports a `conflicting_decision` error (an equal value is
-merged).
+merged). An `unsure` mark counts as a mark: when the latest `unsure` on a label is later
+than every human decision on it, those decisions are withdrawn (listed under `superseded`,
+never gold) and the label stays undecided, as on the desk. An `unsure` mark that cannot be
+ordered against a human decision on its label (either is undated, or the latest mark and
+the latest decision are the same instant) is listed under `source.unordered_undecided`,
+which refuses the import like a rejected line (`--allow-rejected` writes it, and `verify`
+reports a `dropped_source_data` error).
 
 `--known-warnings` takes `config/clients/<client>/known-warnings.yaml`, keyed by snapshot id;
-each entry is `{kind, doc, field, reason}` (plus an optional `file`), needs a `reason`, and
+each entry is `{kind, doc, field, reason}` (plus an optional `file`), needs a `reason`
+(`doc` and `field` are each a string or null; a malformed entry refuses the import, exit 1), and
 the importer records the snapshot's entries in its manifest. An entry accepts only a
 warning raised by its own snapshot (and, with `file`, located in that data file): the same
 warning from another snapshot stays unknown and fails `verify --strict`.

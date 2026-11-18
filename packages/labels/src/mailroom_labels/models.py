@@ -63,6 +63,7 @@ DROPPED_SOURCE_KEYS: tuple[str, ...] = (
     "unparseable_gt_fields",
     "not_imported",
     "unexplained_superseded",
+    "unordered_undecided",
 )
 
 #: A snapshot id: lowercase letters, digits, ``.``, ``_`` and ``-``, starting with a letter

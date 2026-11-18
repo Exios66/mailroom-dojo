@@ -512,3 +512,106 @@ def test_rows_split_lines_like_a_binary_file_read(tmp_path: Path) -> None:
     data = b'{"a": "x\\ry"}\n{"b": 1}\n'
     assert _jsonl_lines(data) == list(__import__("io").BytesIO(data))
     assert _jsonl_lines(b"x\ny") == [b"x\n", b"y"] and _jsonl_lines(b"") == []
+
+
+# --- a failed rebuild leaves the earlier build intact -----------------------------------------
+
+
+def _tree_bytes(d: Path) -> dict[str, bytes | None]:
+    return {p.relative_to(d).as_posix(): None if p.is_dir() else p.read_bytes() for p in d.rglob("*")}
+
+
+def _siblings(d: Path) -> list[str]:
+    return sorted(p.name for p in d.parent.iterdir())
+
+
+@pytest.mark.parametrize("fault", ["build_manifest", "unserialisable_row", "invalid_known_warning"])
+def test_a_rebuild_that_fails_after_serialising_leaves_the_earlier_build_and_no_temp_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    import mailroom_labels.snapshot as snapshot_module
+
+    d = tmp_path / "hub-a"
+    args: dict = dict(
+        snapshot_id="hub-a",
+        kind="hub",
+        layer_schema=CURRENT_LAYER_SCHEMA["hub"],
+        source={"repository": "synthetic"},
+        builder="test",
+    )
+    write_snapshot(d, {"a.jsonl": ROWS_A, "part/b.jsonl": ROWS_B}, **args)
+    before, siblings = _tree_bytes(d), _siblings(d)
+    rows = ROWS_A[:1]
+    if fault == "build_manifest":
+
+        def boom(*_a: object, **_k: object) -> None:
+            raise RuntimeError("injected after serialisation")
+
+        monkeypatch.setattr(snapshot_module, "build_manifest", boom)
+        expected: type[BaseException] = RuntimeError
+    elif fault == "unserialisable_row":
+        rows = [*ROWS_A[:1], {**ROWS_A[1], "x": float("nan")}]
+        expected = ValueError
+    else:
+        args["known_warnings"] = [{"kind": "orphan_decision", "doc": 123, "field": "f", "reason": "r"}]
+        expected = ValueError  # pydantic's ValidationError is a ValueError
+    with pytest.raises(expected):
+        write_snapshot(d, {"a.jsonl": rows}, **args)
+    assert _tree_bytes(d) == before
+    assert _siblings(d) == siblings == ["hub-a"]
+    assert load_snapshot(d).manifest.files[0].path == "a.jsonl"
+
+
+def test_a_failed_first_build_leaves_no_directory_behind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import mailroom_labels.snapshot as snapshot_module
+
+    def boom(*_a: object, **_k: object) -> None:
+        raise RuntimeError("injected")
+
+    monkeypatch.setattr(snapshot_module, "build_manifest", boom)
+    with pytest.raises(RuntimeError):
+        write_snapshot(
+            tmp_path / "hub-a",
+            {"a.jsonl": ROWS_A},
+            snapshot_id="hub-a",
+            kind="hub",
+            layer_schema=CURRENT_LAYER_SCHEMA["hub"],
+            source={},
+            builder="test",
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_building_into_an_existing_empty_directory_replaces_it(tmp_path: Path) -> None:
+    d = tmp_path / "hub-a"
+    d.mkdir()
+    write_snapshot(
+        d,
+        {"a.jsonl": ROWS_A},
+        snapshot_id="hub-a",
+        kind="hub",
+        layer_schema=CURRENT_LAYER_SCHEMA["hub"],
+        source={},
+        builder="test",
+    )
+    assert sorted(_tree_bytes(d)) == ["a.jsonl", "manifest.json"] and _siblings(d) == ["hub-a"]
+
+
+def test_a_non_regular_entry_beside_a_build_is_refused_untouched(tmp_path: Path) -> None:
+    import os
+
+    d = tmp_path / "hub-a"
+    args: dict = dict(
+        snapshot_id="hub-a",
+        kind="hub",
+        layer_schema=CURRENT_LAYER_SCHEMA["hub"],
+        source={},
+        builder="test",
+    )
+    write_snapshot(d, {"a.jsonl": ROWS_A}, **args)
+    os.mkfifo(d / "pipe")
+    with pytest.raises(FileExistsError):
+        write_snapshot(d, {"a.jsonl": ROWS_A}, **args)
+    assert (d / "pipe").exists() and (d / "a.jsonl").is_file()

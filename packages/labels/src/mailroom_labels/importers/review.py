@@ -10,7 +10,7 @@ Two native shapes come in:
   owner's own marks. ``decision`` maps to a verdict: ``keep`` -> ``accept``,
   ``use_suggestion`` and ``correct`` -> ``correct``. ``unsure`` is a normal desk outcome that
   decides nothing: it never becomes a label and is listed under ``source.undecided`` (with
-  ``replaced``: whether a later decision on the same label settled it), never refused. Any
+  ``replaced``: whether a later dated human decision on the same label settled it). Any
   other decision word cannot be imported and is listed under ``source.not_imported`` (which
   refuses the import, see ``common.refuse_dropped``). The reviewer is ``{model: human,
   role: <source>}``: a human desk decision is ``gold``. No initials are invented.
@@ -27,9 +27,17 @@ Rules, applied per (document, field):
    ways is a tie, and an **undated** human decision cannot be ordered against a dated one.
    Such a decision is merged when its value equals the winner's and otherwise kept beside
    it, so the quality gate reports a ``conflicting_decision`` error.
-2. A human decision beats a Claude decision on the same label: the Claude one is listed
+2. An ``unsure`` mark is a mark like any other, so the latest one counts: when the latest
+   ``unsure`` on a label is later than every human decision on it, those decisions are
+   withdrawn (listed under ``source.superseded``, never gold) and the label stays
+   undecided. A later human decision settles the label as usual. When an ``unsure`` mark
+   cannot be ordered against a human decision on the same label (either is undated, or the
+   latest mark and the latest decision are the same instant), nothing is guessed: the mark
+   is listed under ``source.unordered_undecided``, which refuses the import like a rejected
+   line (and, with ``--allow-rejected``, fails the quality gate).
+3. A human decision beats a Claude decision on the same label: the Claude one is listed
    under ``source.superseded`` and is not truth.
-3. Claude decisions with the same value are merged; different values are all kept (the
+4. Claude decisions with the same value are merged; different values are all kept (the
    gate reports a duplicate).
 
 Lines that are not JSON objects, or lack a key the mapping needs, are listed under
@@ -94,8 +102,9 @@ def _at(row: Mapping[str, Any]) -> tuple[bool, datetime]:
 
 _LATER = "a later reviewed_at decision on the same label"
 _HUMAN = "a human decision on the same label"
+_UNSURE = "a later unsure mark on the same label"
 #: Every reason a decision may be superseded for; any other would be a builder bug and is refused.
-SUPERSEDED_REASONS = (_LATER, _HUMAN)
+SUPERSEDED_REASONS = (_LATER, _HUMAN, _UNSURE)
 _DESK_REQUIRED = ("doc_id", "field", "decision", "value", "reviewed_at", "source")
 _DECISION_REQUIRED = ("doc_id", "field", "verdict", "reviewer", "entry")
 
@@ -206,22 +215,74 @@ def _from_desk(
     }
 
 
+def _label(row: Mapping[str, Any]) -> tuple[str, str]:
+    return (str(row["doc_id"]), str(row["field"]))
+
+
 def _undecided(undecided: list[dict[str, Any]], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Each ``unsure`` mark with ``replaced``: true when a dated human decision on the same
-    label is later (an undated mark is replaced by any dated decision)."""
+    label is later than a dated mark (an undated mark cannot be ordered, so it is never
+    ``replaced``; ``_withdraw_by_unsure`` lists it as unordered when the label has a decision)."""
     out = []
     for u in sorted(undecided, key=lambda u: (str(u["doc_id"]), str(u["field"]), u["origin"])):
         mark = reviewed_instant(u["reviewed_at"])
         later = [
             r
             for r in rows
-            if (r["doc_id"], r["field"]) == (u["doc_id"], u["field"])
+            if _label(r) == _label(u)
             and _is_human(r)
             and (at := reviewed_instant(r["reviewed_at"])) is not None
-            and (mark is None or at > mark)
+            and mark is not None
+            and at > mark
         ]
         out.append({**u, "replaced": bool(later)})
     return out
+
+
+def _withdraw_by_unsure(
+    undecided: list[dict[str, Any]], rows: list[dict[str, Any]], superseded: list
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Apply the desk's "a later mark replaces an earlier one" to ``unsure`` marks. Returns
+    the rows that stay and the marks that cannot be ordered against a human decision on
+    their label (rule 2 of the module docstring); withdrawn decisions go to ``superseded``."""
+    marks: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for u in undecided:
+        marks[_label(u)].append(u)
+    humans: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for r in rows:
+        if _is_human(r):
+            humans[_label(r)].append(r)
+    withdrawn: set[int] = set()
+    unordered: list[dict[str, Any]] = []
+    for key in sorted(marks):
+        decided = humans.get(key, [])
+        if not decided:
+            continue  # an unsure mark alone: no decision to withdraw or to order against
+        mark_at = [reviewed_instant(u["reviewed_at"]) for u in marks[key]]
+        decided_at = [reviewed_instant(r["reviewed_at"]) for r in decided]
+        dated_marks = [m for m in mark_at if m is not None]
+        dated_decisions = [d for d in decided_at if d is not None]
+        if len(dated_marks) < len(mark_at) or len(dated_decisions) < len(decided_at):
+            reason = "an undated unsure mark or human decision cannot be ordered against the other"
+        elif max(dated_marks) == max(dated_decisions):
+            reason = "the latest unsure mark and the latest human decision are the same instant"
+        else:
+            if max(dated_marks) > max(dated_decisions):
+                for r in decided:
+                    withdrawn.add(id(r))
+                    superseded.append(_summary(r, _UNSURE))
+            continue
+        unordered.extend(
+            {
+                "doc_id": u["doc_id"],
+                "field": u["field"],
+                "reviewed_at": u["reviewed_at"],
+                "origin": u["origin"],
+                "reason": reason,
+            }
+            for u in sorted(marks[key], key=lambda u: u["origin"])
+        )
+    return [r for r in rows if id(r) not in withdrawn], unordered
 
 
 def _is_human(row: Mapping[str, Any]) -> bool:
@@ -315,10 +376,12 @@ def build_review(
                 if row is not None:
                     rows.append(row)
 
+    superseded: list[dict[str, Any]] = []
+    marked = _undecided(undecided, rows)
+    rows, unordered = _withdraw_by_unsure(undecided, rows, superseded)
     groups: dict[tuple[str, str], dict[bool, list]] = defaultdict(lambda: {True: [], False: []})
     for row in rows:
-        groups[(str(row["doc_id"]), str(row["field"]))][_is_human(row)].append(row)
-    superseded: list[dict[str, Any]] = []
+        groups[_label(row)][_is_human(row)].append(row)
     merged: Counter = Counter()
     out: list[dict[str, Any]] = []
     for key in sorted(groups):
@@ -331,7 +394,12 @@ def build_review(
 
     unexplained = [s for s in superseded if s["reason"] not in SUPERSEDED_REASONS]
     refuse_dropped(
-        {"rejected_lines": rejected, "not_imported": not_imported, "unexplained_superseded": unexplained},
+        {
+            "rejected_lines": rejected,
+            "not_imported": not_imported,
+            "unexplained_superseded": unexplained,
+            "unordered_undecided": unordered,
+        },
         allow=allow_rejected,
     )
     by_reviewer = Counter(f"{r['reviewer'].get('model')}:{r['reviewer'].get('role')}" for r in out)
@@ -348,7 +416,8 @@ def build_review(
         "not_imported": not_imported,
         "rejected_lines": rejected,
         **({"unexplained_superseded": unexplained} if unexplained else {}),
-        **({"undecided": _undecided(undecided, rows)} if undecided else {}),
+        **({"undecided": marked} if undecided else {}),
+        **({"unordered_undecided": unordered} if unordered else {}),
         "reviewer_initials": "not recorded: the reviewer field holds the role the source states",
     }
     return write_snapshot(
