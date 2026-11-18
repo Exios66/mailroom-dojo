@@ -147,8 +147,11 @@ def read_json(path: Path) -> dict[str, Any] | None:
     return data
 
 
-def read_jsonl(path: Path, warnings: list[str]) -> list[tuple[int, dict[str, Any]]] | None:
-    """``(line number, row)`` for every row of a JSONL file, ``None`` when it is absent."""
+def read_jsonl(
+    path: Path, warnings: list[str], torn: list[dict[str, Any]] | None = None
+) -> list[tuple[int, dict[str, Any]]] | None:
+    """``(line number, row)`` for every row of a JSONL file, ``None`` when it is absent. A
+    skipped torn last line is a warning and, when ``torn`` is given, ``{"file", "bytes"}`` there."""
     try:
         raw = path.read_bytes()
     except FileNotFoundError:
@@ -167,6 +170,8 @@ def read_jsonl(path: Path, warnings: list[str]) -> list[tuple[int, dict[str, Any
         row = _parse(tail)
         if row is None:
             warnings.append(f"{path.name}: skipped a torn last line ({len(tail)} bytes, no newline)")
+            if torn is not None:
+                torn.append({"file": path.name, "bytes": len(tail)})
         else:
             rows.append((len(lines) + 1, row))
     return rows

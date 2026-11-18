@@ -48,8 +48,13 @@ Mapping
 - ``events.jsonl`` rows are ``_run`` events (``kind="handoff"``, ``node=<event name>``), and
   ``checkpoint.json`` a last ``_run`` event (``node="checkpoint"``) with ``state``,
   ``cursor`` and ``total``.
-- Every payload carries ``floor`` (``draw``, ``node``, ``item``, ``lifecycle`` or
-  ``checkpoint``): what the event is to the floor replay.
+- What the import skipped (``ImportResult.warnings``: a torn last line of a JSONL file, as a
+  run stopped mid-write leaves) is kept too: a first ``_run`` event (``node="import"``,
+  ``kind="handoff"``) with ``payload.skipped_torn_lines``, a list of ``{"file", "bytes"}``
+  (the file name and the bytes skipped, never their content). A folder with nothing
+  skipped has no such event.
+- Every payload carries ``floor`` (``draw``, ``node``, ``item``, ``lifecycle``,
+  ``checkpoint`` or ``import``): what the event is to the floor replay.
 - Strings in ``payload`` other than short tokens (ids, names, labels) are stored as their
   SHA-256 and length (``_folder.scrub``): no document or model free text enters the log.
 - A field the folder did not capture is ``None`` and named in ``absent_fields``; a row
@@ -256,13 +261,14 @@ def _build_plan(folder: Path) -> _Plan:
     if not folder.is_dir():
         raise SandboxFolderInvalid(f"{folder.name}: not a directory")
     warnings: list[str] = []
+    torn: list[dict[str, Any]] = []
     absent: list[str] = list(ALWAYS_ABSENT)
-    dataset = read_jsonl(folder / "dataset.jsonl", warnings)
+    dataset = read_jsonl(folder / "dataset.jsonl", warnings, torn)
     if dataset is None:
         raise SandboxFolderInvalid(f"{folder.name}: no dataset.jsonl")
-    nodes = read_jsonl(folder / "nodes.jsonl", warnings)
-    items = read_jsonl(folder / "items.jsonl", warnings)
-    run_events = read_jsonl(folder / "events.jsonl", warnings)
+    nodes = read_jsonl(folder / "nodes.jsonl", warnings, torn)
+    items = read_jsonl(folder / "items.jsonl", warnings, torn)
+    run_events = read_jsonl(folder / "events.jsonl", warnings, torn)
     lock = read_json(folder / "spec.lock.json")
     prompt_lock = read_json(folder / "prompt.lock.json")
     checkpoint = read_json(folder / "checkpoint.json")
@@ -331,6 +337,9 @@ def _build_plan(folder: Path) -> _Plan:
         chain = [draw] + [f for _, f in sorted(d.events, key=lambda p: p[0])]
         chains[d.doc_id] = _fill_times(chain, created_at, f"dataset.jsonl line {d.line}")
     run_chain = _run_events(run_events or [], checkpoint)
+    if torn:  # what the import skipped, first on _run (the checkpoint stays last)
+        mark = _fields(RUN_DOC, "import", "handoff", ts=created, payload={"floor": "import", "skipped_torn_lines": torn})
+        run_chain = [mark, *run_chain]
     if run_chain:
         chains[RUN_DOC] = _fill_times(run_chain, created_at, "events.jsonl")
 

@@ -96,3 +96,16 @@ def test_floor_replay_parity_against_the_sandbox(gate: ModuleType, runs_dir: Pat
     text = report.read_text()
     assert text.count("| ok (") == 3 and "checked against the sandbox's build_timeline" in text
     assert not [m for m in sys.modules if m.startswith("mailroom_sandbox")]
+
+
+def test_import_warnings_reach_the_report(gate: ModuleType, runs_dir: Path, tmp_path: Path) -> None:
+    """The crashed run's nodes.jsonl ends in a torn line: the import skips it and says so,
+    and the report carries that warning on the run's row (counts and file names only)."""
+    raw = (runs_dir / "ar-gate-crashed" / "nodes.jsonl").read_bytes()
+    torn = len(raw) - raw.rfind(b"\n") - 1
+    report = tmp_path / "report.md"
+    assert gate.main(_args(runs_dir, tmp_path / "store", report)) == 0
+    rows = {line.split(" | ")[0][2:]: line for line in report.read_text().splitlines() if line.startswith("| ar-gate-")}
+    assert f"nodes.jsonl: skipped a torn last line ({torn} bytes, no newline)" in rows["ar-gate-crashed"]
+    assert rows["ar-gate-r00"].endswith("| none |")  # the warnings column: nothing skipped
+    assert "Runs with import warnings: 1." in report.read_text()

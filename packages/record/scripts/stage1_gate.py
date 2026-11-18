@@ -31,6 +31,9 @@ these totals and checks:
   doc, node and status; items by id; checkpoints) and the same times within 1 ms. The
   sandbox's ``tui/floor_replay.py`` is loaded by path (it imports only the standard
   library); without ``--sandbox`` the check is reported as skipped;
+- import warnings: what each import skipped (a torn last line of a JSONL file), on the
+  run's row, and the number of runs with any (reported, not a gate; the record keeps them
+  as the run's ``import`` event);
 - append throughput with ``flush_every=16`` in a scratch store (reported, not a gate).
 
 Exit status: 0 when every import succeeded, every run verifies, the store is smaller than
@@ -82,6 +85,7 @@ class RunRow:
     failing: list[str] = field(default_factory=list)
     absent_fields: list[str] = field(default_factory=list)
     routing_absent: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     parity: str = "skipped"
     error: str = ""
 
@@ -274,6 +278,7 @@ def run_gate(runs: Path, root: Path, sandbox: Path | None = None, report: Path =
             continue
         row.run_id, row.status = imported.run_id, imported.status
         row.documents, row.events, row.absent_fields = imported.documents, imported.events, imported.absent_fields
+        row.warnings = imported.warnings
         row.routing_absent = audit_sandbox_run(folder).absent
         v = verify_run(log, blobs, imported.run_id)
         row.verify_ok = v.ok
@@ -340,17 +345,18 @@ def run_gate(runs: Path, root: Path, sandbox: Path | None = None, report: Path =
         f"Written by `packages/record/scripts/stage1_gate.py` at commit `{_commit()}` on "
         f"{datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}. Counts, hashes and run ids only.",
         "",
-        "| run | status | documents | events | verify | absent fields | routing inputs absent | floor replay parity |",
-        "|:---|:---|---:|---:|:---|:---|:---|:---|",
+        "| run | status | documents | events | verify | absent fields | routing inputs absent | floor replay parity "
+        "| import warnings |",
+        "|:---|:---|---:|---:|:---|:---|:---|:---|:---|",
     ]
     for r in rows:
         if r.error:
-            lines.append(f"| {r.folder} | import failed: {r.error} | - | - | - | - | - | - |")
+            lines.append(f"| {r.folder} | import failed: {r.error} | - | - | - | - | - | - | - |")
             continue
         verify = "ok" if r.verify_ok else f"NOT OK ({_cell(r.failing)})"
         lines.append(
             f"| {r.run_id} | {r.status} | {r.documents} | {r.events} | {verify} | {_cell(r.absent_fields)} "
-            f"| {_cell(r.routing_absent)} | {r.parity} |"
+            f"| {_cell(r.routing_absent)} | {r.parity} | {_cell(r.warnings)} |"
         )
     status_counts = Counter(r.status for r in imported_rows)
     lines += [
@@ -360,6 +366,7 @@ def run_gate(runs: Path, root: Path, sandbox: Path | None = None, report: Path =
         f"- Run folders: {len(folders)}; imported now: {status_counts['imported']}; already imported: "
         f"{status_counts['already_imported']}; failed: {len(rows) - len(imported_rows)}.",
         f"- Verify ok: {sum(r.verify_ok for r in imported_rows)} of {len(imported_rows)}.",
+        f"- Runs with import warnings: {sum(bool(r.warnings) for r in imported_rows)}.",
         f"- Source size on disk: {source_size} B; store size on disk (runs and blobs): {store_size} B "
         f"({(store_size / source_size * 100) if source_size else 0:.1f}% of the source); index: {index_size} B.",
         f"- `original` blobs: {len(originals)} distinct; document-runs: {document_runs}.",

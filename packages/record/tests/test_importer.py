@@ -430,3 +430,22 @@ def test_reimport_of_a_pruned_run_refuses_and_writes_nothing(
     unpack_run(archive, tmp_store.root)
     assert import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs).status == "already_imported"
     assert verify_run(tmp_store.log, tmp_store.blobs, RUN).ok
+
+
+def test_skipped_torn_line_is_kept_in_the_record(
+    tmp_store: SimpleNamespace, fixture_folder_crashed: Path, fixture_folder_replicate: Path
+) -> None:
+    """A warning (a torn last line skipped) is in the result and in the record: one ``_run``
+    event ``import`` naming the file and the bytes skipped, never their content."""
+    raw = (fixture_folder_crashed / "nodes.jsonl").read_bytes()
+    torn = len(raw) - raw.rfind(b"\n") - 1
+    r = import_sandbox_run(fixture_folder_crashed, tmp_store.log, tmp_store.blobs)
+    assert r.warnings == [f"nodes.jsonl: skipped a torn last line ({torn} bytes, no newline)"]
+    marks = [e for e in tmp_store.log.iter_events(r.run_id, "_run") if e.node == "import"]
+    assert len(marks) == 1
+    assert marks[0].payload == {"floor": "import", "skipped_torn_lines": [{"file": "nodes.jsonl", "bytes": torn}]}
+    assert verify_run(tmp_store.log, tmp_store.blobs, r.run_id).ok
+    assert import_sandbox_run(fixture_folder_crashed, tmp_store.log, tmp_store.blobs).status == "already_imported"
+    clean = import_sandbox_run(fixture_folder_replicate, tmp_store.log, tmp_store.blobs)
+    assert clean.warnings == []
+    assert not [e for e in tmp_store.log.iter_events(clean.run_id, "_run") if e.node == "import"]
