@@ -128,6 +128,12 @@ def _construct_mapping(loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: b
     seen: set[Any] = set()
     for key_node, _ in node.value:
         key = loader.construct_object(key_node, deep=deep)
+        try:
+            hash(key)
+        except TypeError:
+            raise yaml.constructor.ConstructorError(
+                None, None, f"unhashable mapping key {key!r}", key_node.start_mark
+            ) from None
         if key in seen:
             raise yaml.constructor.ConstructorError(
                 None, None, f"duplicate key {key!r}", key_node.start_mark

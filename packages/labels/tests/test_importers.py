@@ -939,3 +939,37 @@ def test_build_profile_refuses_hub_files_that_are_not_the_pinned_ones(tmp_path: 
     pinned[rel] = "e" * 64  # a self-consistent download of another revision
     with pytest.raises(bp.BuildError, match="pinned|pins record"):
         bp._hub_rows(data, pinned)
+
+
+def test_fetch_hub_rejects_a_download_that_ends_before_its_declared_length(tmp_path: Path,
+                                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    """A sized read can hit EOF early without raising; the declared Content-Length still catches it."""
+    fetch = _load_fetch()
+
+    class Short:
+        headers = {"Content-Length": "100"}
+
+        def __init__(self) -> None:
+            self.sent = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+        def read(self, n: int) -> bytes:
+            if self.sent:
+                return b""
+            self.sent = True
+            return b"x" * 40
+
+    monkeypatch.setattr(fetch.urllib.request, "urlopen", lambda url, timeout: Short())
+    target = tmp_path / "out" / "x.parquet"
+    assert fetch._fetch_one("https://example.invalid/x", target) is None
+    assert not target.exists()
+    Short.headers = {"Content-Length": "40"}  # positive control: a complete download is kept
+    assert fetch._fetch_one("https://example.invalid/x", target) is not None
+    assert target.read_bytes() == b"x" * 40
+    Short.headers = {}  # no declared length: nothing to compare, kept as before
+    assert fetch._fetch_one("https://example.invalid/y", tmp_path / "out" / "y.parquet") is not None

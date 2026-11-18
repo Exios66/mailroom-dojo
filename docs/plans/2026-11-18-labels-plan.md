@@ -42,6 +42,11 @@ exact dataset documents they describe.
    `review:near_gold`, `interim:gap_fill`, `interim:derived`, `hub:absent`, `near_gold`; on the real
    data this moves 171 labels (filing_number 136, signatories 21, jurisdiction 14) from a Hub
    absence to the interim fill, matching the sandbox merge.
+   *Approval status of the audit rank:* placing `review:near_gold` above `interim:gap_fill` was set
+   by the orchestrating thread's brief for this chunk, not by JJB, and the sandbox pipeline keeps
+   `gap_fill` ahead. It changes 47 scored values (of 69 audit decisions that disagree with
+   `gap_fill`). It is profile data (`precedence` in the client profile), so JJB can reverse it by
+   moving one line and rebuilding nothing; until JJB confirms, treat these 47 values as provisional.
 2. **Status words.** `hub`, `interim`, `near_gold`, `gold`. A review decision by a human desk owner is
    `gold`; the Claude Opus audit decisions (1,039 corrections under JJB's top-reply rule) are
    `near_gold` with source `review:claude-opus-audit`. No reviewer initials are invented: the reviewer

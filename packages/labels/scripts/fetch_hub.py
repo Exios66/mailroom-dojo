@@ -43,6 +43,13 @@ def _url(repository: str, revision: str, path: str) -> str:
     return f"https://huggingface.co/datasets/{repository}/resolve/{revision}/{path}"
 
 
+def _declared_length(response: object) -> int | None:
+    """The Content-Length the server declared, or None when absent or not a number."""
+    headers = getattr(response, "headers", None)
+    raw = headers.get("Content-Length") if headers is not None else None
+    return int(raw) if isinstance(raw, str) and raw.isdigit() else None
+
+
 def _download(url: str, target: Path) -> str:
     """Stream ``url`` into ``target``; on any error the partial file is deleted."""
     digest = hashlib.sha256()
@@ -50,9 +57,15 @@ def _download(url: str, target: Path) -> str:
     done = False
     try:
         with urllib.request.urlopen(url, timeout=120) as response, target.open("wb") as fh:  # noqa: S310 - https only
+            declared = _declared_length(response)
+            received = 0
             while chunk := response.read(1 << 20):
                 digest.update(chunk)
                 fh.write(chunk)
+                received += len(chunk)
+        if declared is not None and received != declared:
+            # CPython's sized reads can end early without IncompleteRead; never keep a short file
+            raise http.client.IncompleteRead(b"", declared - received)
         done = True
     finally:
         if not done:

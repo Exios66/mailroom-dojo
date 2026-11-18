@@ -116,7 +116,9 @@ def value_matches_type(field_type: str, value: Any) -> bool:
     if field_type == "money":
         if isinstance(value, bool):
             return False
-        if isinstance(value, (int, float)):
+        if isinstance(value, int):
+            return True  # shape only; never convert a huge integer to float
+        if isinstance(value, float):
             return math.isfinite(value)
         return isinstance(value, str)
     if field_type == "entity_list" or field_type.startswith("entity_list:"):
@@ -150,26 +152,26 @@ def _check_record(r: LayerRecord, index: dict, profile: ClientProfile, have_hub:
         out.add(
             finding("unknown_document", doc=r.document_id, layer=r.layer, location=_where(r),
                     detail="not in the Hub corpus index"),
-            ("unknown_document", r.document_id, r.snapshot_id),
+            ("unknown_document", r.document_id, r.snapshot_id, r.file),
         )
     if entry is not None:
         if r.doc_class is not None and r.doc_class != entry.doc_class:
             out.add(
                 finding("class_mismatch", doc=r.document_id, layer=r.layer, location=_where(r),
                         detail=f"layer says {r.doc_class!r}, index says {entry.doc_class!r}"),
-                ("class_mismatch", r.document_id, r.snapshot_id),
+                ("class_mismatch", r.document_id, r.snapshot_id, r.file),
             )
         if r.subclass is not None and r.subclass != entry.subclass:
             out.add(
                 finding("subclass_mismatch", doc=r.document_id, layer=r.layer, location=_where(r),
                         detail=f"layer says {r.subclass!r}, index says {entry.subclass!r}"),
-                ("subclass_mismatch", r.document_id, r.snapshot_id),
+                ("subclass_mismatch", r.document_id, r.snapshot_id, r.file),
             )
         if not hash_matches(r.content_sha256, entry.content_sha256):
             out.add(
                 finding("stale_content_hash", doc=r.document_id, layer=r.layer, location=_where(r),
                         detail=f"label hash {r.content_sha256} does not name index hash {entry.content_sha256}"),
-                ("stale_content_hash", r.document_id, r.snapshot_id),
+                ("stale_content_hash", r.document_id, r.snapshot_id, r.file),
             )
     doc_class = entry.doc_class if entry is not None else r.doc_class
     subclass = entry.subclass if entry is not None else r.subclass
