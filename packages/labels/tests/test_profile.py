@@ -115,6 +115,17 @@ def test_duplicate_yaml_key_is_refused(tmp_path: Path) -> None:
         load_profile(path)
 
 
+def test_unhashable_yaml_key_is_a_profile_error_not_a_crash(tmp_path: Path) -> None:
+    text = PROFILE_PATH.read_text(encoding="utf-8").replace(
+        "      recipient: {type: name, tier: tier1}\n",
+        "      recipient: {type: name, tier: tier1}\n      ? [a, b]\n      : {type: id}\n",
+    )
+    path = tmp_path / "profile.yaml"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(ProfileError, match="unhashable mapping key"):
+        load_profile(path)
+
+
 def test_unreadable_and_non_yaml_profiles(tmp_path: Path) -> None:
     with pytest.raises(ProfileError, match="cannot read"):
         load_profile(tmp_path / "absent.yaml")

@@ -477,3 +477,38 @@ def test_a_known_warning_matches_kind_document_field_and_file(tmp_path: Path) ->
     )
     report, _ = check_dirs([*standard_set(tmp_path / "again"), fixed], profile())
     assert [f.known for f in report.findings] == [True]
+
+
+def test_huge_integer_money_value_is_shape_checked_not_converted_to_float() -> None:
+    assert value_matches_type("money", 10**400) is True  # float(10**400) would raise OverflowError
+    assert value_matches_type("money", True) is False
+    assert value_matches_type("money", float("inf")) is False
+    assert value_matches_type("money", float("nan")) is False
+    assert value_matches_type("money", 12.5) is True
+
+
+def test_stale_warnings_of_two_files_stay_separate_so_a_file_scoped_acceptance_is_exact(
+    tmp_path: Path,
+) -> None:
+    from mailroom_labels.layers import CURRENT_LAYER_SCHEMA
+    from mailroom_labels.snapshot import write_snapshot
+
+    hub = make_snapshot(tmp_path, "hub", [hub_row("D1", fields={"sender": "Ann", "recipient": "Bo"})])
+    accepted = (
+        {"kind": "subclass_mismatch", "doc": "D1", "field": None, "reason": "re-filed", "file": "a.jsonl"},
+    )
+    both = tmp_path / "interim-two"
+    write_snapshot(
+        both,
+        {"a.jsonl": [_stale("D1", "sender")], "b.jsonl": [_stale("D1", "recipient")]},
+        snapshot_id="interim-two",
+        kind="interim",
+        layer_schema=CURRENT_LAYER_SCHEMA["interim"],
+        source={"repository": "synthetic"},
+        builder="labels_testkit",
+        known_warnings=accepted,
+    )
+    report, _ = check_dirs([hub, both], profile())
+    got = sorted((f.kind, f.location.split(":")[0].split("/")[1], f.known) for f in report.findings)
+    assert got == [("subclass_mismatch", "a.jsonl", True), ("subclass_mismatch", "b.jsonl", False)]
+    assert verify(report) == 0 and verify(report, strict=True) == 1
