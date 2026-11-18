@@ -847,3 +847,36 @@ def test_check_dirs_reports_an_unreadable_snapshot_and_checks_the_next(
     report, loaded = check_dirs([tmp_path / "bad", good], load_profile(PROFILE_PATH))
     assert [s.snapshot_id for s in loaded] == ["ng-a"]
     assert [f.kind for f in report.errors if f.kind == "manifest_mismatch"] == ["manifest_mismatch"]
+
+
+def test_changing_a_loaded_manifest_s_metadata_changes_nothing_a_reader_sees(tmp_path: Path) -> None:
+    """``source`` and ``known_warnings`` are copies on every read: a caller that edits what it
+    was handed cannot make the readers and the gate see a manifest the hash does not pin."""
+    from labels_testkit import profile
+    from mailroom_labels.layers import read_layer
+    from mailroom_labels.quality import check
+
+    accept = ({"kind": "text_unverified", "doc": "D1", "field": None, "reason": "checked by hand"},)
+    d = make_snapshot(
+        tmp_path,
+        "hub",
+        [hub_row("D1"), hub_row("D2")],
+        source={"repository": "synthetic", "text_unverified_documents": ["D1"]},
+        known_warnings=accept,
+    )
+    snap = load_snapshot(d)
+    snap.manifest.source["text_unverified_documents"].clear()  # type: ignore[union-attr]
+    snap.manifest.source["text_check"] = {"run": False}
+    snap.manifest.known_warnings[0]["doc"] = "D2"  # type: ignore[index]
+    assert snap.manifest.source["text_unverified_documents"] == ["D1"]
+    assert snap.manifest.source["text_check"] == {"run": True}
+    assert snap.manifest.known_warnings == accept
+    assert sorted((c.document_id, c.text_verified) for c in read_layer(snap).corpus) == [
+        ("D1", False),
+        ("D2", True),
+    ]
+    report = check([snap], profile())
+    assert [(f.kind, f.doc, f.known) for f in report.warnings] == [("text_unverified", "D1", True)]
+    snap.check_manifest()  # the stored manifest is still the one on disk
+    dumped = json.loads(snap.manifest.model_dump_json(by_alias=True))
+    assert dumped == json.loads((d / MANIFEST_NAME).read_text())

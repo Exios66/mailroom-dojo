@@ -280,6 +280,13 @@ class SnapshotManifest(BaseModel):
     of the files; a reader upgrades older versions at read time (ADR-0005).
     ``known_warnings`` lists ``{kind, doc, field}`` warnings accepted when the snapshot was
     committed. ``manifest_hash`` is ``hash_obj`` of every other key.
+
+    ``source`` and ``known_warnings`` hold JSON lists and objects, which a frozen model does
+    not protect, so each read returns a fresh copy: a caller that edits what it was handed
+    never changes what the layer readers and the quality gate see, and the manifest stays
+    the one ``manifest_hash`` pins. They are stored under ``stored_source`` and
+    ``stored_known_warnings`` (validated from the ``source`` and ``known_warnings`` keys; dump
+    with ``by_alias=True`` to get those keys back).
     """
 
     model_config = _FROZEN
@@ -288,8 +295,18 @@ class SnapshotManifest(BaseModel):
     snapshot_id: str = Field(pattern=SNAPSHOT_ID_PATTERN)
     kind: Layer
     layer_schema: str
-    source: Mapping[str, JsonValue]
+    stored_source: Mapping[str, JsonValue] = Field(alias="source", repr=False)
     builder: str
     files: tuple[ManifestFile, ...]
-    known_warnings: tuple[Mapping[str, str | None], ...] = ()
+    stored_known_warnings: tuple[Mapping[str, str | None], ...] = Field(default=(), alias="known_warnings")
     manifest_hash: str
+
+    @property
+    def source(self) -> dict[str, JsonValue]:
+        """A copy of the manifest's ``source`` object."""
+        return copy.deepcopy(dict(self.stored_source))
+
+    @property
+    def known_warnings(self) -> tuple[dict[str, str | None], ...]:
+        """A copy of the manifest's ``known_warnings`` entries."""
+        return tuple(dict(w) for w in self.stored_known_warnings)
