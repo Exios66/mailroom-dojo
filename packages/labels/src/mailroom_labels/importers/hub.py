@@ -64,7 +64,7 @@ from mailroom_labels.importers.common import (
 from mailroom_labels.layers import CURRENT_LAYER_SCHEMA, HUB_PRESENCES
 from mailroom_labels.models import SnapshotManifest
 from mailroom_labels.profile import ClientProfile, load_unique_yaml
-from mailroom_labels.snapshot import json_problem, write_snapshot
+from mailroom_labels.snapshot import MAX_JSON_DEPTH, json_problem, write_snapshot
 
 __all__ = ["DEFAULT_SHARDS", "SPLITS", "build_hub", "load_hub_pins", "parse_dataset_manifest", "shard_path"]
 
@@ -173,6 +173,21 @@ def _json_or_raw(raw: Any) -> Any:
     return raw
 
 
+def _not_object_reason(raw: Any, what: str) -> str:
+    """Why ``raw`` (a ``gt_fields`` or ``gt_presence`` value) is not a JSON object. Nesting
+    too deep to parse is reported as the snapshot reader would, on every Python version: the
+    C decoder of 3.11 raises ``RecursionError`` where later versions parse and the depth
+    check afterwards refuses the value."""
+    if isinstance(raw, str):
+        try:
+            loads_source(raw)
+        except RecursionError:
+            return f"JSON nested too deeply (more than {MAX_JSON_DEPTH} levels)"
+        except ValueError:
+            pass
+    return f"{what} is not a JSON object"
+
+
 def _name_or_none(value: Any) -> Any:
     return None if value in (None, "") else value
 
@@ -238,7 +253,10 @@ def _fields(
         gt = {}
     if not isinstance(gt, dict):
         tally.bad_gt_fields.append(
-            {"document_id": row.get("document_id"), "reason": "gt_fields is not a JSON object"}
+            {
+                "document_id": row.get("document_id"),
+                "reason": _not_object_reason(row.get("gt_fields"), "gt_fields"),
+            }
         )
         return None
     raw_presence = gt.get(PRESENCE_KEY)
@@ -247,7 +265,10 @@ def _fields(
     presence = {} if raw_presence in (None, "") else _json_or_raw(raw_presence)
     if not isinstance(presence, dict):
         tally.bad_gt_fields.append(
-            {"document_id": row.get("document_id"), "reason": "gt_presence is not a JSON object"}
+            {
+                "document_id": row.get("document_id"),
+                "reason": _not_object_reason(raw_presence, "gt_presence"),
+            }
         )
         return None
     out: dict[str, dict[str, Any]] = {}
