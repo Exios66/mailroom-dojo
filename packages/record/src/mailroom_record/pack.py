@@ -37,7 +37,13 @@ Rules
   ``MAX_BLOB`` for a blob, ``MAX_TOMBSTONE`` for a tombstone), read from its tar header
   before a byte of it is staged (``pack_run`` refuses to write such a member:
   ``PackRefused``). The archive's zstd frame is decompressed a few whole blocks at a time,
-  never more than 4 MiB per step, so a decompression bomb costs time, not memory. Blobs the run names but the archive lacks
+  never more than 4 MiB per step, so a decompression bomb costs time, not memory. A blob
+  member must be one the run names: a ``.zst`` member is decompressed as it streams and must
+  hash to its name, a ``.tombstone`` member must be the record ``BlobStore.tombstone`` writes
+  for its hash, and a blob member ``manifest.json``'s ``blobs`` does not list is refused; the
+  list itself must equal the blobs the verified run's events name. Only those blobs are ever
+  linked into the target, so an archive cannot plant content or a tombstone for a hash a
+  later run would store. Blobs the run names but the archive lacks
   (``include_blobs=False``) are taken from the target root's blob store. It then runs
   ``verify_run`` on the staging store; any failing problem is ``PackCorrupt``. If the
   target recorded a pack of the run (``pack.json``, or ``prune.json`` for a pruned run),
@@ -91,7 +97,7 @@ from typing import Any
 
 import zstandard
 
-from mailroom_record.blobs import BlobStore, _dir_lock, _fsync_dir, _makedirs_durable, _open_fd_for_write
+from mailroom_record.blobs import BlobStore, _dir_lock, _fsync_dir, _is_record, _makedirs_durable, _open_fd_for_write
 from mailroom_record.hashing import canonical_json
 from mailroom_record.log import MAINTENANCE_LOCK, MAX_LINE, PACK_RECORD, PRUNE_RECORD, EventLog
 from mailroom_record.models import _RUN_ID_RE
@@ -402,6 +408,7 @@ def _read_archive(archive: Path, sink: Callable[[str, Iterator[bytes]], None]) -
     """Stream ``archive``: check every member's name, type, hash and size against the
     manifest, handing each data member's chunks to ``sink(name, chunks)``."""
     seen: dict[str, dict[str, Any]] = {}
+    blob_shas: set[str] = set()
     run_id: str | None = None
     manifest_raw: bytes | None = None
     try:
@@ -443,8 +450,15 @@ def _read_archive(archive: Path, sink: Callable[[str, Iterator[bytes]], None]) -
                             size += len(chunk)
                             yield chunk
 
-                    sink(name, chunks())
-                    for _ in chunks():  # whatever the sink left unread
+                    data = chunks()
+                    if bm and bm["ext"] == "zst":
+                        data = _checked_blob(bm["sha"], data)
+                    elif bm:
+                        data = _checked_tombstone(bm["sha"], data)
+                    if bm:
+                        blob_shas.add(bm["sha"])
+                    sink(name, data)
+                    for _ in data:  # whatever the sink left unread, checked all the same
                         pass
                     seen[name] = {"sha256": h.hexdigest(), "size": size}
             z.drain()
@@ -469,7 +483,48 @@ def _read_archive(archive: Path, sink: Callable[[str, Iterator[bytes]], None]) -
     blobs = manifest.get("blobs")
     if not isinstance(blobs, list) or not all(isinstance(b, str) and re.fullmatch(_SHA, b) for b in blobs):
         raise PackCorrupt(f"{_MANIFEST} has no valid blob list")
+    if not blob_shas <= set(blobs):
+        raise PackCorrupt(f"the archive holds a blob file {_MANIFEST} does not name (a blob of no event of the run)")
     return _Read(run_id, manifest, archive_sha)
+
+
+def _checked_blob(sha: str, chunks: Iterator[bytes]) -> Iterator[bytes]:
+    """Pass a blob member's bytes on while decompressing them (``_ZstdIn``: one whole frame,
+    at most ``MAX_BLOB`` bytes out, a few blocks at a time); ``PackCorrupt`` at the end
+    unless what they decompress to hashes to ``sha``, the name they are stored under."""
+    taken: list[bytes] = []
+
+    class _Tee:
+        def read(self, _size: int = -1) -> bytes:
+            chunk = next(chunks, b"")
+            if chunk:
+                taken.append(chunk)
+            return chunk
+
+    z = _ZstdIn(_Tee(), what=f"blob {sha}", max_output=MAX_BLOB)
+    digest = hashlib.sha256()
+    buf = bytearray(_CHUNK)
+    while n := z.readinto(buf):
+        digest.update(memoryview(buf)[:n])
+        while taken:
+            yield taken.pop(0)
+    yield from taken
+    if digest.hexdigest() != sha:
+        raise PackCorrupt(f"blob {sha}: its content hashes to {digest.hexdigest()}, not to its name")
+
+
+def _checked_tombstone(sha: str, chunks: Iterator[bytes]) -> Iterator[bytes]:
+    """Pass a tombstone member on if it is the record ``BlobStore.tombstone`` writes for
+    ``sha`` (a JSON object with this hash, a non-empty reason and a time), as the blob store
+    and ``verify_run`` read one; else ``PackCorrupt``. Its size was capped by ``MAX_TOMBSTONE``."""
+    body = b"".join(chunks)
+    try:
+        record = json.loads(body)
+    except (ValueError, RecursionError):
+        record = None
+    if not _is_record(record, sha):
+        raise PackCorrupt(f"blob {sha}: the tombstone member is not the tombstone record of this hash")
+    yield body
 
 
 # --- pack -------------------------------------------------------------------------
@@ -665,9 +720,16 @@ def _place(read: _Read, staging: Path, root: Path) -> str:
     if not report.ok:
         kinds = sorted({p.kind for p in report.problems if p.fails})
         raise PackCorrupt(f"the unpacked run does not verify: {', '.join(kinds)}")
+    named = set(_named_blobs(s_log, run_id))
+    if named != set(read.manifest["blobs"]):
+        raise PackCorrupt(f"the blob list of {_MANIFEST} is not the blobs the run's events name")
 
     run_rel = [rel for rel in read.manifest["members"] if rel.startswith("runs/")]
-    blob_rel = [rel for rel in read.manifest["members"] if rel.startswith("blobs/")]
+    blob_rel = []  # only blobs the verified run names reach the target (checked above, kept here)
+    for rel in read.manifest["members"]:
+        m = _BLOB_MEMBER.fullmatch(rel)
+        if m and m["sha"] in named:
+            blob_rel.append(rel)
     for rel in run_rel:  # check everything before placing anything
         dst = root / rel
         if dst.exists() and not (dst.is_file() and _same_bytes(dst, staging / rel)):
