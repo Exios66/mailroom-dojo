@@ -261,20 +261,24 @@ def _make_raw_class() -> type:
 class Faults:
     """Count, and on request fail, the syscalls the record makes under one store root.
 
-    Patches ``os.write``, ``os.fsync``, ``os.replace`` and ``os.link``; only calls that
-    touch a path under ``root`` are counted or faulted, so pytest's own I/O is untouched.
-    ``fail(name, k, action)`` makes the ``k``-th (1-based) such call of ``name`` run
-    ``action`` instead: ``"ENOSPC"`` or ``"EIO"`` (raise, nothing written), ``"short"``
-    (``os.write`` writes just over half and returns the count), ``"zero"`` (``os.write``
-    returns 0), or ``"short+ENOSPC"`` (a short write, then ENOSPC on the next write).
+    Patches ``os.write``, ``os.fsync``, ``os.replace``, ``os.link``, ``os.open`` and
+    ``tempfile.mkstemp``; only calls that touch a path under ``root`` are counted or
+    faulted, so pytest's own I/O is untouched. ``os.open`` covers segment opens, the seal
+    lock and directory fsyncs (``mkstemp`` opens its file through ``os.open`` too, so a
+    ``mkstemp`` call also counts one ``open``). ``fail(name, k, action)`` makes the
+    ``k``-th (1-based) such call of ``name`` run ``action`` instead: ``"ENOSPC"`` or
+    ``"EIO"`` (raise, nothing written or opened), ``"short"`` (``os.write`` writes just
+    over half and returns the count), ``"zero"`` (``os.write`` returns 0), or
+    ``"short+ENOSPC"`` (a short write, then ENOSPC on the next write).
     """
 
-    NAMES = ("write", "fsync", "replace", "link")
+    NAMES = ("write", "fsync", "replace", "link", "open")
 
     def __init__(self, monkeypatch: Any, root: Any) -> None:
         import errno
         import io
         import os
+        import tempfile
         from collections import Counter
 
         self.root = os.path.realpath(root)
@@ -354,6 +358,24 @@ class Faults:
                 return io.BufferedWriter(raw_cls(fd))
             return real_fdopen(fd, mode, *args, **kwargs)
 
+        def open_(path: Any, flags: int, mode: int = 0o777, *args: Any, **kwargs: Any) -> int:
+            if not kwargs.get("dir_fd") and ours_path(path):
+                action = fault("open")
+                if action in ("ENOSPC", "EIO"):
+                    raise_for(action, "open")
+            return self._real["open"](path, flags, mode, *args, **kwargs)
+
+        real_mkstemp = tempfile.mkstemp
+
+        def mkstemp(suffix: Any = None, prefix: Any = None, dir: Any = None, text: bool = False) -> Any:
+            if dir is not None and ours_path(dir):
+                action = fault("mkstemp")
+                if action in ("ENOSPC", "EIO"):
+                    raise OSError(self._errno[action], f"injected {action} in tempfile.mkstemp")
+            return real_mkstemp(suffix, prefix, dir, text)
+
+        monkeypatch.setattr(os, "open", open_)
+        monkeypatch.setattr(tempfile, "mkstemp", mkstemp)
         monkeypatch.setattr(os, "write", write)
         monkeypatch.setattr(os, "fsync", fsync)
         monkeypatch.setattr(os, "replace", two_paths("replace"))

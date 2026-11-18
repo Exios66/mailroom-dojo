@@ -28,7 +28,9 @@ Hashes are validated (64 lowercase hex) before they touch a path.
 from __future__ import annotations
 
 import contextlib
+import errno
 import hashlib
+import io
 import json
 import os
 import re
@@ -66,6 +68,54 @@ def _check_sha(sha256: str) -> str:
     return sha256
 
 
+class _FdWriter(io.RawIOBase):
+    """A raw file over ``fd`` that writes with ``os.write`` and fails on a write of 0 bytes.
+
+    ``os.fdopen(fd, "wb")`` puts a ``BufferedWriter`` over ``FileIO``, and
+    ``BufferedWriter`` retries a raw write that returns 0 forever. Like the log writer,
+    every write path here raises ``OSError`` instead of spinning.
+    """
+
+    def __init__(self, fd: int, name: str) -> None:
+        self._fd = fd
+        self._name = name
+
+    def writable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def fileno(self) -> int:
+        return self._fd
+
+    def write(self, b: Any) -> int:
+        if not memoryview(b).nbytes:
+            return 0
+        n = os.write(self._fd, b)
+        if n <= 0:
+            raise OSError(errno.EIO, f"os.write wrote 0 bytes to {self._name}")
+        return n
+
+    def seek(self, pos: int, whence: int = 0) -> int:
+        return os.lseek(self._fd, pos, whence)
+
+    def tell(self) -> int:
+        return os.lseek(self._fd, 0, os.SEEK_CUR)
+
+    def close(self) -> None:
+        if not self.closed:
+            try:
+                os.close(self._fd)
+            finally:
+                super().close()
+
+
+def _open_fd_for_write(fd: int, name: str) -> io.BufferedWriter:
+    """A buffered binary writer over ``fd`` (closing it closes ``fd``); see ``_FdWriter``."""
+    return io.BufferedWriter(_FdWriter(fd, name))
+
+
 def _fsync_dir(path: Path) -> None:
     fd = os.open(path, os.O_RDONLY)
     try:
@@ -99,7 +149,7 @@ def write_exclusive(final: Path, body: bytes) -> bool:
     fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{final.name}.", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
-        with os.fdopen(fd, "wb") as f:
+        with _open_fd_for_write(fd, tmp.name) as f:
             f.write(body)
             f.flush()
             os.fsync(f.fileno())
@@ -172,7 +222,7 @@ class BlobStore:
         fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{final.name}.", suffix=".tmp")
         tmp = Path(tmp_name)
         try:
-            with os.fdopen(fd, "wb") as f:
+            with _open_fd_for_write(fd, tmp.name) as f:
                 write(f)
                 f.flush()
                 os.fsync(f.fileno())

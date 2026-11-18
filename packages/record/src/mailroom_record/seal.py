@@ -111,7 +111,7 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from mailroom_record.blobs import _fsync_dir, _makedirs_durable, write_exclusive
+from mailroom_record.blobs import _fsync_dir, _makedirs_durable, _open_fd_for_write, write_exclusive
 from mailroom_record.hashing import canonical_json
 from mailroom_record.log import CorruptLine, EventLog, StoredLine, _Heads
 from mailroom_record.models import GENESIS, Event, Seal, event_hash, seal_hash, utc_now
@@ -384,7 +384,7 @@ def _write_columns(path: Path, table: pa.Table) -> None:
     fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{path.name}.", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
-        with os.fdopen(fd, "wb") as f:
+        with _open_fd_for_write(fd, tmp.name) as f:
             pq.write_table(table, f, compression="zstd")
             f.flush()
             os.fsync(f.fileno())
