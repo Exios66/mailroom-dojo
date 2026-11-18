@@ -169,12 +169,25 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
 - **`composite`** (the chained summary's weighted score) is a table row; the old registry had
   no id for it, though the golden baseline emits it.
 
-- **Gold for the decision agents is derived, not human-only.** `boss_wrongful_approve_rate`
-  and `boss_needless_review_rate` were "human outcome only"; the judge's and arbiter's gold
-  verdicts used a human resolution first. By the owner's decision (2026-11-18) gold no longer
-  waits for human resolutions: each of these rows (and the sorter reviewer's) states in its
-  `status_reason` how its gold is derived from the class and field labels, with the bands from
-  the scoring profile. No scorer is ported in D2; D3b and D6 apply the rule.
+- **Gold for the decision agents is derived, not human-only, in new rows.** By the owner's
+  decision (2026-11-18) gold no longer waits for human resolutions: it is derived from the
+  class and field labels of `hub`, `interim`, `near_gold` and `review`, with the bands from
+  the scoring profile. That is a new rule, and every kept id keeps its old meaning (port
+  design, section 10, decision 4), so it lives in eight new design rows,
+  `reviewer_class_accuracy_vs_gold`, `reviewer_wrong_accept_upper_95_vs_gold`,
+  `judge_verdict_accuracy_vs_gold`, `judge_escalation_recall_vs_gold`,
+  `arbiter_decision_accuracy_vs_gold`, `arbiter_wrongful_accept_rate_vs_gold`,
+  `boss_wrongful_approve_rate_vs_gold` and `boss_needless_review_rate_vs_gold`, and the views
+  of the sorter reviewer, judge, arbiter and boss show them. No scorer is ported in D2; D6
+  applies the rule.
+- **Correction (review round 3).** Until this round the derived rule sat in the
+  `status_reason` of the eight old ids themselves (`boss_wrongful_approve_rate` "replaces the
+  old 'human outcome only' rule"), so one id carried two rules. The old rows are restored to
+  their old meaning (no derived-gold text; the judge rows' pairing and the arbiter and boss
+  rows' pairing notes, added only for the views, are gone with it), the rule moved to the
+  `_vs_gold` rows, and two tests keep it there: no row carried from the old registry or golden
+  baseline states a derived-gold rule, and a view on `derived_gold` shows design rows only
+  (also a loader rule).
 - **The intake clerk diagnostics are dropped** (owner decision): `intake_prep_completeness`,
   `intake_changed_rate`, `intake_messy_rate`, `intake_hyphen_unwraps` and
   `intake_collapsed_blanks` are `not_ported`. The old golden intake suite emits them, so D3b
@@ -208,8 +221,8 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   `contracteval_false_no_related`, "mirrors ContractEval no_related_rate", is wrong: it is
   `false_no_related_rate` (positive pairs), not `no_related_rate` (all pairs). The note keeps
   its old text; the row's `status_reason` corrects it.
-- **19 planned design rows** (`origin: design`, ids `dojo:<id>`) add numbers the old Dojo never
-  had; none changes an old number.
+- **27 planned design rows** (`origin: design`, ids `dojo:<id>`) add numbers the old Dojo never
+  had; none changes an old number. Eight of them are the `_vs_gold` rows above.
 
 ### Correction
 

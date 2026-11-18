@@ -309,8 +309,28 @@ DESIGN_ROWS = frozenset(
         "log_chains_verified",
         "cost_estimate_to_billed_ratio",
         "fields_without_gold",
+        *(f"{metric}_vs_gold" for metric in ("reviewer_class_accuracy", "reviewer_wrong_accept_upper_95")),
+        *(f"{metric}_vs_gold" for metric in ("judge_verdict_accuracy", "judge_escalation_recall")),
+        *(f"{metric}_vs_gold" for metric in ("arbiter_decision_accuracy", "arbiter_wrongful_accept_rate")),
+        *(f"{metric}_vs_gold" for metric in ("boss_wrongful_approve_rate", "boss_needless_review_rate")),
     }
 )
+
+#: The design rows that carry a decision agent's gold derived from the label layers (owner
+#: decision, 2026-11-18). Derived gold is a new rule, so it gets a new row beside the old id,
+#: which keeps the old rule (port design, section 10, decision 4).
+VS_GOLD_ROWS = frozenset(metric for metric in DESIGN_ROWS if metric.endswith("_vs_gold"))
+
+
+def test_each_derived_gold_row_stands_beside_its_unchanged_old_row(table: MetricTable) -> None:
+    assert len(VS_GOLD_ROWS) == 8
+    for metric in sorted(VS_GOLD_ROWS):
+        new, old = table.get(metric), table.get(metric.removesuffix("_vs_gold"))
+        assert old.origin == "registry" and old.status_reason is None, old.id
+        assert table.ids.index(new.id) == table.ids.index(old.id) + 1, metric
+        for key in ("unit", "direction", "aggregation", "agents", "ground_truth"):
+            assert getattr(new, key) == getattr(old, key), (metric, key)
+        assert new.description != old.description and new.citation != old.citation, metric
 
 
 def test_every_nested_block_is_a_breakdown_with_a_reason() -> None:
@@ -426,6 +446,6 @@ def test_counts(table: MetricTable) -> None:
     assert len(table.headline_rows()) == 13  # bert_elapsed_ms is not ported
     assert {status: statuses.count(status) for status in set(statuses)} == {
         "implemented": 19,
-        "planned": 108,
+        "planned": 116,
         "not_ported": 86,
     }

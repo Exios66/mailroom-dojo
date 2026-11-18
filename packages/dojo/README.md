@@ -97,10 +97,12 @@ the expected values are not ground truth (comparing two model outputs).
 
 `src/mailroom_dojo/measures/metrics.yaml` has one row for every id of the old Dojo's metric
 registry (184, in the old order), ten metrics the old golden baseline emits outside it,
-and 19 planned rows (`origin: design`) for numbers the master design needs that no old
+and 27 planned rows (`origin: design`) for numbers the master design needs that no old
 metric gives (wrong-archive and review rates, utility, silent-wrong per 1,000, per-slot
 summaries, cost per classification and per 1,000 documents, throughput, log health, cost
-truth, the gaps a future gold-generation step fills, and intake's class accuracy). Each old row keeps the old
+truth, the gaps a future gold-generation step fills, intake's class accuracy, and eight
+`<old id>_vs_gold` rows that grade the decision agents on gold derived from the label layers,
+a new rule, while the old ids keep the old one). Each old row keeps the old
 description, aggregation, agents, ground truth, inclusion and citation, and its unit
 (normalised to one spelling per unit); tiers are replaced by `headline` (exactly the old
 tier-0 ids), a `layer`, a `status` and the `readers` (gate, report or projection) that use
@@ -113,7 +115,8 @@ meaning. Duplicates point at their canonical row (`alias_of`, `same_as`).
 and the entries that are not model agents. `default_views` gives every live agent one
 default number and a guard, with the label layers its gold comes from (the labels
 package's layer kinds `hub`, `interim`, `near_gold` and `review`, or `derived_gold`,
-computed from them for the decision agents), or `null` with a reason; `confirmed` marks
+computed from them for the decision agents, whose views show `_vs_gold` design rows), or
+`null` with a reason; `confirmed` marks
 the owner's decisions, the rest are proposals.
 `direction` is stated per row (the source of truth), frozen in
 `tests/fixtures/measures/metric_directions.json`, and a test lints it against the id's

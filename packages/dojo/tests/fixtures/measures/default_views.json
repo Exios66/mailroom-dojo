@@ -129,11 +129,11 @@
  },
  "default_views": {
   "arbiter": {
-   "metric": "arbiter_decision_accuracy",
+   "metric": "arbiter_decision_accuracy_vs_gold",
    "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 526-534: the arbiter's quality metric (tier 1); the arbiter has no tier-0 metric. Gold derived (rule in the row's status_reason).",
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 526-534: the arbiter's quality metric (tier 1); the arbiter has no tier-0 metric. Gold derived, a new rule, so the view shows the _vs_gold rows (rule in each row's status_reason); the old ids keep the old rule.",
    "reason": null,
-   "guard": "arbiter_wrongful_accept_rate",
+   "guard": "arbiter_wrongful_accept_rate_vs_gold",
    "guard_confirmed": false,
    "label_layers": [
     "derived_gold"
@@ -149,11 +149,11 @@
    "label_layers": []
   },
   "boss": {
-   "metric": "boss_wrongful_approve_rate",
+   "metric": "boss_wrongful_approve_rate_vs_gold",
    "confirmed": true,
-   "source": "Owner decision, 2026-11-18: the boss is judged on wrong approvals. Not extraction_overall_score, which grades the specialist. Gold derived (rule in the row's status_reason).",
+   "source": "Owner decision, 2026-11-18: the boss is judged on wrong approvals. Not extraction_overall_score, which grades the specialist. Gold derived, a new rule, so the view shows the _vs_gold rows (rule in each row's status_reason); boss_wrongful_approve_rate and boss_needless_review_rate keep the old rule (human outcome only).",
    "reason": null,
-   "guard": "boss_needless_review_rate",
+   "guard": "boss_needless_review_rate_vs_gold",
    "guard_confirmed": false,
    "label_layers": [
     "derived_gold"
@@ -266,11 +266,11 @@
    ]
   },
   "judge": {
-   "metric": "judge_verdict_accuracy",
+   "metric": "judge_verdict_accuracy_vs_gold",
    "confirmed": false,
-   "source": "Review of the provisional defaults: f1_macro has no gold for the judge in the new system; the verdict is graded against a verdict derived from the field labels (rule in the row's status_reason).",
+   "source": "Review of the provisional defaults: f1_macro has no gold for the judge in the new system; the verdict is graded against a verdict derived from the field labels, a new rule, so the view shows the _vs_gold rows (rule in each row's status_reason); judge_verdict_accuracy and judge_escalation_recall keep the old rule.",
    "reason": null,
-   "guard": "judge_escalation_recall",
+   "guard": "judge_escalation_recall_vs_gold",
    "guard_confirmed": false,
    "label_layers": [
     "derived_gold"
@@ -341,11 +341,11 @@
    ]
   },
   "sorter_reviewer": {
-   "metric": "reviewer_class_accuracy",
+   "metric": "reviewer_class_accuracy_vs_gold",
    "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 352-353 and 370: reviewer_class_accuracy, tier 0, with reviewer_wrong_accept_upper_95 as its guard. Gold derived from the class labels (rule in each row's status_reason).",
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 352-353 and 370: reviewer_class_accuracy, tier 0, with reviewer_wrong_accept_upper_95 as its guard. Gold derived from the class labels, a new rule, so the view shows their _vs_gold rows (rule in each row's status_reason); the old ids keep the old rule.",
    "reason": null,
-   "guard": "reviewer_wrong_accept_upper_95",
+   "guard": "reviewer_wrong_accept_upper_95_vs_gold",
    "guard_confirmed": false,
    "label_layers": [
     "derived_gold"

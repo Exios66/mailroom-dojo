@@ -13,8 +13,9 @@ change), and every live agent has a `default_view` or a null with a reason.
   `metric_id`), an optional interval and a reason when there is no value. Comparability is
   checked on method, subject, cost basis, label status and provenance.
 - `metrics.yaml`: one row per id of the old registry (184, old order), the ten metrics the old
-  golden baseline emits outside it, and 19 planned rows for needs the master design names that
-  no old metric meets: 213 rows (19 implemented, 108 planned, 86 not ported). Each row has a
+  golden baseline emits outside it, and 27 planned rows for needs the master design names that
+  no old metric meets (eight of them, `<old id>_vs_gold`, carry the decision agents' derived
+  gold beside the unchanged old ids): 221 rows (19 implemented, 116 planned, 86 not ported). Each row has a
   direction, readers, status, pairing where it is compared, and a pointer to its canonical row
   when it is a duplicate. An `agent_roster` and each live agent's default view.
 - The loader and its rules (`table.py`), each tested, with a deliberate mutation shown red.
@@ -53,8 +54,12 @@ behind the spend gate).
    `near_gold` and `review`, or `derived_gold` alone; `derived` is not used, because the labels
    package already uses it for an interim truth status). The decision agents (sorter reviewer,
    judge, arbiter, boss) read `derived_gold`, computed deterministically from the class and
-   field labels in those layers; each of their rows states the rule in `status_reason`, with
-   the score bands taken from the scoring profile in `config/`. No scoring code for it in D2.
+   field labels in those layers, with the score bands taken from the scoring profile in
+   `config/`. Derived gold is a new rule, and every kept id keeps its old meaning (port design,
+   section 10, decision 4), so the rule lives in eight new design rows named
+   `<old id>_vs_gold`, each stating it in `status_reason`; the old ids keep their old rule
+   (human outcome or verified target first). The loader refuses a view on `derived_gold` that
+   shows a kept old row. No scoring code for it in D2.
    The planned row `fields_without_gold` is what the future gold-generation step reads.
 5. **Pairing.** Every kept headline or keep-rule row, and every metric a default view shows
    (its number or its guard), names a pairing or a `pairing_note`.
@@ -101,10 +106,10 @@ behind the spend gate).
 | Agent | Status | Default view | Guard | Gold from | Confirmed |
 |:---|:---|:---|:---|:---|:---|
 | `sorter` | live | `f1_macro` | `accuracy` | hub, interim, near_gold, review | yes |
-| `sorter_reviewer` | live | `reviewer_class_accuracy` | `reviewer_wrong_accept_upper_95` | derived_gold | proposal |
-| `judge` | live | `judge_verdict_accuracy` | `judge_escalation_recall` | derived_gold | proposal |
-| `arbiter` | live | `arbiter_decision_accuracy` | `arbiter_wrongful_accept_rate` | derived_gold | proposal |
-| `boss` | live | `boss_wrongful_approve_rate` | `boss_needless_review_rate` | derived_gold | yes |
+| `sorter_reviewer` | live | `reviewer_class_accuracy_vs_gold` | `reviewer_wrong_accept_upper_95_vs_gold` | derived_gold | proposal |
+| `judge` | live | `judge_verdict_accuracy_vs_gold` | `judge_escalation_recall_vs_gold` | derived_gold | proposal |
+| `arbiter` | live | `arbiter_decision_accuracy_vs_gold` | `arbiter_wrongful_accept_rate_vs_gold` | derived_gold | proposal |
+| `boss` | live | `boss_wrongful_approve_rate_vs_gold` | `boss_needless_review_rate_vs_gold` | derived_gold | yes (guard proposal) |
 | `intake` | live | `intake_class_accuracy` | none | hub, interim, near_gold, review | yes |
 | `contracts_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, review | proposal |
 | `merger_agreement_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, review | proposal |
@@ -123,8 +128,8 @@ behind the spend gate).
 
 No default view (rows kept for golden parity and history): legacy `audit_agent`, `contract_auditor`, `corporate_records_auditor`, `due_diligence_auditor`, `correspondence_auditor`, `compliance_auditor`, `court_opinions_auditor`, `insurance_claims_auditor`; retired `due_diligence_specialist`, `compliance_specialist`, `court_opinions_specialist`.
 
-Notes on the proposals: `judge_verdict_accuracy` replaces `f1_macro` for the judge, which has no
-class gold in the new system. The correspondence default is `extraction_overall_score`, not
+Notes on the proposals: `judge_verdict_accuracy_vs_gold` replaces `f1_macro` for the judge, which
+has no class gold in the new system. The correspondence default is `extraction_overall_score`, not
 `content_topic_f1_macro`: the live correspondence schema has no `content_topic` field, so a
 perfect extraction would score 0.0; that row stays for eval-lineage runs. `local_vs_api` is a
 serving comparison kept for continuity; the backend is a column of the run, not an agent.
@@ -138,18 +143,25 @@ the sandbox gate's name), `review_rate`, `correct_archive_rate`, `document_utili
 `slot_override_rate`, `slot_cap_use`, `slot_cap_breaches`, `cost_per_decision`,
 `outcome_flip_rate`, `cost_per_classification`, `cost_per_1000_documents`,
 `documents_per_minute`, `log_complete_step_rate`, `log_chains_verified`,
-`cost_estimate_to_billed_ratio`, `fields_without_gold` and `intake_class_accuracy`. Each is `origin: design`, metric id
-`dojo:<id>`, and names its reader (archive gate, reports, keep rule, run comparison, cost
-projection, log health or gold generation) and its build chunk (D4 to D7).
+`cost_estimate_to_billed_ratio`, `fields_without_gold` and `intake_class_accuracy`; and the eight
+rows that carry the decision agents' derived gold beside the unchanged old ids:
+`reviewer_class_accuracy_vs_gold`, `reviewer_wrong_accept_upper_95_vs_gold`,
+`judge_verdict_accuracy_vs_gold`, `judge_escalation_recall_vs_gold`,
+`arbiter_decision_accuracy_vs_gold`, `arbiter_wrongful_accept_rate_vs_gold`,
+`boss_wrongful_approve_rate_vs_gold` and `boss_needless_review_rate_vs_gold` (same unit,
+direction, aggregation and agents as the old row; description, rule and citation their own).
+Each is `origin: design`, metric id `dojo:<id>`, and names its reader (archive gate, reports,
+keep rule, run comparison, cost projection, log health or gold generation) and its build chunk
+(D4 to D7).
 
 ## Directions (proposed, owner to confirm)
 
-Directions: 101 higher, 58 lower, 54 none, over 213 rows. The 17 kept rows with direction none: `reviewer_routed_to_human_review_rate`, `audit_disagreement_rate`, `audit_resolution_rate`, `gpu_utilization`, `prompt_tokens`, `completion_tokens`, `confusion_matrix`, `per_class_stats`, `bootstrap_ci`, `llm_call_count`, `total_tokens`, `classification_attempts`, `extraction_attempts`, `no_related_rate`, `slot_override_rate`, `slot_cap_use`, `cost_estimate_to_billed_ratio`.
+Directions: 105 higher, 62 lower, 54 none, over 221 rows. The 17 kept rows with direction none: `reviewer_routed_to_human_review_rate`, `audit_disagreement_rate`, `audit_resolution_rate`, `gpu_utilization`, `prompt_tokens`, `completion_tokens`, `confusion_matrix`, `per_class_stats`, `bootstrap_ci`, `llm_call_count`, `total_tokens`, `classification_attempts`, `extraction_attempts`, `no_related_rate`, `slot_override_rate`, `slot_cap_use`, `cost_estimate_to_billed_ratio`.
 
-Name-lint exceptions (48), each a row whose direction differs from what its id's words suggest:
+Name-lint exceptions (49), each a row whose direction differs from what its id's words suggest:
 
 - **higher (32):** `extraction_overall_score`, `arbiter_retry_usefulness`, `field_presence`, `determination_consistency`, `amount_exactness`, `schema_valid`, `parse_ok`, `schema_adherence`, `success_rate`, `classification_correct`, `class_correct`, `stage_correct`, `extraction_correctness`, `expected_field_presence`, `mailroom-pipeline-judge`, `mailroom-pipeline-quality`, `maud_clause_presence`, `maud_valid_class_rate`, `per_field_scores`, `extraction_field_score`, `extraction_category_presence`, `classification_quality`, `stage_completed`, `bert_sorter_agreement`, `exact_match`, `jaccard_median`, `composite`, `correct_archive_rate`, `document_utility`, `documents_per_minute`, `log_complete_step_rate`, `log_chains_verified`.
-- **lower (14):** `ml_intake_selective_risk`, `arbiter_unnecessary_escalation_rate`, `boss_needless_review_rate`, `laziness_rate`, `extraction_hallucination_rate`, `date_mae_days`, `duration_mae_days`, `hallucination_rate`, `run_aborted`, `bert_elapsed_ms`, `review_rate`, `slot_cap_breaches`, `outcome_flip_rate`, `fields_without_gold`.
+- **lower (15):** `ml_intake_selective_risk`, `arbiter_unnecessary_escalation_rate`, `boss_needless_review_rate`, `boss_needless_review_rate_vs_gold`, `laziness_rate`, `extraction_hallucination_rate`, `date_mae_days`, `duration_mae_days`, `hallucination_rate`, `run_aborted`, `bert_elapsed_ms`, `review_rate`, `slot_cap_breaches`, `outcome_flip_rate`, `fields_without_gold`.
 - **none (2):** `completeness_label`, `cost_estimate_to_billed_ratio`.
 
 ## The old `scorecard_honesty.py`
@@ -232,11 +244,11 @@ Review of the provisional defaults, and the owner's decisions:
 
 | Point | Change |
 |:---|:---|
-| Direction derived from names | The column is the source of truth; the name rule is a whole-word lint with 48 reviewed exceptions |
+| Direction derived from names | The column is the source of truth; the name rule is a whole-word lint with reviewed exceptions (49 now) |
 | Defaults for non-live agents | `agent_roster`; auditors legacy, three specialists retired, no views for them |
 | Per-agent defaults and guards | The table above; boss and intake per the owner |
 | Gold sources | `label_layers` on every view; derived-gold rules in the decision rows |
-| Design needs without rows | 19 planned `design` rows with readers |
+| Design needs without rows | 19 planned `design` rows with readers (27 after round 3) |
 | `judge_error_rate` "no reader" | Planned for the archive gate |
 | Units and duplicates | Closed unit vocabulary; `same_as` and `alias_of` pointers |
 | Port design and plan | Section 4.2, section 6 row 2 and section 10 updated; this plan |

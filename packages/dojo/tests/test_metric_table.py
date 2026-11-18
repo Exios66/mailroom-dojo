@@ -178,6 +178,13 @@ UNGUARDED_AGENT = _views_by(lambda _, view: view["metric"] is not None and view.
 LABELLED_AGENT = _views_by(lambda _, view: bool(view.get("label_layers")))[0]
 UNLABELLED_AGENT = _views_by(lambda _, view: view["metric"] is not None and view.get("label_layers") == [])[0]
 NO_METRIC_AGENT = _views_by(lambda _, view: view["metric"] is None)[0]
+DERIVED_AGENT = _views_by(
+    lambda _, view: view.get("label_layers") == ["derived_gold"] and view.get("guard") is not None
+)[0]
+DERIVED_METRIC = PACKAGED_RAW["default_views"][DERIVED_AGENT]["metric"]
+#: The old ids beside the view's design rows: they keep the old rule, so derived gold never grades them.
+DERIVED_OLD_METRIC = DERIVED_METRIC.removesuffix("_vs_gold")
+DERIVED_OLD_GUARD = PACKAGED_RAW["default_views"][DERIVED_AGENT]["guard"].removesuffix("_vs_gold")
 FOREIGN_METRIC = next(
     row["id"]
     for row in PACKAGED_RAW["metrics"]
@@ -425,6 +432,16 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
     ),
     ("layer twice", _view(LABELLED_AGENT, label_layers=["hub", "hub"]), "lists a layer twice"),
     ("derived with others", _view(LABELLED_AGENT, label_layers=["derived_gold", "hub"]), "list it alone"),
+    (
+        "derived gold on an old id",
+        _view(DERIVED_AGENT, metric=DERIVED_OLD_METRIC),
+        f"default_views.{DERIVED_AGENT}.metric: {DERIVED_OLD_METRIC!r} is a kept old row",
+    ),
+    (
+        "derived gold on an old guard",
+        _view(DERIVED_AGENT, guard=DERIVED_OLD_GUARD),
+        f"default_views.{DERIVED_AGENT}.guard: {DERIVED_OLD_GUARD!r} is a kept old row",
+    ),
     ("layers for no labels", _view(UNLABELLED_AGENT, label_layers=["hub"]), "needs no labels"),
     ("null without reason", _view(NO_METRIC_AGENT, reason=None), f"default_views.{NO_METRIC_AGENT}.reason"),
     (
@@ -435,13 +452,13 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
     ("null with layers", _view(NO_METRIC_AGENT, label_layers=["hub"]), "reads no labels"),
     (
         "default without pairing",
-        _set("judge_verdict_accuracy", "pairing", None),
-        "default_views.judge.metric: 'judge_verdict_accuracy' names no pairing",
+        _set("judge_verdict_accuracy_vs_gold", "pairing", None),
+        "default_views.judge.metric: 'judge_verdict_accuracy_vs_gold' names no pairing",
     ),
     (
         "guard without pairing",
-        _set("boss_needless_review_rate", "pairing_note", None),
-        "default_views.boss.guard: 'boss_needless_review_rate' names no pairing",
+        _set("boss_needless_review_rate_vs_gold", "pairing_note", None),
+        "default_views.boss.guard: 'boss_needless_review_rate_vs_gold' names no pairing",
     ),
     ("reason with metric", _view(CONFIRMED_AGENT, reason="because"), "only an agent with no default metric"),
     ("empty source", _view(CONFIRMED_AGENT, source=" "), f"default_views.{CONFIRMED_AGENT}.source: must not"),
@@ -651,6 +668,44 @@ def test_intake_is_judged_on_its_own_class_accuracy_and_accuracy_keeps_its_meani
     assert row.expanded_agents == ("intake",) and row.pairing == "paired_percentile_bootstrap"
     accuracy = table.get("accuracy")
     assert accuracy.description == "Overall exact-match accuracy" and accuracy.agents == ("ALL",)
+
+
+#: Words that give a rule of gold derived from the label layers (owner decision, 2026-11-18).
+#: A kept old id keeps its old rule, so none of them may appear in a row carried from the old
+#: registry or golden baseline; the derived rule lives in a design row (``<old id>_vs_gold``).
+NEW_RULE_WORDS = re.compile(
+    r"(?i)gold derived|derived[_ ]gold|derived verdict|replaces the old|no longer waits"
+    r"|resolved (?:field|class) label"
+)
+_RULE_TEXT_FIELDS = ("description", "status_reason", "citation", "inclusion", "notes", "pairing_note")
+
+
+def test_no_kept_old_row_claims_a_new_rule() -> None:
+    """An old id keeps its old meaning: no text on its row states a new (derived-gold) rule."""
+    table = load_metric_table()
+    old_rows = [row for row in table.rows if row.origin != "design"]
+    assert old_rows
+    claims = [
+        (row.id, field)
+        for row in old_rows
+        for field in _RULE_TEXT_FIELDS
+        if NEW_RULE_WORDS.search(getattr(row, field) or "")
+    ]
+    assert claims == [], f"old ids whose rows state a new rule: {claims}"
+
+
+def test_every_view_on_derived_gold_uses_design_rows() -> None:
+    """Derived gold is a new rule, so a view graded on it shows a design row, never an old id."""
+    table = load_metric_table()
+    derived = [view for view in table.default_views.values() if "derived_gold" in view.label_layers]
+    assert derived
+    for view in derived:
+        for metric in (view.metric, view.guard):
+            if metric is None:
+                continue
+            row = table.get(metric)
+            assert row.origin == "design" and row.metric_id == f"dojo:{metric}", (view.agent, metric)
+            assert NEW_RULE_WORDS.search(str(row.status_reason)), (view.agent, metric)
 
 
 def test_dashboard_queries_leave_out_dropped_rows_unless_asked() -> None:

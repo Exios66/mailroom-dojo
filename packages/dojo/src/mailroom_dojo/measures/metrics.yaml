@@ -119,7 +119,9 @@
 #                 audit_disagreement_rate is 1 - audit_resolution_rate (its status_reason).
 #   origin        registry | golden | design. design rows meet a need the master design
 #                 names that no old metric meets (metric_id dojo:<id>); each is planned and
-#                 its status_reason names its reader.
+#                 its status_reason names its reader. A new rule for an old metric is a design
+#                 row too, never an edit of the old row: <old id>_vs_gold carries the decision
+#                 agents' gold derived from the label layers, and the old id keeps its old rule.
 #
 # default_views (top level): the one number each agent's dashboard shows by default
 # (the old registry's tier 0, "ONE number per agent on the default view", registry.py
@@ -129,7 +131,8 @@
 # guard are kept rows that apply to the agent and have a direction (never none); the
 # guard is not the metric; label_layers names the layers the gold comes from
 # (table.LABEL_LAYERS: the labels package's layer kinds hub, interim, near_gold and
-# review, or derived_gold alone), empty only for a metric that needs no labels; metric null needs a reason and has no guard
+# review, or derived_gold alone), empty only for a metric that needs no labels; a view on
+# derived_gold shows design rows only (derived gold is a new rule); metric null needs a reason and has no guard
 # and no layers. confirmed is true only where the owner decided; every other entry is
 # a proposal. The entries are part of the content hash and frozen in
 # tests/fixtures/measures/default_views.json.
@@ -199,30 +202,30 @@ default_views:
     label_layers: ["hub", "interim", "near_gold", "review"]
     source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 308: f1_macro is 'the universal classifier headline'; line 13: tier 0 is ONE number per agent on the default view."
   sorter_reviewer:
-    metric: "reviewer_class_accuracy"
+    metric: "reviewer_class_accuracy_vs_gold"
     confirmed: false
-    guard: "reviewer_wrong_accept_upper_95"
+    guard: "reviewer_wrong_accept_upper_95_vs_gold"
     label_layers: ["derived_gold"]
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 352-353 and 370: reviewer_class_accuracy, tier 0, with reviewer_wrong_accept_upper_95 as its guard. Gold derived from the class labels (rule in each row's status_reason)."
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 352-353 and 370: reviewer_class_accuracy, tier 0, with reviewer_wrong_accept_upper_95 as its guard. Gold derived from the class labels, a new rule, so the view shows their _vs_gold rows (rule in each row's status_reason); the old ids keep the old rule."
   judge:
-    metric: "judge_verdict_accuracy"
+    metric: "judge_verdict_accuracy_vs_gold"
     confirmed: false
-    guard: "judge_escalation_recall"
+    guard: "judge_escalation_recall_vs_gold"
     label_layers: ["derived_gold"]
-    source: "Review of the provisional defaults: f1_macro has no gold for the judge in the new system; the verdict is graded against a verdict derived from the field labels (rule in the row's status_reason)."
+    source: "Review of the provisional defaults: f1_macro has no gold for the judge in the new system; the verdict is graded against a verdict derived from the field labels, a new rule, so the view shows the _vs_gold rows (rule in each row's status_reason); judge_verdict_accuracy and judge_escalation_recall keep the old rule."
   arbiter:
-    metric: "arbiter_decision_accuracy"
+    metric: "arbiter_decision_accuracy_vs_gold"
     confirmed: false
-    guard: "arbiter_wrongful_accept_rate"
+    guard: "arbiter_wrongful_accept_rate_vs_gold"
     label_layers: ["derived_gold"]
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 526-534: the arbiter's quality metric (tier 1); the arbiter has no tier-0 metric. Gold derived (rule in the row's status_reason)."
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 526-534: the arbiter's quality metric (tier 1); the arbiter has no tier-0 metric. Gold derived, a new rule, so the view shows the _vs_gold rows (rule in each row's status_reason); the old ids keep the old rule."
   boss:
-    metric: "boss_wrongful_approve_rate"
+    metric: "boss_wrongful_approve_rate_vs_gold"
     confirmed: true
-    guard: "boss_needless_review_rate"
+    guard: "boss_needless_review_rate_vs_gold"
     guard_confirmed: false
     label_layers: ["derived_gold"]
-    source: "Owner decision, 2026-11-18: the boss is judged on wrong approvals. Not extraction_overall_score, which grades the specialist. Gold derived (rule in the row's status_reason)."
+    source: "Owner decision, 2026-11-18: the boss is judged on wrong approvals. Not extraction_overall_score, which grades the specialist. Gold derived, a new rule, so the view shows the _vs_gold rows (rule in each row's status_reason); boss_wrongful_approve_rate and boss_needless_review_rate keep the old rule (human outcome only)."
   intake:
     metric: "intake_class_accuracy"
     confirmed: true
@@ -407,12 +410,28 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["headline_view", "set_a_report"]
-    status_reason: "Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): the reviewer's class is right when it equals the resolved class label (hub, interim, near_gold or gold_review, in the labels package's order). No scoring code in D2."
     pairing: "paired_percentile_bootstrap"
     origin: "registry"
     old_source: "reviewer.score_review_lane"
     citation: "Exact class match over reviewer-answered rows with a verified target."
     inclusion: "None when no row has both a target and a reviewer label."
+  - id: "reviewer_class_accuracy_vs_gold"
+    description: "Share of reviewer-answered documents whose reviewer class equals the gold class from the label layers (hub, interim, near_gold and review)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["sorter_reviewer"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:reviewer_class_accuracy_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["set_a_report"]
+    status_reason: "Reader: set_a_report and sorter_reviewer's default view. Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): the reviewer's class is right when it equals the resolved class label (hub, interim, near_gold or review, in the labels package's order). A row of its own: reviewer_class_accuracy keeps the old rule (verified targets). No scoring code in D2."
+    pairing: "paired_percentile_bootstrap"
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on reviewer_class_accuracy."
+    inclusion: "Reviewer-answered documents with a gold class in those layers; none when there is none."
   - id: "reviewer_wrong_accept_rate"
     description: "Wrong auto-accepts divided by accepted documents with truth"
     unit: "float[0,1]"
@@ -442,12 +461,28 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["headline_view", "set_a_report"]
-    status_reason: "Gold derived (owner decision, 2026-11-18): an accept is wrong when the accepted class differs from the resolved class label; the bound is Clopper-Pearson over those accepts. No scoring code in D2."
     pairing_note: "An upper confidence bound is a guard, not a number two runs are compared on; compare reviewer_wrong_accept_rate (paired) instead."
     origin: "registry"
     old_source: "reviewer.score_review_lane"
     citation: "Clopper-Pearson exact upper bound (analysis.calibration.clopper_pearson_upper)."
     inclusion: "None when no accepted document has truth."
+  - id: "reviewer_wrong_accept_upper_95_vs_gold"
+    description: "Exact 95% one-sided upper bound on the share of reviewer accepts whose accepted class differs from the gold class from the label layers (hub, interim, near_gold and review)"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["sorter_reviewer"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:reviewer_wrong_accept_upper_95_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["set_a_report"]
+    status_reason: "Reader: set_a_report and sorter_reviewer's default view (its guard). Gold derived (owner decision, 2026-11-18): an accept is wrong when the accepted class differs from the resolved class label; the bound is Clopper-Pearson over those accepts. A row of its own: reviewer_wrong_accept_upper_95 keeps the old rule (verified targets). No scoring code in D2."
+    pairing_note: "An upper confidence bound is a guard, not a number two runs are compared on; each run reports its own bound."
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on reviewer_wrong_accept_upper_95."
+    inclusion: "Accepted documents with a gold class in those layers; none when there is none."
   - id: "reviewer_routed_to_human_review_rate"
     description: "Share of reviewer-reached documents parked for a person"
     unit: "float[0,1]"
@@ -638,12 +673,27 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
-    status_reason: "Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): the gold verdict is complete when the extraction scores at or above the high band against the resolved field labels and the class is right, partial between the low and high bands, incomplete below the low band or under a wrong class. The bands come from the scoring profile in config/, never from code. No scoring code in D2."
-    pairing: "paired_percentile_bootstrap"
     origin: "registry"
     old_source: "decision_lanes.score_judge_lane"
     citation: "Exact match of the judge verdict with the gold verdict: human resolution (approve_as_is complete, correct partial, reject/reclassify incomplete), else the dataset extraction score read through the ambiguous band."
     inclusion: "None when no judged row has gold. judge_error rows and rows without gold are unscored, never 0."
+  - id: "judge_verdict_accuracy_vs_gold"
+    description: "Share of judged documents whose judge verdict equals the verdict derived from the gold labels (hub, interim, near_gold and review): the run's extraction scored against the gold field labels through the scoring profile's bands, incomplete under a wrong class"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["judge"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:judge_verdict_accuracy_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report and the judge's default view. Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): the gold verdict is complete when the extraction scores at or above the high band against the resolved field labels and the class is right, partial between the low and high bands, incomplete below the low band or under a wrong class. A row of its own: judge_verdict_accuracy keeps the old rule (human resolution first, else the dataset score through the ambiguous band). No scoring code in D2."
+    pairing: "paired_percentile_bootstrap"
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on judge_verdict_accuracy."
+    inclusion: "Judged documents with gold field labels in those layers; judge_error rows are unscored, never 0; none when there is none."
   - id: "judge_verdict_macro_f1"
     description: "Judge macro F1 over the gold verdict classes"
     unit: "float[0,1]"
@@ -672,12 +722,27 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
-    status_reason: "Gold derived (owner decision, 2026-11-18): over documents whose derived verdict (judge_verdict_accuracy's rule) is partial or incomplete. No scoring code in D2."
-    pairing: "paired_percentile_bootstrap"
     origin: "registry"
     old_source: "decision_lanes.score_judge_lane"
     citation: "Recall of the judge's escalation (verdict other than complete) over documents whose gold verdict is partial or incomplete."
     inclusion: "None when no scored row has a not-complete gold verdict."
+  - id: "judge_escalation_recall_vs_gold"
+    description: "Share of documents with a derived partial or incomplete verdict that the judge did not call complete (verdict derived from the gold labels (hub, interim, near_gold and review) as in judge_verdict_accuracy_vs_gold)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["judge"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:judge_escalation_recall_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report and the judge's default view (its guard). Gold derived (owner decision, 2026-11-18): over documents whose derived verdict (judge_verdict_accuracy_vs_gold's rule) is partial or incomplete. A row of its own: judge_escalation_recall keeps the old rule. No scoring code in D2."
+    pairing: "paired_percentile_bootstrap"
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on judge_escalation_recall."
+    inclusion: "Judged documents whose derived verdict is partial or incomplete; none when there is none."
   - id: "judge_false_escalation_rate"
     description: "Share of complete documents the judge escalated"
     unit: "float[0,1]"
@@ -723,12 +788,27 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
-    status_reason: "Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): a retry is right when the next attempt's score against the resolved field labels rose by at least epsilon; an accept is right when the final score is at or above the high band and the class is right. The bands come from the scoring profile in config/, never from code. No scoring code in D2."
-    pairing_note: "A share of the run's own arbiter rulings: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
     origin: "registry"
     old_source: "decision_lanes.score_arbiter_lane"
     citation: "Retry right when the next attempt's dataset score rose by epsilon; accept right when the person approved as is or the final score is at or above the high band; human_review right when the person changed the work or the final score is below the high band."
     inclusion: "None when no ruling has gold. Rulings without gold are unscored, never 0."
+  - id: "arbiter_decision_accuracy_vs_gold"
+    description: "Share of arbiter rulings that were right against gold derived from the label layers (hub, interim, near_gold and review): a retry when the next attempt's score rose by at least epsilon, an accept when the final score is at or above the high band under the right class, a human_review when it is not"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["arbiter"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:arbiter_decision_accuracy_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report and the arbiter's default view. Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): a retry is right when the next attempt's score against the resolved field labels rose by at least epsilon; an accept is right when the final score is at or above the high band and the class is right; a human_review is right when the final score is below the high band or the class is wrong. A row of its own: arbiter_decision_accuracy keeps the old rule (human resolution first). No scoring code in D2."
+    pairing_note: "A share of the run's own arbiter rulings: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on arbiter_decision_accuracy."
+    inclusion: "Rulings whose documents have gold field labels in those layers; rulings without gold are unscored, never 0."
   - id: "arbiter_retry_usefulness"
     description: "Share of retry_extraction rulings whose next attempt rose by at least epsilon"
     unit: "float[0,1]"
@@ -757,12 +837,27 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
-    status_reason: "Gold derived (owner decision, 2026-11-18): an accept_with_caveats ruling is wrong when the final extraction scores below the high band against the resolved field labels, or the class is wrong. The bands come from the scoring profile in config/, never from code. No scoring code in D2."
-    pairing_note: "A share of the run's own accept_with_caveats rulings: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
     origin: "registry"
     old_source: "decision_lanes.score_arbiter_lane"
     citation: "Accept wrong when the person corrected, reclassified or rejected the work, or, with no resolution, the final dataset score is below the high band."
     inclusion: "None when no accept ruling has gold."
+  - id: "arbiter_wrongful_accept_rate_vs_gold"
+    description: "Share of accept_with_caveats rulings whose final extraction scores below the high band against the gold field labels (hub, interim, near_gold and review), or whose class is wrong"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["arbiter"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:arbiter_wrongful_accept_rate_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report and the arbiter's default view (its guard). Gold derived (owner decision, 2026-11-18): an accept_with_caveats ruling is wrong when the final extraction scores below the high band against the resolved field labels, or the class is wrong. A row of its own: arbiter_wrongful_accept_rate keeps the old rule (human resolution first). No scoring code in D2."
+    pairing_note: "A share of the run's own accept_with_caveats rulings: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on arbiter_wrongful_accept_rate."
+    inclusion: "accept_with_caveats rulings whose documents have gold field labels in those layers; none when there is none."
   - id: "arbiter_unnecessary_escalation_rate"
     description: "Share of human_review rulings that were not needed"
     unit: "float[0,1]"
@@ -791,12 +886,27 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
-    status_reason: "Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): an approval is wrong when the approved extraction scores below the high band against the resolved field labels, or the class is wrong. This replaces the old 'human outcome only' rule. The bands come from the scoring profile in config/, never from code. No scoring code in D2."
-    pairing_note: "A share of the run's own audited boss approvals: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
     origin: "registry"
     old_source: "decision_lanes.score_boss_lane"
     citation: "Human outcome only: approved, then the person corrected, reclassified or rejected the document."
     inclusion: "None when no approved row has a human resolution (row is no_boss_gold otherwise)."
+  - id: "boss_wrongful_approve_rate_vs_gold"
+    description: "Share of boss approvals whose approved extraction scores below the high band against the gold field labels (hub, interim, near_gold and review), or whose class is wrong"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["boss"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:boss_wrongful_approve_rate_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report and the boss's default view (owner decision, 2026-11-18: the boss is judged on wrong approvals). Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): an approval is wrong when the approved extraction scores below the high band against the resolved field labels, or the class is wrong. A row of its own: boss_wrongful_approve_rate keeps the old rule (human outcome only). No scoring code in D2."
+    pairing_note: "A share of the run's own boss approvals: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on boss_wrongful_approve_rate."
+    inclusion: "Boss approvals whose documents have gold field labels in those layers; none when there is none."
   - id: "boss_needless_review_rate"
     description: "Share of boss review rulings the person approved as is"
     unit: "float[0,1]"
@@ -809,12 +919,27 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
-    status_reason: "Gold derived (owner decision, 2026-11-18): a review ruling was needless when the extraction scores at or above the high band against the resolved field labels and the class is right. This replaces the old 'human outcome only' rule. The bands come from the scoring profile in config/, never from code. No scoring code in D2."
-    pairing_note: "A share of the run's own boss review rulings: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
     origin: "registry"
     old_source: "decision_lanes.score_boss_lane"
     citation: "Human outcome only: review, then the person approved as is."
     inclusion: "None when no review row has a human resolution."
+  - id: "boss_needless_review_rate_vs_gold"
+    description: "Share of boss review rulings whose extraction scores at or above the high band against the gold field labels (hub, interim, near_gold and review) under the right class"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["boss"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:boss_needless_review_rate_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report and the boss's default view (its guard). Gold derived (owner decision, 2026-11-18): a review ruling was needless when the extraction scores at or above the high band against the resolved field labels and the class is right. A row of its own: boss_needless_review_rate keeps the old rule (human outcome only). No scoring code in D2."
+    pairing_note: "A share of the run's own boss review rulings: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on boss_needless_review_rate."
+    inclusion: "Boss review rulings whose documents have gold field labels in those layers; none when there is none."
   - id: "review_tray_wasted_review_rate"
     description: "Share of resolved reviews approved as is with no field corrections"
     unit: "float[0,1]"

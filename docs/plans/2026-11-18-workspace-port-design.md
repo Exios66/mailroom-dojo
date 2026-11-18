@@ -291,7 +291,7 @@ Key decisions:
   `docs/plans/2026-11-18-dojo-d2-measures-plan.md`, which holds the full table). **Owner
   decisions (2026-11-18, section 10):** `sorter` is judged on `f1_macro` ("the universal
   classifier headline", registry line 308), with `accuracy` as its guard; `boss` on wrong
-  approvals (`boss_wrongful_approve_rate`), not `extraction_overall_score`, which grades the
+  approvals (`boss_wrongful_approve_rate_vs_gold`), not `extraction_overall_score`, which grades the
   specialist; `intake` only on what is absolutely necessary, its triage class against the gold
   class, in its own planned row `intake_class_accuracy` with no guard (the shared ids keep their
   old meaning: in the old intake suite `accuracy` is the exact match of the cleaned text and
@@ -299,9 +299,10 @@ Key decisions:
   `intake_prep_completeness` are `not_ported`); the transcribers (`pdf_transcriber`,
   `image_extractor`) are disregarded for this step, a `null` view with that reason; and
   `human_review` has none, because people are the gold source. **Proposed, owner to confirm**
-  (section 10): `sorter_reviewer` `reviewer_class_accuracy` (tier 0); `judge`
-  `judge_verdict_accuracy`, not `f1_macro` (the judge rules on extractions and has no class gold
-  in the new system); `arbiter` `arbiter_decision_accuracy`; the specialists
+  (section 10): `sorter_reviewer` `reviewer_class_accuracy_vs_gold` (the tier-0
+  `reviewer_class_accuracy` on derived gold); `judge` `judge_verdict_accuracy_vs_gold`, not
+  `f1_macro` (the judge rules on extractions and has no class gold in the new system); `arbiter`
+  `arbiter_decision_accuracy_vs_gold`; the specialists
   `extraction_overall_score` ("Specialist headline", line 326), except `extraction_f2` for the
   insurance claims specialist (line 344); `local_vs_api` `tokens_per_second` (tier 0, line 1100;
   `ttft_seconds` stays a headline row); procedural agents, graph nodes and agents with no metric
@@ -309,7 +310,9 @@ Key decisions:
   interim and near-gold labels (`interim`, `near_gold`), the review desk's gold (`review`) and
   further gold generated for evaluation (a planned paid run behind the spend gate); label
   precedence is unchanged. The decision agents (sorter reviewer, judge, arbiter, boss) read
-  `derived_gold`, computed from those layers' class and field labels by the rule in each row.
+  `derived_gold`, computed from those layers' class and field labels. Derived gold is a new
+  rule, so it lives in new design rows named `<old id>_vs_gold` that state it, and the old ids
+  keep their old rule (decision 4 of section 10).
   Every default-view and guard metric names its pairing, or a note says why it has none. The
   serving ids are planned for the run layer's serving figures (D5; spec line 285).
   `bert_elapsed_ms` is `not_ported`: the BERT intake path is dropped (section 7) and nothing else

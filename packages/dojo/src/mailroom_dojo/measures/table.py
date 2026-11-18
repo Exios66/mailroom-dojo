@@ -822,6 +822,23 @@ def _view_guarded_metric(metric: Any, agent: str, by_id: Mapping[str, MetricRow]
     return row
 
 
+def _check_derived_gold_rows(named: tuple[tuple[Any, str], ...], by_id: Mapping[str, MetricRow]) -> None:
+    """A view graded on derived gold shows design rows only.
+
+    Derived gold is a rule no old metric had (owner decision, 2026-11-18). A kept old id keeps
+    its old meaning, so a new rule gets a new row (``origin: design``, ``dojo:<id>``) and a view
+    on ``derived_gold`` may not show the old id under it.
+    """
+    for metric, path in named:
+        row = by_id.get(metric) if isinstance(metric, str) else None
+        if row is not None and row.origin != "design":
+            raise _fail(
+                path,
+                f"{metric!r} is a kept old row ({row.metric_id}) with its old rule; a view on "
+                "derived_gold shows the design row that states the derived rule (dojo:<id>)",
+            )
+
+
 def _default_views(
     raw: Any, rows: tuple[MetricRow, ...], roster: Mapping[str, AgentEntry]
 ) -> dict[str, DefaultView]:
@@ -867,14 +884,6 @@ def _default_views(
             continue
         if reason is not None:
             raise _fail(f"{path}.reason", "only an agent with no default metric gives a reason")
-        row = _view_guarded_metric(metric, agent, by_id, f"{path}.metric")
-        if guard is None:
-            if "guard_confirmed" in spec:
-                raise _fail(f"{path}.guard_confirmed", "there is no guard to confirm")
-        else:
-            _view_guarded_metric(guard, agent, by_id, f"{path}.guard")
-            if guard == metric:
-                raise _fail(f"{path}.guard", f"{guard!r} is the default metric itself")
         if layers_raw is None:
             raise _fail(f"{path}.label_layers", "missing: name the label layers the gold comes from")
         if not isinstance(layers_raw, list):
@@ -883,15 +892,25 @@ def _default_views(
             _choice(layer, LABEL_LAYERS, f"{path}.label_layers[{index}]")
         if len(set(layers_raw)) != len(layers_raw):
             raise _fail(f"{path}.label_layers", "lists a layer twice")
+        if _DERIVED_LAYER in layers_raw and len(layers_raw) > 1:
+            raise _fail(
+                f"{path}.label_layers", "derived gold is computed from the other layers; list it alone"
+            )
+        if _DERIVED_LAYER in layers_raw:
+            _check_derived_gold_rows(((metric, f"{path}.metric"), (guard, f"{path}.guard")), by_id)
+        row = _view_guarded_metric(metric, agent, by_id, f"{path}.metric")
+        if guard is None:
+            if "guard_confirmed" in spec:
+                raise _fail(f"{path}.guard_confirmed", "there is no guard to confirm")
+        else:
+            _view_guarded_metric(guard, agent, by_id, f"{path}.guard")
+            if guard == metric:
+                raise _fail(f"{path}.guard", f"{guard!r} is the default metric itself")
         # ground_truth null is unknown (the old registry left it unset): layers or none.
         if row.ground_truth in _NEEDS_LABELS and not layers_raw:
             raise _fail(f"{path}.label_layers", f"{metric!r} needs labels; name the layers they come from")
         if row.ground_truth in _NEEDS_NO_LABELS and layers_raw:
             raise _fail(f"{path}.label_layers", f"{metric!r} needs no labels, so it reads no label layer")
-        if _DERIVED_LAYER in layers_raw and len(layers_raw) > 1:
-            raise _fail(
-                f"{path}.label_layers", "derived gold is computed from the other layers; list it alone"
-            )
         views[agent] = DefaultView(
             agent, metric, confirmed, source, None, guard, guard_confirmed, tuple(layers_raw)
         )
