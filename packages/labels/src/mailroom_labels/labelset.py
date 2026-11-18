@@ -26,7 +26,8 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from mailroom_labels.errors import LabelsError
+from mailroom_labels.errors import LabelsError, ManifestMismatch
+from mailroom_labels.findings import finding
 from mailroom_labels.layers import corpus_index, read_layers
 from mailroom_labels.models import DocumentLabels
 from mailroom_labels.profile import ClientProfile
@@ -87,12 +88,17 @@ class LabelSet:
 
 def load_label_set(directories: Iterable[Path | str], profile: ClientProfile, *, strict: bool = False) -> LabelSet:
     """Load, check and resolve snapshot directories; raise ``QualityGateFailed`` on any error
-    (a snapshot that fails to load is an error too). With ``strict`` (what ``mailroom-labels
+    (a snapshot that fails to load, or whose files change between the gate and resolving,
+    is an error too: the ``ManifestMismatch`` is the cause). With ``strict`` (what ``mailroom-labels
     verify --strict`` checks) a warning that the snapshot raising it does not list in its
     ``known_warnings`` fails the gate too."""
     report, loaded = check_dirs(list(directories), profile)
     if verify(report, strict=strict) != 0:
         raise QualityGateFailed(report, strict=strict)
-    read = read_layers(loaded)
+    try:
+        read = read_layers(loaded)
+    except ManifestMismatch as exc:  # a file changed after the gate read it
+        changed = finding("manifest_mismatch", location=str(exc.path), detail=f"{exc.kind}: {exc.detail}")
+        raise QualityGateFailed(QualityReport((changed, *report.findings))) from exc
     docs = resolve(read.records, profile, corpus_index(read.corpus))
     return LabelSet(snapshots=tuple(loaded), profile=profile, report=report, _documents=docs)

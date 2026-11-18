@@ -77,3 +77,23 @@ def test_strict_label_set_refuses_a_warning_its_snapshot_does_not_accept(tmp_pat
     ok = make_snapshot(tmp_path / "ok", "review", [review_row("D3", "filing_id", "F1")], snapshot_id="rv-extra",
                        known_warnings=accepted)
     assert load_label_set([*standard_set(tmp_path / "ok"), ok], profile(), strict=True).report.unknown_warnings == ()
+
+
+def test_a_file_changed_after_the_gate_raises_the_documented_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import mailroom_labels.labelset as labelset_module
+    from mailroom_labels.errors import ManifestMismatch
+    from mailroom_labels.quality import check_dirs as real_check_dirs
+
+    dirs = standard_set(tmp_path)
+
+    def gate_then_tamper(directories, prof):
+        result = real_check_dirs(directories, prof)
+        target = tmp_path / "near_gold-test" / "rows.jsonl"
+        target.write_bytes(target.read_bytes().replace(b"near_gold", b"near_g0ld", 1))
+        return result
+
+    monkeypatch.setattr(labelset_module, "check_dirs", gate_then_tamper)
+    with pytest.raises(QualityGateFailed) as info:
+        load_label_set(dirs, profile())
+    assert isinstance(info.value.__cause__, ManifestMismatch)
+    assert info.value.report.errors[0].kind == "manifest_mismatch"
