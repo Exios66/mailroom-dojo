@@ -49,6 +49,10 @@ New clients and document types plug in through configuration and registered plug
 | Labels | Label snapshots per client with status and source | Labels package |
 | Scoring and reports | Registered metrics and report builders over records | Dojo |
 
+**Adding a document type is cheap.** AmFam has many more document types than the mailroom dataset covers (JJB, 2026-11-18). A new type is added by a client profile entry and plug-ins only: a sorter label (with its description and thresholds), an extraction schema, a specialist prompt (or a reuse of a generic specialist with the schema), and a scorer configuration. No code fork and no edit to the engine, Dojo core or record. Each project plan includes a test that adds a synthetic document type this way end to end.
+
+**Provider-agnostic, every launch path.** No agent, prompt or policy names a provider or a model; the agent-to-model map lives in the run spec and client profile. The launch paths the current versions support stay supported: the HTTP API, the Docker Compose producer, and Modal with vLLM, plus OpenRouter and local Ollama or vLLM. A launch path is a backend adapter; it never changes the graph.
+
 The record package is domain-free: it stores node names, class labels, decision payloads and blob roles as data, so no class, node or client is hard-coded in it. A benchmark run is a client profile plus a policy plus a label snapshot plus a draw; anyone can add a new one without changing the record, the Dojo's core or the engine's executor.
 
 ## Summary
