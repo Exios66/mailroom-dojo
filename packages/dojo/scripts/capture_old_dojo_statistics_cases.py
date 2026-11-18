@@ -12,7 +12,9 @@ Inputs come from three places:
 
 1. Every call to a public function of the old ``analysis/bootstrap.py`` and
    ``analysis/calibration.py`` made while the old tests that reach them run
-   (``sys.setprofile`` in a child process), whoever the caller is.
+   (``sys.setprofile`` in a child process), whoever the caller is. A call whose arguments
+   the tagged JSON cannot encode (NumPy scalars) is counted in the header's
+   ``captured_test_skipped`` or ``captured_golden_skipped`` instead of stored.
 2. Every such call made while the old Dojo regenerates its golden baseline
    (``scripts/freeze_goldens.py``); the capture refuses to write unless the
    regenerated baseline equals the committed ``scores.json`` byte for byte.

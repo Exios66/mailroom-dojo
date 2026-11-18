@@ -158,8 +158,11 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
 
 `mailroom_dojo.statistics` gives the old `analysis/bootstrap.py` and
 `analysis/calibration.py` numbers on every valid input of the statistics corpus (2,000
-cases, among them every call of the old golden run and of eleven old test files). The 195
-cases that differ are all invalid inputs; each is listed with its new outcome in
+cases, among them every encodable call of the old golden run and of eleven old test
+files; the four old-test calls with NumPy arguments, `auroc` with a float32 and with an
+int64 argument, `clopper_pearson_upper` with an int64 and `required_samples` with an
+int32, are counted in the corpus header's `captured_test_skipped` and not replayed). The
+195 cases that differ are all invalid inputs; each is listed with its new outcome in
 `tests/fixtures/differential/statistics_intended_differences.json`. No golden score moves:
 the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
 

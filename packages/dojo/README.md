@@ -107,9 +107,12 @@ generated inputs, many under non-default settings that the replay builds into a 
 `scripts/capture_old_dojo_extraction_cases.py` regenerates it byte for byte.
 
 The statistics corpus (`tests/fixtures/differential/statistics_cases.jsonl`, 2,000 cases)
-holds every call the old golden run and eleven old test files made into the old bootstrap
-and calibration modules, plus seeded inputs. Every valid input gives the old number; the
-195 invalid inputs that now raise are listed with reasons in
+holds every encodable call the old golden run and eleven old test files made into the old
+bootstrap and calibration modules, plus seeded inputs. Four old-test calls with NumPy
+arguments are not encodable and are counted in the header's `captured_test_skipped`
+instead: `auroc` with a float32 and with an int64 argument, `clopper_pearson_upper` with
+an int64 and `required_samples` with an int32. Every valid input gives the old number;
+the 195 invalid inputs that now raise are listed with reasons in
 `statistics_intended_differences.json` and in `docs/score-changelog.md`.
 `scripts/capture_old_dojo_statistics_cases.py` regenerates its case lines byte for byte on
 Python 3.12, the version in the corpus header (the header's `supplements` record, from the

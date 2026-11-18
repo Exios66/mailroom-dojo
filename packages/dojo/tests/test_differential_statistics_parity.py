@@ -1,9 +1,11 @@
 """The statistics layer gives exactly the old Dojo's output on the frozen differential corpus.
 
-The corpus (``fixtures/differential/statistics_cases.jsonl``) holds every call the old
-Dojo made into ``analysis/bootstrap.py`` and ``analysis/calibration.py`` while its golden
-baseline was regenerated and while the old tests that reach them ran, plus seeded
-generated inputs, each with the old outcome computed at commit 23f8234c. Results are
+The corpus (``fixtures/differential/statistics_cases.jsonl``) holds every encodable call
+the old Dojo made into ``analysis/bootstrap.py`` and ``analysis/calibration.py`` while its
+golden baseline was regenerated and while the old tests that reach them ran (four old-test
+calls with NumPy arguments are not encodable; the header counts them in
+``captured_test_skipped``), plus seeded generated inputs, each with the old outcome
+computed at commit 23f8234c. Results are
 compared as canonical JSON (``1`` is not ``1.0``, ``None`` is not ``0.0``); an exception
 matches only with the same type and the same message.
 
