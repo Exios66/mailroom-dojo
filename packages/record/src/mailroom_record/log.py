@@ -71,6 +71,15 @@ that has no newline yet, so a writer appending meanwhile can never hand it half 
 (the rest of a line it saw the start of). Memory is bounded by the longest line plus, for
 the ordered readers, a few machine words per event; never by the size of the run.
 
+The longest line is not capped here. ``verify_run`` skips a line over ``MAX_LINE``
+(64 MiB) in chunks without holding it, but these readers, ``RunScan`` and ``seal_run``
+(through ``_stream_lines``) hold each line whole, so a hostile multi-gigabyte line in a
+segment costs that much memory before it is rejected. A writer never writes such a line
+for a real event (content belongs in blobs), but ``LogWriter`` does not refuse one either,
+and capping the readers alone would make a line the writer accepted unreadable. So the
+cap is left out by design for now: run ``verify_run`` before sealing or reading a run
+whose segments came from somewhere untrusted.
+
 Streaming means a strict reader can fail part way. ``iter_stored`` yields the lines before a
 corrupt one and then raises ``CorruptLine``; ``iter_events`` (pass two) yields the valid
 events before an invalid one and then raises its validation error. A caller that commits
@@ -248,6 +257,7 @@ def _stream_lines(path: Path, start: int = 0, end: int | None = None) -> Iterato
     Never reads past ``end`` or the file's size when it was opened, and stops after the
     first line that has no newline within that bound (a torn tail, or a line a writer is
     still writing), so it can never return the rest of a line it saw the start of.
+    Holds each line whole: there is no ``max_line`` here (see "Reading" in the module doc).
     """
     with path.open("rb") as f:
         size = os.fstat(f.fileno()).st_size
