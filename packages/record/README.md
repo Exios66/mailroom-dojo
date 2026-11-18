@@ -140,7 +140,13 @@ step, stage and status for the floor replay; each item row is one `output` (or `
 event with `extraction` and `report` blobs; `events.jsonl` and `checkpoint.json` become
 `_run` events. A string in a payload or a decision that is not a short token (an id, a
 label, a model name; never an email, a URL or a path) is stored as its SHA-256 and length,
-so no document or model free text enters the log. Fields the folder does not capture are
+and so is every other string the importer copies: an event's `node`, `agent` and `model`
+and the run header's `backend`, `agent_models`, `prompt_hashes` names, `prompt_set`,
+`code_version`, `signed_by` and `source` values, which the schema keeps strings, are stored
+as `sha256:<hex>:<chars>` when they are not tokens. Only the run id is kept as given: it
+must match the run id pattern (`[A-Za-z0-9][A-Za-z0-9._-]{0,199}`), else the folder name is
+used, and the import refuses a folder with neither. So no document or model free text
+enters the log. Fields the folder does not capture are
 `None` and listed in `absent_fields`;
 a torn last line the import skipped is in `warnings` and kept as the run's `import` event.
 Importing a folder again is a no-op (`already_imported`); an import that died part way is
@@ -188,6 +194,13 @@ Where the record's rows differ from the sandbox's, field by field, and why:
   stored.
 - A node `status` that was free text is stored as its SHA-256 and length, so it cannot be
   restored and replays as `None`; a number or a bool replays as stored.
+- Names and ids that were not short tokens. An event's `node`, `agent` and `model`
+  and the run header's `backend`, `source` values (shown in `meta` as
+  `source_run_id`, `engine_kind`, `engine_model` and `profile`) are stored as
+  `sha256:<hex>:<chars>` and replay as that string; a dataset row id (`source_id`) is
+  stored as its `{"sha256", "chars"}` digest, so the document's rows show its `doc_id`
+  instead; the sandbox shows the text. The sandbox's own ids, classes, splits, revisions,
+  agent, model and node names and profiles are tokens and replay as stored.
 - Item rows: the record shows `doc` (the item id), `error` as the cause token (the type name
   before the first `:`, else `error`), never the message, and the outcome fields
   (`doc_type`, `stage`, both confidences, `review_causes`, `review_verdict`,

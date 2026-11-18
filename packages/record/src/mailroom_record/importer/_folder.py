@@ -17,6 +17,9 @@ stored value: messages name the file, the line number and what is wrong.
   characters of ``A-Z a-z 0-9 _ . : / + # = -``, and never a path or a URL (a leading ``/``,
   a drive letter, a ``.`` or ``..`` segment, or ``//``); ``@`` is not among its characters,
   so an email is not a token. A single word is still a token, whatever wrote it.
+- ``named`` is the same rule for a field the record schema keeps a string (an event's
+  ``node``, ``agent`` and ``model``, the run header's strings): a token as it is, any other
+  string as ``sha256:<hex>:<chars>``, the same digest in a string's form.
 """
 
 from __future__ import annotations
@@ -34,7 +37,7 @@ __all__ = [
     "cause_token",
     "epoch",
     "iso",
-    "label",
+    "named",
     "read_json",
     "read_jsonl",
     "scrub",
@@ -63,11 +66,20 @@ def token(value: Any) -> str | None:
     return None
 
 
-def label(value: Any) -> Any:
-    """A class label, split or revision name as given (at most 200 characters), else scrubbed."""
-    if isinstance(value, str) and len(value) <= 200 and value.isprintable():
+def _digest(value: str) -> tuple[str, int]:
+    return hashlib.sha256(value.encode("utf-8", "replace")).hexdigest(), len(value)
+
+
+def named(value: Any) -> str | None:
+    """A string field's stored value: ``value`` when it is a token, else its SHA-256 and
+    length as one string, ``sha256:<hex>:<chars>``; ``None`` for an empty string or a
+    value that is not a string."""
+    if not isinstance(value, str) or not value:
+        return None
+    if token(value) is not None:
         return value
-    return scrub(value)
+    sha, chars = _digest(value)
+    return f"sha256:{sha}:{chars}"
 
 
 def shown(value: Any) -> str:
@@ -83,7 +95,8 @@ def scrub(value: Any) -> Any:
     if isinstance(value, str):
         if token(value) is not None:
             return value
-        return {"sha256": hashlib.sha256(value.encode("utf-8", "replace")).hexdigest(), "chars": len(value)}
+        sha, chars = _digest(value)
+        return {"sha256": sha, "chars": chars}
     if isinstance(value, bool) or value is None or isinstance(value, int):
         return value
     if isinstance(value, float):

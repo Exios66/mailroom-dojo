@@ -20,7 +20,7 @@ Mapping
 - A document's ``doc_id`` is its ``content_sha256``. Its first event (``node="dataset"``,
   ``kind="handoff"``) outputs the text as an ``original`` blob and keeps, in ``payload``,
   the dataset row id (``source_id``), ``expected_doc_class`` as ``draw_class``, ``split``
-  and ``source_revision``. No other ``expected_*`` field is imported: labels belong to the
+  and ``source_revision``, each scrubbed (below). No other ``expected_*`` field is imported: labels belong to the
   labels package.
 - Each ``done``, ``paused``, ``error`` or ``failed`` row of ``nodes.jsonl`` is one event,
   its kind decided in this order: ``review`` for ``human_review``; ``error`` for ``error``
@@ -58,8 +58,15 @@ Mapping
 - Every payload carries ``floor`` (``draw``, ``node``, ``item``, ``lifecycle``,
   ``checkpoint`` or ``import``): what the event is to the floor replay.
 - Strings in ``payload`` and ``decision`` other than short tokens (ids, names, labels; never
-  an email, a URL or a path) are stored as their SHA-256 and length (``_folder.scrub``): no
-  document or model free text enters the log. Text that is not valid UTF-8 (a lone
+  an email, a URL or a path) are stored as their SHA-256 and length (``_folder.scrub``).
+  The fields the schema keeps strings are held to the same rule (``_folder.named``): an
+  event's ``node``, ``agent`` and ``model``, and the run header's ``backend``, the names and
+  values of ``agent_models``, the names of ``prompt_hashes``, ``prompt_set``,
+  ``code_version``, ``signed_by`` and every ``source`` value are stored as they are when
+  they are tokens, else as ``sha256:<hex>:<chars>``. Only the run id is kept as given: it
+  must match ``[A-Za-z0-9][A-Za-z0-9._-]{0,199}`` (else the folder name is used, and the
+  import refuses a folder with neither), the record's run id pattern. So no document or
+  model free text enters the log. Text that is not valid UTF-8 (a lone
   surrogate in ``doc_text`` or a ``_report``) raises ``SandboxFolderInvalid`` naming the file
   and line.
 - A field the folder did not capture is ``None`` and named in ``absent_fields``; a row
@@ -107,7 +114,7 @@ from mailroom_record.importer._folder import (
     cause_token,
     epoch,
     iso,
-    label,
+    named,
     read_json,
     read_jsonl,
     scrub,
@@ -352,10 +359,10 @@ def _build_plan(folder: Path) -> _Plan:
         first = min(d.times) if d.times else created
         draw_payload = {
             "floor": "draw",
-            "source_id": d.source_id,
-            "draw_class": label(d.row.get("expected_doc_class")),
-            "split": label(d.row.get("split")),
-            "source_revision": label(d.row.get("source_revision")),
+            "source_id": scrub(d.source_id),
+            "draw_class": scrub(d.row.get("expected_doc_class")),
+            "split": scrub(d.row.get("split")),
+            "source_revision": scrub(d.row.get("source_revision")),
         }
         draw = _fields(
             d.doc_id, "dataset", "handoff", ts=first, outputs=[d.original] if d.original else [],
@@ -559,11 +566,15 @@ def _run_header(
         absent.append("run_id (the folder name is used)")
     engine = lock.get("engine")
     kind_ = engine.get("kind") if isinstance(engine, dict) else engine
-    backend = kind_ if isinstance(kind_, str) and kind_ else None
+    backend = named(kind_)
     if backend is None:
         absent.append("backend")
     models = lock.get("agent_models")
-    agent_models = {k: v for k, v in models.items() if isinstance(v, str)} if isinstance(models, dict) else {}
+    agent_models: dict[str, str] = {}
+    for name, model in models.items() if isinstance(models, dict) else ():
+        key, value = named(name), named(model)
+        if key is not None and value is not None:
+            agent_models[key] = value
     if not agent_models:
         absent.append("agent_models")
     agents = (prompt_lock or {}).get("agents")
@@ -571,35 +582,37 @@ def _run_header(
     if isinstance(agents, dict):
         for name, entry in agents.items():
             sha = entry.get("sha256") if isinstance(entry, dict) else None
-            if isinstance(sha, str) and _SHA_RE.fullmatch(sha):
-                prompt_hashes[name] = sha
+            key = named(name)
+            if key is not None and isinstance(sha, str) and _SHA_RE.fullmatch(sha):
+                prompt_hashes[key] = sha
     if not prompt_hashes:
         absent.append("prompt_hashes")
     prompt = lock.get("prompt")
     prompt_set = prompt.get("default") if isinstance(prompt, dict) else prompt
-    prompt_set = prompt_set if isinstance(prompt_set, str) and prompt_set else None
+    prompt_set = named(prompt_set)
     if prompt_set is None:
         absent.append("prompt_set")
     git = lock.get("git")
     commit = git.get("commit") if isinstance(git, dict) else None
     code_version = None
     if isinstance(commit, str) and commit:
-        code_version = commit + ("-dirty" if isinstance(git, dict) and git.get("dirty") is True else "")
+        code_version = named(commit + ("-dirty" if isinstance(git, dict) and git.get("dirty") is True else ""))
     else:
         absent.append("code_version")
     initials = (receipt or {}).get("initials")
-    signed_by = initials if isinstance(initials, str) and initials else None
+    signed_by = named(initials)
     if signed_by is None:
         absent.append("signed_by")
-    source = {"folder": folder.name}
+    source = {"folder": named(folder.name) or ""}
     for key, value in (
         ("spec_hash", lock.get("spec_hash")),
         ("source_run_id", lock.get("run_id")),
         ("engine_model", engine.get("model") if isinstance(engine, dict) else None),
         ("profile", lock.get("profile")),
     ):
-        if isinstance(value, str) and value:
-            source[key] = value
+        stored = named(value)
+        if stored is not None:
+            source[key] = stored
         elif key == "spec_hash":
             absent.append("spec_hash")
     kind = "full_pipeline" if any(r.get("node") == _CLASSIFY_NODE for _, r in node_rows) else "specialist_only"
@@ -637,11 +650,11 @@ def _fields(
     """The keyword arguments of one ``LogWriter.append`` call (``ts`` still in epoch seconds)."""
     return {
         "doc_id": doc_id,
-        "node": node,
+        "node": named(node) or node,
         "kind": kind,
-        "agent": agent if isinstance(agent, str) and agent else None,
+        "agent": named(agent),
         "attempt": attempt,
-        "model": model if isinstance(model, str) and model else None,
+        "model": named(model),
         "prompt_id": None,
         "tokens_in": None,
         "tokens_out": None,

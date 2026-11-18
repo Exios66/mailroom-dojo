@@ -672,3 +672,104 @@ def test_a_lone_surrogate_in_a_report_is_a_folder_error(tmp_store: SimpleNamespa
     write_jsonl(fixture_folder / "items.jsonl", items)
     with pytest.raises(SandboxFolderInvalid, match=rf"^items\.jsonl line {row + 1}: _report is not valid UTF-8"):
         import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+
+
+# --- second pre-PR review, finding 3: no field is stored as given unless it is a token ------------
+
+# One value per field the importer copies from the folder, none of them a token (a space, an
+# ``@``, a path, a URL, or too long), and none a substring of another.
+_FREE = {
+    "source_id": "jane.roe@client-example.com",
+    "draw_class": "Contract for Jane Roe, 12 Elm Street",
+    "split": "https://internal.example/corpus?user=jane",
+    "source_revision": "revision of " + "r" * 120,
+    "agent": "Jane Roe reviewer",
+    "model": "/home/jane/models/x",
+    "node": "Jane Roe node",
+    "profile": "jane roe profile",
+    "engine_model": "C:/Users/jane/model.gguf",
+    "backend": "backend run by Jane Roe",
+    "agent_models key": "agent of Jane Roe",
+    "agent_models value": "model of Jane Roe",
+    "prompt_hashes key": "prompt agent of Jane Roe",
+    "prompt_set": "prompt set of Jane Roe",
+    "code_version": "commit by Jane Roe",
+    "signed_by": "Jane Roe herself",
+    "folder": "folder of Jane Roe",
+    "spec_hash": "spec hash of Jane Roe",
+}
+
+
+def _free_text_folder(fixture_folder: Path, tmp_path: Path) -> Path:
+    """The fixture with every copied field set to a value that is not a token."""
+    folder = tmp_path / "src" / _FREE["folder"]
+    shutil.copytree(fixture_folder, folder)
+    rows = read_jsonl(folder / "dataset.jsonl")
+    old_id = rows[0]["id"]
+    rows[0] |= {
+        "id": _FREE["source_id"], "expected_doc_class": _FREE["draw_class"], "split": _FREE["split"],
+        "source_revision": _FREE["source_revision"],
+    }
+    write_jsonl(folder / "dataset.jsonl", rows)
+    nodes = read_jsonl(folder / "nodes.jsonl")
+    renamed = nodes[0]["node"]
+    for row in nodes:
+        row |= {"agent": _FREE["agent"], "model": _FREE["model"]}
+        if row["doc"] == old_id:
+            row["doc"] = _FREE["source_id"]
+        if row["node"] == renamed:
+            row["node"] = _FREE["node"]
+    write_jsonl(folder / "nodes.jsonl", nodes)
+    items = read_jsonl(folder / "items.jsonl")
+    for row in items:
+        if row["item_id"] == old_id:
+            row["item_id"] = _FREE["source_id"]
+    write_jsonl(folder / "items.jsonl", items)
+    lock = json.loads((folder / "spec.lock.json").read_text())
+    lock["profile"] = _FREE["profile"]
+    lock["engine"] |= {"kind": _FREE["backend"], "model": _FREE["engine_model"]}
+    lock["agent_models"][_FREE["agent_models key"]] = _FREE["agent_models value"]
+    lock["prompt"] = {"default": _FREE["prompt_set"]}
+    lock["git"] = {"commit": _FREE["code_version"], "dirty": False}
+    lock["spec_hash"] = _FREE["spec_hash"]
+    (folder / "spec.lock.json").write_text(json.dumps(lock))
+    prompts = json.loads((folder / "prompt.lock.json").read_text())
+    prompts["agents"][_FREE["prompt_hashes key"]] = {"sha256": "ab" * 32}
+    (folder / "prompt.lock.json").write_text(json.dumps(prompts))
+    receipt = json.loads((folder / "spend-authorization.json").read_text())
+    (folder / "spend-authorization.json").write_text(json.dumps(receipt | {"initials": _FREE["signed_by"]}))
+    return folder
+
+
+def _stored_strings(root: Path) -> bytes:
+    """Every byte the store holds outside its blobs, plus every decoded Parquet cell."""
+    import pyarrow.parquet as pq
+
+    out = [p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file() and "blobs" not in p.relative_to(root).parts]
+    for path in sorted(root.rglob("*.parquet")):
+        for column in pq.read_table(path).columns:
+            out.append(json.dumps(column.to_pylist(), default=str, ensure_ascii=False).encode())
+    return b"\n".join(out)
+
+
+def test_no_copied_field_is_stored_unless_it_is_a_token(
+    tmp_store: SimpleNamespace, fixture_folder: Path, tmp_path: Path
+) -> None:
+    """Ids, labels, agent, model and node names and the run header's strings are stored only
+    when they are tokens; any other value is stored as its SHA-256 and length, so none of
+    them reaches a stored byte (segments, ``run.json``, seals, Parquet cells, the index)."""
+    from mailroom_record.index import Index
+
+    folder = _free_text_folder(fixture_folder, tmp_path)
+    for value in _FREE.values():
+        assert token(value) is None, value
+    r = import_sandbox_run(folder, tmp_store.log, tmp_store.blobs)
+    assert verify_run(tmp_store.log, tmp_store.blobs, r.run_id).ok
+    Index(tmp_store.root / "index.sqlite").reindex(tmp_store.log)
+    assert list(tmp_store.root.rglob("*.parquet")) and (tmp_store.root / "index.sqlite").is_file()
+    stored = _stored_strings(tmp_store.root)
+    leaked = [field for field, value in _FREE.items() if value.encode() in stored]
+    assert leaked == []
+    digest = hashlib.sha256(_FREE["node"].encode()).hexdigest()
+    assert digest.encode() in segment_bytes(tmp_store.root)  # stored as its digest, not dropped
+    assert import_sandbox_run(folder, tmp_store.log, tmp_store.blobs).status == "already_imported"

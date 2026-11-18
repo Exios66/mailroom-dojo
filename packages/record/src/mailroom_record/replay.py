@@ -76,6 +76,13 @@ Where the rows differ from the sandbox's, field by field, and why:
   replay as stored.
 - A node ``status`` that was free text is stored as its SHA-256 and length, so it cannot be
   restored and replays as ``None``; a number or a bool replays as stored.
+- Names and ids that were not short tokens. An event's ``node``, ``agent`` and ``model``
+  and the run header's ``backend``, ``source`` values (shown in ``meta`` as
+  ``source_run_id``, ``engine_kind``, ``engine_model`` and ``profile``) are stored as
+  ``sha256:<hex>:<chars>`` and replay as that string; a dataset row id (``source_id``) is
+  stored as its ``{"sha256", "chars"}`` digest, so the document's rows show its ``doc_id``
+  instead; the sandbox shows the text. The sandbox's own ids, classes, splits, revisions,
+  agent, model and node names and profiles are tokens and replay as stored.
 - Item rows: the record shows ``doc`` (the item id), ``error`` as the cause token (the type
   name before the first ``:``, else ``error``), never the message, and the outcome fields
   (``doc_type``, ``stage``, both confidences, ``review_causes``, ``review_verdict``,
