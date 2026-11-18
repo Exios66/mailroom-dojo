@@ -83,8 +83,10 @@ exact dataset documents they describe.
    Field types use the Dojo vocabulary: `name`, `label`, `date`, `money`, `id`, `free_text`, `containment`,
    `entity_list[:name|free_text|id]`, `cms_doc_ref`. Classes are open strings: a new class is a profile
    entry, never a code change (R4).
-8. **Public surface** (what the Dojo thread codes against): `LabelSnapshot` (`snapshot_id`,
-   `manifest_hash`, `documents()`), `DocumentLabels` (`document_id`, `doc_class`, `subclass`,
+8. **Public surface** (what the Dojo thread codes against): `load_label_set(directories, profile)`,
+   which returns a `LabelSet` (`snapshot_id`, `manifest_hash`, `documents()`, `document(id)`,
+   `snapshot_refs()`, `label_snapshot_ids()`); `LabelSnapshot` (`snapshot_id`, `manifest_hash`,
+   `rows()`; it resolves nothing), `DocumentLabels` (`document_id`, `doc_class`, `subclass`,
    `content_sha256`, `verified`, `fields`, `scorable_fields`), `FieldLabel` (`value`, `status`, `source`,
    `reviewer`, `layers_seen`), `load_snapshot`, `load_snapshot_set`, `resolve`, `ClientProfile`,
    `snapshot_refs` (what a run records: id and manifest hash of each snapshot).
