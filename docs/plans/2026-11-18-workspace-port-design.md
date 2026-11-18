@@ -26,8 +26,40 @@ Out of scope here, owned by other threads: the human review station (desk plan a
 its own branch) and the run log storage (the record's importer, floor replay timeline, pack and
 prune: record plan Tasks 10 to 12). This document names where they plug in and nothing more.
 
-Not a goal: porting line for line. About a third of the old code is replaced by the record or
-dropped (section 7). Lines are a size estimate, not a target.
+### Principle: one workspace for all functionality, rebuilt better
+
+mailroom-dojo is the one workspace for **every capability** the constellation repositories
+provide today (old Dojo, llm-mailroom, the sandbox, mailroom-reloaded, The-Mailroom),
+refactored and improved, not copied. Two rules from the master design decide the form each
+capability takes:
+
+1. **Every capability lands here.** If an operator, a client or an experiment uses it today, it
+   has a home in exactly one package (or in `config/`), behind the one-way boundaries. Nothing
+   is left behind in a constellation repo that the new stack needs. The old repositories stay
+   readable on their pins until cutover (master design, non-goals) and then take fixes only.
+2. **Code survives only if something reads its output** (master design, "What is dropped" and
+   the "second bloat" anti-goal). A capability is kept; the old module that implemented it is
+   kept only when it is the best way to provide it. So most old code is replaced: storage and
+   audit by the record, trace readers by the record, Python tables by configuration, eleven
+   honesty call sites by one `Measure` type, a 22-node graph module by a policy file.
+
+The only capabilities that do not move are the ones the master design drops by name: LegalBench
+scoring, the metric registry's tiers, bundles and profiles, the legacy flat import paths, the
+release-awareness tool, and the mailroom-ml label contract (it stays on the 0.30 line with its
+user). Lines are a size estimate, not a target; about a third of the old lines are replaced, not
+ported (section 7).
+
+What "significantly improved" means here, each with its proof:
+
+| Old pain | Improvement | Proof |
+| --- | --- | --- |
+| Pins, vendored snapshots, scoring split three ways | One workspace, one version, one CI, one scorer | boundary test; no `vendor/`; no commit pins |
+| Global settings, env-var config, lru caches | Immutable profiles passed in; tuning is hashed config | no-global-state tests (Dojo chunk 1 pattern) |
+| Several stores to reconcile, global chain lock, lost records | One append-only record, per-document chains, derived index | record fault and property tests |
+| Graph shape in 8,900 lines of code | A policy file that draws and runs the graph | `engine graph --policy legacy`; router replay |
+| Visualizer and TUI driven by hosted traces | Every operator surface reads the record; traces are optional exports | engine runs with no trace sink |
+| Numbers without sample size or label status | `Measure` on every number | a report cannot print a bare float |
+| New document type needs code in five places | A profile entry, a schema file, a prompt, a scorer config | the synthetic-type test in every package |
 
 ## 2. Requirements this design must meet
 
@@ -248,10 +280,21 @@ until cutover.
 | The-Mailroom trace sources and `trace_interpreter`, vendored mirrors | replaced by the record and by config |
 | Old Dojo `config.py` globals, `scorecard_honesty`, metric tiers, study-specific report modules | replaced by profiles, `Measure` and Dojo reports |
 
-**Open, the owner decides** (not in the master design): Gmail intake (2,722 lines), SMS pager and
-watchdog, the vision classifier, `memory.py`, regex post-hoc ground truth, the hosted Observatory,
-the React desk UI, and design open question 2 (must The-Mailroom work against the new stack at
-cutover; if yes, the trace exporter emits today's span names).
+### Capabilities outside the master design's text, and where they land
+
+The master design does not name these. Under the principle above they all move, rebuilt on the
+record and configuration; none is dropped.
+
+| Capability today | Lands in | Form |
+| --- | --- | --- |
+| Gmail intake (`pipeline/gmail_intake.py` 2,722 lines, mail guards, outbox) | engine | an intake channel adapter beside folder and HTTP upload, feeding the same content-hash queue |
+| SMS pager, watchdog, status notify, ops monitor | launcher | an operations module that tails the record and the queue; notification transports are adapters, credentials only in env vars |
+| Vision classifier (`langchain_agents/classifier.py`) | engine | an agent registered for image documents, model chosen by the run spec |
+| Outcome-ledger memory for retries (`memory.py`) | engine | a policy option, off in `legacy` unless replay shows it on; when on, its inputs are record events so replay stays exact |
+| Regex post-hoc ground truth (`posthoc_gt.py`, `extraction_gt.py`) | Dojo | a diagnostic report, never a label layer (R6 precedence is unchanged) |
+| Hosted Observatory (`hosted/`, `server/hosted.py`) | launcher | a read-only floor view over a sealed record export with no document text |
+| React desk UI (`ui/`) | review station (other thread) | joins the review station's UI plan |
+| The-Mailroom visualizer | launcher floor | reads the record; the old repository stays on its pin (master design non-goal), so today's trace span names are not needed at cutover |
 
 ## 8. Launcher chunks
 
@@ -272,5 +315,7 @@ To follow, from the sandbox and mailroom-reloaded inventory (in progress).
 1. Keep the `common` and `dictionaries` leaf packages (PR #6) as a deviation from the five-package map?
 2. PR #6 adds ruff, mypy and codespell gates; `CLAUDE.md` and `AGENTS.md` still say no linter or
    type checker is configured. Keep the gates (and update both files in that PR) or drop them?
-3. The open capabilities in section 7.
-4. Design open question 2 (The-Mailroom at cutover).
+3. Confirm the placements of the capabilities in section 7 that the master design does not name.
+4. Design open question 2: this plan proposes that the launcher floor replaces The-Mailroom at
+   cutover (the old visualizer stays on its pin), so the trace exporter needs no span-name
+   compatibility. Confirm.
