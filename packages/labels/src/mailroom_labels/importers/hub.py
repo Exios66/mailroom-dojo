@@ -186,7 +186,10 @@ def _fields(row: dict[str, Any], profile: ClientProfile, tally: _Tally) -> dict[
     if not isinstance(gt, dict):
         tally.bad_gt_fields.append({"document_id": row.get("document_id"), "reason": "gt_fields is not a JSON object"})
         return None
-    presence = _json_or_raw(gt.get(PRESENCE_KEY)) or {}
+    raw_presence = gt.get(PRESENCE_KEY)
+    # Only an absent, null or empty-string gt_presence means "no presence codes"; any other
+    # value that is not an object ("[]", "false", "0", ...) is reported, never read as empty.
+    presence = {} if raw_presence in (None, "") else _json_or_raw(raw_presence)
     if not isinstance(presence, dict):
         tally.bad_gt_fields.append({"document_id": row.get("document_id"), "reason": "gt_presence is not a JSON object"})
         return None

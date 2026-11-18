@@ -809,3 +809,24 @@ def test_hub_gt_fields_with_a_repeated_key_is_unparseable(tmp_path: Path) -> Non
     data = write_dataset(tmp_path / "data", extra=[bad])
     manifest = hub_build(tmp_path / "hub-x", data, allow_rejected=True)
     assert manifest.source["unparseable_gt_fields"] == [{"document_id": "D9", "reason": "gt_fields is not a JSON object"}]
+
+
+@pytest.mark.parametrize("presence", ["[]", "false", "0", "[1,2]", "\"x\"", 0, False, []])
+def test_hub_gt_presence_that_is_not_an_object_is_unparseable_never_empty(tmp_path: Path, presence: Any) -> None:
+    bad = gt_row("D9", "letter", "email", "train", {}, {})
+    bad["gt_fields"] = json.dumps({"sender": "Zed", "gt_presence": presence})
+    data = write_dataset(tmp_path / "data", extra=[bad])
+    with pytest.raises(ImportRefused, match="unparseable_gt_fields 1"):
+        hub_build(tmp_path / "hub-x", data)
+
+
+@pytest.mark.parametrize("presence", [None, "", "{}"])
+def test_hub_absent_or_empty_gt_presence_means_no_presence_codes(tmp_path: Path, presence: Any) -> None:
+    row = gt_row("D9", "letter", "email", "train", {}, {})
+    gt: dict[str, Any] = {"sender": "Zed"}
+    if presence is not None:
+        gt["gt_presence"] = presence
+    row["gt_fields"] = json.dumps(gt)
+    data = write_dataset(tmp_path / "data", extra=[row])
+    hub_build(tmp_path / "hub-x", data, default=False)
+    assert hub_rows(tmp_path / "hub-x")["D9"]["fields"]["sender"] == {"value": "Zed", "presence": "populated"}
