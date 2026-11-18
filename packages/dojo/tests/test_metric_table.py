@@ -693,6 +693,10 @@ def test_the_unit_vocabulary_is_closed() -> None:
         "tag",
         "text",
         "structure",
+        "per_1000",
+        "docs/min",
+        "ratio",
+        "utility",
     }
     assert set(NON_NUMERIC_UNITS) == {"tag", "text", "structure"}
     assert {row.unit for row in load_metric_table().rows} <= set(UNITS)
@@ -743,3 +747,28 @@ def test_the_archive_gate_reads_judge_error_rate() -> None:
     row = load_metric_table().get("judge_error_rate")
     assert row.status == "planned" and row.layer == "D6"
     assert "archive_gate" in row.readers and row.direction == "lower"
+
+
+def test_utility_may_be_negative_and_nothing_else_may() -> None:
+    table = load_metric_table()
+    assert table.check(_measure("document_utility", value=-0.101)).unit == "utility"
+    with pytest.raises(MeasureError, match="is negative"):
+        table.check(_measure("cost_estimate_to_billed_ratio", value=-0.5, label_status="none"))
+
+
+@pytest.mark.parametrize(
+    ("edit", "expected"),
+    [
+        (_set("review_rate", "metric_id", "registry:review_rate"), "(review_rate).metric_id: a design row"),
+        (_set("f1_macro", "metric_id", "dojo:f1_macro"), "(f1_macro).metric_id: a design row"),
+        (_set("f1_macro", "metric_id", "dojo:other"), "(f1_macro).metric_id: a design row"),
+    ],
+    ids=["design row with a registry id", "registry row with a dojo id", "foreign dojo id"],
+)
+def test_a_design_id_is_its_own_and_only_a_design_rows(
+    edit: Callable[[dict[str, Any]], None], expected: str
+) -> None:
+    raw = _raw()
+    edit(raw)
+    with pytest.raises(MetricTableError, match=re.escape(expected)):
+        load_metric_table(raw)

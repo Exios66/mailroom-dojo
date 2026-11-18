@@ -191,6 +191,56 @@
    "direction": "higher",
    "name_rule": "none",
    "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "review_rate": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "fewer reviews at the same wrong-archive rate is better ('Less human review'); the name has no rule word"
+  },
+  "correct_archive_rate": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share of right outcomes, so higher is better; the name has no rule word"
+  },
+  "document_utility": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "utility is the objective, so higher is better; the name has no rule word"
+  },
+  "slot_cap_breaches": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "a breach means the policy did not hold its cap, so lower is better; the name has no rule word"
+  },
+  "outcome_flip_rate": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "flips between identical runs are noise, so lower is better; the name has no rule word"
+  },
+  "documents_per_minute": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "throughput, so higher is better; the name has no rule word"
+  },
+  "log_complete_step_rate": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share of complete entries, so higher is better; the name has no rule word"
+  },
+  "log_chains_verified": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a chain that verifies is better; the name has no rule word"
+  },
+  "cost_estimate_to_billed_ratio": {
+   "direction": "none",
+   "name_rule": "lower",
+   "why": "1 is right and either side is a gap, so no better direction, although the name has cost in it"
+  },
+  "fields_without_gold": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "fewer fields without gold is better; the name has no rule word"
   }
  },
  "directions": {
@@ -387,6 +437,24 @@
   "false_no_related_rate": "lower",
   "false_no_related_rate_paper": "lower",
   "jaccard_median": "higher",
-  "composite": "higher"
+  "composite": "higher",
+  "silent_wrong_per_1000": "lower",
+  "wrong_archive_rate": "lower",
+  "wrong_archive_upper95": "lower",
+  "review_rate": "lower",
+  "correct_archive_rate": "higher",
+  "document_utility": "higher",
+  "slot_override_rate": "none",
+  "slot_cap_use": "none",
+  "slot_cap_breaches": "lower",
+  "cost_per_decision": "lower",
+  "outcome_flip_rate": "lower",
+  "cost_per_classification": "lower",
+  "cost_per_1000_documents": "lower",
+  "documents_per_minute": "higher",
+  "log_complete_step_rate": "higher",
+  "log_chains_verified": "higher",
+  "cost_estimate_to_billed_ratio": "none",
+  "fields_without_gold": "lower"
  }
 }

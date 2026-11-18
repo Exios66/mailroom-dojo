@@ -60,7 +60,9 @@ TABLE_FORMAT = 1
 
 #: Units: a closed vocabulary. The old registry's units, normalised: ``usd`` is written
 #: ``USD`` and ``int`` is ``count``; ``structure`` marks a row whose value is a structure
-#: (a matrix, a per-class table, an interval), not one number.
+#: (a matrix, a per-class table, an interval), not one number. ``per_1000`` is a count per
+#: 1,000 documents, ``ratio`` a non-negative quotient, ``utility`` a signed per-document
+#: utility (the only unit that may be negative).
 UNITS: tuple[str, ...] = (
     "float[0,1]",
     "count",
@@ -77,6 +79,10 @@ UNITS: tuple[str, ...] = (
     "tag",
     "text",
     "structure",
+    "per_1000",
+    "docs/min",
+    "ratio",
+    "utility",
 )
 #: Units whose rows are not one number (a label, text or a structure): no ``Measure`` carries them.
 NON_NUMERIC_UNITS: tuple[str, ...] = ("tag", "text", "structure")
@@ -107,7 +113,9 @@ AGENT_STATUSES: tuple[str, ...] = (
 #: (``gold_review``), and ``derived`` gold, computed deterministically from those layers'
 #: class and field labels (for decision agents; the row's ``status_reason`` gives the rule).
 LABEL_LAYERS: tuple[str, ...] = ("hub", "interim", "near_gold", "gold_review", "derived")
-ORIGINS: tuple[str, ...] = ("registry", "golden")
+#: Where a row comes from: the old registry, the old golden baseline, or a need the master
+#: design names that no old metric meets (``design``, metric id ``dojo:<id>``).
+ORIGINS: tuple[str, ...] = ("registry", "golden", "design")
 #: How two runs' values of a metric are compared, each a test D1 implements
 #: (``mailroom_dojo.statistics``), with the ``method`` string D1 stamps on its result:
 #: ``paired_percentile_bootstrap`` is ``paired_bootstrap_delta`` (per-document values of
@@ -141,6 +149,8 @@ READERS: tuple[str, ...] = (
     "set_a_report",
     "set_c_report",
     "set_e_report",
+    "log_health_report",
+    "gold_generation",
 )
 
 _ID = re.compile(r"^[a-z][a-z0-9_-]*$")
@@ -373,8 +383,9 @@ class MetricTable:
 
         Raises :class:`UnknownMetricError` for an id outside the table and
         :class:`MeasureError` when the measure breaks the row: the metric is not ported
-        or is not a number (a tag or text); the value is outside the unit's range
-        (``float[0,1]`` and ``boolean`` in ``[0, 1]``, every other unit non-negative); a
+        or is not a number (a tag, text or structure); the value is outside the unit's
+        range (``float[0,1]`` and ``boolean`` in ``[0, 1]``, ``utility`` any finite number,
+        every other unit non-negative); a
         ``count`` value is not a whole number (unless the row's aggregation
         is ``mean``: a mean of counts need not be whole); a ``boolean`` is not 0 or 1;
         the interval leaves the unit's range or does not contain the value; a metric
@@ -418,6 +429,8 @@ class MetricTable:
 
 #: Units whose values are whole numbers.
 _WHOLE_UNITS = frozenset({"count"})
+#: Units whose values may be negative.
+_SIGNED_UNITS = frozenset({"utility"})
 #: Units bounded by ``[0, 1]``; every other numeric unit is non-negative.
 _UNIT_INTERVAL = frozenset({"float[0,1]", "boolean"})
 
@@ -425,7 +438,7 @@ _UNIT_INTERVAL = frozenset({"float[0,1]", "boolean"})
 def _check_in_unit(row: MetricRow, number: float, what: str) -> None:
     if row.unit in _UNIT_INTERVAL and not 0.0 <= number <= 1.0:
         raise MeasureError(f"{row.id}: {what} {number!r} is outside [0, 1] for unit {row.unit!r}")
-    if number < 0:
+    if number < 0 and row.unit not in _SIGNED_UNITS:
         raise MeasureError(f"{row.id}: {what} {number!r} is negative for unit {row.unit!r}")
 
 
@@ -587,6 +600,10 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
     metric_id = _string(spec["metric_id"], f"{path}.metric_id")
     if metric_id.startswith("registry:") and metric_id != f"registry:{metric}":
         raise _fail(f"{path}.metric_id", f"a registry id names its own row: registry:{metric}")
+    if (spec["origin"] == "design") != (metric_id == f"dojo:{metric}") or (
+        metric_id.startswith("dojo:") and metric_id != f"dojo:{metric}"
+    ):
+        raise _fail(f"{path}.metric_id", f"a design row, and only a design row, has the id dojo:{metric}")
     return MetricRow(
         id=metric,
         description=_string(spec["description"], f"{path}.description"),

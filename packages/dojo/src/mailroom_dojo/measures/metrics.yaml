@@ -77,6 +77,11 @@
 #                   set_a_report, set_c_report, set_e_report
 #                                        what the Dojo must produce for experiment Sets
 #                                        A, C and E (master design, the Sets table)
+#                   log_health_report    share of steps with complete entries and chain
+#                                        verification (master design, Log health)
+#                   gold_generation      the future step that generates additional gold
+#                                        for evaluation (owner decision 2026-11-18; a
+#                                        paid run behind the spend gate, not built yet)
 #   status_reason default null; required for not_ported (which design rule drops it)
 #   producer      default null; the new function that computes it today
 #   cost          default false; true when the value is money spent (a Measure of it
@@ -105,7 +110,9 @@
 #                 false_no_related_rate; schema_adherence -> schema_valid;
 #                 expected_field_presence -> field_presence (an alias).
 #                 audit_disagreement_rate is 1 - audit_resolution_rate (its status_reason).
-#   origin        registry | golden
+#   origin        registry | golden | design. design rows meet a need the master design
+#                 names that no old metric meets (metric_id dojo:<id>); each is planned and
+#                 its status_reason names its reader.
 #
 # default_views (top level): the one number each agent's dashboard shows by default
 # (the old registry's tier 0, "ONE number per agent on the default view", registry.py
@@ -3465,3 +3472,297 @@ metrics:
     old_source: "tasks.chained_summary"
     citation: "Old tasks.chained_composite: round(0.25 * sorter exact match + 0.75 * extractor overall extraction score, 4) with the default weights (0.25, 0.75), which chained_summary also reports under weights."
     inclusion: "Chained runs only (task kind chained). A missing sorter or extractor score raises instead of scoring 0."
+  - id: "silent_wrong_per_1000"
+    description: "Documents archived under a wrong class with no review, per 1,000 documents"
+    unit: "per_1000"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["sorter", "sorter_reviewer"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:silent_wrong_per_1000"
+    layer: "D5"
+    status: "planned"
+    readers: ["classification_report", "set_a_report"]
+    status_reason: "Readers: classification_report (R3: silent-wrong per 1,000 not higher) and set_a_report (Set A); R10's decision-slot experiments are scored on it."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: R3 bar (line 50), the Sets table row A (line 467), R10 (line 119)."
+    inclusion: "Documents with a gold class in any label layer; none when there are none."
+  - id: "wrong_archive_rate"
+    description: "Wrong archives over scorable archives: archived below the quality bar, or under a wrong class"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:wrong_archive_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["archive_gate", "run_report", "keep_rule"]
+    status_reason: "Readers: archive_gate (its pass rule), run_report (wrong-archive rate with bounds) and keep_rule (kept at a fixed review rate)."
+    pairing: "paired_percentile_bootstrap"
+    origin: "design"
+    citation: "local-mailroom-sandbox src/mailroom_sandbox/job/gate.py at 93f298c, lines 7-8 and 24; docs/specs/2026-11-18-lean-rewrite-design.md, 'Fewer wrong archives' (line 34) and 'Utility is the objective' (line 382)."
+    inclusion: "Scorable archives only (enough labelled fields); unscorable archives and reviews are left out; none when nothing is scorable."
+  - id: "wrong_archive_upper95"
+    description: "Wilson 95% upper bound on wrong_archive_rate"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:wrong_archive_upper95"
+    layer: "D6"
+    status: "planned"
+    readers: ["archive_gate", "run_report"]
+    status_reason: "Readers: archive_gate and run_report (rates with bounds). Method: the Wilson score upper bound at 95%, as the sandbox gate computes it. Named as the gate names it."
+    origin: "design"
+    citation: "local-mailroom-sandbox src/mailroom_sandbox/job/gate.py at 93f298c, _wilson_upper (lines 182-188) and line 405."
+    inclusion: "None when no archive is scorable."
+  - id: "review_rate"
+    description: "Documents routed to human review over all documents"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "structural"
+    headline: false
+    metric_id: "dojo:review_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["archive_gate", "run_report", "keep_rule"]
+    status_reason: "Readers: archive_gate (its pass rule), run_report and keep_rule (the wrong-archive rate is compared at a fixed review rate). Direction lower at equal wrong-archive rate ('Less human review'); owner to confirm."
+    pairing: "paired_percentile_bootstrap"
+    origin: "design"
+    citation: "local-mailroom-sandbox src/mailroom_sandbox/job/gate.py at 93f298c, lines 9 and 23; docs/specs/2026-11-18-lean-rewrite-design.md, 'Less human review' (line 35)."
+    inclusion: "Every document of the pool; none for an empty pool."
+  - id: "correct_archive_rate"
+    description: "Correct archives (archived at or above the quality bar) over all documents"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:correct_archive_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["run_report"]
+    status_reason: "Reader: run_report (per class, reporting only, as in the sandbox gate)."
+    origin: "design"
+    citation: "local-mailroom-sandbox src/mailroom_sandbox/job/gate.py at 93f298c, lines 6 and 24-25."
+    inclusion: "Every document; none for an empty run."
+  - id: "document_utility"
+    description: "Mean per-document utility of the outcome (correct, review, unscorable, wrong or crash)"
+    unit: "utility"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:document_utility"
+    layer: "D6"
+    status: "planned"
+    readers: ["run_report", "keep_rule"]
+    status_reason: "Readers: keep_rule (a variant is kept on whole-pipeline utility) and run_report. The utility of each outcome is configuration, never code; it can be negative (v1: -0.101 and -0.140)."
+    pairing: "paired_percentile_bootstrap"
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: 'Document outcome' row (line 283), 'Utility is the objective' (line 382), the v1 re-score (line 322)."
+    inclusion: "Every document with an outcome; none for an empty run."
+  - id: "slot_override_rate"
+    description: "Per decision slot: share of the slot's decisions that changed the default route"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "structural"
+    headline: false
+    metric_id: "dojo:slot_override_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report (per-slot summaries and override caps). A descriptive rate: whether more overrides is better depends on whether they were right."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: Behavior row (line 284), R10 (lines 119-123)."
+    inclusion: "Per slot, over the slot's recorded decisions; none for a slot that never ran."
+  - id: "slot_cap_use"
+    description: "Per decision slot: overrides used over the slot's cap"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:slot_cap_use"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report (override caps). Descriptive: a cap is a budget, not a target."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: Behavior row (line 284) and policies 'decision-slot settings with their caps' (line 400)."
+    inclusion: "Slots with a cap; none for an uncapped slot."
+  - id: "slot_cap_breaches"
+    description: "Per decision slot: overrides made beyond the slot's cap"
+    unit: "count"
+    direction: "lower"
+    aggregation: "sum"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:slot_cap_breaches"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report (override caps). A breach means the policy did not hold its cap."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: Behavior row (line 284), policy caps (line 400)."
+    inclusion: "Slots with a cap."
+  - id: "cost_per_decision"
+    description: "Per decision slot: cost of the slot's model calls over its decisions"
+    unit: "USD"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:cost_per_decision"
+    layer: "D5"
+    status: "planned"
+    readers: ["behaviour_report", "set_a_report"]
+    status_reason: "Readers: behaviour_report and set_a_report (Set A: cost per review)."
+    cost: true
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: the Sets table row A (line 467), R10 (line 123)."
+    inclusion: "Slots with at least one decision."
+  - id: "outcome_flip_rate"
+    description: "Share of documents whose outcome differs between two runs of the same configuration on the same draw"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:outcome_flip_rate"
+    layer: "D7"
+    status: "planned"
+    readers: ["run_comparison"]
+    status_reason: "Reader: run_comparison (stability: a paired test for outcome flips)."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: 'Comparing runs' (line 295)."
+    inclusion: "Documents both runs scored; none when they share none."
+  - id: "cost_per_classification"
+    description: "Cost of the sorter and sorter-reviewer calls per classified document"
+    unit: "USD"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["sorter", "sorter_reviewer"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:cost_per_classification"
+    layer: "D5"
+    status: "planned"
+    readers: ["classification_report"]
+    status_reason: "Reader: classification_report (R3: cost per classified document not higher)."
+    cost: true
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: R3 bar (line 50)."
+    inclusion: "Classified documents; none when none was classified."
+  - id: "cost_per_1000_documents"
+    description: "Cost per 1,000 documents, with an interval from resampling to the target mix"
+    unit: "USD"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:cost_per_1000_documents"
+    layer: "D7"
+    status: "planned"
+    readers: ["cost_projection", "run_report"]
+    status_reason: "Readers: cost_projection (dollars per 1,000 documents) and run_report ('Lower cost' bar)."
+    cost: true
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: 'Lower cost' (line 36), Projections (line 307), Set F (line 472)."
+    inclusion: "Runs with a cost record; none otherwise."
+  - id: "documents_per_minute"
+    description: "Documents finished per minute of wall time"
+    unit: "docs/min"
+    direction: "higher"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:documents_per_minute"
+    layer: "D5"
+    status: "planned"
+    readers: ["run_report"]
+    status_reason: "Reader: run_report (the throughput floor of at least 249 documents per minute with the fake model)."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: throughput (lines 215, 421 and 498)."
+    inclusion: "Runs with a start and an end time."
+  - id: "log_complete_step_rate"
+    description: "Share of steps with complete log entries"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:log_complete_step_rate"
+    layer: "D7"
+    status: "planned"
+    readers: ["log_health_report"]
+    status_reason: "Reader: log_health_report (Log health)."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: Log health row (line 289)."
+    inclusion: "Every recorded step."
+  - id: "log_chains_verified"
+    description: "Whether every hash chain of the run verifies"
+    unit: "boolean"
+    direction: "higher"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:log_chains_verified"
+    layer: "D7"
+    status: "planned"
+    readers: ["log_health_report"]
+    status_reason: "Reader: log_health_report (Log health)."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: Log health row (line 289)."
+    inclusion: "Every sealed run."
+  - id: "cost_estimate_to_billed_ratio"
+    description: "Token-priced cost estimate over the billed bound"
+    unit: "ratio"
+    direction: "none"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:cost_estimate_to_billed_ratio"
+    layer: "D7"
+    status: "planned"
+    readers: ["cost_truth_report"]
+    status_reason: "Reader: cost_truth_report (Cost truth). No better direction: 1 is right, and either side of it is a gap (v1: 1.8 to 1.9 times)."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: Cost truth row (line 288)."
+    inclusion: "Runs with a billed bound; none otherwise."
+  - id: "fields_without_gold"
+    description: "Fields of the evaluation set with no gold in any label layer"
+    unit: "count"
+    direction: "lower"
+    aggregation: "sum"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:fields_without_gold"
+    layer: "D4"
+    status: "planned"
+    readers: ["gold_generation"]
+    status_reason: "Reader: the future gold-generation step, which produces the additional gold for evaluation (owner decision, 2026-11-18). Generating gold with a model is a paid run behind the spend gate; nothing of it is built in D2."
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold for evaluation is the interim and near_gold labels, the Hub ground truth, and additional gold generated to support the evaluations."
+    inclusion: "Fields the scoring profile scores, over the evaluation set."

@@ -240,8 +240,47 @@ def test_the_agent_families_are_the_old_roster(table: MetricTable) -> None:
 def test_new_rows_come_from_the_golden_baseline(table: MetricTable) -> None:
     new = {row.id for row in table.rows if row.id not in OLD["metrics"]}
     golden = {row.id for row in table.rows if row.origin == "golden"}
-    assert new == golden
-    assert new <= set(OLD["golden"]["names"])
+    design = {row.id for row in table.rows if row.origin == "design"}
+    assert new == golden | design and not golden & design
+    assert golden <= set(OLD["golden"]["names"])
+    assert not design & set(OLD["golden"]["names"])
+
+
+def test_design_rows_are_planned_needs_with_a_named_reader(table: MetricTable) -> None:
+    """Each need the master design names with no old metric is a planned row with a reader."""
+    design = [row for row in table.rows if row.origin == "design"]
+    assert {row.id for row in design} == DESIGN_ROWS
+    for row in design:
+        assert row.status == "planned" and row.readers and row.layer in ("D4", "D5", "D6", "D7"), row.id
+        assert row.metric_id == f"dojo:{row.id}" and not row.headline, row.id
+        assert row.status_reason and "Reader" in row.status_reason, row.id
+        if "keep_rule" in row.readers:
+            assert row.pairing == "paired_percentile_bootstrap", row.id
+
+
+#: The design needs with no old metric (orchestrator revision, 2026-11-18).
+DESIGN_ROWS = frozenset(
+    {
+        "silent_wrong_per_1000",
+        "wrong_archive_rate",
+        "wrong_archive_upper95",
+        "review_rate",
+        "correct_archive_rate",
+        "document_utility",
+        "slot_override_rate",
+        "slot_cap_use",
+        "slot_cap_breaches",
+        "cost_per_decision",
+        "outcome_flip_rate",
+        "cost_per_classification",
+        "cost_per_1000_documents",
+        "documents_per_minute",
+        "log_complete_step_rate",
+        "log_chains_verified",
+        "cost_estimate_to_billed_ratio",
+        "fields_without_gold",
+    }
+)
 
 
 def test_every_nested_block_is_a_breakdown_with_a_reason() -> None:
@@ -275,7 +314,8 @@ def test_the_old_metric_id_code_and_doc_agree() -> None:
 def test_metric_ids_are_the_old_canonical_ids(table: MetricTable) -> None:
     canonical = OLD["metric_ids"]["code"]
     for row in table.rows:
-        assert row.metric_id == canonical.get(row.id, f"registry:{row.id}"), row.id
+        fallback = f"dojo:{row.id}" if row.origin == "design" else f"registry:{row.id}"
+        assert row.metric_id == canonical.get(row.id, fallback), row.id
 
 
 def test_headline_ids_match_metric_ids_md(table: MetricTable) -> None:
@@ -351,10 +391,10 @@ def test_per_field_extraction_accuracy_is_kept_for_the_keep_rule(table: MetricTa
 def test_counts(table: MetricTable) -> None:
     """The table's shape, so a change to it is a visible, reviewed change."""
     statuses = [row.status for row in table.rows]
-    assert len(table.rows) == 184 + 10
+    assert len(table.rows) == 184 + 10 + len(DESIGN_ROWS)
     assert len(table.headline_rows()) == 14
     assert {status: statuses.count(status) for status in set(statuses)} == {
         "implemented": 19,
-        "planned": 89,
+        "planned": 107,
         "not_ported": 86,
     }
