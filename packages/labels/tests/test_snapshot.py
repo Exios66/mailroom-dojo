@@ -448,7 +448,7 @@ def test_rebuilding_a_snapshot_drops_files_the_new_build_does_not_produce(tmp_pa
 
 
 @pytest.mark.parametrize(
-    "setup", ["foreign_file", "other_snapshot", "unlisted_beside_a_build", "broken_manifest"]
+    "setup", ["foreign_file", "other_snapshot", "other_kind", "unlisted_beside_a_build", "broken_manifest"]
 )
 def test_building_into_a_directory_with_other_content_is_refused_untouched(
     tmp_path: Path, setup: str
@@ -468,7 +468,12 @@ def test_building_into_a_directory_with_other_content_is_refused_untouched(
         write_snapshot(
             d,
             {"a.jsonl": ROWS_A},
-            **{**args, "snapshot_id": "hub-b" if setup == "other_snapshot" else "hub-a"},
+            **{
+                **args,
+                "snapshot_id": "hub-b" if setup == "other_snapshot" else "hub-a",
+                # the same id, another kind: a hub build must never replace it
+                **({"kind": "review"} if setup == "other_kind" else {}),
+            },
         )
         if setup == "unlisted_beside_a_build":
             (d / "stale.jsonl").write_text("{}\n")

@@ -304,11 +304,11 @@ def write_jsonl(path: Path | str, rows: Iterable[Mapping[str, Any]]) -> None:
             fh.write(canonical_json(row) + b"\n")
 
 
-def _check_replaceable(directory: Path, snapshot_id: str) -> None:
+def _check_replaceable(directory: Path, snapshot_id: str, kind: Any) -> None:
     """Refuse (``FileExistsError``, touching nothing) a ``directory`` that is not safe to
     replace. It may be missing or empty, or hold exactly an earlier build of the same
-    snapshot id: a valid manifest, the files it lists and the directories holding them,
-    nothing else."""
+    snapshot id and kind: a valid manifest, the files it lists and the directories holding
+    them, nothing else."""
     if not directory.exists() or not any(directory.iterdir()):
         return
     try:
@@ -319,6 +319,8 @@ def _check_replaceable(directory: Path, snapshot_id: str) -> None:
         ) from exc
     if old.snapshot_id != snapshot_id:
         raise FileExistsError(f"{directory} holds snapshot {old.snapshot_id!r}, not {snapshot_id!r}")
+    if old.kind != kind:
+        raise FileExistsError(f"{directory} holds a {old.kind!r} snapshot, not the kind {kind!r}")
     listed = {f.path for f in old.files}
     if not all(_safe_path(rel) for rel in listed):
         raise FileExistsError(f"{directory}: its manifest lists an unsafe path")
@@ -345,7 +347,7 @@ def write_snapshot(
     canonical JSON alone) and the manifest. Input order never changes the bytes written.
     Every key of ``files`` must be a normalised relative ``.jsonl`` path (``ValueError``
     otherwise, before anything is touched). ``directory`` must be missing,
-    empty, or an earlier build of the same snapshot id (``FileExistsError`` otherwise,
+    empty, or an earlier build of the same snapshot id and kind (``FileExistsError`` otherwise,
     nothing touched), which is replaced whole, so no file of an older build is ever listed
     as current.
 
@@ -363,7 +365,7 @@ def write_snapshot(
             raise ValueError(
                 f"output path {rel!r} must be a normalised relative .jsonl path inside the snapshot"
             )
-    _check_replaceable(directory, snapshot_id)
+    _check_replaceable(directory, snapshot_id, manifest_args.get("kind"))
     directory.parent.mkdir(parents=True, exist_ok=True)
     scratch = Path(tempfile.mkdtemp(prefix=f".{directory.name}.build-", dir=directory.parent))
     try:

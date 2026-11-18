@@ -1827,3 +1827,22 @@ def test_hub_value_with_a_lone_surrogate_is_refused_per_row(tmp_path: Path) -> N
     [entry] = manifest.source["unparseable_gt_fields"]
     assert entry["document_id"] == "D9" and "lone surrogate" in entry["reason"]
     assert "D9" not in hub_rows(tmp_path / "hub-x")
+
+
+def test_an_import_never_replaces_a_snapshot_of_another_kind(tmp_path: Path) -> None:
+    """``import-near-gold --out`` naming an interim snapshot of the same id is refused (exit
+    2, one line) and the interim snapshot is left byte for byte as it was."""
+    from labels_testkit import make_snapshot
+
+    target = make_snapshot(
+        tmp_path, "interim", [interim_row("D1", {"sender": ("gap_fill", "Ann")})], snapshot_id="lab-x"
+    )
+    before = {p.relative_to(target).as_posix(): p.read_bytes() for p in target.rglob("*") if p.is_file()}
+    src = write_overlay(tmp_path / "src", {"letter.jsonl": jsonl(near_gold_row("D1", {"sender": "Ann"}))})
+    with pytest.raises(FileExistsError, match="kind"):
+        overlay(target, src, kind="near_gold")
+    args = ["import-near-gold", "--out", str(target), "--source-dir", str(src), "--source-path", "x"]
+    result = runner.invoke(app, [*args, "--repository", "example/sandbox", "--commit", "1" * 40])
+    assert result.exit_code == 2 and "kind" in result.output, result.output
+    after = {p.relative_to(target).as_posix(): p.read_bytes() for p in target.rglob("*") if p.is_file()}
+    assert after == before

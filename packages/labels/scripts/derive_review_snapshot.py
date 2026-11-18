@@ -18,6 +18,9 @@ come from ``--known-warnings`` under the new snapshot id, as for an import.
         --known-warnings config/clients/mailroom-dataset/known-warnings.yaml   # --check: compare only
 
 ``--source`` is the snapshot directory itself (the one holding its ``manifest.json``).
+An existing ``--out`` is replaced only when it is an earlier derivation of the same source
+(a review snapshot of the derived id whose ``source.derived_from.snapshot_id`` is the
+source's id); anything else is refused untouched.
 The source snapshot is not kept beside its derivation; for ``--check``, extract it from
 commit ``4ca36109f8a2098b530bfdc52fd802fb620bd81b``, which holds it exactly as it was added
 (reachable from ``refs/pull/5/head``; ``git fetch origin refs/pull/5/head`` when it is not
@@ -34,6 +37,7 @@ Exit 0: written (or identical under ``--check``); 1: refused or different; 2: us
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -48,7 +52,7 @@ from mailroom_labels.importers.common import (
 )
 from mailroom_labels.importers.review import review_row_order
 from mailroom_labels.models import SnapshotManifest
-from mailroom_labels.snapshot import load_snapshot, write_snapshot
+from mailroom_labels.snapshot import MANIFEST_NAME, load_snapshot, write_snapshot
 
 BUILDER = f"packages/labels/scripts/derive_review_snapshot.py {BUILDER_VERSION}"
 ROLE = "review desk"
@@ -70,6 +74,18 @@ def derive_note(note: Any) -> tuple[Any, bool]:
     return new, count == 1
 
 
+def _derived_from(out_dir: Path) -> Any:
+    """The ``source.derived_from.snapshot_id`` of the snapshot already at ``out_dir``, or
+    None when it has none (or its manifest cannot be read as one)."""
+    try:
+        manifest = json.loads((out_dir / MANIFEST_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    source = manifest.get("source") if isinstance(manifest, dict) else None
+    derived = source.get("derived_from") if isinstance(source, dict) else None
+    return derived.get("snapshot_id") if isinstance(derived, dict) else None
+
+
 def derive(source_dir: Path, out_dir: Path, known_warnings: Path | None) -> SnapshotManifest:
     """Write the derived snapshot to ``out_dir`` (its name is the new snapshot id)."""
     source = load_snapshot(source_dir)
@@ -80,6 +96,15 @@ def derive(source_dir: Path, out_dir: Path, known_warnings: Path | None) -> Snap
         raise ImportRefused(f"{out_dir}: the derived snapshot needs its own id, not {snapshot_id!r}")
     if "derived_from" in source.manifest.source:
         raise ImportRefused(f"{source_dir}: source.derived_from is already set")
+    if out_dir.exists() and (not out_dir.is_dir() or any(out_dir.iterdir())):
+        found = _derived_from(out_dir)
+        if found != source.snapshot_id:
+            # write_snapshot also refuses another id or kind; this refuses a snapshot of the
+            # same id and kind that is not a derivation of this source.
+            raise ImportRefused(
+                f"{out_dir}: holds a snapshot whose source.derived_from is {found!r}, "
+                f"not {source.snapshot_id!r}; refusing to replace it"
+            )
     files: dict[str, list[dict[str, Any]]] = {entry.path: [] for entry in source.manifest.files}
     changed = 0
     for row in source.rows():

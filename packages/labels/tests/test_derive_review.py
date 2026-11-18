@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from labels_testkit import review_row
+from labels_testkit import interim_row, make_snapshot, review_row
 from mailroom_labels.importers.common import ImportRefused
 from mailroom_labels.importers.review import review_row_order
 from mailroom_labels.layers import CURRENT_LAYER_SCHEMA
@@ -138,3 +138,38 @@ def test_main_writes_then_check_is_identical_and_catches_an_edit(
     assert script.main(["--source", str(src), "--out", str(out), "--check"]) == 1
     assert "differs from a fresh build: manifest.json" in capsys.readouterr().err
     assert script.main(["--source", str(tmp_path / "nowhere"), "--out", str(tmp_path / "y")]) == 1
+
+
+def _tree(directory: Path) -> dict[str, bytes]:
+    return {p.relative_to(directory).as_posix(): p.read_bytes() for p in directory.rglob("*") if p.is_file()}
+
+
+def test_out_naming_another_kind_of_snapshot_is_refused_untouched(tmp_path: Path) -> None:
+    """``--out`` naming a committed interim snapshot (any non-review kind) is refused and the
+    interim snapshot is byte-unchanged, even when it bears the derived id."""
+    script = _script()
+    src = _source(tmp_path / "s", ROWS[:1])
+    target = make_snapshot(
+        tmp_path, "interim", [interim_row("D1", {"sender": ("gap_fill", "Ann")})], snapshot_id="review-src-r2"
+    )
+    before = _tree(target)
+    with pytest.raises((ImportRefused, FileExistsError)):
+        script.derive(src, target, None)
+    assert script.main(["--source", str(src), "--out", str(target)]) == 1
+    assert _tree(target) == before
+
+
+def test_out_holding_a_review_snapshot_not_derived_from_this_source_is_refused(tmp_path: Path) -> None:
+    script = _script()
+    src = _source(tmp_path / "s", ROWS[:1])
+    other = _source(tmp_path, ROWS[2:3], sid="review-src-r2")  # a review snapshot, not a derivation
+    before = _tree(other)
+    with pytest.raises(ImportRefused, match="derived_from"):
+        script.derive(src, other, None)
+    assert _tree(other) == before
+    elsewhere = _source(tmp_path / "e", ROWS[:1], sid="review-other")
+    derived = tmp_path / "d" / "review-src-r2"
+    script.derive(elsewhere, derived, None)  # derived from another source
+    with pytest.raises(ImportRefused, match="derived_from"):
+        script.derive(src, derived, None)
+    script.derive(elsewhere, derived, None)  # its own source may rebuild it
