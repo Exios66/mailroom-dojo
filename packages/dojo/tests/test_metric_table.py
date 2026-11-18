@@ -190,6 +190,10 @@ FOREIGN_METRIC = next(
     for row in PACKAGED_RAW["metrics"]
     if row not in _rows_for(CONFIRMED_AGENT) and row["status"] != "not_ported"
 )
+#: A kept row that is not one number (a structure), applying to the confirmed agent.
+STRUCTURE_METRIC = next(
+    row["id"] for row in _rows_for(CONFIRMED_AGENT) if row["unit"] in ("structure", "tag", "text")
+)
 DIRECTIONLESS_METRIC = next(
     row["id"]
     for row in _rows_for(CONFIRMED_AGENT)
@@ -340,6 +344,26 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
     ("unknown reader", _set("f1_macro", "readers", ["dashboard"]), "(f1_macro).readers[0]: 'dashboard'"),
     ("reader twice", _set("schema_valid", "readers", ["run_report", "run_report"]), "lists a reader twice"),
     ("bad pairing", _set("f1_macro", "pairing", "paired_t"), "(f1_macro).pairing"),
+    (
+        "structure with a direction",
+        _set(STRUCTURE_METRIC, "direction", "higher"),
+        f"({STRUCTURE_METRIC}).direction: a row whose unit is not a number has direction none",
+    ),
+    (
+        "structure with a pairing",
+        _set(STRUCTURE_METRIC, "pairing", "two_sample_percentile_bootstrap"),
+        f"({STRUCTURE_METRIC}).pairing: a row whose unit is not a number is not compared",
+    ),
+    (
+        "structure with a pairing note",
+        _set(STRUCTURE_METRIC, "pairing_note", "a whole-set statistic"),
+        f"({STRUCTURE_METRIC}).pairing: a row whose unit is not a number is not compared",
+    ),
+    (
+        "tag with a direction",
+        _set("model", "direction", "lower"),
+        "(model).direction: a row whose unit is not a number has direction none",
+    ),
     ("bad denominator", _set("f1_macro", "denominator", "pool"), "(f1_macro).denominator: 'pool'"),
     (
         "run denominator paired",
@@ -439,6 +463,16 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
         "has no direction (none)",
     ),
     ("guard without direction", _view(GUARDED_AGENT, guard=DIRECTIONLESS_METRIC), ".guard: "),
+    (
+        "view on a structure",
+        _view(CONFIRMED_AGENT, metric=STRUCTURE_METRIC),
+        f"default_views.{CONFIRMED_AGENT}.metric: {STRUCTURE_METRIC!r} is not a number",
+    ),
+    (
+        "guard on a structure",
+        _view(CONFIRMED_AGENT, guard=STRUCTURE_METRIC),
+        f"default_views.{CONFIRMED_AGENT}.guard: {STRUCTURE_METRIC!r} is not a number",
+    ),
     ("guard not for agent", _view(GUARDED_AGENT, guard=FOREIGN_METRIC), "does not apply to"),
     ("guard is the metric", _view(CONFIRMED_AGENT, guard=CONFIRMED_METRIC), "is the default metric itself"),
     ("guard confirmed alone", _view(UNGUARDED_AGENT, guard_confirmed=True), "there is no guard to confirm"),

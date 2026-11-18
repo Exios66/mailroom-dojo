@@ -93,6 +93,8 @@ behind the spend gate).
    `audit_disagreement_rate` is `1 - audit_resolution_rate`, said in its `status_reason`.
 8. **One spelling per unit.** The unit vocabulary is closed: `usd` is `USD`, `int` is `count`,
    and `confusion_matrix`, `per_class_stats` and `bootstrap_ci` are `structure` (not a number).
+   A `structure`, `tag` or `text` row has direction none and no pairing, and is never a default
+   view or guard (loader rules).
    New units for the design rows: `per_1000`, `docs/min`, `ratio`, and `utility` (the only unit
    that may be negative).
 9. **`n == 0` gives no value.** New in D2 (see the score changelog): a measure over nothing is

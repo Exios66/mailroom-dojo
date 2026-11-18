@@ -113,6 +113,7 @@ Plan: `docs/plans/2026-11-18-dojo-d2-measures-plan.md`.
 | Shared ids keep their meaning; intake has its own row | `test_metric_table.py::test_intake_is_judged_on_its_own_class_accuracy_and_accuracy_keeps_its_meaning` |
 | Every default-view and guard metric says how it is compared | `test_metric_table.py::test_every_default_and_guard_metric_names_its_pairing_or_why_not`, the "default without pairing" and "guard without pairing" faults, `test_a_whole_set_statistic_has_no_per_document_pairing` |
 | A kept old id keeps its old rule; a new rule is a new row | `test_metric_table.py::test_no_kept_old_row_claims_a_new_rule` (no registry or golden row states a derived-gold rule), `test_every_view_on_derived_gold_uses_design_rows`, the "derived gold on an old id" and "derived gold on an old guard" faults; `test_metric_table_parity.py::test_each_derived_gold_row_stands_beside_its_unchanged_old_row` |
+| A row that is not a number is never compared or shown as a view | the "structure with a direction", "structure with a pairing", "structure with a pairing note", "tag with a direction", "view on a structure" and "guard on a structure" faults in `test_metric_table.py` |
 | A denominator the run sets is never paired | `test_metric_table.py::test_the_run_denominator_rows_are_the_reviewed_ones` (`RUN_DENOMINATOR`), `test_no_run_denominator_is_paired_and_every_paired_row_divides_by_gold`, the "run denominator paired", "run denominator two-sample", "paired without a gold denominator" and "bad denominator" faults |
 | Pairings are D1's methods | `test_metric_table.py`: each pairing maps to a D1 method string (the D1 import test skips until D1 is on the branch) |
 
@@ -138,6 +139,8 @@ the file and prints its hash, turned the suite red.
 | one of `same_as`, `alias_of`, `pairing_note`, `readers`, `status`, a view's `label_layers` or `agent_families` dropped from the canonical form | 1 failed each |
 | "a default view or guard names its pairing" removed | 2 failed |
 | a reviewed name-lint exception renamed | 1 failed |
+| "a non-numeric row has direction none and no pairing" removed | 4 failed (the four row faults) |
+| "a view or guard is a number" removed | 2 failed (the view and guard faults) |
 | `INTENDED_PARITY_DIFFERENCES` emptied | 1 failed (`score.api`, `gpu_memory_used_gb`) |
 | "a run denominator has no pairing" removed from the loader | 2 failed (the two faults) |
 | `wrong_archive_rate` paired again with denominator gold | 3 failed (the reviewed run rows, the paired-row check, the "run denominator paired" fault) |

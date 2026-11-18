@@ -614,6 +614,16 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
         raise _fail(f"{path}.pairing", "a not_ported metric has no pairing")
     if pairing is not None and pairing_note is not None:
         raise _fail(f"{path}.pairing_note", "a note says why there is no pairing; this row has one")
+    unit = str(_choice(spec["unit"], UNITS, f"{path}.unit"))
+    if unit in NON_NUMERIC_UNITS:
+        if direction != "none":
+            raise _fail(
+                f"{path}.direction", f"a row whose unit is not a number has direction none (unit {unit!r})"
+            )
+        if pairing is not None or pairing_note is not None:
+            raise _fail(
+                f"{path}.pairing", f"a row whose unit is not a number is not compared (unit {unit!r})"
+            )
     denominator = _choice(spec["denominator"], DENOMINATORS, f"{path}.denominator", nullable=True)
     if denominator == "run" and pairing is not None:
         raise _fail(
@@ -657,7 +667,7 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
     return MetricRow(
         id=metric,
         description=_string(spec["description"], f"{path}.description"),
-        unit=str(_choice(spec["unit"], UNITS, f"{path}.unit")),
+        unit=unit,
         direction=direction,
         aggregation=str(_choice(spec["aggregation"], AGGREGATIONS, f"{path}.aggregation")),
         agents=agents,
@@ -836,6 +846,10 @@ def _roster(
 
 def _view_guarded_metric(metric: Any, agent: str, by_id: Mapping[str, MetricRow], path: str) -> MetricRow:
     row = _view_metric(metric, agent, by_id, path)
+    if not row.numeric:
+        raise _fail(
+            path, f"{metric!r} is not a number (unit {row.unit!r}); a default view or guard shows one"
+        )
     if row.direction == "none":
         raise _fail(path, f"{metric!r} has no direction (none); a default view or guard needs one")
     if row.pairing is None and row.pairing_note is None:

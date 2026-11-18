@@ -28,7 +28,9 @@
 #                 truth and nothing derives it. New here: the old registry stated no
 #                 direction, so every value is proposed for the owner to confirm. none is
 #                 for descriptive behaviour rates and resource readings (audit, intake and
-#                 routing rates, token counts, GPU readings). A row the keep rule reads,
+#                 routing rates, token counts, GPU readings), and always for a row whose unit
+#                 is not a number (structure, tag, text), which also has no pairing and is
+#                 never a default view or guard. A row the keep rule reads,
 #                 and a metric an agent's default view or guard uses, has a direction other
 #                 than none. Every value is frozen in
 #                 tests/fixtures/measures/metric_directions.json; a lint in
