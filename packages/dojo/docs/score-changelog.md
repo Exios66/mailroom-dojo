@@ -45,3 +45,70 @@ old output was deterministic, so changing one is a deliberate, listed score chan
   in set iteration order, which could differ between runs. The new fold keeps a token
   order, and the loader refuses two tokens with the same compact form, so the order never
   decides.
+
+## Intended differences (task B)
+
+None of these changes a score on the extraction corpus (6,414 cases) or on the 16
+`score_extraction` calls of the old golden run.
+
+- **The list matcher is chosen, not fallen back to.** The old `score_entity_list` fell back
+  to a greedy matcher on *any* exception while building or solving the similarity matrix,
+  so a scorer bug or a NaN similarity silently changed the algorithm. Now the Hungarian
+  matcher is the default; the greedy matcher runs only with `matcher="greedy"`, or with
+  `fallback_matcher="greedy"` when scipy cannot be imported (reported on
+  `EntityListScore.matcher_fallback` and logged). Every other error propagates; a NaN
+  element score makes the solver raise `ValueError`.
+- **Malformed arguments fail at once.** A truthy `predicted`, `expected` or
+  `audit_predicted` that is not a mapping, a `field_types` that is not a mapping, or a
+  field type that is not text raises `TypeError` naming the argument. The old code raised
+  `AttributeError` or `ValueError` from deep inside, or for some shapes returned a result
+  (a list of pairs as `predicted` with no expected fields). A falsy non-mapping
+  `audit_predicted` (`[]`) now means "no audit source"; the old code raised. A non-dict
+  mapping as `expected` can now mark a row variant (the old check required a `dict`).
+- **Unregistered field types are refused.** The old scorers scored any unknown type in a
+  caller's map as `name`. Now `UnknownFieldTypeError` is raised unless the caller passes
+  `unknown_field_types="score_as_name"`, which keeps the old scores and lists each such
+  field in `ExtractionScoreResult.field_type_fallbacks`.
+- **No field-type map means the profile's.** `field_types=None` takes the class's types
+  from the profile (the old function required a map); a class the profile lacks is then a
+  `KeyError`.
+- **Unmapped keys follow a policy.** `unmapped_fields: heuristic` (the mailroom profile)
+  types a key by its name as before; `skip` and `error` are new.
+- **Presence has no built-in default field.** The old scorer assumed `cuad_clauses` for an
+  expectation without a `field`; now the caller passes `default_field`, or a `ValueError`
+  names the category. The unused `field_types` argument is gone.
+- **Presence similarity answers are checked.** The old presence matcher used
+  `float(similarity) >= threshold`, so `1.5` or the text `"0.9"` matched and `True` counted
+  as 1.0. Now a `PresenceSimilarity` accepts only real numbers in `[0, 1]`; anything else
+  (and a backend that raises) does not match and is recorded as a `SimilarityFallback`.
+- **Logging.** Warnings go through the standard `logging` module (the old code used
+  structlog events `bipartite_matching_failed` and `presence_embedding_similarity_failed`).
+
+## Found, not changed (task B)
+
+- **A list score can depend on item order.** The Hungarian matcher maximises the total
+  similarity, not the number of pairs that pass the threshold. When two pairings have the
+  same total, the solver picks by input order, and the matched count can differ:
+  `["alpha beta", "beta"]` against `["beta alpha beta", "alpha gamma"]` matches 1, the same
+  items in the other order match 0 (free text). In the old Dojo 45 of 20,000 random
+  two-to-three-item lists over a four-word vocabulary showed this. Lists of all-or-nothing types (`id`, `label`,
+  `cms_doc_ref`) are order invariant; a property test checks it.
+- **The marker fallback and the predicted-value type override apply to every row of the
+  class.** A blank predicted `cms_source_table` is read from `claim_type`, and a table token
+  predicted on `claim_type` is scored as an exact label, even on a row not recognised as
+  CMS and with `apply_variants=False`.
+- **A variant-only field is typed on every class.** An expected `cms_source_table` with no
+  type in the caller's map is scored as a `label` whatever the class (the old code named
+  the field in `score_extraction` itself).
+- **The audit uses the map's types, not the variant's.** On a CMS row,
+  `supporting_documents` is scored as CMS identifiers but audited as names, and a scalar
+  audit compares with the expected value as stored (a JSON text is not parsed).
+- **Class keys are matched three ways.** Accepted-unscored keys (`maud_clauses` on
+  `contract`) are found case-insensitively, label folding strips and lowercases the class
+  key, while row variants and type overrides need the exact key.
+- **Reasoning written as text breaks presence routing.** With routing on, a `reasoning`
+  that is a non-empty string or list raises `AttributeError` (it has no `entries`
+  mapping).
+- **A single pair and a matrix treat NaN differently.** A one-to-one list compares a NaN
+  element score with the threshold (false, so unmatched); a larger list now raises.
+

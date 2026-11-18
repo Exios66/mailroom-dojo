@@ -24,6 +24,12 @@ once it lands, `mailroom_labels`) and nothing from any engine or from `llm_dojo_
 | `field_scoring/plugins/` | plug-in scorers bundled with the Dojo (`cms_doc_ref` for CMS supporting-document identifiers). |
 | `field_scoring/similarity_backend.py` | optional embedding rescue: an injected `SimilarityBackend`, with every backend failure kept as a reported `SimilarityFallback`. Off unless a caller passes a backend. |
 | `field_scoring/sentence_transformer_backend.py` | an optional local `sentence-transformers` backend (extra `embeddings`, local files only). |
+| `field_scoring/entity_lists.py` | `score_entity_list`: pairs items by the Hungarian algorithm (scipy), thresholded by `thresholds.list_match_threshold`, then precision, recall and F1. The greedy matcher runs only when asked (`matcher="greedy"`) or allowed as the fallback for a missing scipy (`fallback_matcher="greedy"`); `EntityListScore.matcher` and `.matcher_fallback` say which ran and why. |
+| `field_scoring/audits.py` | the factuality audit: `audit_list_field`, `audit_scalar_field` (a predicted value is true when it matches the label or is grounded in the document text; dates are grounded in any format), `verify_list_items`, `field_audit_support`. |
+| `field_scoring/category_presence.py` | `score_category_presence`: the share of labelled clause categories a predicted span covers, with reasoning-trace routing and an optional `PresenceSimilarity` whose backend failures are reported. |
+| `field_scoring/row_variants.py` | the rules of a profile's row variants (documented-absent fields, type overrides, an unstated marker, a marker read from a fallback field). |
+| `field_scoring/trace_capture.py` | `capture_trace`: model-emitted `confidence` and `reasoning`, captured for the run log under the profile's `TraceCaptureOptions`, never scored. |
+| `field_scoring/extraction.py` | `score_extraction(profile, class_key, predicted, expected, ...)` → `ExtractionScoreResult` (field scores, overall score, judge-review fields, list scores, audits, trace). |
 
 ## The scoring profile
 
@@ -66,9 +72,31 @@ score_name_field("ACME Corp", "Acme Corporation of Delaware", rescue)
 rescue.fallbacks  # every time the backend raised, returned NaN, a non-number or a value outside [0, 1]
 ```
 
+## Scoring an extraction
+
+```python
+result = score_extraction(profile, "insurance_claim", predicted, expected, doc_text=document_text)
+result.to_dict()                 # field_scores, overall_score, ambiguous_fields, entity_list_scores, entity_list_audit, trace
+result.audit_support             # audited fields, mean verified precision and hallucination rate
+result.similarity_fallbacks      # every time an embedding backend's answer was not used
+result.field_type_fallbacks      # unregistered types scored as name (only with unknown_field_types="score_as_name")
+```
+
+With `field_types=None` the class's field types come from the profile; an explicit map
+is used as given (it also opts retired and accepted-unscored keys back in). An
+unregistered type in a caller's map raises `UnknownFieldTypeError`; an expected key with
+no type follows the profile's `unmapped_fields` policy. Pass `apply_variants=False` when
+the expected values are not ground truth (comparing two model outputs).
+
 ## Tests
 
 See `docs/test-strategy-dojo-core.md`. The differential corpus
 (`tests/fixtures/differential/scalar_cases.jsonl`) holds 21,009 inputs with the old Dojo's
 outputs; `scripts/capture_old_dojo_scalar_cases.py` regenerates it from an old checkout
 and never runs in CI.
+
+The extraction corpus (`tests/fixtures/differential/extraction_cases.jsonl`, 6,414 cases)
+holds the old golden run's `score_extraction` calls, tied to the old `scores.json` by
+path and hash, the calls the old tests make into the extraction layers, and seeded
+generated inputs, many under non-default settings that the replay builds into a profile.
+`scripts/capture_old_dojo_extraction_cases.py` regenerates it byte for byte.
