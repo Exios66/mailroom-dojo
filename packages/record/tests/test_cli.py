@@ -421,3 +421,15 @@ def test_a_lone_surrogate_id_is_escaped_not_a_crash(tmp_path: Path) -> None:
     assert _unsafe_chars(res.stdout + res.stderr) == []
     res = run_cli("trace", "doc", "d\ud800\u202e\x1b[31m", root=tmp_path)
     assert res.exit_code == 2 and res.stderr.count("\n") == 1 and _unsafe_chars(res.stderr) == []
+
+
+def test_a_closed_pipe_exits_quietly(review_store: SimpleNamespace) -> None:
+    """`mailroom-record trace run r1 | head -1`: the reader goes away; no error, no traceback."""
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "mailroom_record", "trace", "run", "r1", "--root", str(review_store.root)],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_env(),
+    )
+    proc.stdout.close()  # before the child writes a byte (it is still importing)
+    err = proc.stderr.read().decode()
+    assert proc.wait(timeout=60) == 141, err
+    assert err == ""

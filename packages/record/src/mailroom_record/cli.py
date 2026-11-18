@@ -12,7 +12,8 @@ Commands (each takes ``--root``, the store root, and ``--json`` for machine-read
 Exit codes: 0 done (for ``verify``: the run is ok); 1 the record is not ok or an operation
 was refused or failed (``verify`` found a failing problem, ``seal`` refused a damaged log,
 a document that is not readable but may sit in unreadable lines, an unexpected error); 2 a usage error (a malformed run id, an unknown run or document, a
-root that is not a directory, a missing or unknown option). Errors are one line on stderr,
+root that is not a directory, a missing or unknown option); 141 the reader of stdout went
+away (a closed pipe), with nothing printed. Errors are one line on stderr,
 never a traceback.
 
 Text output escapes every control, format, separator and surrogate character of a stored id
@@ -29,6 +30,7 @@ when it cannot be (for example a read-only store); damaged data is shown, never 
 from __future__ import annotations
 
 import json
+import os
 import sys
 import unicodedata
 from collections.abc import Callable
@@ -152,6 +154,12 @@ def _guard(body: Callable[[], int]) -> None:
     except (BadRunId, UnknownRun, _Usage) as exc:
         _err(f"usage error: {exc}")
         raise typer.Exit(2) from None
+    except BrokenPipeError:
+        # The reader went away (``mailroom-record trace run r1 | head -1``): stop quietly, as
+        # a tool killed by SIGPIPE would (128 + 13), and point stdout at /dev/null so the
+        # interpreter's final flush cannot raise again.
+        _silence_stdout()
+        raise typer.Exit(141) from None
     except _Damaged as exc:
         _err(f"damaged: {exc}")
         raise typer.Exit(1) from None
@@ -161,6 +169,15 @@ def _guard(body: Callable[[], int]) -> None:
         _err(f"error: {_describe(exc)}")
         raise typer.Exit(1) from None
     raise typer.Exit(code)
+
+
+def _silence_stdout() -> None:
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        os.close(devnull)
+    except (OSError, ValueError):  # no real file descriptor (an in-process runner)
+        pass
 
 
 def _print_json(obj: Any) -> None:
