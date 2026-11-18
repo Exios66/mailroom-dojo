@@ -36,7 +36,7 @@ from mailroom_labels.importers.hub import DEFAULT_SHARDS, parse_dataset_manifest
 REPOSITORY = "Lucius-Morningstar/mailroom-dataset"
 REVISION = "ccd040f6a1b6b414bdefd161cdc622b68f6dacf8"
 DEFAULT_FILES = DEFAULT_SHARDS
-_REVISION = re.compile(r"^[0-9a-f]{40}$")
+_REVISION = re.compile(r"^[0-9a-f]{40}\Z")  # \Z: "$" also matches before a final newline
 
 
 def _url(repository: str, revision: str, path: str) -> str:

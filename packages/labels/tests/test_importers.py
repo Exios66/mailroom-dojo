@@ -1658,3 +1658,19 @@ def test_build_profile_refuses_a_duplicated_key_in_the_field_registry(tmp_path: 
     registry.write_text("vocabularies:\n  urgency: [routine]\n  urgency: [urgent]\n")
     with pytest.raises(bp.BuildError, match="duplicate key 'urgency'"):
         bp.build(tmp_path, "0" * 40, tmp_path, [], {})
+
+
+def test_a_pin_or_revision_with_a_trailing_newline_is_refused(tmp_path: Path) -> None:
+    from mailroom_labels.importers.hub import load_hub_pins
+
+    rev, sha = "0" * 40, "a" * 64
+    path = tmp_path / "pins.yaml"
+    path.write_text(f'"{rev}\\n":\n  manifest.txt: {sha}\n')
+    with pytest.raises(ImportRefused):
+        load_hub_pins(path)
+    path.write_text(f"'{rev}':\n  manifest.txt: \"{sha}\\n\"\n")
+    with pytest.raises(ImportRefused):
+        load_hub_pins(path)
+    fetch = _load_fetch()
+    assert fetch.fetch(tmp_path / "out", ["manifest.txt"], revision=rev + "\n") == 2
+    assert not (tmp_path / "out").exists()

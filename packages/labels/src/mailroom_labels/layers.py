@@ -82,7 +82,7 @@ INTERIM_TRUTH = ("gap_fill", "derived", "correction")
 FLAG_MISMATCH_RANK = "interim:flag_mismatch"
 INTERIM_STATUSES = (*INTERIM_TRUTH, "disputed")
 REVIEW_VERDICTS = ("correct", "accept")
-_HASH = re.compile(r"^[0-9a-f]{16,64}$")
+_HASH = re.compile(r"^[0-9a-f]{16,64}\Z")  # \Z: "$" would also match before a final newline
 
 
 @dataclass

@@ -93,8 +93,8 @@ def parse_dataset_manifest(text: str) -> dict[str, str]:
     return out
 
 
-_HEX40 = re.compile(r"^[0-9a-f]{40}$")
-_HEX64 = re.compile(r"^[0-9a-f]{64}$")
+_HEX40 = re.compile(r"^[0-9a-f]{40}\Z")
+_HEX64 = re.compile(r"^[0-9a-f]{64}\Z")  # \Z: "$" also matches before a final newline
 
 
 def load_hub_pins(path: Path | str) -> dict[str, dict[str, str]]:

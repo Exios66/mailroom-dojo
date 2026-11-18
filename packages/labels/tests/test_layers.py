@@ -303,3 +303,20 @@ def test_hash_matches_compares_every_digit_of_a_longer_label_hash() -> None:
             f"a {n}-digit hash differing in its last digit names other text"
         )
         assert hash_matches(full[:n], full)
+
+
+# --- review follow-ups --------------------------------------------------------------------------
+
+
+def test_a_hash_with_a_trailing_newline_is_malformed_and_never_matches(tmp_path: Path) -> None:
+    full = text_hash("D1")
+    bent = full[:63] + "\n"  # 64 characters, and "$" would match before the newline
+    snap = load_snapshot(make_snapshot(tmp_path, "hub", [hub_row("D1", fields={"sender": "Ann"}, sha=bent)]))
+    out = read_layer(snap)
+    assert [f.kind for f in out.findings] == ["malformed_record"] and out.corpus == []
+    assert not hash_matches(full[:16] + "\n", full + "\n")
+    ng = load_snapshot(
+        make_snapshot(tmp_path, "near_gold", [near_gold_row("D1", {"sender": "Ann"}, sha=full[:16] + "\n")])
+    )
+    assert [f.kind for f in read_layer(ng).findings] == ["malformed_record"]
+    assert hash_matches(full[:16], full)  # a valid prefix still matches
