@@ -346,3 +346,69 @@ def test_installed_console_script(review_store: SimpleNamespace) -> None:
     assert usage.returncode == 2 and usage.stderr.startswith("usage error: ") and "Traceback" not in usage.stderr
     for r in (ok, bad, usage):
         assert SENTINEL not in r.stdout + r.stderr
+
+
+# --- hostile ids cannot forge output (review M-1) ------------------------------------------
+
+import unicodedata  # noqa: E402
+
+_HOSTILE = ["\n", "\r", "\x1b", "\x1b[31m", "\x1b]8;;x\x07", "\x00", "\x07", "\x85", "\x9b", "‮", "⁦",
+            "​", " ", " ", "﻿", "\t", "run r1: ok"]
+_hostile_text = st.lists(st.sampled_from(["a", "b"] + _HOSTILE), min_size=1, max_size=6).map("".join)
+_UNSAFE = {"Cc", "Cf", "Zl", "Zp", "Cs"}
+
+
+def _write_named(root: Path, docs: list[str], node: str, agent: str, keys: list[str]) -> None:
+    blobs = BlobStore(root)
+    log = EventLog(root, blobs)
+    log.create_run(Run(**run_fields()))
+    with log.open_writer("r1", "w0") as w:
+        for i, doc in enumerate(docs):
+            ref = blobs.put(f"blob {i}".encode(), "original")
+            w.append(doc_id=doc, node=node, agent=agent, kind="decision", outputs=[ref],
+                     decision={k: 1 for k in keys}, cause="c")
+            w.append(doc_id=doc, node=node, agent=agent, kind="review", inputs=[ref], decision=[{k: 2} for k in keys])
+
+
+def _unsafe_chars(text: str) -> list[str]:
+    return [c for c in text if c != "\n" and unicodedata.category(c) in _UNSAFE]
+
+
+@given(
+    docs=st.lists(_hostile_text, min_size=2, max_size=2, unique=True),
+    node=_hostile_text,
+    agent=_hostile_text,
+    keys=st.lists(_hostile_text, min_size=1, max_size=2, unique=True),
+)
+def test_hostile_ids_cannot_forge_text_output(docs: list[str], node: str, agent: str, keys: list[str]) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        hostile, benign = Path(tmp) / "hostile", Path(tmp) / "benign"
+        _write_named(hostile, docs, node, agent, keys)
+        _write_named(benign, ["doc0", "doc1"], "node", "agent", [f"k{i}" for i in range(len(keys))])
+        names = {"hostile": docs, "benign": ["doc0", "doc1"]}
+        commands = [("verify", "r1"), ("trace", "run", "r1"), ("reindex",)]
+        commands += [("trace", "doc", i) for i in range(2)] + [("versions", "r1", i) for i in range(2)]
+        for args in commands:
+            outs = {}
+            for which, root in (("hostile", hostile), ("benign", benign)):
+                argv = [names[which][a] if isinstance(a, int) else a for a in args]
+                res = run_cli(*argv, root=root)
+                assert res.exit_code == 0, (which, args, res.stderr)
+                assert _unsafe_chars(res.stdout + res.stderr) == [], (args, res.stdout)
+                outs[which] = res.stdout
+            assert outs["hostile"].count("\n") == outs["benign"].count("\n"), (args, outs["hostile"])
+
+
+def test_a_lone_surrogate_id_is_escaped_not_a_crash(tmp_path: Path) -> None:
+    """A hand-written line can hold an id the writer could never encode (a lone surrogate)."""
+    from mailroom_record.models import GENESIS
+    from record_testkit import hand_line, write_lines
+
+    blobs = BlobStore(tmp_path)
+    EventLog(tmp_path, blobs).create_run(Run(**run_fields()))
+    line = hand_line("r1", "d\ud800‮", 0, GENESIS)
+    seg = tmp_path / "runs" / "r1" / "segments" / "w0.jsonl"
+    seg.write_bytes(json.dumps(line).encode() + b"\n")  # ensure_ascii: stored as \ud800 escapes
+    res = run_cli("trace", "run", "r1", root=tmp_path)
+    assert res.exit_code == 0, res.stderr
+    assert "document d\\ud800\\u202e" in res.stdout and _unsafe_chars(res.stdout) == []
