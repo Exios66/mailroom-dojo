@@ -56,6 +56,14 @@ exact dataset documents they describe.
    index, or whose recorded content hash differs from the Hub's `content_sha256`, makes that document
    `verified = False`. Unverified documents are reported and never silently scored; they do not block
    the others (project memory: corpus hash mismatch must not block scoring).
+   *Amended in Task 2:* a layer whose class or subclass disagrees with the index makes the
+   document unverified too (the label is stale, as for a hash mismatch). Trade-off: on the
+   real data six corporate_record documents that the Hub re-filed under another subclass
+   between revisions bc9eab28 and ccd040f6 lose 53 scorable fields, 24 of them current Hub
+   values, which the sandbox still scores. The alternative is to drop only the stale interim
+   labels and keep scoring the Hub values; it was not taken because the document's subclass
+   choice is itself in doubt until the interim overlay is rebuilt on ccd040f6 (open question
+   for JJB).
 5. **Data quality is a gate.** `quality.check(snapshot set)` returns typed findings (error or warning)
    for: unknown document, class or subclass disagreeing with the Hub index, stale content hash,
    duplicate (document, field) within a layer, field not in the client profile, value not matching its
