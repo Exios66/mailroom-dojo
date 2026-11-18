@@ -20,6 +20,7 @@ from record_testkit import (
     append_in_child,
     append_until_killed,
     check_chains,
+    join_all,
     run_fields,
     segment_lines,
     stored_v0_event_dict,
@@ -124,15 +125,29 @@ def test_parallel_processes_keep_their_chains(store: SimpleNamespace) -> None:  
         )
         for k in range(4)
     ]
-    for p in procs:
-        p.start()
-    for p in procs:
-        p.join(timeout=120)
-        assert p.exitcode == 0
+    try:
+        for p in procs:
+            p.start()
+    finally:
+        codes = join_all(procs, timeout=120)  # a worker that overruns is killed and reaped
+    assert codes == [0] * len(procs)
     counts = check_chains(store.root)
     assert counts == {f"p{k}-d{j}": 50 for k in range(4) for j in range(4)}
     assert store.log.torn_tails("r1") == []
     assert len(list(seg_dir(store).glob("*.jsonl"))) == 4  # one file per writer process
+
+
+def test_a_worker_that_overruns_is_killed_and_reaped() -> None:
+    # The guard the process tests rely on: a child still running at the deadline is
+    # stopped, so a failing test never leaves it behind.
+    ctx = multiprocessing.get_context("spawn")
+    sleeper = ctx.Process(target=time.sleep, args=(600,))
+    try:
+        sleeper.start()
+    finally:
+        codes = join_all([sleeper], timeout=0.5)
+    assert codes == [-signal.SIGKILL] and not sleeper.is_alive()
+    assert join_all([ctx.Process(target=time.sleep, args=(0,))]) == [None]  # never started
 
 
 def test_threads_sharing_one_writer_serialize(store: SimpleNamespace) -> None:

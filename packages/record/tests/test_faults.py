@@ -5,6 +5,10 @@ root, then repeats it on a fresh store once per (syscall, call number, fault) an
 the exact outcome: a clear ``OSError`` (or completion, for a short write the code must
 retry), nothing partial at a final path, no temp file left, a failed log writer refusing
 further use, and an on-disk state that verifies and recovers when used again.
+
+``Faults`` (record_testkit) tells the store's descriptors from pytest's by reading
+``/proc/self/fd``, so these tests need Linux procfs; elsewhere ``Faults`` skips the test
+rather than run a fault plan that cannot see the store's writes.
 """
 
 from __future__ import annotations

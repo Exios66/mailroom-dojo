@@ -29,6 +29,7 @@ from record_testkit import (
     build_two_run_store,
     chain,
     dump_digest,
+    join_all,
     make_event,
     peak_bytes,
     read_index_until,
@@ -454,8 +455,8 @@ def test_a_reader_process_sees_the_old_index_or_the_new_one_never_a_mix(store_wi
         time.sleep(0.2)
     finally:
         Path(stop).touch()
-        reader.join(timeout=60)
-    assert reader.exitcode == 0
+        (code,) = join_all([reader], timeout=60)  # killed and reaped if it overruns
+    assert code == 0
     seen = json.loads(out.read_text())
     assert {d for _, d in seen} <= {old, new}, {d for _, d in seen} - {old, new}
     assert any(b and d == old for b, d in seen)  # positive control: it read mid-build

@@ -324,7 +324,7 @@ def test_blob_ref_rejects_bad_values(overrides: dict[str, Any]) -> None:
     ],
 )
 def test_event_rejects_bad_values(overrides: dict[str, Any]) -> None:
-    with pytest.raises((ValidationError, TypeError)):
+    with pytest.raises(ValidationError):
         make_event(**overrides)
 
 
@@ -375,7 +375,7 @@ def test_decision_may_be_a_list_of_decisions() -> None:
 
 @pytest.mark.parametrize("bad", ["text", 3, [{"x": float("nan")}], [object()], [{1: "k"}]])
 def test_decision_rejects_non_json_or_scalars(bad: Any) -> None:
-    with pytest.raises((ValidationError, TypeError)):
+    with pytest.raises(ValidationError):
         make_event(decision=bad)
 
 
@@ -389,5 +389,5 @@ def test_decision_rejects_non_json_or_scalars(bad: Any) -> None:
     ],
 )
 def test_trailing_newline_is_rejected(overrides: dict[str, Any]) -> None:
-    with pytest.raises((ValidationError, TypeError)):
+    with pytest.raises(ValidationError):
         make_event(**overrides)

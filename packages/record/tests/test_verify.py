@@ -41,6 +41,7 @@ from record_testkit import (
     forge_event,
     deep_payload_line,
     hand_line,
+    join_all,
     kinds,
     last_seq,
     remove_blob_file,
@@ -421,11 +422,12 @@ def test_parallel_writer_processes_verify(store: SimpleNamespace) -> None:
         ctx.Process(target=append_in_child, args=(str(store.root), "r1", f"p{k}", [f"p{k}-d{j}" for j in range(3)], 20))
         for k in range(3)
     ]
-    for p in procs:
-        p.start()
-    for p in procs:
-        p.join(timeout=120)
-        assert p.exitcode == 0
+    try:
+        for p in procs:
+            p.start()
+    finally:
+        codes = join_all(procs, timeout=120)  # a worker that overruns is killed and reaped
+    assert codes == [0] * len(procs)
     seal_run(store.log, "r1")
     r = verify_run(store.log, store.blobs, "r1")
     assert r.ok and r.problems == []

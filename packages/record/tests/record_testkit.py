@@ -281,6 +281,11 @@ class Faults:
         import tempfile
         from collections import Counter
 
+        import pytest
+
+        if not os.path.isdir("/proc/self/fd"):  # descriptors are told apart through procfs
+            pytest.skip("Faults needs Linux procfs (/proc/self/fd)")
+
         self.root = os.path.realpath(root)
         self.calls: Counter[str] = Counter()
         self.plan: dict[tuple[str, int], str] = {}
@@ -415,12 +420,12 @@ def blob_bytes(name: str) -> bytes:
 
 
 def build_sealed_store(root: Any, kind: str = "specialist_only", run_id: str = "r1") -> Any:
-    """A real on-disk store with four documents, three writers (four segments) and three seals.
+    """A real on-disk store with four documents, three writers (three segments) and three seals.
 
     Every event names an ``original`` input blob of its document; the last event of each
     document in each period names an ``extraction`` output blob of its own. History:
 
-    - period 0, writer w0: d1 x3, d2 x2 (interleaved); writer w1: d3 x2.   seal 0
+    - period 0, writer w0: d1 x3 then d2 x2; writer w1: d3 x2.            seal 0
     - period 1, writer w2: d1 x2, d4 x3.                                     seal 1
     - period 2, writer w0 again: d2 x1; writer w1 again: d3 x1.             seal 2
 
@@ -978,3 +983,24 @@ def append_torn_tail(store: Any, data: bytes = b'{"doc_id": "d1", "seq": 99') ->
     with seg.open("ab") as f:
         f.write(data)
     return seg
+
+
+def join_all(procs: Any, timeout: float = 120.0) -> list[int | None]:
+    """Join every process within ``timeout`` seconds in all; kill and reap any still alive.
+
+    Returns the exit codes in order. A process that overran is killed (its code is then
+    ``-SIGKILL``) and one never started reports ``None``, so a test asserting ``0`` fails
+    without leaving a live child behind. Call it from a ``finally`` block.
+    """
+    import signal
+    import time
+
+    deadline = time.monotonic() + timeout
+    for p in procs:
+        if p.pid is not None:
+            p.join(max(0.0, deadline - time.monotonic()))
+    for p in procs:
+        if p.pid is not None and p.is_alive():
+            p.kill()
+            p.join(30)
+    return [p.exitcode if p.pid is not None else None for p in procs]
