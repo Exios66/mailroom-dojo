@@ -646,6 +646,11 @@ def main() -> int:
             call["scores_json_paths"] = scores_json_paths(scores, field_scores)
             call["field_scores_sha256"] = sha256_of(field_scores)
         calls.append(call)
+    unmatched = [call["index"] for call in calls if call["function"] == "score_extraction"
+                 and not call["scores_json_paths"]]
+    if unmatched:
+        print(f"score_extraction calls not found in scores.json: {unmatched}; refusing to freeze", file=sys.stderr)
+        return 1
     counts: dict[str, int] = {}
     for call in calls:
         counts[call["function"]] = counts.get(call["function"], 0) + 1
@@ -688,14 +693,12 @@ def main() -> int:
     )
     print(f"old commit {commit}, version {llm_dojo_scoring.__version__}")
     print(f"boundary calls: {len(calls)} (excluded {sum(boundary['excluded'].values())} unencodable)")
-    unmatched = [call["index"] for call in calls if call["function"] == "score_extraction"
-                 and not call["scores_json_paths"]]
-    print(f"score_extraction calls without a scores.json path: {unmatched}")
+    print("every score_extraction result was found in scores.json")
     for name, corpus_counts in (("classification", classification_counts), ("hub rows", hub_row_counts)):
         print(f"{name} corpus: {sum(corpus_counts.values())} cases")
         for function, count in sorted(corpus_counts.items()):
             print(f"  {count:6d} {function}")
-    return 0 if not unmatched else 1
+    return 0
 
 
 if __name__ == "__main__":

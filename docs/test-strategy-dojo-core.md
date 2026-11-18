@@ -54,6 +54,25 @@ the unknown-key check, the number range check, the band order check, unsorted ha
 an order-sensitive `FrozenMapping` hash, a money name word and the NDC padding. All 17
 were caught.
 
+## Task C: classification, label interface, golden parity, new types, boundaries
+
+| Claim | Test |
+|:---|:---|
+| Every old golden boundary call gives the identical result | `test_golden_parity.py`: all 674 recorded calls (24 functions, the 16 `score_extraction` calls among them) replayed with the mailroom profile; each `field_scores` tied by hash to its `scores.json` paths (and to the real file with `OLD_DOJO_CHECKOUT`); an unlisted or stale entry in `intended_differences.json` fails |
+| Classification gives the old outputs | `test_classification_parity.py`: 7,774 cases from the old direct tests and seeded sorter outputs, 14 functions |
+| The label set comes from the profile | `test_classification.py`: the old class table reproduced, retired classes out, match order, sorter labels and synonyms, conflicting labels refused at their path, exact length-mismatch messages, hostile and deep-JSON outputs, two profiles in eight threads |
+| Metric identities hold for any input | `test_classification_properties.py`: accuracy is trace over total, per-class counts are matrix rows and sum to the kept rows, macro values bounded, binary counts cover every row, row order changes nothing, F-beta bounds and symmetry |
+| Labels are read structurally and never scored silently | `test_labels_interface.py`: the labels package's shapes satisfy the Protocols; only scorable fields kept; unverified refused unless flagged; bad status and unknown class refused; 1,194 Hub-row cases equal the old GT helpers |
+| A new type is configuration only (R4) | `test_new_document_type.py`: a YAML class scored with exact numbers, source tree byte-identical and never naming it, broken profiles refused at their path, two new types at once, existing classification and extraction unchanged when classes are appended (and the first-match exception documented) |
+| One-way dependencies (R9) | `test_boundaries.py`: static, relative and dynamic imports, environment, globals, caches and module-level mutables, with a planted positive control; a fresh interpreter importing every module loads no engine, old Dojo or network client |
+
+Mutation check (task C): 23 single mutations over `classification/` and
+`labels_interface/` (pattern joiner, retired filter, JSON lowercasing, stripping, synonym
+case, label conflicts, None-as-text, accuracy denominator, F-beta guard, label order, tie
+order, flag stripping, empty class, rate defaults, one-sided length check, scorable and
+verified filters, status check, pending annotation, annotation keys, placeholder spans,
+subclass token): all 23 caught. Fixtures and their regeneration: `packages/dojo/docs/golden-parity.md`.
+
 ## Running
 
 ```bash
