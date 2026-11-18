@@ -8,9 +8,10 @@ precedence:
   - review:gold
   - interim:correction
   - hub
+  - review:near_gold
   - interim:gap_fill
   - interim:derived
-  - review:near_gold
+  - hub:absent
   - near_gold
 scorable_statuses: [hub, interim, near_gold, gold]
 vocabularies:

@@ -96,5 +96,5 @@ def test_markdown_rows(snapshot_dirs) -> None:
     assert "Documents: 4; verified: 4; with a scorable field: 4; scorable labels: 11." in md
     assert md.index("## filing") < md.index("## letter")
     # | field | scorable | hub interim near_gold gold | ranks in RANKS order |
-    assert "| sender | 3 | 1 | 1 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 0 | 1 |" in md
+    assert "| sender | 3 | 1 | 1 | 1 | 0 | 0 | 0 | 1 | 0 | 1 | 0 | 0 | 1 |" in md
     assert "| filing_id | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |" in md

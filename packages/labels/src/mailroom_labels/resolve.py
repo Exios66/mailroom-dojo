@@ -4,9 +4,10 @@ Rules (plan decision 1 and 4, ``docs/plans/2026-11-18-labels-plan.md``):
 
 - The label whose rank comes first in ``profile.precedence`` wins. With the mailroom
   profile that is: a gold review decision, then an interim ``correction`` (it replaces the
-  Hub value it corrects), then the Hub (a documented absence or ``not_applicable`` is a Hub
-  label too), then interim ``gap_fill`` and ``derived`` (they only fill what the Hub leaves
-  unlabelled), then near_gold review decisions, then near_gold labels.
+  Hub value it corrects), then a populated Hub value (``hub``), then near_gold review
+  decisions, then interim ``gap_fill`` and ``derived``, then a Hub documented absence or
+  ``not_applicable`` (``hub:absent``: the sandbox lets interim fills replace it, but not
+  near_gold labels), then near_gold labels.
 - A rank missing from the precedence is never truth; ``interim:disputed`` can never be in
   it. Such labels stay visible in ``layers_seen`` or, when nothing else labels the field, in
   ``DocumentLabels.untrusted``.

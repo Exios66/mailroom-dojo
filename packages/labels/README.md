@@ -35,10 +35,16 @@ exit 2.
 
 | Layer | Native shape (`layer_schema`) | Ranks it emits | Status word |
 | --- | --- | --- | --- |
-| `hub` | `mailroom-labels/hub/v1`: one row per dataset document, with `fields.<f>.{value, presence}` | `hub` | `hub` |
+| `hub` | `mailroom-labels/hub/v1`: one row per dataset document, with `fields.<f>.{value, presence}` | `hub` (populated), `hub:absent` (documented absence or `not_applicable`) | `hub` |
 | `interim` | `mailroom-interim-labels/v1` (sandbox interim overlay) | `interim:correction`, `interim:gap_fill`, `interim:derived`, `interim:disputed` (never truth) | `interim` |
 | `near_gold` | `mailroom-interim-labels/v1` (sandbox near-gold overlay, `basis: near_gold:<how>`) | `near_gold` | `near_gold` |
 | `review` | `mailroom-labels/review/v1`: one decision per line | `review:gold` (reviewer model `human`), `review:near_gold` (any other reviewer) | `gold`, `near_gold` |
+
+The Hub has two ranks because the sandbox treats them differently: interim `gap_fill` and
+`derived` replace a Hub documented absence or `not_applicable` (`apply_overlay` skips only
+a populated Hub field), while a near_gold label never replaces any Hub presence code
+(`apply_near_gold`). The mailroom precedence is `review:gold`, `interim:correction`, `hub`,
+`review:near_gold`, `interim:gap_fill`, `interim:derived`, `hub:absent`, `near_gold`.
 
 The exact field-by-field shapes are in the `layers.py` docstring. The client profile's
 `precedence` orders the ranks (highest first); a rank it leaves out is never truth, and

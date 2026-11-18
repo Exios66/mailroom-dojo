@@ -28,14 +28,15 @@ ORACLE_RANK = {
     "review:gold": 0,
     "interim:correction": 1,
     "hub": 2,
-    "interim:gap_fill": 3,
-    "interim:derived": 4,
-    "review:near_gold": 5,
-    "near_gold": 6,
+    "review:near_gold": 3,
+    "interim:gap_fill": 4,
+    "interim:derived": 5,
+    "hub:absent": 6,
+    "near_gold": 7,
 }
 ORACLE_STATUS = {
     "review:gold": "gold", "interim:correction": "interim", "hub": "hub", "interim:gap_fill": "interim",
-    "interim:derived": "interim", "review:near_gold": "near_gold", "near_gold": "near_gold",
+    "interim:derived": "interim", "review:near_gold": "near_gold", "hub:absent": "hub", "near_gold": "near_gold",
 }
 ORACLE_FIELDS = {"letter": {"sender", "recipient", "sent_on", "urgency", "action_items", "amount"},
                  "filing": {"entity", "filing_id", "signers", "kind"}}
@@ -98,7 +99,7 @@ def as_oracle_shape(docs) -> dict:
 DOCS = ("D1", "D2", "D3")
 FIELDS = ("sender", "recipient", "urgency", "entity", "zzz")
 RANK_CHOICES = (*ORACLE_RANK, "interim:disputed")
-LAYER_OF = {"hub": "hub", "near_gold": "near_gold"}
+LAYER_OF = {"hub": "hub", "hub:absent": "hub", "near_gold": "near_gold"}
 
 
 @st.composite
@@ -168,6 +169,8 @@ def test_resolver_invariants(data, rnd) -> None:
                 assert label.rank == "review:gold", "a gold decision always wins"
             if "hub" in fresh:
                 assert label.rank in {"hub", "review:gold", "interim:correction"}, "Hub is never replaced by a fill"
+            if "hub:absent" in fresh:
+                assert label.rank != "near_gold", "a Hub absence is never replaced by a near_gold label"
             assert len(label.layers_seen) == len([r for r in mine if r.field == name])
         for name, facts in doc.untrusted.items():
             assert name not in doc.fields
@@ -215,32 +218,40 @@ def test_scorable_statuses_come_from_the_profile(snapshot_dirs) -> None:
 
 
 def test_precedence_comes_from_the_profile(snapshot_dirs) -> None:
-    near_gold_first = PROFILE.model_copy(update={"precedence": ("near_gold", "hub", "interim:gap_fill")})
+    near_gold_first = PROFILE.model_copy(update={"precedence": ("near_gold", "hub", "hub:absent", "interim:gap_fill")})
     read = read_layers(load_snapshot_set(snapshot_dirs))
     docs = {d.document_id: d for d in resolve(read.records, near_gold_first, corpus_index(read.corpus))}
     assert docs["D1"].fields["sender"].value == "Ann C."
-    assert "recipient" in docs["D1"].fields and docs["D1"].fields["recipient"].rank == "hub"  # correction not ranked
+    assert "recipient" in docs["D1"].fields and docs["D1"].fields["recipient"].rank == "hub:absent"  # correction not ranked
 
 
-# --- parity with the sandbox (interim_labels.apply_overlay) --------------------------
-# Restates today's rules: Hub labels win over gap_fill, derived and near_gold; a correction
-# replaces the Hub value; a disputed label is never applied; a document whose text hash
-# does not match the overlay's is left untouched (here: the overlay label is never truth
-# and the document is flagged unverified, so it is not scored either).
+# --- parity with the sandbox (interim_labels.apply_overlay, gold_labels.apply_near_gold) ---
+# Restates today's rules: a populated Hub value wins over gap_fill, derived and near_gold;
+# gap_fill and derived replace a Hub documented absence or not_applicable (apply_overlay
+# skips only a populated Hub field) but near_gold never does (apply_near_gold treats any
+# presence code as labelled); a correction replaces the Hub value; a disputed label is
+# never applied; a document whose text hash does not match the overlay's is left untouched
+# (here: the overlay label is never truth and the document is flagged unverified, so it is
+# not scored either).
 
 PARITY = [
     # (hub field spec or None, layer, overlay status, expected (value, rank) or None)
     ("Hub", "interim", "gap_fill", ("Hub", "hub")),
-    (None, "interim", "gap_fill", (None, "hub")),  # a documented absence is a Hub label
-    ((None, "not_applicable"), "interim", "gap_fill", (None, "hub")),
+    (None, "interim", "gap_fill", ("Fill", "interim:gap_fill")),  # replaces a documented absence
+    ((None, "not_applicable"), "interim", "gap_fill", ("Fill", "interim:gap_fill")),
     (("", "unlabeled"), "interim", "gap_fill", ("Fill", "interim:gap_fill")),
     ("Hub", "interim", "derived", ("Hub", "hub")),
+    (None, "interim", "derived", ("Fill", "interim:derived")),
+    ((None, "not_applicable"), "interim", "derived", ("Fill", "interim:derived")),
     (("", "unlabeled"), "interim", "derived", ("Fill", "interim:derived")),
     ("Hub", "interim", "correction", ("Fill", "interim:correction")),
     (None, "interim", "correction", ("Fill", "interim:correction")),
     ("Hub", "interim", "disputed", ("Hub", "hub")),
     (("", "unlabeled"), "interim", "disputed", None),
+    (None, "interim", "disputed", (None, "hub:absent")),
     ("Hub", "near_gold", None, ("Hub", "hub")),
+    (None, "near_gold", None, (None, "hub:absent")),  # a Hub absence blocks near_gold
+    ((None, "not_applicable"), "near_gold", None, (None, "hub:absent")),
     (("", "unlabeled"), "near_gold", None, ("Fill", "near_gold")),
 ]
 
@@ -302,10 +313,10 @@ def test_document_missing_from_the_index_is_resolved_but_not_scorable(tmp_path: 
 def test_not_applicable_is_resolved_but_never_scorable(tmp_path: Path) -> None:
     dirs = [
         make_snapshot(tmp_path, "hub", [hub_row("D1", fields={"amount": (None, "not_applicable"), "sender": "Ann"})]),
-        make_snapshot(tmp_path, "interim", [interim_row("D1", {"amount": ("gap_fill", "5")})]),
+        make_snapshot(tmp_path, "near_gold", [near_gold_row("D1", {"amount": "5"})]),
     ]
     d1 = resolve_dirs(dirs)["D1"]
-    assert (d1.fields["amount"].rank, d1.fields["amount"].presence) == ("hub", "not_applicable")
+    assert (d1.fields["amount"].rank, d1.fields["amount"].presence) == ("hub:absent", "not_applicable")
     assert d1.verified and d1.scorable_fields == frozenset({"sender"})
 
 

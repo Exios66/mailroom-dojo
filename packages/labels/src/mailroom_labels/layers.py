@@ -3,7 +3,8 @@
 Native shapes (one JSON object per line), keyed by the manifest's ``kind`` and
 ``layer_schema``:
 
-``hub`` / ``mailroom-labels/hub/v1`` — one row per dataset document::
+``hub`` / ``mailroom-labels/hub/v1`` — one row per dataset document (rank ``hub`` for a
+populated field, ``hub:absent`` for a documented absence or ``not_applicable``)::
 
     {"document_id", "doc_class", "subclass", "split", "content_sha256", "filename",
      "fields": {<field>: {"value": <json>, "presence": <presence>}}}
@@ -187,7 +188,7 @@ def _read_hub(snap: LabelSnapshot, row: Row, out: LayerRead, unverified: frozens
                 field=fname,
                 value=lab["value"],
                 presence=presence,
-                rank="hub",
+                rank="hub" if presence == "populated" else "hub:absent",
                 native_status="hub",
                 source=f"hub:{snap.snapshot_id}",
                 content_sha256=sha,

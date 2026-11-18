@@ -53,14 +53,19 @@ Severity = Literal["error", "warning"]
 SEVERITIES: tuple[str, ...] = Severity.__args__  # type: ignore[attr-defined]
 
 #: Every rank a layer reader can emit, with the status word a winning label of that rank
-#: carries. The profile's ``precedence`` orders a subset of these.
+#: carries. The profile's ``precedence`` orders a subset of these. The Hub has two ranks:
+#: ``hub`` for a populated value and ``hub:absent`` for a documented absence or
+#: ``not_applicable``, because the sandbox lets interim ``gap_fill`` / ``derived`` replace a
+#: Hub absence (``interim_labels.apply_overlay`` skips only a populated Hub field) while a
+#: near_gold label never does (``gold_labels.apply_near_gold``).
 RANK_STATUS: dict[str, str] = {
     "review:gold": "gold",
     "interim:correction": "interim",
     "hub": "hub",
+    "review:near_gold": "near_gold",
     "interim:gap_fill": "interim",
     "interim:derived": "interim",
-    "review:near_gold": "near_gold",
+    "hub:absent": "hub",
     "near_gold": "near_gold",
 }
 RANKS: tuple[str, ...] = tuple(RANK_STATUS)

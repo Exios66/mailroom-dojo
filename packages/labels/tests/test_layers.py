@@ -41,8 +41,8 @@ def test_hub_rows_become_corpus_entries_and_labels(tmp_path: Path) -> None:
     got = {(r.field, r.presence, r.rank, r.value) for r in out.records}
     assert got == {
         ("sender", "populated", "hub", "Ann"),
-        ("recipient", "schema_documented_absence", "hub", None),
-        ("amount", "not_applicable", "hub", None),
+        ("recipient", "schema_documented_absence", "hub:absent", None),
+        ("amount", "not_applicable", "hub:absent", None),
     }
     assert all(r.content_sha256 == text_hash("D1") and r.source == "hub:hub-test" for r in out.records)
 
