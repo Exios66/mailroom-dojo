@@ -38,9 +38,14 @@ Rules
   replacing it.
 - The seal file is the commit point; the Parquet file is derived. It is written after the
   seal (temp file, fsync, rename, directory fsync). Any seal whose Parquet file is missing
-  (the latest, after a crash between the two writes; any other, after a deletion) has it
-  rebuilt from the log by the next ``seal_run``, from the rows between that seal's heads
-  and the previous seal's, checked like new rows (below).
+  (the latest, after a crash between the two writes; any other, after a deletion) or
+  damaged has it rebuilt from the log by the next ``seal_run`` (temp file and rename, so
+  the damaged file is replaced whole), from the rows between that seal's heads and the
+  previous seal's, checked like new rows (below). The latest seal's file must read back
+  as exactly those rows; an older seal's file must open with ``EVENT_SCHEMA`` and the row
+  count its seal implies (a cheap footer check, so sealing cost does not grow with the
+  number of seals). Damage that keeps an older file readable with the right count is
+  verify's to find (``columns_mismatch``).
 - Because the seal file always comes first, a column file ``events-<m>.parquet`` with no
   ``seals/<m>.json`` (``m`` above the latest seal) is never a crash state: the seal file was
   deleted. ``seal_run`` refuses (``SealRefused``) instead of sealing ``m`` again with a new
@@ -396,6 +401,28 @@ def _write_columns(path: Path, table: pa.Table) -> None:
     _fsync_dir(directory)
 
 
+def _columns_look_whole(path: Path, n_rows: int) -> bool:
+    """A cheap check of an older seal's column file: it opens, has the schema and row count."""
+    try:
+        f = pq.ParquetFile(path)
+        return f.metadata.num_rows == n_rows and f.schema_arrow.equals(EVENT_SCHEMA)
+    except (OSError, pa.ArrowException, ValueError):  # missing, truncated, not Parquet
+        return False
+
+
+def _columns_hold(path: Path, lines: Sequence[StoredLine]) -> bool:
+    """Whether the latest seal's column file reads back as exactly the rows of ``lines``."""
+    try:
+        stored = pq.read_table(path)
+    except (OSError, pa.ArrowException, ValueError):
+        return False
+    try:
+        want = _table(lines)
+    except CorruptLine:
+        return False  # rebuilding raises it with its segment and offset
+    return stored.schema.equals(EVENT_SCHEMA) and stored.equals(want)
+
+
 def _between(lines: Sequence[StoredLine], after: dict[str, int], upto: dict[str, int] | None) -> list[StoredLine]:
     """Lines with ``after[doc] < seq`` (``-1`` if absent) and, if given, ``seq <= upto[doc]``."""
     out = []
@@ -453,16 +480,21 @@ def seal_run(log: EventLog, run_id: str, *, sealed_at: str | None = None) -> Sea
 
         # The seal is the commit point and its Parquet file is derived: rebuild any a crash
         # (the latest) or a deletion (any) lost, from the same log the seals committed.
-        missing = [s for s in seals if not _columns_path(log, run_id, s.n).exists()]
-        rebuilt: list[tuple[Seal, list[StoredLine]]] = []
-        for s in missing:
+        rebuilt: list[tuple[Seal, pa.Table]] = []
+        for s in seals:
+            path = _columns_path(log, run_id, s.n)
+            added = s.event_count - (seals[s.n - 1].event_count if s.n > 0 else 0)
+            if s is not prev and _columns_look_whole(path, added):
+                continue
             upto = prev_seqs if s is prev else _head_seqs(s, where, run_id)
             before = _head_seqs(seals[s.n - 1], where, run_id) if s.n > 0 else {}
             part = _between(lines, before, upto)
+            if s is prev and _columns_hold(path, part):
+                continue
             _check_links(part, by_key, run_id)
-            rebuilt.append((s, part))
-        for s, part in rebuilt:
-            _write_columns(_columns_path(log, run_id, s.n), _table(part))
+            rebuilt.append((s, _table(part)))
+        for s, table in rebuilt:
+            _write_columns(_columns_path(log, run_id, s.n), table)
 
         new = lines if prev is None else _between(lines, prev_seqs, None)
         if prev is not None and not new:

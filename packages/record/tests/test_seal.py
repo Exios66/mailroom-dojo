@@ -843,3 +843,27 @@ def test_deleted_latest_seal_and_column_file_reseals(store_with_events: SimpleNa
     columns(store, 2).unlink()
     again = seal_run(store.log, "r1", sealed_at="2030-01-01T00:00:00Z")
     assert again.n == 2 and again.hash != seals[2].hash and again.doc_heads == seals[2].doc_heads
+
+
+@pytest.mark.parametrize("which", [2, 1])
+@pytest.mark.parametrize("damage", ["truncate", "garbage", "empty", "wrong_rows"])
+def test_damaged_column_file_is_rebuilt(store_with_events: SimpleNamespace, damage: str, which: int) -> None:
+    # A column file that exists but cannot be read, or holds the wrong rows, is rebuilt
+    # like a missing one, even when there is nothing new to seal.
+    store = store_with_events
+    seals = _three_seals(store)
+    want = rows(store, which)
+    path = columns(store, which)
+    data = path.read_bytes()
+    if damage == "truncate":
+        path.write_bytes(data[: len(data) // 2])
+    elif damage == "garbage":
+        path.write_bytes(b"PAR1" + b"\x00garbage" * 64 + b"PAR1")
+    elif damage == "empty":
+        path.write_bytes(b"")
+    else:  # a readable file of another seal: valid Parquet, wrong rows
+        path.write_bytes(columns(store, 0).read_bytes())
+    assert seal_run(store.log, "r1") == seals[-1]
+    assert rows(store, which) == want
+    assert verify_run(store.log, store.blobs, "r1").problems == []
+    assert not list((store.root / "runs/r1/columns").glob("*.tmp"))
