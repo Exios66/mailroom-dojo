@@ -20,7 +20,7 @@ TYPED_PACKAGES := $(foreach p,common dictionaries,$(if $(wildcard packages/$(p)/
 DEV_TOOLS := ruff==0.17.5 mypy==2.4.1 codespell==2.4.3 pre-commit==4.7.0 types-PyYAML pytest-xdist
 
 .DEFAULT_GOAL := help
-.PHONY: help install test test-fast lint format typecheck spell boundaries layout check hooks
+.PHONY: help install test test-fast lint format typecheck spell boundaries layout session-links check hooks
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-11s %s\n", $$1, $$2}'
@@ -66,7 +66,10 @@ boundaries: ## The one-way dependency rule between packages
 layout: ## README.md's layout map against the real folders
 	$(PYTHON) scripts/check_layout.py
 
-check: lint typecheck spell boundaries layout test ## Every gate, in CI order
+session-links: ## No session links in tracked files or in commit messages since origin/main (skipped if absent)
+	bash scripts/check_no_session_links.sh
+
+check: lint typecheck spell boundaries layout session-links test ## Every gate, in CI order
 
 hooks: ## Install the pre-commit and commit-msg hooks
 	$(BIN)/pre-commit install

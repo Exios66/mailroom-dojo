@@ -1,5 +1,5 @@
 name: field_types
-version: 1
+version: 2
 description: >-
   How an extracted field is scored. A schema names one type per field; `entity_list` may be
   followed by `:` and an entity element type (`entity_list:name`). Source: the Dojo's field
@@ -19,11 +19,22 @@ entries:
     attributes: {takes_element: false}
   - key: date
     label: Date
-    description: A date, scored by exact match after normalization.
+    description: >-
+      A date, parsed into the components it states (year, month, day; none is invented). A
+      blank-template or bare-label expectation scores 1 only for an empty prediction. The
+      expected date phrase contained in the prediction scores 1. Two full dates: same date 1,
+      same year and month or within 45 days 0.67, same year or same month only 0.33, else 0.
+      A partial date is compared on the components both sides state, with at most 0.67 when
+      the prediction leaves out one the label states. A prediction stating a year scores at
+      most 0.67 against a label that states none. Values that do not parse fall back to fuzzy name
+      matching (capped when the label is a date the prediction does not parse to).
     attributes: {takes_element: false}
   - key: money
     label: Money
-    description: An amount of money, scored with a numeric tolerance.
+    description: >-
+      An amount of money: both sides parsed to a number (currency symbols and words, commas
+      and K/M/B suffixes removed) and scored 1 when within one cent, else 0. When either
+      side does not parse, it falls back to fuzzy name matching.
     attributes: {takes_element: false}
   - key: id
     label: Identifier

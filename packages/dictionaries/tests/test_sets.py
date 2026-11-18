@@ -195,3 +195,50 @@ def test_overrides_given_twice_are_refused(write_dict: WriteDict, colors: dict[s
     d = load_dictionary_file(write_dict(colors))
     with pytest.raises(ConfigError, match="given twice"):
         shipped_dictionaries().with_overrides([d, d])
+
+
+def test_label_statuses_cannot_be_overridden(tmp_path: Path) -> None:
+    statuses = shipped_yaml("label_statuses")
+    statuses["entries"].reverse()
+    for rank, entry in enumerate(statuses["entries"], start=1):
+        entry["rank"] = rank
+    path = tmp_path / "label_statuses.yaml"
+    path.write_text(yaml.safe_dump(statuses, sort_keys=False), encoding="utf-8")
+    client = load_dictionary_file(path)  # a valid file on its own
+    with pytest.raises(ConfigError, match="'label_statuses' cannot be overridden: label precedence") as info:
+        shipped_dictionaries().with_overrides([client])
+    assert info.value.context["source"] == str(path)
+    assert shipped_dictionaries()["label_statuses"].rank("gold") == 1
+
+
+def test_doc_classes_override_must_keep_every_shipped_class(tmp_path: Path) -> None:
+    classes = shipped_yaml("doc_classes")
+    classes["entries"] = [e for e in classes["entries"] if e["key"] not in {"contract", "correspondence"}]
+    for entry in classes["entries"]:
+        entry["attributes"]["closed_label_fields"] = {}
+    path = tmp_path / "doc_classes.yaml"
+    path.write_text(yaml.safe_dump(classes, sort_keys=False), encoding="utf-8")
+    client = load_dictionary_file(path)
+    with pytest.raises(
+        ConfigError, match=r"must keep every shipped class; missing \['contract', 'correspondence'\]"
+    ) as info:
+        shipped_dictionaries().with_overrides([client])
+    assert info.value.context["missing"] == ["contract", "correspondence"]
+
+
+def test_manifest_records_origin(write_dict: WriteDict, colors: dict[str, Any], tmp_path: Path) -> None:
+    shipped = shipped_dictionaries()
+    assert {row["origin"] for row in shipped.manifest().values()} == {"shipped"}
+    copy = tmp_path / "copy"
+    copy.mkdir()
+    (copy / "urgency.yaml").write_text(yaml.safe_dump(shipped_yaml("urgency")), encoding="utf-8")
+    merged = shipped.with_overrides(
+        [load_dictionary_file(write_dict(colors)), load_dictionary_file(copy / "urgency.yaml")]
+    )
+    manifest = merged.manifest()
+    assert manifest["colors"]["origin"] == "override"
+    # Same content as the shipped file, but it came from elsewhere: the manifest says so.
+    assert manifest["urgency"]["origin"] == "override"
+    assert manifest["urgency"]["hash"] == shipped.manifest()["urgency"]["hash"]
+    assert manifest["doc_classes"]["origin"] == "shipped"
+    assert set(manifest["colors"]) == {"version", "hash", "origin"}

@@ -6,10 +6,11 @@
 #   - the messages of the commits in BASE..HEAD (BASE defaults to origin/main);
 #   - each MESSAGE_FILE given as an argument (the commit-msg hook passes the new message).
 #
-# Usage: check_no_session_links.sh [--require-base] [MESSAGE_FILE ...]
+# Usage: check_no_session_links.sh [--require-base] [MESSAGE_FILE ...]  (options in any position)
 #   --require-base  fail when BASE does not resolve (CI); without it the commit-message range
 #                   is skipped with a note (a fresh clone or an offline machine).
-# Exit: 0 clean, 1 a link was found or a check could not run.
+# Exit: 0 clean, 1 a link was found or a check could not run (a missing or unreadable
+# MESSAGE_FILE included).
 #
 # The bracketed letters keep this file from matching its own patterns.
 set -euo pipefail
@@ -17,16 +18,30 @@ set -euo pipefail
 pattern='claude\.ai/[c]ode|Claude-[S]ession:'
 base="${BASE:-origin/main}"
 require_base=0
-if [ "${1:-}" = "--require-base" ]; then
-  require_base=1
-  shift
-fi
+message_files=()
+for arg in "$@"; do
+  if [ "$arg" = "--require-base" ]; then
+    require_base=1
+  else
+    message_files+=("$arg")
+  fi
+done
 
 status=0
 
-for message_file in "$@"; do
-  if grep -nE "$pattern" "$message_file"; then
+for message_file in "${message_files[@]+"${message_files[@]}"}"; do
+  if [ ! -f "$message_file" ] || [ ! -r "$message_file" ]; then
+    echo "Cannot read the commit message file $message_file."
+    status=1
+    continue
+  fi
+  rc=0
+  grep -nE "$pattern" "$message_file" || rc=$?
+  if [ "$rc" -eq 0 ]; then
     echo "The commit message contains a session link."
+    status=1
+  elif [ "$rc" -gt 1 ]; then
+    echo "grep failed with exit $rc on $message_file."
     status=1
   fi
 done

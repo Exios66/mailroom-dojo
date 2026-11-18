@@ -1,10 +1,12 @@
 name: label_statuses
-version: 1
+version: 2
 description: >-
   The status every ground-truth label keeps, by precedence. The rank rule: when two layers
   label the same field, the lower rank wins. Gold reviewer decisions sit on top (rank 1);
   below them the layers apply Hub, then interim, then near_gold, each filling only what the
   layers above it leave unlabelled (an interim correction is the one exception: see its entry).
+  Two nuances from the Dojo's label policy: the near_gold layer is opt-in there, and an interim
+  correction is compared with the Hub value as published, before stale labels are dropped.
   Precedence does not change. Source: docs/specs/2026-11-18-lean-rewrite-design.md (R6,
   "Labels package") and llm-dojo-scoring llm_dojo_scoring/schemas/label_policy.py.
 ordered: true

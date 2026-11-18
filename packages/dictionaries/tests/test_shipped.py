@@ -19,8 +19,10 @@ from mailroom_dictionaries.lock import LOCK_NAME, lock_problems, read_lock
 
 EXPECTED = {
     "claim_type",
+    "cms_source_table",
     "communication_type",
     "corporate_record_intent",
+    "corporate_record_type",
     "correspondence_intent",
     "coverage_determination",
     "cuad_family",
@@ -53,6 +55,56 @@ def test_each_key_normalizes_to_itself(name: str) -> None:
         assert d.require(key.upper()) == key
         for alias in d.get(key).aliases:  # type: ignore[union-attr]
             assert d.normalize(alias) == key
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED))
+def test_each_label_names_its_own_entry(name: str) -> None:
+    d = load_dictionary(name)
+    for key in d:
+        label = d.get(key).label  # type: ignore[union-attr]
+        assert d.normalize(label) == key, (name, key, label)
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "key"),
+    [
+        ("merger_consideration", "Mixed Cash & Stock", "mixed_cash_stock"),
+        ("merger_consideration", "Mixed Cash & Stock (Election)", "mixed_cash_stock_election"),
+        ("merger_consideration", "Other / Unspecified", "other"),
+        ("cuad_family", "Affiliate Agreement", "affiliate"),
+        ("cuad_family", "Non-Compete / No-Solicit / Non-Disparagement Agreement", "non_compete_no_solicit"),
+        ("doc_classes", "Contract / Agreement", "contract"),
+        ("urgency", "Time–Sensitive", "time-sensitive"),
+        ("urgency", "ＵＲＧＥＮＴ", "urgent"),
+        ("cms_source_table", "PDE", "pde"),
+        ("corporate_record_type", "Articles of Incorporation", "articles_of_incorporation"),
+    ],
+)
+def test_labels_and_their_variants_resolve(name: str, value: str, key: str) -> None:
+    assert load_dictionary(name).normalize(value) == key
+
+
+@pytest.mark.parametrize("value", ["cash", "stock", "none", "unspecified", "all cash consideration"])
+def test_merger_consideration_does_not_credit_what_the_scorer_rejects(value: str) -> None:
+    """The Dojo's label scorer gives these 0; `none` must not turn an absent value into `other`."""
+    assert load_dictionary("merger_consideration").normalize(value) is None
+
+
+def _class_attr(cls: str, attr: str) -> list[str]:
+    entry = load_dictionary("doc_classes").get(cls)
+    assert entry is not None
+    return list(entry.attributes[attr])
+
+
+def test_subclass_dimensions_agree_with_their_vocabularies() -> None:
+    """Relations the Dojo builds its scored vocabularies from (scored_enums.SCORED_ENUM_FIELDS)."""
+    cuad = set(load_dictionary("cuad_family").keys())
+    assert set(_class_attr("contract", "subclasses")) == cuad - {"other"} and "other" in cuad
+    assert set(_class_attr("merger_agreement", "subclasses")) == set(load_dictionary("merger_consideration"))
+    assert set(_class_attr("correspondence", "subclasses")) == set(load_dictionary("communication_type"))
+    # Every CMS table and record type is also a subclass the sorter emits for its class.
+    assert set(load_dictionary("cms_source_table")) <= set(_class_attr("insurance_claim", "subclasses"))
+    assert set(load_dictionary("corporate_record_type")) <= set(_class_attr("corporate_record", "subclasses"))
 
 
 def test_load_dictionary_is_cached() -> None:

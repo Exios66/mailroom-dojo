@@ -114,6 +114,29 @@ def test_message_file_argument_is_checked(repo: Repo, tmp_path: Path) -> None:
     assert repo.check(str(message)).returncode == 0
 
 
+def test_missing_or_unreadable_message_file_fails(repo: Repo, tmp_path: Path) -> None:
+    missing = repo.check(str(tmp_path / "nope"))
+    assert missing.returncode == 1
+    assert f"Cannot read the commit message file {tmp_path / 'nope'}." in missing.stdout
+    directory = repo.check(str(tmp_path))  # a folder is not a readable message file
+    assert directory.returncode == 1
+    assert "Cannot read the commit message file" in directory.stdout
+
+
+def test_require_base_is_accepted_in_any_position(repo: Repo, tmp_path: Path) -> None:
+    message = tmp_path / "COMMIT_EDITMSG"
+    message.write_text("fix: x\n\nWhy: because\n", encoding="utf-8")
+    after = repo.check(str(message), "--require-base", base="origin/nowhere")
+    assert after.returncode == 1
+    assert "Base ref origin/nowhere does not resolve" in after.stdout
+    assert "Cannot read" not in after.stdout  # the flag was not taken for a file name
+    assert repo.check(str(message), "--require-base").returncode == 0
+    message.write_text(f"fix: x\n\n{TRAILER}\n", encoding="utf-8")
+    flagged = repo.check("--require-base", str(message))
+    assert flagged.returncode == 1
+    assert "The commit message contains a session link." in flagged.stdout
+
+
 def test_missing_base_is_a_note_locally_and_a_failure_in_ci(repo: Repo) -> None:
     local = repo.check(base="origin/nowhere")
     assert local.returncode == 0

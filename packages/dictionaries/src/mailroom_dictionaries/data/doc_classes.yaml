@@ -1,12 +1,15 @@
 name: doc_classes
-version: 1
+version: 2
 description: >-
   The mailroom dataset's document classes, in taxonomy order. `label` and `description` are
   the taxonomy's (llm-mailroom src/config/taxonomy.yaml doc_classes). `subclasses` are the
   canonical subclass keys the sorter emits for the class (llm-dojo-scoring
   llm_dojo_scoring/schemas/corpus.py DOC_TYPE_SUBCLASSES). `closed_label_fields` maps each
-  closed `label` field of the class to the dictionary holding its vocabulary (the taxonomy's
-  label_vocabularies). A client profile replaces this dictionary with its own to add classes.
+  field of the class whose values come from a closed vocabulary to the dictionary holding it:
+  the taxonomy's label_vocabularies, plus two fields the Dojo closes that the taxonomy does
+  not list (insurance_claim cms_source_table, a `label` on CMS rows only, and corporate_record
+  record_type, scored as a `name` but gold only from its five tokens). A client profile
+  replaces this dictionary with its own to add classes; it must keep every shipped class.
 ordered: false
 entries:
   - key: contract
@@ -42,6 +45,7 @@ entries:
                    powers_of_attorney, subsidiary_list, rights_instrument, indenture,
                    board_resolution, officer_certificate, other]
       closed_label_fields:
+        record_type: corporate_record_type
         intent: corporate_record_intent
   - key: correspondence
     label: Correspondence
@@ -63,5 +67,6 @@ entries:
       subclasses: [carrier, inpatient, outpatient, pde, property, auto]
       closed_label_fields:
         claim_type: claim_type
+        cms_source_table: cms_source_table
         coverage_determination: coverage_determination
         intent: insurance_claim_intent

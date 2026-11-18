@@ -37,7 +37,7 @@ def test_valid_field_types(text: str, base: str, element: str | None) -> None:
 @pytest.mark.parametrize(
     ("text", "match"),
     [
-        ("dates", "'dates' is not in dictionary 'field_types' version 1; did you mean 'date'"),
+        ("dates", "'dates' is not in dictionary 'field_types' version 2; did you mean 'date'"),
         ("entity_list:money", "'money' is not in dictionary 'entity_element_types'"),
         ("entity_list:entity_list", "'entity_list' is not in dictionary 'entity_element_types'"),
         ("entity_list:", "the element type after ':' is empty"),
