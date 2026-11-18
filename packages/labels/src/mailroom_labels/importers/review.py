@@ -57,8 +57,8 @@ from typing import Any
 from mailroom_labels.importers.common import (
     SourceLine,
     builder_name,
-    file_sha256,
-    read_jsonl_lenient,
+    parse_jsonl_lenient,
+    read_source,
     refuse_dropped,
 )
 from mailroom_labels.layers import CURRENT_LAYER_SCHEMA
@@ -364,9 +364,10 @@ def build_review(
     files = []
     for kind, items in (("decisions", decisions), ("desk", desk)):
         for path, name in items:
-            lines, bad = read_jsonl_lenient(Path(path), name)
+            data, digest = read_source(path)
+            lines, bad = parse_jsonl_lenient(data, name)
             rejected.extend(bad)
-            files.append({"path": name, "shape": kind, "sha256": file_sha256(path), "rows": len(lines)})
+            files.append({"path": name, "shape": kind, "sha256": digest, "rows": len(lines)})
             for line in lines:
                 row = (
                     _from_decision(line, rejected)
