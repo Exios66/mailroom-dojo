@@ -432,6 +432,91 @@ def test_reimport_of_a_pruned_run_refuses_and_writes_nothing(
     assert verify_run(tmp_store.log, tmp_store.blobs, RUN).ok
 
 
+def _seal_pack_prune(store: SimpleNamespace, archive: Path) -> None:
+    """What a concurrent process does in the gap: seal what is stored, pack it, prune it."""
+    from mailroom_record.pack import pack_run, prune_run
+    from mailroom_record.seal import seal_run
+
+    seal_run(store.log, RUN)
+    pack_run(store.root, RUN, archive)
+    prune_run(store.root, RUN)
+
+
+def _blob_names(root: Path) -> list[str]:
+    return sorted(p.name for p in (root / "blobs").rglob("*") if p.is_file())
+
+
+def test_a_prune_after_the_check_stops_the_append(
+    tmp_store: SimpleNamespace, fixture_folder: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Adversarial round 2, finding 4: a prune finishes between the import's own check
+    (_stored_heads) and the writer's open. The writer re-checks under its shared lock, so
+    the import refuses with RunPruned and writes nothing; after the unpack it finishes."""
+    import mailroom_record.importer.sandbox_run as importer
+    from mailroom_record.pack import unpack_run
+
+    with pytest.MonkeyPatch.context() as mp:  # a first import that died after 10 events
+        _crash_after(mp, 10)
+        with contextlib.suppress(_Crash):
+            import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    archive = tmp_path / "prefix.tar.zst"
+    real = importer._stored_heads
+    pruned: dict[str, object] = {}
+
+    def heads_then_prune(log: EventLog, plan: object) -> object:
+        heads = real(log, plan)  # type: ignore[arg-type]
+        _seal_pack_prune(tmp_store, archive)
+        pruned.update(tree=_run_tree(tmp_store.root), blobs=_blob_names(tmp_store.root))
+        return heads
+
+    monkeypatch.setattr(importer, "_stored_heads", heads_then_prune)
+    with pytest.raises(ImportConflict, match="unpack") as info:
+        import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    assert type(info.value).__name__ == "RunPruned" and str(archive) in str(info.value)
+    assert _run_tree(tmp_store.root) == pruned["tree"]  # nothing written after the prune
+    assert _blob_names(tmp_store.root) == pruned["blobs"]
+    monkeypatch.undo()
+
+    unpack_run(archive, tmp_store.root)
+    assert import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs).status == "imported"
+    assert verify_run(tmp_store.log, tmp_store.blobs, RUN).ok
+
+
+def test_a_prune_before_the_final_seal_stops_the_seal(
+    tmp_store: SimpleNamespace, fixture_folder: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Adversarial round 2, finding 2 (the importer's "complete" branch): every event is
+    stored but unsealed; a prune finishes after the import read the seals. seal_run refuses
+    the pruned run, so no seal 0 is written over an empty log; RunPruned, nothing written."""
+    import mailroom_record.importer.sandbox_run as importer
+    from mailroom_record.pack import unpack_run
+
+    def no_seal(*a: object, **k: object) -> None:
+        raise _Crash
+
+    monkeypatch.setattr(importer, "seal_run", no_seal)
+    with pytest.raises(_Crash):
+        import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    monkeypatch.undo()
+    archive = tmp_path / "whole.tar.zst"
+
+    def seals_then_prune(log: EventLog, run_id: str) -> list:
+        _seal_pack_prune(tmp_store, archive)
+        return []  # what the import read before the prune: no seal yet
+
+    monkeypatch.setattr(importer, "list_seals", seals_then_prune)
+    with pytest.raises(ImportConflict, match="unpack") as info:
+        import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    assert type(info.value).__name__ == "RunPruned"
+    monkeypatch.undo()
+    assert not list((tmp_store.root / "runs" / RUN / "seals").glob("*.json"))  # no new seal 0
+    assert not list((tmp_store.root / "runs" / RUN / "segments").glob("*.jsonl"))
+
+    unpack_run(archive, tmp_store.root)
+    assert import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs).status == "already_imported"
+    assert verify_run(tmp_store.log, tmp_store.blobs, RUN).ok
+
+
 def test_skipped_torn_line_is_kept_in_the_record(
     tmp_store: SimpleNamespace, fixture_folder_crashed: Path, fixture_folder_replicate: Path
 ) -> None:

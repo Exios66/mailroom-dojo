@@ -26,8 +26,8 @@ from record_testkit import (
 )
 
 from mailroom_record.blobs import BlobStore
-from mailroom_record.log import EventLog
-from mailroom_record.models import Run
+from mailroom_record.log import EventLog, RunPruned
+from mailroom_record.models import Run, Seal
 from mailroom_record.pack import (
     PackCorrupt,
     PruneRefused,
@@ -527,3 +527,83 @@ def test_the_maintenance_lock_is_shared_by_writers(two_run_sealed_store: SimpleN
     with s.log.open_writer("r1", "a"), s.log.open_writer("r2", "b"):  # two writers at once are fine
         assert (s.root / ".maintenance.lock").exists()
     assert os.path.getsize(s.root / ".maintenance.lock") == 0
+
+
+# --- a pruned run takes no writes (adversarial round 2, findings 1 to 3) --------------------
+
+
+def store_tree(root: Path) -> dict[str, bytes]:
+    """Every file under ``root`` (lock files and staging leftovers aside), by relative path."""
+    return {
+        str(p.relative_to(root)): p.read_bytes()
+        for p in sorted(root.rglob("*"))
+        if p.is_file() and not p.name.endswith(".lock") and not str(p.relative_to(root)).startswith(".unpack-")
+    }
+
+
+def _pack_and_prune(s: SimpleNamespace, archive: Path, *, keep_columns: bool = True) -> None:
+    pack_run(s.root, "r1", archive)
+    prune_run(s.root, "r1", keep_columns=keep_columns)
+
+
+def test_a_writer_refuses_a_pruned_run(two_run_sealed_store: SimpleNamespace, tmp_path: Path) -> None:
+    """A writer on a pruned run would start every chain again at seq 0, a fork once the
+    archive is unpacked. It refuses with RunPruned before touching the segments."""
+    s = two_run_sealed_store
+    archive = tmp_path / "r1.tar.zst"
+    _pack_and_prune(s, archive)
+    before = store_tree(s.root)
+    with pytest.raises(RunPruned, match="unpack") as info:
+        s.log.open_writer("r1", "late")
+    assert str(archive) in str(info.value)
+    assert store_tree(s.root) == before
+    with s.log.open_writer("r2", "late") as w:  # the lock was released, other runs still take events
+        w.append(doc_id="d1", node="late", kind="handoff")
+    unpack_run(archive, s.root)
+    with s.log.open_writer("r1", "late") as w:  # whole again: the chain continues
+        assert w.append(doc_id="d1", node="late", kind="handoff").seq == 2
+    assert verify_run(*s.parts, "r1").ok
+
+
+@pytest.mark.parametrize("keep_columns", [True, False], ids=["keep-columns", "drop-columns"])
+def test_seal_refuses_a_pruned_run(two_run_sealed_store: SimpleNamespace, tmp_path: Path, keep_columns: bool) -> None:
+    """Sealing a pruned run would write a new seal 0 over an empty log; the unpack would
+    then conflict and verify would pass on an empty run. seal_run refuses, writes nothing,
+    and the archive still restores the run."""
+    s = two_run_sealed_store
+    archive = tmp_path / "r1.tar.zst"
+    _pack_and_prune(s, archive, keep_columns=keep_columns)
+    before = store_tree(s.root)
+    with pytest.raises(RunPruned, match="sealed"):
+        seal_run(s.log, "r1")
+    assert store_tree(s.root) == before
+    res = run_cli("seal", "r1", root=s.root)
+    assert res.exit_code == 1 and "RunPruned" in res.stderr and "Traceback" not in res.stderr
+    assert store_tree(s.root) == before
+    assert unpack_run(archive, s.root) == "r1"
+    assert verify_run(*s.parts, "r1").ok
+    assert seal_run(s.log, "r1").n == 0  # nothing new: the restored seal, unchanged
+
+
+def test_a_prune_waits_for_a_live_seal(
+    two_run_sealed_store: SimpleNamespace, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """seal_run holds the maintenance lock shared, so a prune cannot delete the seals it is
+    building on: a prune started while a seal runs gives up after its timeout."""
+    import mailroom_record.seal as seal_module
+
+    s = two_run_sealed_store
+    pack_run(s.root, "r1", tmp_path / "r1.tar.zst")
+    real = seal_module._seal_unlocked
+    seen: list[str] = []
+
+    def contended(log: EventLog, run_id: str, sealed_at: str) -> Seal:
+        with pytest.raises(StoreBusy):
+            prune_run(s.root, "r1", lock_timeout=0.2)
+        seen.append(run_id)
+        return real(log, run_id, sealed_at)
+
+    monkeypatch.setattr(seal_module, "_seal_unlocked", contended)
+    seal_run(s.log, "r1")
+    assert seen == ["r1"]
+    assert verify_run(*s.parts, "r1").ok and (s.root / "runs" / "r1" / "seals" / "0.json").is_file()

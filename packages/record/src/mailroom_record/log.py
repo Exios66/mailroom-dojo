@@ -22,6 +22,12 @@ Writing
   ``MAINTENANCE_LOCK``) shared, from ``open_writer`` until ``close()``. ``prune_run`` takes
   it exclusive, so no event can name a blob between prune's check of what other runs name
   and its delete; a writer opened while a prune runs waits for it to finish.
+- A pruned run takes no events. Once ``runs/<run_id>/prune.json`` exists (a prune finished
+  or part way through), ``open_writer`` refuses with ``RunPruned`` after taking the shared
+  maintenance lock and before touching the segments: the segments are gone, so an append
+  would start the chains again at ``seq`` 0 and fork them when the archive is unpacked.
+  ``refuse_if_pruned`` is the store's one check of that state; ``seal_run`` and the
+  importer call it too. Unpack the archive first (``unpack_run``), then write.
 - ``LogWriter.append`` validates the event, sets ``seq``, ``prev_hash`` and ``hash`` itself,
   and serializes the line at once: canonical JSON of the validated model's JSON-mode dump,
   plus ``\\n``. So every stored line satisfies ``event_hash(json.loads(line)) == hash``.
@@ -165,10 +171,13 @@ __all__ = [
     "OverlongLine",
     "RawLine",
     "RunExists",
+    "RunPruned",
     "RunScan",
     "StoredLine",
     "TornTail",
     "WriterInUse",
+    "pruned_archive",
+    "refuse_if_pruned",
 ]
 
 # Above this many ascending runs in one document's rows (a damaged log), pass two sorts a
@@ -181,6 +190,11 @@ _MAX_OPEN_SEGMENTS = 32
 # The store's maintenance lock file, under the root: writers hold it shared, prune exclusive.
 MAINTENANCE_LOCK = ".maintenance.lock"
 
+# What a pack and a prune record in ``runs/<run_id>/`` (written by ``pack.py``). A run with
+# ``prune.json`` is pruned, or part way through a prune: see ``refuse_if_pruned``.
+PACK_RECORD = "pack.json"
+PRUNE_RECORD = "prune.json"
+
 # The longest event line (newline excluded) a writer stores and ``verify_run`` reads.
 MAX_LINE = 64 * 1024 * 1024
 
@@ -192,6 +206,11 @@ _SEGMENT_RE = re.compile(r"(?P<writer>[A-Za-z0-9][A-Za-z0-9_-]{0,99})(?:\.(?P<k>
 
 class RunExists(FileExistsError):
     """``run.json`` already exists for this run id."""
+
+
+class RunPruned(RuntimeError):
+    """The run is pruned, or part way through a prune (``prune.json`` is there): its segments
+    and seals may be gone, so nothing may be appended to it or sealed. Unpack its archive first."""
 
 
 class BlobNotStored(LookupError):
@@ -832,6 +851,35 @@ def _shared_maintenance_lock(root: Path) -> Any:
     return f
 
 
+def pruned_archive(log: EventLog, run_id: str) -> str | None:
+    """The archive recorded for ``run_id`` when it is pruned or part way through a prune
+    (``prune.json`` is there), else ``None``. Its segments may be gone: unpack it first."""
+    run_dir = log.run_dir(run_id)
+    if not (run_dir / PRUNE_RECORD).is_file():
+        return None
+    try:
+        archive = json.loads((run_dir / PACK_RECORD).read_bytes())["archive"]
+    except (OSError, ValueError, RecursionError, KeyError, TypeError):
+        return "(the recorded archive is unreadable)"
+    return str(archive)
+
+
+def refuse_if_pruned(log: EventLog, run_id: str, action: str) -> None:
+    """Raise ``RunPruned`` if ``run_id`` is pruned or part way through a prune.
+
+    The store's one check of the pruned state. Every path that writes a run's segments or
+    seals calls it after taking its lock (``open_writer`` under the shared maintenance lock,
+    ``seal_run`` under it and the seal lock), so a prune cannot finish in between unseen.
+    ``action`` completes the sentence "the run cannot be ...".
+    """
+    archive = pruned_archive(log, run_id)
+    if archive is not None:
+        raise RunPruned(
+            f"run {run_id!r} is pruned in this store, so it cannot be {action}; "
+            f"unpack {archive} first (mailroom-record unpack)"
+        )
+
+
 class LogWriter:
     """Appends events for one run to one segment. Thread-safe; one live instance per id."""
 
@@ -849,6 +897,7 @@ class LogWriter:
         self._root_key = os.path.realpath(log.root)
         self._maintenance = _shared_maintenance_lock(log.root)
         try:
+            refuse_if_pruned(log, run_id, "appended to")  # under the lock: a prune waits for us
             self._file, self.segment = self._open_segment()
         except BaseException:
             self._maintenance.close()  # releases the shared lock

@@ -50,7 +50,7 @@ from mailroom_record.blobs import BlobStore
 from mailroom_record.importer.audit import audit_sandbox_run
 from mailroom_record.importer.sandbox_run import ImportConflict, SandboxFolderInvalid, import_sandbox_run
 from mailroom_record.index import ApplyRefused, Index, IndexUnavailable
-from mailroom_record.log import CorruptLine, EventLog, ForkedChain
+from mailroom_record.log import CorruptLine, EventLog, ForkedChain, RunPruned
 from mailroom_record.pack import (
     PackCorrupt,
     PackRefused,
@@ -181,6 +181,7 @@ def _describe(exc: BaseException) -> str:
             PackRefused,
             PruneRefused,
             RunNotSealed,
+            RunPruned,
             StoreBusy,
             UnpackConflict,
         ),

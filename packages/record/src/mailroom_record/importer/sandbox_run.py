@@ -72,8 +72,11 @@ event that differs, a different run header, or a document the folder does not ho
 ``ImportConflict`` and writes nothing. A run that is pruned, or part way through a prune
 (``prune.json`` is there), raises ``RunPruned`` (an ``ImportConflict``) naming its archive,
 and writes nothing: its segments may be gone, so the import cannot check them against the
-folder, and reporting ``already_imported`` would claim what it has not checked. After
-``unpack_run`` the same folder is ``already_imported``.
+folder, and reporting ``already_imported`` would claim what it has not checked. A prune
+that finishes after that check is caught by the store itself: the writer and ``seal_run``
+refuse a pruned run under the maintenance lock (``log.refuse_if_pruned``), and the import
+raises the same ``RunPruned``. After ``unpack_run`` the same folder is
+``already_imported`` (or finished, if the import had stopped part way).
 
 Write order: the writer is opened first, then every blob is put, then the events are
 appended, then the run is sealed. The open writer holds the store's maintenance lock
@@ -83,9 +86,11 @@ named.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import re
 from collections import defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -104,9 +109,9 @@ from mailroom_record.importer._folder import (
     shown,
     token,
 )
-from mailroom_record.log import EventLog, RunExists
+from mailroom_record.log import EventLog, RunExists, pruned_archive
+from mailroom_record.log import RunPruned as StoreRunPruned
 from mailroom_record.models import GENESIS, BlobRef, Event, Run, validation_detail
-from mailroom_record.pack import pruned_archive
 from mailroom_record.seal import list_seals, seal_run
 
 __all__ = ["ImportConflict", "ImportResult", "RunPruned", "SandboxFolderInvalid", "import_sandbox_run"]
@@ -145,9 +150,10 @@ class ImportConflict(RuntimeError):
     """The store already holds this run id with a different header or different events."""
 
 
-class RunPruned(ImportConflict):
+class RunPruned(ImportConflict, StoreRunPruned):
     """The store holds this run pruned (or part way through a prune): its segments may be
-    gone, so the import cannot check them against the folder. Unpack the archive first."""
+    gone, so the import cannot check them against the folder. Unpack the archive first.
+    Both an ``ImportConflict`` and the store's ``log.RunPruned``."""
 
 
 def _refuse_if_pruned(log: EventLog, run_id: str) -> None:
@@ -157,6 +163,18 @@ def _refuse_if_pruned(log: EventLog, run_id: str) -> None:
             f"run {run_id!r} is pruned in this store, so its events cannot be checked against the folder; "
             f"unpack {archive} first (mailroom-record unpack), then import again"
         )
+
+
+@contextlib.contextmanager
+def _pruned_is_a_conflict() -> Iterator[None]:
+    """The store refused to write or seal a pruned run (a prune finished after the import's
+    own check): raise the importer's ``RunPruned``, an ``ImportConflict``."""
+    try:
+        yield
+    except RunPruned:
+        raise
+    except StoreRunPruned as exc:
+        raise RunPruned(f"{exc}, then import again") from None
 
 
 @dataclass(frozen=True)
@@ -206,8 +224,11 @@ def import_sandbox_run(folder: Path, log: EventLog, blobs: BlobStore) -> ImportR
         if seals and seals[-1].doc_heads == finals:
             return result("already_imported")
     else:
-        with log.open_writer(run_id, WRITER_ID, flush_every=256) as writer:
-            _refuse_if_pruned(log, run_id)  # again under the writer's shared lock: a prune may have finished meanwhile
+        # The writer refuses a pruned run under its shared maintenance lock (log.refuse_if_pruned),
+        # so a prune that finished since _stored_heads is caught before anything is written.
+        with _pruned_is_a_conflict():
+            writer = log.open_writer(run_id, WRITER_ID, flush_every=256)
+        with writer:
             for data, role in plan.blobs.values():
                 blobs.put(data, role)
             for doc_id, chain in plan.chains.items():
@@ -216,7 +237,8 @@ def import_sandbox_run(folder: Path, log: EventLog, blobs: BlobStore) -> ImportR
                     event = writer.append(**chain[i])
                     if event.hash != plan.hashes[doc_id][i]:  # never expected: the plan is the writer's input
                         raise ImportConflict(f"run {run_id!r}: document {doc_id} seq {i} hashed differently")
-    seal_run(log, run_id)
+    with _pruned_is_a_conflict():  # seal_run refuses a pruned run under its locks
+        seal_run(log, run_id)
     return result("imported")
 
 

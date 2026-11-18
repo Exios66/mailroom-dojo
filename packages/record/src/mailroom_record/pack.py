@@ -84,7 +84,7 @@ import zstandard
 
 from mailroom_record.blobs import BlobStore, _dir_lock, _fsync_dir, _makedirs_durable, _open_fd_for_write
 from mailroom_record.hashing import canonical_json
-from mailroom_record.log import MAINTENANCE_LOCK, EventLog
+from mailroom_record.log import MAINTENANCE_LOCK, PACK_RECORD, PRUNE_RECORD, EventLog
 from mailroom_record.models import _RUN_ID_RE
 from mailroom_record.seal import list_seals
 from mailroom_record.verify import verify_run
@@ -106,8 +106,8 @@ __all__ = [
 
 PACK_FORMAT = "mailroom-record-pack/1"
 _MANIFEST = "manifest.json"
-_PACK_RECORD = "pack.json"
-_PRUNE_RECORD = "prune.json"
+_PACK_RECORD = PACK_RECORD
+_PRUNE_RECORD = PRUNE_RECORD
 _CHUNK = 1 << 20
 _MAX_MANIFEST = 256 * 1024 * 1024
 _HEX64 = re.compile(rb"[0-9a-f]{64}")
@@ -565,19 +565,6 @@ def _maintenance(root: Path, timeout: float, *, exclusive: bool = True) -> Itera
         yield
     finally:
         os.close(fd)  # releases the lock
-
-
-def pruned_archive(log: EventLog, run_id: str) -> str | None:
-    """The archive recorded for ``run_id`` when it is pruned or part way through a prune
-    (``prune.json`` is there), else ``None``. Its segments may be gone: unpack it first."""
-    run_dir = log.run_dir(run_id)
-    if not (run_dir / _PRUNE_RECORD).is_file():
-        return None
-    try:
-        archive = json.loads((run_dir / _PACK_RECORD).read_bytes())["archive"]
-    except (OSError, ValueError, RecursionError, KeyError, TypeError):
-        return "(the recorded archive is unreadable)"
-    return str(archive)
 
 
 def _names_elsewhere(log: EventLog, run_id: str) -> set[str]:
