@@ -123,7 +123,8 @@ class VariantMarker:
 
 @dataclass(frozen=True)
 class VariantGuard:
-    """An expected field that must hold one of ``allowed`` (or be empty when ``allow_empty``) for the variant to apply."""
+    """An expected field that must hold one of ``allowed`` (or be empty when ``allow_empty``) for the variant
+    to apply."""
 
     field: str
     allowed: tuple[str, ...]
@@ -263,7 +264,8 @@ class Thresholds:
 
 @dataclass(frozen=True)
 class AuditSettings:
-    """The factuality audit: whether predicted items are checked against the document text, and the token coverage that counts as grounded."""
+    """The factuality audit: whether predicted items are checked against the document text, and the token
+    coverage that counts as grounded."""
 
     enabled: bool = True
     token_coverage: float = 0.7
@@ -271,7 +273,8 @@ class AuditSettings:
 
 @dataclass(frozen=True)
 class PresenceSettings:
-    """Category presence: whether reasoning entries may route clause spans, and the similarity a span needs."""
+    """Category presence: whether reasoning entries may route clause spans, and the similarity a span
+    needs."""
 
     route_by_reasoning: bool = True
     embedding_threshold: float = 0.7
@@ -279,7 +282,8 @@ class PresenceSettings:
 
 @dataclass(frozen=True)
 class EmbeddingSettings:
-    """Embedding rescue: whether an injected similarity backend may be used, and the string score below which it is asked."""
+    """Embedding rescue: whether an injected similarity backend may be used, and the string score below which
+    it is asked."""
 
     enabled: bool = False
     rescue_below: float = 0.7
@@ -287,7 +291,8 @@ class EmbeddingSettings:
 
 @dataclass(frozen=True)
 class ListMatchingSettings:
-    """Entity-list matching: party-role words that recall-scored lists credit when the prediction names a party."""
+    """Entity-list matching: party-role words that recall-scored lists credit when the prediction names a
+    party."""
 
     role_words: frozenset[str] = frozenset()
 
@@ -414,11 +419,13 @@ class ScoringProfile:
         return spec
 
     def field_types(self, class_key: str) -> dict[str, str]:
-        """Return a fresh ``{field name: field type}`` dict for a class; raise ``KeyError`` for an unknown class."""
+        """Return a fresh ``{field name: field type}`` dict for a class; raise ``KeyError`` for an unknown
+        class."""
         return self.require_class(class_key).field_types()
 
     def label_vocabulary(self, class_key: str | None, field_name: str) -> LabelVocabulary | None:
-        """Return the vocabulary of a class's label field (a declared field or a variant-only one), or None."""
+        """Return the vocabulary of a class's label field (a declared field or a variant-only one), or
+        None."""
         spec = self.class_spec(class_key)
         if spec is None:
             return None

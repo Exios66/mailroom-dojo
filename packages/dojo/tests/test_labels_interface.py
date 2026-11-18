@@ -1,4 +1,5 @@
-"""The label interface: structural Protocols, expected values from labelled documents, and the Hub-row adapter.
+"""The label interface: structural Protocols, expected values from labelled documents, and the Hub-row
+adapter.
 
 The labels package publishes documents (``DocumentLabels``) and field labels
 (``FieldLabel``) that the Dojo reads without importing it. The fakes below carry
@@ -14,9 +15,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
+
 from dojo_testkit import OLD_DOJO_COMMIT, decode, encode
 from golden_replay import HUB_ROW_FIXTURE, check_against_ledger, jsonl_corpus
-
 from mailroom_dojo.field_scoring import score_extraction
 from mailroom_dojo.labels_interface import (
     LABEL_STATUSES,
@@ -27,6 +28,7 @@ from mailroom_dojo.labels_interface import (
     expected_values,
     hub_rows,
 )
+
 
 @dataclass(frozen=True)
 class FakeFieldLabel:
@@ -153,14 +155,16 @@ def test_an_unknown_class_is_refused(mailroom_profile):
     ],
 )
 def test_a_subclass_derived_marker_is_filled(mailroom_profile, subclass, existing, expected_marker, derived):
-    """The CMS marker comes from the subclass when the labels leave it empty, as the profile's variant says."""
+    """The CMS marker comes from the subclass when the labels leave it empty, as the profile's variant
+    says."""
     fields = dict(_claim().fields)
     scorable = set(_claim().scorable_fields)
     if existing is not None:
         fields["cms_source_table"] = FakeFieldLabel(existing)
         scorable.add("cms_source_table")
-    values = expected_values(_claim(fields=fields, scorable_fields=frozenset(scorable), subclass=subclass),
-                             mailroom_profile)
+    values = expected_values(
+        _claim(fields=fields, scorable_fields=frozenset(scorable), subclass=subclass), mailroom_profile
+    )
     assert values.fields.get("cms_source_table") == expected_marker
     assert values.derived_fields == derived
 
@@ -173,8 +177,11 @@ def test_the_dojo_does_not_import_the_labels_package():
 
     for path in SOURCE_ROOT.rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            names = [alias.name for alias in node.names] if isinstance(node, ast.Import) else (
-                [node.module] if isinstance(node, ast.ImportFrom) and node.module else [])
+            names = (
+                [alias.name for alias in node.names]
+                if isinstance(node, ast.Import)
+                else ([node.module] if isinstance(node, ast.ImportFrom) and node.module else [])
+            )
             assert not any(name.startswith("mailroom_labels") for name in names), path
 
 
@@ -195,11 +202,16 @@ def _hub_adapters(profile):
         "hub_presence_statuses": lambda args: hub_rows.hub_presence_statuses(args["fields"]),
         "parse_field_values": lambda args: hub_rows.parse_field_values(args["record"]),
         "scoring_fields_from_hub_row": lambda args: hub_rows.scoring_fields_from_hub_row(
-            args["fields"], profile, field_types=args["field_types"], extra_keys=args["extra_keys"],
-            drop_unmapped=args["drop_unmapped"], class_key=args["doc_type"], subclass=args["subclass"],
+            args["fields"],
+            profile,
+            field_types=args["field_types"],
+            extra_keys=args["extra_keys"],
+            drop_unmapped=args["drop_unmapped"],
+            class_key=args["doc_type"],
+            subclass=args["subclass"],
         ),
-        "presence_expectations_from_clause_labels": lambda args: hub_rows.presence_expectations_from_clause_labels(
-            args["labels"], field=args["field"]
+        "presence_expectations_from_clause_labels": lambda args: (
+            hub_rows.presence_expectations_from_clause_labels(args["labels"], field=args["field"])
         ),
         "presence_expectations_from_hub_row": lambda args: hub_rows.presence_expectations_from_hub_row(
             args["fields"], field=args["field"]
@@ -228,19 +240,24 @@ def test_the_hub_row_corpus_header():
 
 
 def test_every_hub_row_case_gives_the_old_output(mailroom_profile):
-    """Replay every case with the mailroom profile; results equal as canonical JSON, exceptions by type and message."""
+    """Replay every case with the mailroom profile; results equal as canonical JSON, exceptions by type and
+    message."""
     _, cases = hub_row_corpus()
-    replayed = [(case["id"], case["function"], case["outcome"], replay_hub_case(case, mailroom_profile))
-                for case in cases]
-    exceptions_differ = [case_id for case_id, _, recorded, outcome in replayed
-                         if "raises" in recorded and outcome != recorded]
+    replayed = [
+        (case["id"], case["function"], case["outcome"], replay_hub_case(case, mailroom_profile))
+        for case in cases
+    ]
+    exceptions_differ = [
+        case_id for case_id, _, recorded, outcome in replayed if "raises" in recorded and outcome != recorded
+    ]
     problems = check_against_ledger(HUB_ROW_FIXTURE, replayed)
     assert not problems, f"{len(problems)} problems of {len(cases)} cases, first: {problems[:3]}"
     assert not exceptions_differ, exceptions_differ[:5]
 
 
 def test_pending_annotation_drops_and_absence_blanks(mailroom_profile):
-    """Pending fields are unlabelled (dropped); not-applicable and documented-absent fields are labelled empty."""
+    """Pending fields are unlabelled (dropped); not-applicable and documented-absent fields are labelled
+    empty."""
     row = {
         "adjuster": "Stale Name",
         "denial_reasons": '["late"]',
@@ -255,11 +272,18 @@ def test_pending_annotation_drops_and_absence_blanks(mailroom_profile):
 
 def test_placeholder_only_categories_are_not_expected():
     """A category whose spans are all placeholders is left out; an empty one is recorded as not expected."""
-    labels = {"Cap": [{"text": "[*]"}, {"text": "____"}], "Law": [{"text": "Delaware law governs."}], "Ex": []}
+    labels = {
+        "Cap": [{"text": "[*]"}, {"text": "____"}],
+        "Law": [{"text": "Delaware law governs."}],
+        "Ex": [],
+    }
     assert hub_rows.presence_expectations_from_clause_labels(labels, field="clauses") == {
         "Law": {"expected": True, "answer": "Delaware law governs.", "field": "clauses"},
         "Ex": {"expected": False, "answer": "", "field": "clauses"},
     }
     pending = {"cuad_clause_labels": labels, "gt_presence": {"cuad_clause_labels": "pending_annotation"}}
     assert hub_rows.presence_expectations_from_hub_row(pending, field="clauses") is None
-    assert hub_rows.presence_expectations_from_hub_row({"cuad_clause_labels": {"Ex": []}}, field="clauses") is None
+    assert (
+        hub_rows.presence_expectations_from_hub_row({"cuad_clause_labels": {"Ex": []}}, field="clauses")
+        is None
+    )

@@ -38,7 +38,15 @@ from mailroom_labels.profile import ClientProfile
 from mailroom_labels.snapshot import LabelSnapshot, load_snapshot
 from mailroom_record.hashing import canonical_json
 
-__all__ = ["QualityReport", "check", "check_dirs", "check_read", "known_entry", "value_matches_type", "verify"]
+__all__ = [
+    "QualityReport",
+    "check",
+    "check_dirs",
+    "check_read",
+    "known_entry",
+    "value_matches_type",
+    "verify",
+]
 
 _STRING_TYPES = ("name", "label", "date", "id", "free_text", "containment", "cms_doc_ref")
 
@@ -103,7 +111,15 @@ def known_entry(f: Finding, snapshots: Sequence[LabelSnapshot]) -> Any:
 
 
 def _sort_key(f: Finding) -> tuple:
-    return (f.severity != "error", f.kind, f.doc or "", f.field or "", f.layer or "", f.location or "", f.detail)
+    return (
+        f.severity != "error",
+        f.kind,
+        f.doc or "",
+        f.field or "",
+        f.layer or "",
+        f.location or "",
+        f.detail,
+    )
 
 
 def value_matches_type(field_type: str, value: Any) -> bool:
@@ -148,27 +164,47 @@ def _check_record(r: LayerRecord, index: dict, profile: ClientProfile, have_hub:
     entry = index.get(r.document_id)
     if have_hub and entry is None:
         out.add(
-            finding("unknown_document", doc=r.document_id, layer=r.layer, location=_where(r),
-                    detail="not in the Hub corpus index"),
+            finding(
+                "unknown_document",
+                doc=r.document_id,
+                layer=r.layer,
+                location=_where(r),
+                detail="not in the Hub corpus index",
+            ),
             ("unknown_document", r.document_id, r.snapshot_id),
         )
     if entry is not None:
         if r.doc_class is not None and r.doc_class != entry.doc_class:
             out.add(
-                finding("class_mismatch", doc=r.document_id, layer=r.layer, location=_where(r),
-                        detail=f"layer says {r.doc_class!r}, index says {entry.doc_class!r}"),
+                finding(
+                    "class_mismatch",
+                    doc=r.document_id,
+                    layer=r.layer,
+                    location=_where(r),
+                    detail=f"layer says {r.doc_class!r}, index says {entry.doc_class!r}",
+                ),
                 ("class_mismatch", r.document_id, r.snapshot_id),
             )
         if r.subclass is not None and r.subclass != entry.subclass:
             out.add(
-                finding("subclass_mismatch", doc=r.document_id, layer=r.layer, location=_where(r),
-                        detail=f"layer says {r.subclass!r}, index says {entry.subclass!r}"),
+                finding(
+                    "subclass_mismatch",
+                    doc=r.document_id,
+                    layer=r.layer,
+                    location=_where(r),
+                    detail=f"layer says {r.subclass!r}, index says {entry.subclass!r}",
+                ),
                 ("subclass_mismatch", r.document_id, r.snapshot_id),
             )
         if not hash_matches(r.content_sha256, entry.content_sha256):
             out.add(
-                finding("stale_content_hash", doc=r.document_id, layer=r.layer, location=_where(r),
-                        detail=f"label hash {r.content_sha256} does not name index hash {entry.content_sha256}"),
+                finding(
+                    "stale_content_hash",
+                    doc=r.document_id,
+                    layer=r.layer,
+                    location=_where(r),
+                    detail=f"label hash {r.content_sha256} does not name index hash {entry.content_sha256}",
+                ),
                 ("stale_content_hash", r.document_id, r.snapshot_id),
             )
     doc_class = entry.doc_class if entry is not None else r.doc_class
@@ -177,36 +213,64 @@ def _check_record(r: LayerRecord, index: dict, profile: ClientProfile, have_hub:
     if spec is None:
         if doc_class is not None:
             out.add(
-                finding("unknown_class", doc=r.document_id, layer=r.layer, location=_where(r),
-                        detail=f"class {doc_class!r} is not in profile {profile.client!r}"),
+                finding(
+                    "unknown_class",
+                    doc=r.document_id,
+                    layer=r.layer,
+                    location=_where(r),
+                    detail=f"class {doc_class!r} is not in profile {profile.client!r}",
+                ),
                 ("unknown_class", r.document_id),
             )
         return
     if subclass is not None and subclass not in spec.subclasses:
         out.add(
-            finding("unknown_subclass", doc=r.document_id, layer=r.layer, location=_where(r),
-                    detail=f"subclass {subclass!r} is not a subclass of {doc_class!r}"),
+            finding(
+                "unknown_subclass",
+                doc=r.document_id,
+                layer=r.layer,
+                location=_where(r),
+                detail=f"subclass {subclass!r} is not a subclass of {doc_class!r}",
+            ),
             ("unknown_subclass", r.document_id),
         )
     fspec = spec.fields.get(r.field)
     if fspec is None:
         out.add(
-            finding("unknown_field", doc=r.document_id, field=r.field, layer=r.layer, location=_where(r),
-                    detail=f"{doc_class!r} has no field {r.field!r}"),
+            finding(
+                "unknown_field",
+                doc=r.document_id,
+                field=r.field,
+                layer=r.layer,
+                location=_where(r),
+                detail=f"{doc_class!r} has no field {r.field!r}",
+            ),
         )
         return
     if not value_matches_type(fspec.type, r.value):
         out.add(
-            finding("type_mismatch", doc=r.document_id, field=r.field, layer=r.layer, location=_where(r),
-                    detail=f"{type(r.value).__name__} value for a {fspec.type} field"),
+            finding(
+                "type_mismatch",
+                doc=r.document_id,
+                field=r.field,
+                layer=r.layer,
+                location=_where(r),
+                detail=f"{type(r.value).__name__} value for a {fspec.type} field",
+            ),
         )
         return
     if fspec.vocabulary is not None and r.value is not None:
         allowed = profile.vocabularies[fspec.vocabulary]
         if r.value not in allowed:
             out.add(
-                finding("vocabulary_violation", doc=r.document_id, field=r.field, layer=r.layer,
-                        location=_where(r), detail=f"{r.value!r} is not in vocabulary {fspec.vocabulary!r}"),
+                finding(
+                    "vocabulary_violation",
+                    doc=r.document_id,
+                    field=r.field,
+                    layer=r.layer,
+                    location=_where(r),
+                    detail=f"{r.value!r} is not in vocabulary {fspec.vocabulary!r}",
+                ),
             )
 
 
@@ -220,8 +284,14 @@ def _check_duplicates(records: Sequence[LayerRecord], out: _Once) -> None:
             first, *rest = sorted(group, key=lambda r: (r.snapshot_id, r.file, r.line))
             for r in rest:
                 out.add(
-                    finding("duplicate_label", doc=doc, field=fld, layer=scope, location=_where(r),
-                            detail=f"also labelled at {_where(first)}"),
+                    finding(
+                        "duplicate_label",
+                        doc=doc,
+                        field=fld,
+                        layer=scope,
+                        location=_where(r),
+                        detail=f"also labelled at {_where(first)}",
+                    ),
                 )
 
 
@@ -235,8 +305,14 @@ def _check_decisions(records: Sequence[LayerRecord], out: _Once) -> None:
         key = (r.document_id, r.field)
         if key not in labelled:
             out.add(
-                finding("orphan_decision", doc=r.document_id, field=r.field, layer="review",
-                        location=_where(r), detail="no layer labels this field"),
+                finding(
+                    "orphan_decision",
+                    doc=r.document_id,
+                    field=r.field,
+                    layer="review",
+                    location=_where(r),
+                    detail="no layer labels this field",
+                ),
             )
         (human if r.rank == "review:gold" else others)[key].append(r)
     for key, decisions in sorted(human.items()):
@@ -244,8 +320,14 @@ def _check_decisions(records: Sequence[LayerRecord], out: _Once) -> None:
         for r in sorted(decisions[1:] + others.get(key, []), key=_where):
             if canonical_json(r.value) not in values or len(values) > 1:
                 out.add(
-                    finding("conflicting_decision", doc=key[0], field=key[1], layer="review",
-                            location=_where(r), detail=f"{r.reviewer} disagrees with a human decision"),
+                    finding(
+                        "conflicting_decision",
+                        doc=key[0],
+                        field=key[1],
+                        layer="review",
+                        location=_where(r),
+                        detail=f"{r.reviewer} disagrees with a human decision",
+                    ),
                 )
 
 
@@ -269,19 +351,33 @@ def check_read(
     index = corpus_index(read.corpus)
     for entry in sorted(index.values(), key=lambda e: e.document_id):
         if not entry.text_verified:
-            out.add(finding("text_unverified", doc=entry.document_id, layer="hub",
-                            detail="Hub text did not hash to content_sha256 at import"))
+            out.add(
+                finding(
+                    "text_unverified",
+                    doc=entry.document_id,
+                    layer="hub",
+                    detail="Hub text did not hash to content_sha256 at import",
+                )
+            )
         spec = profile.classes.get(entry.doc_class)
         if spec is None:
             out.add(
-                finding("unknown_class", doc=entry.document_id, layer="hub",
-                        detail=f"class {entry.doc_class!r} is not in profile {profile.client!r}"),
+                finding(
+                    "unknown_class",
+                    doc=entry.document_id,
+                    layer="hub",
+                    detail=f"class {entry.doc_class!r} is not in profile {profile.client!r}",
+                ),
                 ("unknown_class", entry.document_id),
             )
         elif entry.subclass is not None and entry.subclass not in spec.subclasses:
             out.add(
-                finding("unknown_subclass", doc=entry.document_id, layer="hub",
-                        detail=f"subclass {entry.subclass!r} is not a subclass of {entry.doc_class!r}"),
+                finding(
+                    "unknown_subclass",
+                    doc=entry.document_id,
+                    layer="hub",
+                    detail=f"subclass {entry.subclass!r} is not a subclass of {entry.doc_class!r}",
+                ),
                 ("unknown_subclass", entry.document_id),
             )
     for r in read.records:
@@ -289,7 +385,10 @@ def check_read(
     _check_duplicates(read.records, out)
     _check_decisions(read.records, out)
 
-    items = [f.model_copy(update={"known": True}) if known_entry(f, snapshots) is not None else f for f in out.items]
+    items = [
+        f.model_copy(update={"known": True}) if known_entry(f, snapshots) is not None else f
+        for f in out.items
+    ]
     return QualityReport(tuple(sorted(items, key=_sort_key)))
 
 
@@ -305,26 +404,46 @@ def check(snapshots: Sequence[LabelSnapshot], profile: ClientProfile) -> Quality
             extra.append(finding("unknown_schema", layer=snap.kind, location=str(exc.path), detail=str(exc)))
             continue
         except ManifestMismatch as exc:
-            extra.append(finding("manifest_mismatch", layer=snap.kind, location=str(exc.path),
-                                 detail=f"{exc.kind}: {exc.detail}"))
+            extra.append(
+                finding(
+                    "manifest_mismatch",
+                    layer=snap.kind,
+                    location=str(exc.path),
+                    detail=f"{exc.kind}: {exc.detail}",
+                )
+            )
             continue
         read.extend(part)
     for snap in snapshots:
         text_check = snap.manifest.source.get("text_check")
         if snap.kind == "hub" and not (isinstance(text_check, Mapping) and text_check.get("run") is True):
-            extra.append(finding("text_unchecked", layer="hub", location=snap.snapshot_id,
-                                 detail="the import did not check document text against content_sha256 "
-                                        "(source.text_check.run is not true): verified means only 'not stale'"))
+            extra.append(
+                finding(
+                    "text_unchecked",
+                    layer="hub",
+                    location=snap.snapshot_id,
+                    detail="the import did not check document text against content_sha256 "
+                    "(source.text_check.run is not true): verified means only 'not stale'",
+                )
+            )
         for key in DROPPED_SOURCE_KEYS:
             entries = snap.manifest.source.get(key)
             if entries:
                 n = len(entries) if isinstance(entries, (list, dict)) else 1
-                extra.append(finding("dropped_source_data", layer=snap.kind, location=snap.snapshot_id,
-                                     detail=f"the importer left {n} source item(s) out (source.{key})"))
+                extra.append(
+                    finding(
+                        "dropped_source_data",
+                        layer=snap.kind,
+                        location=snap.snapshot_id,
+                        detail=f"the importer left {n} source item(s) out (source.{key})",
+                    )
+                )
     return check_read(read, profile, snapshots, extra)
 
 
-def check_dirs(directories: Iterable[Path | str], profile: ClientProfile) -> tuple[QualityReport, tuple[LabelSnapshot, ...]]:
+def check_dirs(
+    directories: Iterable[Path | str], profile: ClientProfile
+) -> tuple[QualityReport, tuple[LabelSnapshot, ...]]:
     """Load and check snapshot directories. A snapshot that fails to load (or whose layer
     schema this code cannot read) is a finding and is left out; the others are still
     checked. Returns the report and the snapshots that loaded, safe to ``read_layers``."""
@@ -338,19 +457,31 @@ def check_dirs(directories: Iterable[Path | str], profile: ClientProfile) -> tup
             extra.append(finding("manifest_missing", location=str(exc.path), detail=str(exc)))
             continue
         except ManifestMismatch as exc:
-            extra.append(finding("manifest_mismatch", location=str(exc.path), detail=f"{exc.kind}: {exc.detail}"))
+            extra.append(
+                finding("manifest_mismatch", location=str(exc.path), detail=f"{exc.kind}: {exc.detail}")
+            )
             continue
         except UnknownSnapshotSchema as exc:
             extra.append(finding("unknown_schema", location=str(exc.path), detail=str(exc)))
             continue
         if not supports(snap.kind, snap.manifest.layer_schema):
             path = snap.directory / "manifest.json"
-            extra.append(finding("unknown_schema", location=str(path),
-                                 detail=str(UnknownSnapshotSchema(snap.manifest.layer_schema, path))))
+            extra.append(
+                finding(
+                    "unknown_schema",
+                    location=str(path),
+                    detail=str(UnknownSnapshotSchema(snap.manifest.layer_schema, path)),
+                )
+            )
             continue
         if snap.snapshot_id in seen:
-            extra.append(finding("duplicate_snapshot", location=str(directory),
-                                 detail=str(DuplicateSnapshot(snap.snapshot_id))))
+            extra.append(
+                finding(
+                    "duplicate_snapshot",
+                    location=str(directory),
+                    detail=str(DuplicateSnapshot(snap.snapshot_id)),
+                )
+            )
             continue
         seen.add(snap.snapshot_id)
         loaded.append(snap)

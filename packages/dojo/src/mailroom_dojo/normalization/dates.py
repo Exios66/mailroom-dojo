@@ -31,8 +31,18 @@ __all__ = [
 ]
 
 MONTH_NAMES: tuple[str, ...] = (
-    "january", "february", "march", "april", "may", "june",
-    "july", "august", "september", "october", "november", "december",
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
 )
 
 #: Two-digit years 00-68 read as 2000-2068 and 69-99 as 1969-1999 (Python's ``%y``).
@@ -80,9 +90,7 @@ _PARSER_INFO = _FixedPivotParserInfo()
 _WHITESPACE = re.compile(r"\s+")
 _ORDINAL_SUFFIX = re.compile(r"(\d)(st|nd|rd|th)\b", re.IGNORECASE)
 _COMMA_BEFORE_DIGIT = re.compile(r",(?=\d)")
-_DAY_RANGE_AFTER_MONTH = re.compile(
-    r"\b([A-Za-z]{3,}\.?\s+\d{1,2})\s*[-–]\s*\d{1,2}\b(?![-/.]\d)"
-)
+_DAY_RANGE_AFTER_MONTH = re.compile(r"\b([A-Za-z]{3,}\.?\s+\d{1,2})\s*[-–]\s*\d{1,2}\b(?![-/.]\d)")
 _DAY_RANGE_BEFORE_MONTH = re.compile(r"(?<![\d/.\-])(\d{1,2})\s*[-–]\s*\d{1,2}(?=\s+[A-Za-z]{3,})")
 _WEEKDAY = re.compile(
     r"\b(?:(?:mon|tues|wednes|thurs|fri|satur|sun)day|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\b\.?,?",
@@ -179,7 +187,8 @@ def stated_years(text: object) -> set[int]:
 
 
 def integral_float_as_text(value: object) -> object:
-    """Return an integral float as its integer text (``2014.0`` gives ``"2014"``), any other value unchanged."""
+    """Return an integral float as its integer text (``2014.0`` gives ``"2014"``), any other value
+    unchanged."""
     if isinstance(value, float) and value == value and value.is_integer():
         return str(int(value))
     return value
@@ -208,10 +217,7 @@ def expected_date_is_null(expected: str) -> bool:
     if expected_date_is_relative(expected):
         return False
     lowered = expected.lower()
-    if not any(month in lowered for month in MONTH_NAMES):
-        if not re.search(r"\b(19|20)\d{2}\b", lowered):
-            return True
-    return False
+    return not any(month in lowered for month in MONTH_NAMES) and not re.search(r"\b(19|20)\d{2}\b", lowered)
 
 
 def date_is_blank_or_bare_label(expected: object) -> bool:
@@ -260,9 +266,7 @@ def date_phrase_contained(container: object, target: object) -> bool:
         )
         or bool(re.search(r"\b\d{4}-\d{1,2}\b", target_key))
     )
-    if contains_phrase(container_key, target_key) and (
-        len(target_key.split()) >= 3 or explicit_month
-    ):
+    if contains_phrase(container_key, target_key) and (len(target_key.split()) >= 3 or explicit_month):
         return True
     if target_date is None:
         return False

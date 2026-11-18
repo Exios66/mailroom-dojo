@@ -47,9 +47,11 @@ class QualityGateFailed(LabelsError):
         self.report = report
         failing = (*report.errors, *(report.unknown_warnings if strict else ()))
         kinds = sorted({f.kind for f in failing})
-        super().__init__(f"{len(report.errors)} quality error(s)"
-                         + (f", {len(report.unknown_warnings)} unknown warning(s)" if strict else "")
-                         + f": {', '.join(kinds)}")
+        super().__init__(
+            f"{len(report.errors)} quality error(s)"
+            + (f", {len(report.unknown_warnings)} unknown warning(s)" if strict else "")
+            + f": {', '.join(kinds)}"
+        )
 
 
 @dataclass(frozen=True)
@@ -86,7 +88,9 @@ class LabelSet:
         return label_snapshot_ids(self.snapshots)
 
 
-def load_label_set(directories: Iterable[Path | str], profile: ClientProfile, *, strict: bool = False) -> LabelSet:
+def load_label_set(
+    directories: Iterable[Path | str], profile: ClientProfile, *, strict: bool = False
+) -> LabelSet:
     """Load, check and resolve snapshot directories; raise ``QualityGateFailed`` on any error
     (a snapshot that fails to load, or whose files change between the gate and resolving,
     is an error too: the ``ManifestMismatch`` is the cause). With ``strict`` (what ``mailroom-labels

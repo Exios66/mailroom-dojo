@@ -39,15 +39,19 @@ def test_exact_fold_matches_compact_form_only():
 
 def test_alias_fold_uses_the_alias_table_by_compact_form():
     """Aliases match on the compact form; an alias never matches as a substring."""
-    vocabulary = LabelVocabulary(tokens=("approved", "denied"), fold_method="aliases",
-                                 aliases={"paid in full": "approved", "rejected": "denied"})
+    vocabulary = LabelVocabulary(
+        tokens=("approved", "denied"),
+        fold_method="aliases",
+        aliases={"paid in full": "approved", "rejected": "denied"},
+    )
     assert vocabulary.fold("PAID-IN-FULL") == "approved"
     assert vocabulary.fold("rejected") == "denied"
     assert vocabulary.fold("claim rejected") == ""
 
 
 def test_inventory_fold_order_prefix_alias_then_exact_then_alias_then_tokens():
-    """Prefix aliases win, then exact tokens and aliases, long aliases inside, then token prefixes and substrings."""
+    """Prefix aliases win, then exact tokens and aliases, long aliases inside, then token prefixes and
+    substrings."""
     vocabulary = LabelVocabulary(
         tokens=("notice", "amend_merger", "termination", "other", "10k"),
         fold_method="inventory",
@@ -69,7 +73,9 @@ def test_inventory_fold_order_prefix_alias_then_exact_then_alias_then_tokens():
 
 def test_inventory_alias_to_a_token_of_another_vocabulary_folds_to_nothing():
     """An alias target outside this vocabulary's tokens is not returned."""
-    vocabulary = LabelVocabulary(tokens=("notice",), fold_method="inventory", aliases={"fnol": "claim_filing"})
+    vocabulary = LabelVocabulary(
+        tokens=("notice",), fold_method="inventory", aliases={"fnol": "claim_filing"}
+    )
     assert vocabulary.fold("FNOL") == ""
 
 
@@ -85,7 +91,8 @@ def test_inventory_ties_go_to_the_longest_then_the_earliest():
 
 
 def test_catalog_normalize_by_alias_label_and_label_prefix():
-    """Catalog normalization: alias, whole label, first eight label characters; None and blanks are unknown."""
+    """Catalog normalization: alias, whole label, first eight label characters; None and blanks are
+    unknown."""
     vocabulary = LabelVocabulary(
         tokens=("license", "supply", "other"),
         fold_method="catalog",
@@ -118,8 +125,9 @@ def test_fold_and_normalize_stay_inside_the_vocabulary(method, value):
     """fold gives a token or ""; normalize gives a token or the unknown token; neither raises."""
     catalog = (CatalogEntry("license", "License Agreement"),) if method == "catalog" else ()
     aliases = {"ip license": "license"} if method in ("aliases", "inventory", "catalog") else {}
-    vocabulary = LabelVocabulary(tokens=("license", "notice", "other"), fold_method=method, aliases=aliases,
-                                 catalog=catalog)
+    vocabulary = LabelVocabulary(
+        tokens=("license", "notice", "other"), fold_method=method, aliases=aliases, catalog=catalog
+    )
     assert vocabulary.fold(value) in {"", *vocabulary.tokens}
     assert vocabulary.normalize(value) in set(vocabulary.tokens) | {vocabulary.unknown_token}
 

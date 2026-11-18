@@ -1,4 +1,5 @@
-"""Field scoring: one scorer per field type, entity lists, audits, presence, row variants, trace capture and whole extractions."""
+"""Field scoring: one scorer per field type, entity lists, audits, presence, row variants, trace capture and
+whole extractions."""
 
 from ..normalization.dates import parse_date
 from ..normalization.money import parse_money
@@ -29,6 +30,14 @@ from .extraction import (
 )
 from .plugins import BUNDLED_PLUGINS
 from .plugins.cms_identifiers import score_cms_doc_ref
+from .row_variants import (
+    ActiveVariant,
+    active_row_variant,
+    documented_absent_additions,
+    is_unstated_marker,
+    marker_from_fallback,
+    variant_field_type,
+)
 from .scalar_scorers import (
     date_match_similarity,
     score_containment_field,
@@ -48,14 +57,6 @@ from .scorer_registry import (
     UnknownFieldTypeError,
     heuristic_field_type,
     is_entity_list,
-)
-from .row_variants import (
-    ActiveVariant,
-    active_row_variant,
-    documented_absent_additions,
-    is_unstated_marker,
-    marker_from_fallback,
-    variant_field_type,
 )
 from .similarity_backend import (
     EmbeddingRescue,

@@ -28,22 +28,81 @@ __all__ = [
 
 #: Corporate and honorific suffixes dropped from names before matching
 #: ("Global Technologies, Ltd" and "Global Technologies Ltd" are one entity).
-CORPORATE_SUFFIXES: frozenset[str] = frozenset({
-    "INC", "INCORPORATED", "LLC", "LTD", "LIMITED", "CORP", "CORPORATION",
-    "CO", "COMPANY", "PLC", "LLP", "LP", "PLLC", "PC", "PA", "ESQ",
-    "ESQUIRE", "GMBH", "AG", "NV", "SA", "SARL", "BV", "PTY", "GROUP",
-    "HOLDINGS", "TRUST",
-})
+CORPORATE_SUFFIXES: frozenset[str] = frozenset(
+    {
+        "INC",
+        "INCORPORATED",
+        "LLC",
+        "LTD",
+        "LIMITED",
+        "CORP",
+        "CORPORATION",
+        "CO",
+        "COMPANY",
+        "PLC",
+        "LLP",
+        "LP",
+        "PLLC",
+        "PC",
+        "PA",
+        "ESQ",
+        "ESQUIRE",
+        "GMBH",
+        "AG",
+        "NV",
+        "SA",
+        "SARL",
+        "BV",
+        "PTY",
+        "GROUP",
+        "HOLDINGS",
+        "TRUST",
+    }
+)
 
 #: Function words left out of containment token sets only: clause labels ("the laws
 #: of the State of Delaware") carry them, and counting them would make short
 #: paraphrases look like misses.
-CONTAINMENT_STOPWORDS: frozenset[str] = frozenset({
-    "the", "a", "an", "of", "and", "or", "for", "to", "in", "on", "by", "as",
-    "is", "be", "are", "with", "its", "their", "his", "her", "such", "hereof",
-    "hereunder", "shall", "any", "all", "this", "that", "these", "those",
-    "from", "between", "into", "upon", "under", "over",
-})
+CONTAINMENT_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "of",
+        "and",
+        "or",
+        "for",
+        "to",
+        "in",
+        "on",
+        "by",
+        "as",
+        "is",
+        "be",
+        "are",
+        "with",
+        "its",
+        "their",
+        "his",
+        "her",
+        "such",
+        "hereof",
+        "hereunder",
+        "shall",
+        "any",
+        "all",
+        "this",
+        "that",
+        "these",
+        "those",
+        "from",
+        "between",
+        "into",
+        "upon",
+        "under",
+        "over",
+    }
+)
 
 _PUNCTUATION = re.compile(r"[,.;:'\"()\[\]{}!?@#$%^&*+=|\\/<>~`_-]")
 _NOT_LOWER_ALPHANUMERIC = re.compile(r"[^a-z0-9]")

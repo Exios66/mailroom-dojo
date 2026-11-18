@@ -41,8 +41,8 @@ into it) and ``reviewed_at`` (null when the source has none).
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +65,7 @@ HUMAN_MODEL = "human"
 DESK_VERDICTS: dict[str, str] = {"keep": "accept", "use_suggestion": "correct", "correct": "correct"}
 #: Desk decisions that record "no decision yet": listed under ``source.undecided``, never a label.
 DESK_UNDECIDED = ("unsure",)
-_EPOCH = datetime.min.replace(tzinfo=timezone.utc)
+_EPOCH = datetime.min.replace(tzinfo=UTC)
 
 
 def reviewed_instant(value: Any) -> datetime | None:
@@ -118,11 +118,15 @@ def _from_decision(line: SourceLine, rejected: list) -> dict[str, Any] | None:
     reviewer, entry = d["reviewer"], d["entry"]
     # the same reviewer shape the review layer reader requires, so nothing imported here
     # can fail to load later
-    if not (isinstance(reviewer, dict) and set(reviewer) == {"model", "role"}
-            and _is_name(reviewer["model"]) and _is_name(reviewer["role"])) or not (
-        isinstance(entry, dict) and "value" in entry
-    ):
-        rejected.append({"file": line.file, "line": line.line, "reason": "reviewer or entry has the wrong shape"})
+    if not (
+        isinstance(reviewer, dict)
+        and set(reviewer) == {"model", "role"}
+        and _is_name(reviewer["model"])
+        and _is_name(reviewer["role"])
+    ) or not (isinstance(entry, dict) and "value" in entry):
+        rejected.append(
+            {"file": line.file, "line": line.line, "reason": "reviewer or entry has the wrong shape"}
+        )
         return None
     row = dict(d)
     row["origin"] = [line.origin]
@@ -135,7 +139,9 @@ def _from_decision(line: SourceLine, rejected: list) -> dict[str, Any] | None:
     return row
 
 
-def _from_desk(line: SourceLine, rejected: list, not_imported: list, undecided: list) -> dict[str, Any] | None:
+def _from_desk(
+    line: SourceLine, rejected: list, not_imported: list, undecided: list
+) -> dict[str, Any] | None:
     d = line.data
     missing = _missing(d, _DESK_REQUIRED)
     if missing:
@@ -148,19 +154,42 @@ def _from_desk(line: SourceLine, rejected: list, not_imported: list, undecided: 
         return None
     decision = d["decision"]
     if not isinstance(decision, str):
-        rejected.append({"file": line.file, "line": line.line,
-                         "reason": f"decision must be a string, not {type(decision).__name__}"})
+        rejected.append(
+            {
+                "file": line.file,
+                "line": line.line,
+                "reason": f"decision must be a string, not {type(decision).__name__}",
+            }
+        )
         return None
     if not _is_name(d["source"]):
-        rejected.append({"file": line.file, "line": line.line, "reason": "source (the reviewer role) must be a name"})
+        rejected.append(
+            {"file": line.file, "line": line.line, "reason": "source (the reviewer role) must be a name"}
+        )
         return None
     if decision in DESK_UNDECIDED:
-        undecided.append({"doc_id": d["doc_id"], "field": d["field"], "decision": decision,
-                          "reviewed_at": d["reviewed_at"], "note": d.get("note"), "origin": [line.origin]})
+        undecided.append(
+            {
+                "doc_id": d["doc_id"],
+                "field": d["field"],
+                "decision": decision,
+                "reviewed_at": d["reviewed_at"],
+                "note": d.get("note"),
+                "origin": [line.origin],
+            }
+        )
         return None
     if decision not in DESK_VERDICTS:
-        not_imported.append({"file": line.file, "line": line.line, "doc_id": d["doc_id"], "field": d["field"],
-                             "decision": decision, "reason": "the decision does not settle the label"})
+        not_imported.append(
+            {
+                "file": line.file,
+                "line": line.line,
+                "doc_id": d["doc_id"],
+                "field": d["field"],
+                "decision": decision,
+                "reason": "the decision does not settle the label",
+            }
+        )
         return None
     note = f"owner review desk decision ({decision})"
     if isinstance(d.get("note"), str) and d["note"].strip():
@@ -184,9 +213,12 @@ def _undecided(undecided: list[dict[str, Any]], rows: list[dict[str, Any]]) -> l
     for u in sorted(undecided, key=lambda u: (str(u["doc_id"]), str(u["field"]), u["origin"])):
         mark = reviewed_instant(u["reviewed_at"])
         later = [
-            r for r in rows
-            if (r["doc_id"], r["field"]) == (u["doc_id"], u["field"]) and _is_human(r)
-            and (at := reviewed_instant(r["reviewed_at"])) is not None and (mark is None or at > mark)
+            r
+            for r in rows
+            if (r["doc_id"], r["field"]) == (u["doc_id"], u["field"])
+            and _is_human(r)
+            and (at := reviewed_instant(r["reviewed_at"])) is not None
+            and (mark is None or at > mark)
         ]
         out.append({**u, "replaced": bool(later)})
     return out
@@ -201,8 +233,14 @@ def _value(row: Mapping[str, Any]) -> bytes:
 
 
 def _summary(row: Mapping[str, Any], reason: str) -> dict[str, Any]:
-    return {"doc_id": row["doc_id"], "field": row["field"], "reviewer": row["reviewer"],
-            "value": row["entry"]["value"], "origin": row["origin"], "reason": reason}
+    return {
+        "doc_id": row["doc_id"],
+        "field": row["field"],
+        "reviewer": row["reviewer"],
+        "value": row["entry"]["value"],
+        "origin": row["origin"],
+        "reason": reason,
+    }
 
 
 def _merge_into(winner: dict[str, Any], other: Mapping[str, Any]) -> None:
@@ -211,7 +249,9 @@ def _merge_into(winner: dict[str, Any], other: Mapping[str, Any]) -> None:
         winner["entry"] = {**winner["entry"], "evidence": other["entry"]["evidence"]}
 
 
-def _collapse(group: list[dict[str, Any]], *, by_time: bool, superseded: list, merged: Counter) -> list[dict[str, Any]]:
+def _collapse(
+    group: list[dict[str, Any]], *, by_time: bool, superseded: list, merged: Counter
+) -> list[dict[str, Any]]:
     """One decision per value; with ``by_time`` the latest reviewed_at instant decides
     between values (compared as instants, so ``+05:00`` and ``Z`` order correctly and the same
     instant written two ways is a tie)."""
@@ -267,7 +307,11 @@ def build_review(
             rejected.extend(bad)
             files.append({"path": name, "shape": kind, "sha256": file_sha256(path), "rows": len(lines)})
             for line in lines:
-                row = _from_decision(line, rejected) if kind == "decisions" else _from_desk(line, rejected, not_imported, undecided)
+                row = (
+                    _from_decision(line, rejected)
+                    if kind == "decisions"
+                    else _from_desk(line, rejected, not_imported, undecided)
+                )
                 if row is not None:
                     rows.append(row)
 
@@ -286,13 +330,18 @@ def build_review(
             out.extend(_collapse(other, by_time=False, superseded=superseded, merged=merged))
 
     unexplained = [s for s in superseded if s["reason"] not in SUPERSEDED_REASONS]
-    refuse_dropped({"rejected_lines": rejected, "not_imported": not_imported, "unexplained_superseded": unexplained},
-                   allow=allow_rejected)
+    refuse_dropped(
+        {"rejected_lines": rejected, "not_imported": not_imported, "unexplained_superseded": unexplained},
+        allow=allow_rejected,
+    )
     by_reviewer = Counter(f"{r['reviewer'].get('model')}:{r['reviewer'].get('role')}" for r in out)
     source = {
         **dict(provenance or {}),
         "files": files,
-        "builder": {"name": "mailroom_labels.importers.review", "version": builder_name("import-review").split()[-1]},
+        "builder": {
+            "name": "mailroom_labels.importers.review",
+            "version": builder_name("import-review").split()[-1],
+        },
         "decisions_by_reviewer": dict(sorted(by_reviewer.items())),
         "merged_duplicates": dict(sorted(merged.items())),
         "superseded": sorted(superseded, key=lambda s: (s["doc_id"], s["field"], s["origin"])),

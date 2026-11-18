@@ -31,7 +31,13 @@ __all__ = [
 TRACE_FIELDS: frozenset[str] = frozenset({"confidence", "reasoning"})
 
 #: The keys of every trace payload, in order.
-TRACE_KEYS: tuple[str, ...] = ("confidence", "reasoning", "confidence_gate", "calibration_error", "n_reasoning_entries")
+TRACE_KEYS: tuple[str, ...] = (
+    "confidence",
+    "reasoning",
+    "confidence_gate",
+    "calibration_error",
+    "n_reasoning_entries",
+)
 
 #: The values ``confidence_gate`` can take.
 CONFIDENCE_GATES: frozenset[str] = frozenset({"pass", "below_min", "in_band", "missing"})
@@ -176,7 +182,8 @@ def confidence_gate(confidence: float | None, options: TraceCaptureOptions) -> s
 
 
 def confidence_calibration_error(confidence: object, correctness: object) -> float | None:
-    """Return ``|confidence - correctness|`` rounded to four places when both are numbers in ``[0, 1]``, else None."""
+    """Return ``|confidence - correctness|`` rounded to four places when both are numbers in ``[0, 1]``, else
+    None."""
     if confidence is None or correctness is None:
         return None
     try:

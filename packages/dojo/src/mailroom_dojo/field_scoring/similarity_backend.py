@@ -70,7 +70,9 @@ class EmbeddingRescue:
     def __init__(self, backend: SimilarityBackend, rescue_below: float) -> None:
         """Use ``backend`` for string scores below ``rescue_below`` (a number in ``[0, 1]``)."""
         if not isinstance(backend, SimilarityBackend):
-            raise TypeError(f"backend must have a similarity(first, second) method, got {type(backend).__name__}")
+            raise TypeError(
+                f"backend must have a similarity(first, second) method, got {type(backend).__name__}"
+            )
         if isinstance(rescue_below, bool) or not isinstance(rescue_below, numbers.Real):
             raise TypeError(f"rescue_below must be a number, got {rescue_below!r}")
         if not (math.isfinite(rescue_below) and 0.0 <= rescue_below <= 1.0):
@@ -80,7 +82,9 @@ class EmbeddingRescue:
         self._fallbacks: list[SimilarityFallback] = []
 
     @classmethod
-    def from_profile(cls, profile: ScoringProfile, backend: SimilarityBackend | None) -> EmbeddingRescue | None:
+    def from_profile(
+        cls, profile: ScoringProfile, backend: SimilarityBackend | None
+    ) -> EmbeddingRescue | None:
         """Build the rescue a profile allows, or None when ``backend`` is None.
 
         Raises ``ValueError`` when a backend is passed but the profile disables
@@ -143,7 +147,9 @@ class EmbeddingRescue:
     def _fall_back(self, reason: FallbackReason, detail: str, string_score: float) -> float:
         """Record and log a fallback, and return the string score."""
         self._fallbacks.append(SimilarityFallback(reason, detail, string_score))
-        logger.warning("similarity backend fallback: %s (%s); kept string score %s", reason, detail, string_score)
+        logger.warning(
+            "similarity backend fallback: %s (%s); kept string score %s", reason, detail, string_score
+        )
         return string_score
 
 

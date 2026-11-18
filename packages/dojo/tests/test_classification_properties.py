@@ -13,6 +13,7 @@ from collections import Counter
 from hypothesis import given
 from hypothesis import strategies as st
 
+from dojo_testkit import MAILROOM_PROFILE_PATH
 from mailroom_dojo.classification import (
     ClassLabelSet,
     accuracy,
@@ -28,17 +29,33 @@ from mailroom_dojo.classification import (
     top_confusions,
 )
 from mailroom_dojo.profile import load_scoring_profile
-from dojo_testkit import MAILROOM_PROFILE_PATH
 
 LABELS = ClassLabelSet.from_profile(load_scoring_profile(MAILROOM_PROFILE_PATH))
 
 #: Sorter-like text: class names in many spellings, foreign labels, error rows and noise.
 LABEL_TEXT = st.one_of(
-    st.sampled_from([
-        "contract", "Contract", "merger agreement", "MERGER_AGREEMENT", "corporate record", "correspondence",
-        "insurance claim", '{"doc_type": "Contract"}', "license", "other", "", " ", "ERROR: timeout",
-        "court opinion", "a", "b", "correspondence about an insurance claim", "**contract**",
-    ]),
+    st.sampled_from(
+        [
+            "contract",
+            "Contract",
+            "merger agreement",
+            "MERGER_AGREEMENT",
+            "corporate record",
+            "correspondence",
+            "insurance claim",
+            '{"doc_type": "Contract"}',
+            "license",
+            "other",
+            "",
+            " ",
+            "ERROR: timeout",
+            "court opinion",
+            "a",
+            "b",
+            "correspondence about an insurance claim",
+            "**contract**",
+        ]
+    ),
     st.text(max_size=30),
 )
 
@@ -78,7 +95,8 @@ def test_accuracy_is_trace_over_total_of_the_confusion_matrix(pairs):
 
 @given(paired_text())
 def test_per_class_counts_agree_with_the_confusion_matrix(pairs):
-    """Per-class n is the row total and correct the diagonal cell (text predictions), and they sum to the rows kept."""
+    """Per-class n is the row total and correct the diagonal cell (text predictions), and they sum to the rows
+    kept."""
     expected, predicted = pairs
     stats = per_class_stats(expected, predicted, LABELS)
     matrix, labels = confusion_matrix(expected, predicted, LABELS)
@@ -96,7 +114,8 @@ def test_per_class_counts_agree_with_the_confusion_matrix(pairs):
 
 @given(paired_text())
 def test_macro_values_are_bounded_means(pairs):
-    """Macro accuracy and macro P/R/F1/F2 lie in [0, 1] and between the smallest and largest per-class value."""
+    """Macro accuracy and macro P/R/F1/F2 lie in [0, 1] and between the smallest and largest per-class
+    value."""
     expected, predicted = pairs
     stats = per_class_stats(expected, predicted, LABELS)
     macro = macro_accuracy(expected, predicted, LABELS)
@@ -120,7 +139,9 @@ def test_binary_counts_cover_every_row(pairs, positive):
     assert result["tp"] + result["tn"] + result["fp"] + result["fn"] == len(expected)
     for name in ("precision", "recall", "f1", "f2", "accuracy", "false_positive_rate", "false_negative_rate"):
         assert 0.0 <= result[name] <= 1.0
-    assert result["tp"] + result["fn"] == sum(1 for value in expected if normalize_label(value, LABELS) == positive)
+    assert result["tp"] + result["fn"] == sum(
+        1 for value in expected if normalize_label(value, LABELS) == positive
+    )
 
 
 @given(paired_text_and_permutation())
@@ -128,8 +149,12 @@ def test_metrics_do_not_depend_on_row_order(case):
     """Shuffling the pairs changes no metric (dicts compare without order)."""
     expected, predicted, shuffled_expected, shuffled_predicted = case
     assert accuracy(expected, predicted, LABELS) == accuracy(shuffled_expected, shuffled_predicted, LABELS)
-    assert per_class_stats(expected, predicted, LABELS) == per_class_stats(shuffled_expected, shuffled_predicted, LABELS)
-    assert macro_accuracy(expected, predicted, LABELS) == macro_accuracy(shuffled_expected, shuffled_predicted, LABELS)
+    assert per_class_stats(expected, predicted, LABELS) == per_class_stats(
+        shuffled_expected, shuffled_predicted, LABELS
+    )
+    assert macro_accuracy(expected, predicted, LABELS) == macro_accuracy(
+        shuffled_expected, shuffled_predicted, LABELS
+    )
     assert macro_prf(expected, predicted, LABELS) == macro_prf(shuffled_expected, shuffled_predicted, LABELS)
     assert macro_prf(expected, predicted, normalize=False) == macro_prf(
         shuffled_expected, shuffled_predicted, normalize=False
@@ -139,8 +164,12 @@ def test_metrics_do_not_depend_on_row_order(case):
     )
     matrix, labels = confusion_matrix(expected, predicted, LABELS)
     assert (matrix, labels) == confusion_matrix(shuffled_expected, shuffled_predicted, LABELS)
-    assert top_confusions(matrix, labels) == top_confusions(*confusion_matrix(shuffled_expected, shuffled_predicted, LABELS))
-    assert Counter(class_distribution(expected, LABELS)) == Counter(class_distribution(shuffled_expected, LABELS))
+    assert top_confusions(matrix, labels) == top_confusions(
+        *confusion_matrix(shuffled_expected, shuffled_predicted, LABELS)
+    )
+    assert Counter(class_distribution(expected, LABELS)) == Counter(
+        class_distribution(shuffled_expected, LABELS)
+    )
 
 
 @given(paired_text(minimum=1))
@@ -186,8 +215,9 @@ def test_top_confusions_are_the_largest_off_diagonal_cells(side, rng: random.Ran
     """top_confusions returns off-diagonal positive cells in non-increasing count order, at most k of them."""
     matrix = [[rng.randint(0, 4) for _ in range(side)] for _ in range(side)]
     labels = [f"class_{index}" for index in range(side)]
-    off_diagonal = sorted((matrix[i][j] for i in range(side) for j in range(side) if i != j and matrix[i][j]),
-                          reverse=True)
+    off_diagonal = sorted(
+        (matrix[i][j] for i in range(side) for j in range(side) if i != j and matrix[i][j]), reverse=True
+    )
     for k in (0, 1, 3, 100):
         cells = top_confusions(matrix, labels, k=k)
         assert [cell["count"] for cell in cells] == off_diagonal[:k]

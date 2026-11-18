@@ -34,7 +34,11 @@ def parse_json_container(value: Any) -> Any:
         return value
     try:
         parsed = json.loads(stripped)
-    except (ValueError, TypeError, RecursionError):  # RecursionError: JSON nested deeper than the interpreter allows
+    except (
+        ValueError,
+        TypeError,
+        RecursionError,
+    ):  # RecursionError: JSON nested deeper than the interpreter allows
         return value
     return parsed if isinstance(parsed, (list, dict)) else value
 
@@ -58,6 +62,4 @@ def is_empty_value(value: Any) -> bool:
         return True
     if isinstance(value, float) and math.isnan(value):
         return True
-    if isinstance(value, (list, dict, tuple, set)) and len(value) == 0:
-        return True
-    return False
+    return isinstance(value, (list, dict, tuple, set)) and len(value) == 0

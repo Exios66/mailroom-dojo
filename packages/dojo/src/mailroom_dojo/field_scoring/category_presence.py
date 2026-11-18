@@ -64,7 +64,9 @@ class PresenceSimilarity:
     def __init__(self, backend: SimilarityBackend, threshold: float) -> None:
         """Use ``backend`` with a similarity ``threshold`` in ``[0, 1]``."""
         if not isinstance(backend, SimilarityBackend):
-            raise TypeError(f"backend must have a similarity(first, second) method, got {type(backend).__name__}")
+            raise TypeError(
+                f"backend must have a similarity(first, second) method, got {type(backend).__name__}"
+            )
         if isinstance(threshold, bool) or not isinstance(threshold, numbers.Real):
             raise TypeError(f"threshold must be a number, got {threshold!r}")
         if not (math.isfinite(threshold) and 0.0 <= threshold <= 1.0):
@@ -74,7 +76,9 @@ class PresenceSimilarity:
         self._fallbacks: list[SimilarityFallback] = []
 
     @classmethod
-    def from_profile(cls, profile: ScoringProfile, backend: SimilarityBackend | None) -> PresenceSimilarity | None:
+    def from_profile(
+        cls, profile: ScoringProfile, backend: SimilarityBackend | None
+    ) -> PresenceSimilarity | None:
         """Build the similarity a profile allows, or None when ``backend`` is None.
 
         Raises ``ValueError`` when a backend is passed but the profile disables
@@ -124,7 +128,8 @@ class PresenceSimilarity:
 
 
 def split_clause_spans(text: object) -> list[str]:
-    """Split one predicted item into clause fragments (newlines, semicolons, sentence ends), stripped, blanks dropped."""
+    """Split one predicted item into clause fragments (newlines, semicolons, sentence ends), stripped, blanks
+    dropped."""
     parts = _CLAUSE_BOUNDARY.split(str(text or ""))
     return [part.strip() for part in parts if part.strip()]
 
@@ -224,7 +229,9 @@ def score_category_presence(
     for category, expectation in sorted((presence_expectations or {}).items()):
         field = expectation.get("field") or default_field
         if not field:
-            raise ValueError(f"presence expectation {category!r} names no field and no default_field was given")
+            raise ValueError(
+                f"presence expectation {category!r} names no field and no default_field was given"
+            )
         if not expectation.get("expected"):
             detail[category] = {"expected": False, "matched": None, "field": field}
             continue

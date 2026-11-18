@@ -12,6 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+
 from labels_testkit import (
     PROFILE_PATH,
     hub_row,
@@ -23,12 +24,11 @@ from labels_testkit import (
     review_row,
     standard_set,
 )
-
 from mailroom_labels.findings import SEVERITY
 from mailroom_labels.layers import corpus_index, read_layers
 from mailroom_labels.quality import check, check_dirs, value_matches_type, verify
-from mailroom_labels.snapshot import load_snapshot_set
 from mailroom_labels.resolve import resolve
+from mailroom_labels.snapshot import load_snapshot_set
 
 BASE_IDS = {"hub-test", "interim-test", "near_gold-test", "review-test"}
 
@@ -77,8 +77,15 @@ def corrupt(root: Path) -> list[Path]:
 
 
 def text_unverified(root: Path) -> list[Path]:
-    return [make_snapshot(root, "hub", [hub_row("D5", fields={"sender": "Fay"})], snapshot_id="hub-extra",
-                          source={"text_unverified_documents": ["D5"]})]
+    return [
+        make_snapshot(
+            root,
+            "hub",
+            [hub_row("D5", fields={"sender": "Fay"})],
+            snapshot_id="hub-extra",
+            source={"text_unverified_documents": ["D5"]},
+        )
+    ]
 
 
 def truth_flag(root: Path) -> list[Path]:
@@ -98,48 +105,85 @@ CASES: list[Case] = [
     ("corrupt_line", corrupt, {("corrupt_line", None, None)}),
     (
         "malformed_record",
-        lambda r: [make_snapshot(r, "review", [{**review_row("D1", "sender", "Ann"), "reviewer": "someone"}],
-                                 snapshot_id="rv-extra")],
+        lambda r: [
+            make_snapshot(
+                r,
+                "review",
+                [{**review_row("D1", "sender", "Ann"), "reviewer": "someone"}],
+                snapshot_id="rv-extra",
+            )
+        ],
         {("malformed_record", "D1", "sender")},
     ),
-    ("unknown_document", lambda r: [ng(r, [near_gold_row("GHOST", {"sender": "Boo"})])],
-     {("unknown_document", "GHOST", None)}),
-    ("duplicate_document", lambda r: [make_snapshot(r, "hub", [hub_row("D1")], snapshot_id="hub-extra")],
-     {("duplicate_document", "D1", None)}),
-    ("class_mismatch", lambda r: [ng(r, [near_gold_row("D4", {"sender": "X"}, "filing", None)])],
-     {("class_mismatch", "D4", None), ("duplicate_label", "D4", "sender")}),
-    ("subclass_mismatch", lambda r: [ng(r, [near_gold_row("D4", {"recipient": "X"}, "letter", "memo")])],
-     {("subclass_mismatch", "D4", None)}),
-    ("stale_content_hash", lambda r: [ng(r, [near_gold_row("D4", {"recipient": "X"}, sha="0" * 16)])],
-     {("stale_content_hash", "D4", None)}),
+    (
+        "unknown_document",
+        lambda r: [ng(r, [near_gold_row("GHOST", {"sender": "Boo"})])],
+        {("unknown_document", "GHOST", None)},
+    ),
+    (
+        "duplicate_document",
+        lambda r: [make_snapshot(r, "hub", [hub_row("D1")], snapshot_id="hub-extra")],
+        {("duplicate_document", "D1", None)},
+    ),
+    (
+        "class_mismatch",
+        lambda r: [ng(r, [near_gold_row("D4", {"sender": "X"}, "filing", None)])],
+        {("class_mismatch", "D4", None), ("duplicate_label", "D4", "sender")},
+    ),
+    (
+        "subclass_mismatch",
+        lambda r: [ng(r, [near_gold_row("D4", {"recipient": "X"}, "letter", "memo")])],
+        {("subclass_mismatch", "D4", None)},
+    ),
+    (
+        "stale_content_hash",
+        lambda r: [ng(r, [near_gold_row("D4", {"recipient": "X"}, sha="0" * 16)])],
+        {("stale_content_hash", "D4", None)},
+    ),
     ("text_unverified", text_unverified, {("text_unverified", "D5", None)}),
-    ("duplicate_label", lambda r: [ng(r, [near_gold_row("D1", {"sent_on": "2020-01-02"})])],
-     {("duplicate_label", "D1", "sent_on")}),
+    (
+        "duplicate_label",
+        lambda r: [ng(r, [near_gold_row("D1", {"sent_on": "2020-01-02"})])],
+        {("duplicate_label", "D1", "sent_on")},
+    ),
     (
         "status_not_allowed",
-        lambda r: [make_snapshot(r, "interim", [interim_row("D4", {"recipient": ("guess", "X")})], snapshot_id="in-x")],
+        lambda r: [
+            make_snapshot(
+                r, "interim", [interim_row("D4", {"recipient": ("guess", "X")})], snapshot_id="in-x"
+            )
+        ],
         {("status_not_allowed", "D4", "recipient")},
     ),
     ("inconsistent_truth_flag", truth_flag, {("inconsistent_truth_flag", "D4", "recipient")}),
     (
         "orphan_decision",
-        lambda r: [make_snapshot(r, "review", [review_row("D4", "recipient", "Eve")], snapshot_id="rv-extra")],
+        lambda r: [
+            make_snapshot(r, "review", [review_row("D4", "recipient", "Eve")], snapshot_id="rv-extra")
+        ],
         {("orphan_decision", "D4", "recipient")},
     ),
     (
         "conflicting_decision",
-        lambda r: [make_snapshot(r, "review", [review_row("D1", "sent_on", "1999-01-01")], snapshot_id="rv-extra")],
+        lambda r: [
+            make_snapshot(r, "review", [review_row("D1", "sent_on", "1999-01-01")], snapshot_id="rv-extra")
+        ],
         {("conflicting_decision", "D1", "sent_on")},
     ),
     (
         "conflicting_human_decisions",
-        lambda r: [make_snapshot(r, "review", [review_row("D1", "sent_on", "1999-01-01", human=True)],
-                                 snapshot_id="rv-extra")],
+        lambda r: [
+            make_snapshot(
+                r, "review", [review_row("D1", "sent_on", "1999-01-01", human=True)], snapshot_id="rv-extra"
+            )
+        ],
         {("conflicting_decision", "D1", "sent_on"), ("duplicate_label", "D1", "sent_on")},
     ),
     (
         "unknown_class",
-        lambda r: [make_snapshot(r, "hub", [hub_row("D5", "invoice", None, {"total": 1})], snapshot_id="hub-extra")],
+        lambda r: [
+            make_snapshot(r, "hub", [hub_row("D5", "invoice", None, {"total": 1})], snapshot_id="hub-extra")
+        ],
         {("unknown_class", "D5", None)},
     ),
     (
@@ -147,36 +191,88 @@ CASES: list[Case] = [
         lambda r: [make_snapshot(r, "hub", [hub_row("D5", "letter", "fax")], snapshot_id="hub-extra")],
         {("unknown_subclass", "D5", None)},
     ),
-    ("unknown_field", lambda r: [ng(r, [near_gold_row("D4", {"colour": "red"})])],
-     {("unknown_field", "D4", "colour")}),
-    ("type_mismatch_date", lambda r: [ng(r, [near_gold_row("D4", {"sent_on": 20200101})])],
-     {("type_mismatch", "D4", "sent_on")}),
-    ("type_mismatch_list", lambda r: [ng(r, [near_gold_row("D4", {"action_items": "call"})])],
-     {("type_mismatch", "D4", "action_items")}),
-    ("type_mismatch_money", lambda r: [ng(r, [near_gold_row("D4", {"amount": True})])],
-     {("type_mismatch", "D4", "amount")}),
-    ("vocabulary_violation", lambda r: [ng(r, [near_gold_row("D4", {"urgency": "panic"})])],
-     {("vocabulary_violation", "D4", "urgency")}),
-    ("vocabulary_violation_hub",
-     lambda r: [make_snapshot(r, "hub", [hub_row("D5", fields={"urgency": "panic"})], snapshot_id="hub-extra")],
-     {("vocabulary_violation", "D5", "urgency")}),
-    ("unknown_document_interim",
-     lambda r: [make_snapshot(r, "interim", [interim_row("GHOST", {"sender": ("gap_fill", "Boo")})],
-                              snapshot_id="in-extra")],
-     {("unknown_document", "GHOST", None)}),
-    ("text_unchecked",
-     lambda r: [make_snapshot(r, "hub", [hub_row("D5", fields={"sender": "Fay"})], snapshot_id="hub-extra",
-                              source={"text_check": {"run": False}})],
-     {("text_unchecked", None, None)}),
-    ("dropped_source_data",
-     lambda r: [make_snapshot(r, "near_gold", [near_gold_row("D4", {"recipient": "Eve"})], snapshot_id="ng-extra",
-                              source={"rejected_lines": [{"file": "x.jsonl", "line": 2, "reason": "not JSON"}]})],
-     {("dropped_source_data", None, None)}),
-    ("duplicate_label_across_interim_ranks",
-     lambda r: [make_snapshot(r, "interim", [interim_row("D4", {"recipient": ("gap_fill", "A")}),
-                                            interim_row("D4", {"recipient": ("correction", "B")})],
-                              snapshot_id="in-extra")],
-     {("duplicate_label", "D4", "recipient")}),
+    (
+        "unknown_field",
+        lambda r: [ng(r, [near_gold_row("D4", {"colour": "red"})])],
+        {("unknown_field", "D4", "colour")},
+    ),
+    (
+        "type_mismatch_date",
+        lambda r: [ng(r, [near_gold_row("D4", {"sent_on": 20200101})])],
+        {("type_mismatch", "D4", "sent_on")},
+    ),
+    (
+        "type_mismatch_list",
+        lambda r: [ng(r, [near_gold_row("D4", {"action_items": "call"})])],
+        {("type_mismatch", "D4", "action_items")},
+    ),
+    (
+        "type_mismatch_money",
+        lambda r: [ng(r, [near_gold_row("D4", {"amount": True})])],
+        {("type_mismatch", "D4", "amount")},
+    ),
+    (
+        "vocabulary_violation",
+        lambda r: [ng(r, [near_gold_row("D4", {"urgency": "panic"})])],
+        {("vocabulary_violation", "D4", "urgency")},
+    ),
+    (
+        "vocabulary_violation_hub",
+        lambda r: [
+            make_snapshot(r, "hub", [hub_row("D5", fields={"urgency": "panic"})], snapshot_id="hub-extra")
+        ],
+        {("vocabulary_violation", "D5", "urgency")},
+    ),
+    (
+        "unknown_document_interim",
+        lambda r: [
+            make_snapshot(
+                r, "interim", [interim_row("GHOST", {"sender": ("gap_fill", "Boo")})], snapshot_id="in-extra"
+            )
+        ],
+        {("unknown_document", "GHOST", None)},
+    ),
+    (
+        "text_unchecked",
+        lambda r: [
+            make_snapshot(
+                r,
+                "hub",
+                [hub_row("D5", fields={"sender": "Fay"})],
+                snapshot_id="hub-extra",
+                source={"text_check": {"run": False}},
+            )
+        ],
+        {("text_unchecked", None, None)},
+    ),
+    (
+        "dropped_source_data",
+        lambda r: [
+            make_snapshot(
+                r,
+                "near_gold",
+                [near_gold_row("D4", {"recipient": "Eve"})],
+                snapshot_id="ng-extra",
+                source={"rejected_lines": [{"file": "x.jsonl", "line": 2, "reason": "not JSON"}]},
+            )
+        ],
+        {("dropped_source_data", None, None)},
+    ),
+    (
+        "duplicate_label_across_interim_ranks",
+        lambda r: [
+            make_snapshot(
+                r,
+                "interim",
+                [
+                    interim_row("D4", {"recipient": ("gap_fill", "A")}),
+                    interim_row("D4", {"recipient": ("correction", "B")}),
+                ],
+                snapshot_id="in-extra",
+            )
+        ],
+        {("duplicate_label", "D4", "recipient")},
+    ),
 ]
 
 
@@ -198,7 +294,7 @@ def test_failure_state_is_reported_and_neighbours_still_load(tmp_path: Path, nam
     has_error = any(SEVERITY[k] == "error" for k, _, _ in expected)
     assert verify(report) == (1 if has_error else 0)
     # the valid neighbours were loaded and still resolve
-    assert BASE_IDS <= {s.snapshot_id for s in loaded}
+    assert {s.snapshot_id for s in loaded} >= BASE_IDS
     read = read_layers(loaded)
     docs = {d.document_id: d for d in resolve(read.records, prof, corpus_index(read.corpus))}
     assert docs["D3"].fields["entity"].value == "Acme"
@@ -225,19 +321,32 @@ def test_corrupt_line_location_names_file_and_line(tmp_path: Path) -> None:
 
 
 def test_many_problems_are_all_reported_in_one_run(tmp_path: Path) -> None:
-    extra = ng(tmp_path, [
-        near_gold_row("D4", {"urgency": "panic", "colour": "red", "sent_on": 5}),
-        near_gold_row("GHOST", {"sender": "Boo"}),
-    ])
+    extra = ng(
+        tmp_path,
+        [
+            near_gold_row("D4", {"urgency": "panic", "colour": "red", "sent_on": 5}),
+            near_gold_row("GHOST", {"sender": "Boo"}),
+        ],
+    )
     report, _ = check_dirs([*standard_set(tmp_path), extra], profile())
-    assert report.kinds() == {"vocabulary_violation": 1, "unknown_field": 1, "type_mismatch": 1, "unknown_document": 1}
+    assert report.kinds() == {
+        "vocabulary_violation": 1,
+        "unknown_field": 1,
+        "type_mismatch": 1,
+        "unknown_document": 1,
+    }
     assert [f.severity for f in report.findings] == ["error"] * 4
 
 
 def test_known_warnings_are_marked_and_never_change_the_verdict(tmp_path: Path) -> None:
     known = ({"kind": "orphan_decision", "doc": "D4", "field": "recipient"},)
-    extra = make_snapshot(tmp_path, "review", [review_row("D4", "recipient", "Eve"), review_row("D3", "filing_id", "F1")],
-                          snapshot_id="rv-extra", known_warnings=known)
+    extra = make_snapshot(
+        tmp_path,
+        "review",
+        [review_row("D4", "recipient", "Eve"), review_row("D3", "filing_id", "F1")],
+        snapshot_id="rv-extra",
+        known_warnings=known,
+    )
     report, _ = check_dirs([*standard_set(tmp_path), extra], profile())
     assert sorted((f.doc, f.known) for f in report.findings) == [("D3", False), ("D4", True)]
     assert verify(report) == 0
@@ -253,12 +362,25 @@ def test_errors_sort_before_warnings(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("ftype", "value", "ok"),
     [
-        ("name", "Ann", True), ("name", 3, False), ("name", None, True), ("label", ["a"], False),
-        ("date", "2020-01-01", True), ("date", 20200101, False),
-        ("money", 12.5, True), ("money", 3, True), ("money", "$3", True), ("money", True, False),
-        ("money", float("nan"), False), ("money", float("inf"), False), ("money", [1], False),
-        ("entity_list", ["a", "b"], True), ("entity_list:name", [], True), ("entity_list:name", ["a", 1], False),
-        ("entity_list:free_text", "a", False), ("cms_doc_ref", "NPI 1", True), ("containment", {"a": 1}, False),
+        ("name", "Ann", True),
+        ("name", 3, False),
+        ("name", None, True),
+        ("label", ["a"], False),
+        ("date", "2020-01-01", True),
+        ("date", 20200101, False),
+        ("money", 12.5, True),
+        ("money", 3, True),
+        ("money", "$3", True),
+        ("money", True, False),
+        ("money", float("nan"), False),
+        ("money", float("inf"), False),
+        ("money", [1], False),
+        ("entity_list", ["a", "b"], True),
+        ("entity_list:name", [], True),
+        ("entity_list:name", ["a", 1], False),
+        ("entity_list:free_text", "a", False),
+        ("cms_doc_ref", "NPI 1", True),
+        ("containment", {"a": 1}, False),
         ("no_such_type", "x", False),
     ],
 )
@@ -304,7 +426,9 @@ def test_a_known_warning_covers_only_its_own_snapshot(tmp_path: Path) -> None:
 
     hub = make_snapshot(tmp_path, "hub", [hub_row("D1", fields={"sender": "Ann", "recipient": "Bo"})])
     accepted = ({"kind": "subclass_mismatch", "doc": "D1", "field": None, "reason": "re-filed"},)
-    a = make_snapshot(tmp_path, "interim", [_stale("D1", "sender")], snapshot_id="interim-a", known_warnings=accepted)
+    a = make_snapshot(
+        tmp_path, "interim", [_stale("D1", "sender")], snapshot_id="interim-a", known_warnings=accepted
+    )
     b = make_snapshot(tmp_path, "interim", [_stale("D1", "recipient")], snapshot_id="interim-b")
     report, _ = check_dirs([hub, a, b], profile())
     got = sorted((f.kind, f.location.split("/")[0], f.known) for f in report.findings)
@@ -314,21 +438,42 @@ def test_a_known_warning_covers_only_its_own_snapshot(tmp_path: Path) -> None:
     args = ["verify", "--profile", str(PROFILE_PATH), str(hub), str(a), str(b)]
     assert runner.invoke(app, args).exit_code == 0
     assert runner.invoke(app, [*args, "--strict"]).exit_code == 1
-    assert runner.invoke(app, ["verify", "--strict", "--profile", str(PROFILE_PATH), str(hub), str(a)]).exit_code == 0
+    assert (
+        runner.invoke(app, ["verify", "--strict", "--profile", str(PROFILE_PATH), str(hub), str(a)]).exit_code
+        == 0
+    )
 
 
 def test_a_known_warning_matches_kind_document_field_and_file(tmp_path: Path) -> None:
     accepted = (
         {"kind": "orphan_decision", "doc": "D4", "field": "sender", "reason": "other field"},
-        {"kind": "orphan_decision", "doc": "D4", "field": "recipient", "reason": "other file", "file": "other.jsonl"},
+        {
+            "kind": "orphan_decision",
+            "doc": "D4",
+            "field": "recipient",
+            "reason": "other file",
+            "file": "other.jsonl",
+        },
     )
-    extra = make_snapshot(tmp_path, "review", [review_row("D4", "recipient", "Eve")], snapshot_id="rv-extra",
-                          known_warnings=accepted)
+    extra = make_snapshot(
+        tmp_path,
+        "review",
+        [review_row("D4", "recipient", "Eve")],
+        snapshot_id="rv-extra",
+        known_warnings=accepted,
+    )
     report, _ = check_dirs([*standard_set(tmp_path), extra], profile())
     (f,) = report.findings
     assert (f.kind, f.doc, f.field, f.known) == ("orphan_decision", "D4", "recipient", False)
-    in_file = ({"kind": "orphan_decision", "doc": "D4", "field": "recipient", "reason": "r", "file": "rows.jsonl"},)
-    fixed = make_snapshot(tmp_path / "again", "review", [review_row("D4", "recipient", "Eve")], snapshot_id="rv-extra",
-                          known_warnings=in_file)
+    in_file = (
+        {"kind": "orphan_decision", "doc": "D4", "field": "recipient", "reason": "r", "file": "rows.jsonl"},
+    )
+    fixed = make_snapshot(
+        tmp_path / "again",
+        "review",
+        [review_row("D4", "recipient", "Eve")],
+        snapshot_id="rv-extra",
+        known_warnings=in_file,
+    )
     report, _ = check_dirs([*standard_set(tmp_path / "again"), fixed], profile())
     assert [f.known for f in report.findings] == [True]

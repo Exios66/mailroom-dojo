@@ -1,4 +1,5 @@
-"""Loading the scoring profile: the mailroom content, every validation failure, immutability and the content hash."""
+"""Loading the scoring profile: the mailroom content, every validation failure, immutability and the content
+hash."""
 
 from __future__ import annotations
 
@@ -7,15 +8,16 @@ import dataclasses
 import hashlib
 import json
 import random
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import pytest
 import yaml
-from dojo_testkit import MAILROOM_PROFILE_PATH, mailroom_profile_mapping, minimal_profile_mapping
 from hypothesis import given
 from hypothesis import strategies as st
 
+from dojo_testkit import MAILROOM_PROFILE_PATH, mailroom_profile_mapping, minimal_profile_mapping
 from mailroom_dojo.profile import (
     ClassSpec,
     FieldSpec,
@@ -52,11 +54,21 @@ def _expect_error(mapping: Any, path: str, words: str = "") -> ProfileError:
 def test_mailroom_profile_classes_in_registry_order(mailroom_profile):
     """Eight classes in the old registry order; three retired."""
     assert mailroom_profile.class_keys == (
-        "contract", "corporate_record", "due_diligence", "correspondence",
-        "compliance_filing", "court_opinion", "insurance_claim", "merger_agreement",
+        "contract",
+        "corporate_record",
+        "due_diligence",
+        "correspondence",
+        "compliance_filing",
+        "court_opinion",
+        "insurance_claim",
+        "merger_agreement",
     )
     assert mailroom_profile.live_class_keys == (
-        "contract", "corporate_record", "correspondence", "insurance_claim", "merger_agreement",
+        "contract",
+        "corporate_record",
+        "correspondence",
+        "insurance_claim",
+        "merger_agreement",
     )
     assert set(mailroom_profile.retired_class_keys) == {"due_diligence", "compliance_filing", "court_opinion"}
 
@@ -64,8 +76,14 @@ def test_mailroom_profile_classes_in_registry_order(mailroom_profile):
 def test_mailroom_profile_classification_order_puts_specific_classes_first(mailroom_profile):
     """The old pattern order, then the classes the old table lacked."""
     assert mailroom_profile.classification_match_order == (
-        "merger_agreement", "corporate_record", "correspondence", "compliance_filing",
-        "insurance_claim", "contract", "due_diligence", "court_opinion",
+        "merger_agreement",
+        "corporate_record",
+        "correspondence",
+        "compliance_filing",
+        "insurance_claim",
+        "contract",
+        "due_diligence",
+        "court_opinion",
     )
 
 
@@ -79,18 +97,38 @@ def test_mailroom_profile_settings_equal_the_old_defaults(mailroom_profile):
     assert (profile.presence.route_by_reasoning, profile.presence.embedding_threshold) == (True, 0.7)
     assert (profile.embedding.enabled, profile.embedding.rescue_below) == (False, 0.7)
     trace = profile.trace_capture
-    assert (trace.capture_confidence, trace.capture_reasoning, trace.confidence_min, trace.confidence_band,
-            trace.compute_calibration_error, trace.missing_confidence) == (True, True, None, None, True, "absent")
+    assert (
+        trace.capture_confidence,
+        trace.capture_reasoning,
+        trace.confidence_min,
+        trace.confidence_band,
+        trace.compute_calibration_error,
+        trace.missing_confidence,
+    ) == (True, True, None, None, True, "absent")
     assert profile.unmapped_fields == "heuristic"
     assert profile.unknown_label == "other"
     assert profile.scorer_plugins == ("cms_doc_ref",)
     assert len(profile.list_matching.role_words) == 23
-    assert profile.field_name_defaults.containment == {"governing_law", "term_length", "renewal_terms", "subject_matter"}
+    assert profile.field_name_defaults.containment == {
+        "governing_law",
+        "term_length",
+        "renewal_terms",
+        "subject_matter",
+    }
     assert profile.field_name_defaults.recall_coverage == {
-        "parties", "keywords", "cuad_clauses", "maud_clauses", "claim_checklist", "action_items",
+        "parties",
+        "keywords",
+        "cuad_clauses",
+        "maud_clauses",
+        "claim_checklist",
+        "action_items",
     }
     assert profile.retired_fields == {
-        "key_obligations", "termination_clauses", "key_provisions", "key_points", "referenced_communications",
+        "key_obligations",
+        "termination_clauses",
+        "key_provisions",
+        "key_points",
+        "referenced_communications",
     }
     assert len(profile.never_scored_fields) == 18 and "expected_subclass" in profile.never_scored_fields
 
@@ -104,12 +142,20 @@ def test_mailroom_field_maps_match_the_old_registry(mailroom_profile):
     corporate = mailroom_profile.field_types("corporate_record")
     assert len(corporate) == 40
     assert list(corporate)[:9] == [
-        "entity_name", "record_type", "effective_date", "signatories", "jurisdiction",
-        "filing_number", "intent", "subject_matter", "keywords",
+        "entity_name",
+        "record_type",
+        "effective_date",
+        "signatories",
+        "jurisdiction",
+        "filing_number",
+        "intent",
+        "subject_matter",
+        "keywords",
     ]
     assert corporate["registered_agent"] == "name"
     assert mailroom_profile.require_class("corporate_record").field("registered_agent").subclasses == (
-        "articles_of_incorporation", "certificate_of_formation",
+        "articles_of_incorporation",
+        "certificate_of_formation",
     )
     assert mailroom_profile.field_types("insurance_claim")["supporting_documents"] == "entity_list"
 
@@ -134,12 +180,23 @@ def test_cms_variant_is_data(mailroom_profile):
     assert set(variant.marker.values) == {"carrier", "inpatient", "outpatient", "pde"}
     assert variant.marker.fallback_fields == ("claim_type",)
     assert variant.marker.skip_when_unstated and variant.marker.derive_from == "subclass"
-    assert (variant.guard.field, variant.guard.allowed, variant.guard.allow_empty) == ("claim_type", ("health",), True)
+    assert (variant.guard.field, variant.guard.allowed, variant.guard.allow_empty) == (
+        "claim_type",
+        ("health",),
+        True,
+    )
     assert variant.documented_absent_fields == ("adjuster", "denial_reasons")
     assert dict(variant.field_type_overrides) == {
-        "claim_type": "label", "cms_source_table": "label", "supporting_documents": "entity_list:cms_doc_ref",
+        "claim_type": "label",
+        "cms_source_table": "label",
+        "supporting_documents": "entity_list:cms_doc_ref",
     }
-    assert variant.added_field("cms_source_table").vocabulary.tokens == ("carrier", "inpatient", "outpatient", "pde")
+    assert variant.added_field("cms_source_table").vocabulary.tokens == (
+        "carrier",
+        "inpatient",
+        "outpatient",
+        "pde",
+    )
     assert insurance.field("cms_source_table") is None
     override = insurance.field("claim_type").predicted_value_type_override
     assert override.field_type == "label" and override.matches(" PDE ") and not override.matches("health")
@@ -148,7 +205,10 @@ def test_cms_variant_is_data(mailroom_profile):
 
 def test_accepted_unscored_fields_are_on_contract_only(mailroom_profile):
     """merger_consideration and maud_clauses are accepted, never scored, on a contract; merger scores them."""
-    assert mailroom_profile.require_class("contract").accepted_unscored_fields == {"merger_consideration", "maud_clauses"}
+    assert mailroom_profile.require_class("contract").accepted_unscored_fields == {
+        "merger_consideration",
+        "maud_clauses",
+    }
     assert "maud_clauses" in mailroom_profile.field_types("merger_agreement")
 
 
@@ -163,7 +223,8 @@ def test_every_label_field_has_a_vocabulary_and_every_vocabulary_token_folds_to_
 
 
 def test_unknown_class_lookups(mailroom_profile):
-    """Unknown classes give None, an empty fold and the unknown subclass; require_class names the known ones."""
+    """Unknown classes give None, an empty fold and the unknown subclass; require_class names the known
+    ones."""
     assert mailroom_profile.class_spec("audit") is None
     assert mailroom_profile.class_spec(None) is None
     assert mailroom_profile.canonical_label("audit", "intent", "notice") == ""
@@ -199,151 +260,434 @@ INSURANCE = "classes[6]"
 
 FAILURES: list[tuple[str, Callable[[dict[str, Any]], None], str, str]] = [
     ("unknown top-level key", lambda m: m.update(thresholdz={}), "thresholdz", "unknown key"),
-    ("unknown threshold key", lambda m: m["thresholds"].update(band=[0, 1]), "thresholds.band", "unknown key"),
+    (
+        "unknown threshold key",
+        lambda m: m["thresholds"].update(band=[0, 1]),
+        "thresholds.band",
+        "unknown key",
+    ),
     ("unknown class key", lambda m: _insurance(m).update(colour="red"), f"{INSURANCE}.colour", "unknown key"),
-    ("unknown field key", lambda m: _insurance(m)["fields"]["claim_type"].update(weight=2),
-     f"{INSURANCE}.fields.claim_type.weight", "unknown key"),
-    ("unknown vocabulary key", lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(case="upper"),
-     f"{INSURANCE}.fields.claim_type.vocabulary.case", "unknown key"),
-    ("unknown variant key", lambda m: _cms_variant(m).update(priority=1),
-     f"{INSURANCE}.variants[0].priority", "unknown key"),
-    ("unknown trace key", lambda m: m["trace_capture"].update(capture_everything=True),
-     "trace_capture.capture_everything", "unknown key"),
+    (
+        "unknown field key",
+        lambda m: _insurance(m)["fields"]["claim_type"].update(weight=2),
+        f"{INSURANCE}.fields.claim_type.weight",
+        "unknown key",
+    ),
+    (
+        "unknown vocabulary key",
+        lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(case="upper"),
+        f"{INSURANCE}.fields.claim_type.vocabulary.case",
+        "unknown key",
+    ),
+    (
+        "unknown variant key",
+        lambda m: _cms_variant(m).update(priority=1),
+        f"{INSURANCE}.variants[0].priority",
+        "unknown key",
+    ),
+    (
+        "unknown trace key",
+        lambda m: m["trace_capture"].update(capture_everything=True),
+        "trace_capture.capture_everything",
+        "unknown key",
+    ),
     ("missing client", lambda m: m.pop("client"), "client", "is required"),
     ("missing classes", lambda m: m.pop("classes"), "classes", "is required"),
     ("empty classes", lambda m: m.update(classes=[]), "classes", "must not be empty"),
-    ("missing field type", lambda m: _insurance(m)["fields"].update(adjuster={"compare": "default"}),
-     f"{INSURANCE}.fields.adjuster.type", "is required"),
+    (
+        "missing field type",
+        lambda m: _insurance(m)["fields"].update(adjuster={"compare": "default"}),
+        f"{INSURANCE}.fields.adjuster.type",
+        "is required",
+    ),
     ("wrong format", lambda m: m.update(profile_format=2), "profile_format", "reads format 1"),
     ("boolean format", lambda m: m.update(profile_format=True), "profile_format", "reads format 1"),
-    ("unregistered scalar type", lambda m: _insurance(m)["fields"].update(adjuster="lable"),
-     f"{INSURANCE}.fields.adjuster.type", "unregistered field type 'lable'"),
-    ("unregistered element type", lambda m: _insurance(m)["fields"].update(keywords="entity_list:nam"),
-     f"{INSURANCE}.fields.keywords.type", "unregistered element type 'nam'"),
-    ("nested list type", lambda m: _insurance(m)["fields"].update(keywords="entity_list:entity_list:name"),
-     f"{INSURANCE}.fields.keywords.type", "unregistered element type"),
-    ("plug-in type not declared", lambda m: m.update(scorer_plugins=[]),
-     f"{INSURANCE}.variants[0].field_type_overrides.supporting_documents", "unregistered element type 'cms_doc_ref'"),
-    ("label without vocabulary", lambda m: _insurance(m)["fields"].update(urgency="label"),
-     f"{INSURANCE}.fields.urgency", "needs a vocabulary"),
-    ("vocabulary on a non-label field",
-     lambda m: _insurance(m)["fields"].update(insurer={"type": "name", "vocabulary": {"tokens": ["a"]}}),
-     f"{INSURANCE}.fields.insurer.vocabulary", "only label fields"),
-    ("recall on a scalar", lambda m: _insurance(m)["fields"].update(insurer={"type": "name", "coverage": "recall"}),
-     f"{INSURANCE}.fields.insurer.coverage", "entity lists"),
-    ("containment on a date", lambda m: _insurance(m)["fields"].update(date_filed={"type": "date", "compare": "containment"}),
-     f"{INSURANCE}.fields.date_filed.compare", "containment applies"),
-    ("duplicate class", lambda m: m["classes"].append(copy.deepcopy(m["classes"][0])),
-     "classes[8].key", "duplicate class 'contract'"),
-    ("duplicate sorter label", lambda m: m["classes"][1].update(sorter_label="contract"),
-     "classes[1].sorter_label", "already used by classes[0]"),
+    (
+        "unregistered scalar type",
+        lambda m: _insurance(m)["fields"].update(adjuster="lable"),
+        f"{INSURANCE}.fields.adjuster.type",
+        "unregistered field type 'lable'",
+    ),
+    (
+        "unregistered element type",
+        lambda m: _insurance(m)["fields"].update(keywords="entity_list:nam"),
+        f"{INSURANCE}.fields.keywords.type",
+        "unregistered element type 'nam'",
+    ),
+    (
+        "nested list type",
+        lambda m: _insurance(m)["fields"].update(keywords="entity_list:entity_list:name"),
+        f"{INSURANCE}.fields.keywords.type",
+        "unregistered element type",
+    ),
+    (
+        "plug-in type not declared",
+        lambda m: m.update(scorer_plugins=[]),
+        f"{INSURANCE}.variants[0].field_type_overrides.supporting_documents",
+        "unregistered element type 'cms_doc_ref'",
+    ),
+    (
+        "label without vocabulary",
+        lambda m: _insurance(m)["fields"].update(urgency="label"),
+        f"{INSURANCE}.fields.urgency",
+        "needs a vocabulary",
+    ),
+    (
+        "vocabulary on a non-label field",
+        lambda m: _insurance(m)["fields"].update(insurer={"type": "name", "vocabulary": {"tokens": ["a"]}}),
+        f"{INSURANCE}.fields.insurer.vocabulary",
+        "only label fields",
+    ),
+    (
+        "recall on a scalar",
+        lambda m: _insurance(m)["fields"].update(insurer={"type": "name", "coverage": "recall"}),
+        f"{INSURANCE}.fields.insurer.coverage",
+        "entity lists",
+    ),
+    (
+        "containment on a date",
+        lambda m: _insurance(m)["fields"].update(date_filed={"type": "date", "compare": "containment"}),
+        f"{INSURANCE}.fields.date_filed.compare",
+        "containment applies",
+    ),
+    (
+        "duplicate class",
+        lambda m: m["classes"].append(copy.deepcopy(m["classes"][0])),
+        "classes[8].key",
+        "duplicate class 'contract'",
+    ),
+    (
+        "duplicate sorter label",
+        lambda m: m["classes"][1].update(sorter_label="contract"),
+        "classes[1].sorter_label",
+        "already used by classes[0]",
+    ),
     ("bad class key", lambda m: m["classes"][0].update(key="Contract"), "classes[0].key", "snake_case"),
     ("bad status", lambda m: m["classes"][0].update(status="paused"), "classes[0].status", "live, retired"),
-    ("bad field name", lambda m: _insurance(m)["fields"].update({"Claim Number": "id"}),
-     f"{INSURANCE}.fields.Claim Number", "snake_case"),
-    ("variant marker field not in class", lambda m: _cms_variant(m)["marker"].update(field="cms_table"),
-     f"{INSURANCE}.variants[0].marker.field", "not a field of the class or of this variant"),
-    ("variant fallback field not in class", lambda m: _cms_variant(m)["marker"].update(fallback_fields=["claimtype"]),
-     f"{INSURANCE}.variants[0].marker.fallback_fields[0]", "not a field"),
-    ("variant guard field not in class", lambda m: _cms_variant(m)["guard"].update(field="product_line"),
-     f"{INSURANCE}.variants[0].guard.field", "not a field"),
-    ("documented absent field not in class",
-     lambda m: _cms_variant(m).update(documented_absent_fields=["adjuster", "denial_reason"]),
-     f"{INSURANCE}.variants[0].documented_absent_fields[1]", "not a field"),
-    ("override field not in class", lambda m: _cms_variant(m)["field_type_overrides"].update(support_docs="id"),
-     f"{INSURANCE}.variants[0].field_type_overrides.support_docs", "not a field"),
-    ("override to an unregistered type", lambda m: _cms_variant(m)["field_type_overrides"].update(claim_type="lbl"),
-     f"{INSURANCE}.variants[0].field_type_overrides.claim_type", "unregistered field type"),
-    ("marker value outside the marker vocabulary", lambda m: _cms_variant(m)["marker"].update(values=["carrier", "dme"]),
-     f"{INSURANCE}.variants[0].marker.values[1]", "not a token"),
-    ("marker value not a subclass", lambda m: _cms_variant(m)["added_fields"]["cms_source_table"]["vocabulary"].update(
-        tokens=["carrier", "inpatient", "outpatient", "pde", "dme"]) or _cms_variant(m)["marker"].update(
-        values=["carrier", "dme"]),
-     f"{INSURANCE}.variants[0].marker.values[1]", "not a subclass"),
-    ("uppercase marker value", lambda m: _cms_variant(m)["marker"].update(values=["Carrier"]),
-     f"{INSURANCE}.variants[0].marker.values[0]", "lowercase"),
-    ("added field already in class",
-     lambda m: _cms_variant(m)["added_fields"].update(adjuster="name"),
-     f"{INSURANCE}.variants[0].added_fields.adjuster", "already a field"),
-    ("duplicate variant", lambda m: _insurance(m)["variants"].append(copy.deepcopy(_cms_variant(m))),
-     f"{INSURANCE}.variants[1].name", "duplicate variant"),
-    ("threshold as text", lambda m: m["thresholds"].update(list_match_threshold="0.6"),
-     "thresholds.list_match_threshold", "must be a number"),
-    ("threshold as boolean", lambda m: m["audit"].update(token_coverage=True), "audit.token_coverage", "must be a number"),
-    ("threshold NaN", lambda m: m["embedding"].update(rescue_below=float("nan")), "embedding.rescue_below", "finite"),
-    ("threshold infinite", lambda m: m["presence"].update(embedding_threshold=float("inf")),
-     "presence.embedding_threshold", "finite"),
-    ("threshold above one", lambda m: m["thresholds"].update(list_match_threshold=1.5),
-     "thresholds.list_match_threshold", "between 0.0 and 1.0"),
-    ("threshold below zero", lambda m: m["audit"].update(token_coverage=-0.1), "audit.token_coverage", "between"),
-    ("band reversed", lambda m: m["thresholds"].update(ambiguous_band=[0.9, 0.5]), "thresholds.ambiguous_band", "above high"),
-    ("band too short", lambda m: m["thresholds"].update(ambiguous_band=[0.5]), "thresholds.ambiguous_band", "two numbers"),
-    ("band member text", lambda m: m["thresholds"].update(ambiguous_band=[0.5, "high"]), "thresholds.ambiguous_band[1]",
-     "must be a number"),
-    ("type band for an unknown type", lambda m: m["thresholds"].update(type_bands={"nmae": "always"}),
-     "thresholds.type_bands.nmae", "unregistered field type"),
-    ("type band bad value", lambda m: m["thresholds"].update(type_bands={"name": "sometimes"}),
-     "thresholds.type_bands.name", "two numbers"),
-    ("confidence band reversed", lambda m: m["trace_capture"].update(confidence_band=[0.8, 0.2]),
-     "trace_capture.confidence_band", "above high"),
-    ("missing confidence policy", lambda m: m["trace_capture"].update(missing_confidence="assume_half"),
-     "trace_capture.missing_confidence", "absent, assume_1, assume_0"),
+    (
+        "bad field name",
+        lambda m: _insurance(m)["fields"].update({"Claim Number": "id"}),
+        f"{INSURANCE}.fields.Claim Number",
+        "snake_case",
+    ),
+    (
+        "variant marker field not in class",
+        lambda m: _cms_variant(m)["marker"].update(field="cms_table"),
+        f"{INSURANCE}.variants[0].marker.field",
+        "not a field of the class or of this variant",
+    ),
+    (
+        "variant fallback field not in class",
+        lambda m: _cms_variant(m)["marker"].update(fallback_fields=["claimtype"]),
+        f"{INSURANCE}.variants[0].marker.fallback_fields[0]",
+        "not a field",
+    ),
+    (
+        "variant guard field not in class",
+        lambda m: _cms_variant(m)["guard"].update(field="product_line"),
+        f"{INSURANCE}.variants[0].guard.field",
+        "not a field",
+    ),
+    (
+        "documented absent field not in class",
+        lambda m: _cms_variant(m).update(documented_absent_fields=["adjuster", "denial_reason"]),
+        f"{INSURANCE}.variants[0].documented_absent_fields[1]",
+        "not a field",
+    ),
+    (
+        "override field not in class",
+        lambda m: _cms_variant(m)["field_type_overrides"].update(support_docs="id"),
+        f"{INSURANCE}.variants[0].field_type_overrides.support_docs",
+        "not a field",
+    ),
+    (
+        "override to an unregistered type",
+        lambda m: _cms_variant(m)["field_type_overrides"].update(claim_type="lbl"),
+        f"{INSURANCE}.variants[0].field_type_overrides.claim_type",
+        "unregistered field type",
+    ),
+    (
+        "marker value outside the marker vocabulary",
+        lambda m: _cms_variant(m)["marker"].update(values=["carrier", "dme"]),
+        f"{INSURANCE}.variants[0].marker.values[1]",
+        "not a token",
+    ),
+    (
+        "marker value not a subclass",
+        lambda m: (
+            _cms_variant(m)["added_fields"]["cms_source_table"]["vocabulary"].update(
+                tokens=["carrier", "inpatient", "outpatient", "pde", "dme"]
+            )
+            or _cms_variant(m)["marker"].update(values=["carrier", "dme"])
+        ),
+        f"{INSURANCE}.variants[0].marker.values[1]",
+        "not a subclass",
+    ),
+    (
+        "uppercase marker value",
+        lambda m: _cms_variant(m)["marker"].update(values=["Carrier"]),
+        f"{INSURANCE}.variants[0].marker.values[0]",
+        "lowercase",
+    ),
+    (
+        "added field already in class",
+        lambda m: _cms_variant(m)["added_fields"].update(adjuster="name"),
+        f"{INSURANCE}.variants[0].added_fields.adjuster",
+        "already a field",
+    ),
+    (
+        "duplicate variant",
+        lambda m: _insurance(m)["variants"].append(copy.deepcopy(_cms_variant(m))),
+        f"{INSURANCE}.variants[1].name",
+        "duplicate variant",
+    ),
+    (
+        "threshold as text",
+        lambda m: m["thresholds"].update(list_match_threshold="0.6"),
+        "thresholds.list_match_threshold",
+        "must be a number",
+    ),
+    (
+        "threshold as boolean",
+        lambda m: m["audit"].update(token_coverage=True),
+        "audit.token_coverage",
+        "must be a number",
+    ),
+    (
+        "threshold NaN",
+        lambda m: m["embedding"].update(rescue_below=float("nan")),
+        "embedding.rescue_below",
+        "finite",
+    ),
+    (
+        "threshold infinite",
+        lambda m: m["presence"].update(embedding_threshold=float("inf")),
+        "presence.embedding_threshold",
+        "finite",
+    ),
+    (
+        "threshold above one",
+        lambda m: m["thresholds"].update(list_match_threshold=1.5),
+        "thresholds.list_match_threshold",
+        "between 0.0 and 1.0",
+    ),
+    (
+        "threshold below zero",
+        lambda m: m["audit"].update(token_coverage=-0.1),
+        "audit.token_coverage",
+        "between",
+    ),
+    (
+        "band reversed",
+        lambda m: m["thresholds"].update(ambiguous_band=[0.9, 0.5]),
+        "thresholds.ambiguous_band",
+        "above high",
+    ),
+    (
+        "band too short",
+        lambda m: m["thresholds"].update(ambiguous_band=[0.5]),
+        "thresholds.ambiguous_band",
+        "two numbers",
+    ),
+    (
+        "band member text",
+        lambda m: m["thresholds"].update(ambiguous_band=[0.5, "high"]),
+        "thresholds.ambiguous_band[1]",
+        "must be a number",
+    ),
+    (
+        "type band for an unknown type",
+        lambda m: m["thresholds"].update(type_bands={"nmae": "always"}),
+        "thresholds.type_bands.nmae",
+        "unregistered field type",
+    ),
+    (
+        "type band bad value",
+        lambda m: m["thresholds"].update(type_bands={"name": "sometimes"}),
+        "thresholds.type_bands.name",
+        "two numbers",
+    ),
+    (
+        "confidence band reversed",
+        lambda m: m["trace_capture"].update(confidence_band=[0.8, 0.2]),
+        "trace_capture.confidence_band",
+        "above high",
+    ),
+    (
+        "missing confidence policy",
+        lambda m: m["trace_capture"].update(missing_confidence="assume_half"),
+        "trace_capture.missing_confidence",
+        "absent, assume_1, assume_0",
+    ),
     ("boolean as text", lambda m: m["audit"].update(enabled="true"), "audit.enabled", "true or false"),
-    ("unmapped policy", lambda m: m.update(unmapped_fields="guess"), "unmapped_fields", "heuristic, skip, error"),
-    ("bad synonym regex", lambda m: m["classes"][0].update(synonyms=["agreement("]), "classes[0].synonyms[0]",
-     "regular expression"),
-    ("vocabulary tokens colliding", lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(
-        tokens=["auto", "Auto"]), f"{INSURANCE}.fields.claim_type.vocabulary.tokens[1]", "same compact form"),
-    ("vocabulary duplicate token", lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(
-        tokens=["auto", "auto"]), f"{INSURANCE}.fields.claim_type.vocabulary.tokens[1]", "duplicate"),
-    ("vocabulary token without letters", lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(
-        tokens=["auto", "--"]), f"{INSURANCE}.fields.claim_type.vocabulary.tokens[1]", "no letters"),
-    ("alias target not a token", lambda m: _insurance(m)["fields"]["coverage_determination"]["vocabulary"]["aliases"].update(
-        paid="aproved"), f"{INSURANCE}.fields.coverage_determination.vocabulary.aliases.paid", "not a token"),
-    ("aliases on an exact fold", lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(
-        aliases={"car": "auto"}), f"{INSURANCE}.fields.claim_type.vocabulary.aliases", "need fold"),
-    ("uppercase alias", lambda m: _insurance(m)["fields"]["coverage_determination"]["vocabulary"]["aliases"].update(
-        {"Paid In Full": "approved"}),
-     f"{INSURANCE}.fields.coverage_determination.vocabulary.aliases.Paid In Full", "lowercase"),
-    ("aliases colliding on compact form", lambda m: _insurance(m)["fields"]["coverage_determination"]["vocabulary"][
-        "aliases"].update({"notcovered": "approved"}),
-     f"{INSURANCE}.fields.coverage_determination.vocabulary.aliases.notcovered", "same compact form"),
-    ("inventory alias target typo", lambda m: _insurance(m)["fields"]["intent"]["vocabulary"].update(
-        aliases={"fnol": "claim_filng"}), f"{INSURANCE}.fields.intent.vocabulary.aliases.fnol", "any inventory vocabulary"),
-    ("prefix alias on an exact fold", lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(
-        prefix_aliases={"car": "auto"}), f"{INSURANCE}.fields.claim_type.vocabulary.prefix_aliases", "need fold inventory"),
-    ("catalog without catalog fold", lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(
-        catalog=[{"key": "auto", "label": "Auto"}]), f"{INSURANCE}.fields.claim_type.vocabulary.catalog", "fold catalog"),
-    ("catalog fold without catalog", lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(fold="catalog"),
-     f"{INSURANCE}.fields.claim_type.vocabulary.catalog", "non-empty catalog"),
-    ("catalog key not a token", lambda m: m["classes"][0]["subclasses"]["catalog"].append(
-        {"key": "lease", "label": "Lease Agreement"}), "classes[0].subclasses.catalog[25].key", "not a token"),
-    ("catalog label without letters", lambda m: m["classes"][0]["subclasses"].update(
-        catalog=[{"key": "ip", "label": "--"}]), "classes[0].subclasses.catalog[0].label", "no letters"),
-    ("unknown fold", lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(fold="fuzzy"),
-     f"{INSURANCE}.fields.claim_type.vocabulary.fold", "exact, aliases, inventory, catalog, allowed_set"),
-    ("subclass fold exact", lambda m: _insurance(m)["subclasses"].update(fold="exact"),
-     f"{INSURANCE}.subclasses.fold", "catalog or allowed_set"),
-    ("field subclass unknown", lambda m: m["classes"][1]["fields"]["holder"].update(subclasses=["warrant"]),
-     "classes[1].fields.holder.subclasses[0]", "not a subclass"),
-    ("accepted field is scored", lambda m: m["classes"][0].update(accepted_unscored_fields=["parties"]),
-     "classes[0].accepted_unscored_fields", "scored field"),
-    ("match order unknown class", lambda m: m["classification"].update(match_order=["contracts"]),
-     "classification.match_order[0]", "not a class"),
-    ("match order duplicate", lambda m: m["classification"].update(match_order=["contract", "contract"]),
-     "classification.match_order[1]", "duplicate"),
-    ("class alias shadows a class", lambda m: m.update(class_aliases={"contract": "merger_agreement"}),
-     "class_aliases.contract", "must not be a class key"),
-    ("class alias to nowhere", lambda m: m.update(class_aliases={"claim": "insurance_claims"}),
-     "class_aliases.claim", "not a class"),
-    ("plug-in shadows a built-in", lambda m: m.update(scorer_plugins=["cms_doc_ref", "date"]),
-     "scorer_plugins[1]", "replace a built-in"),
-    ("never-scored blank", lambda m: m.update(never_scored_fields=["gt_presence", " "]), "never_scored_fields[1]",
-     "blank"),
+    (
+        "unmapped policy",
+        lambda m: m.update(unmapped_fields="guess"),
+        "unmapped_fields",
+        "heuristic, skip, error",
+    ),
+    (
+        "bad synonym regex",
+        lambda m: m["classes"][0].update(synonyms=["agreement("]),
+        "classes[0].synonyms[0]",
+        "regular expression",
+    ),
+    (
+        "vocabulary tokens colliding",
+        lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(tokens=["auto", "Auto"]),
+        f"{INSURANCE}.fields.claim_type.vocabulary.tokens[1]",
+        "same compact form",
+    ),
+    (
+        "vocabulary duplicate token",
+        lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(tokens=["auto", "auto"]),
+        f"{INSURANCE}.fields.claim_type.vocabulary.tokens[1]",
+        "duplicate",
+    ),
+    (
+        "vocabulary token without letters",
+        lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(tokens=["auto", "--"]),
+        f"{INSURANCE}.fields.claim_type.vocabulary.tokens[1]",
+        "no letters",
+    ),
+    (
+        "alias target not a token",
+        lambda m: _insurance(m)["fields"]["coverage_determination"]["vocabulary"]["aliases"].update(
+            paid="aproved"
+        ),
+        f"{INSURANCE}.fields.coverage_determination.vocabulary.aliases.paid",
+        "not a token",
+    ),
+    (
+        "aliases on an exact fold",
+        lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(aliases={"car": "auto"}),
+        f"{INSURANCE}.fields.claim_type.vocabulary.aliases",
+        "need fold",
+    ),
+    (
+        "uppercase alias",
+        lambda m: _insurance(m)["fields"]["coverage_determination"]["vocabulary"]["aliases"].update(
+            {"Paid In Full": "approved"}
+        ),
+        f"{INSURANCE}.fields.coverage_determination.vocabulary.aliases.Paid In Full",
+        "lowercase",
+    ),
+    (
+        "aliases colliding on compact form",
+        lambda m: _insurance(m)["fields"]["coverage_determination"]["vocabulary"]["aliases"].update(
+            {"notcovered": "approved"}
+        ),
+        f"{INSURANCE}.fields.coverage_determination.vocabulary.aliases.notcovered",
+        "same compact form",
+    ),
+    (
+        "inventory alias target typo",
+        lambda m: _insurance(m)["fields"]["intent"]["vocabulary"].update(aliases={"fnol": "claim_filng"}),
+        f"{INSURANCE}.fields.intent.vocabulary.aliases.fnol",
+        "any inventory vocabulary",
+    ),
+    (
+        "prefix alias on an exact fold",
+        lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(prefix_aliases={"car": "auto"}),
+        f"{INSURANCE}.fields.claim_type.vocabulary.prefix_aliases",
+        "need fold inventory",
+    ),
+    (
+        "catalog without catalog fold",
+        lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(
+            catalog=[{"key": "auto", "label": "Auto"}]
+        ),
+        f"{INSURANCE}.fields.claim_type.vocabulary.catalog",
+        "fold catalog",
+    ),
+    (
+        "catalog fold without catalog",
+        lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(fold="catalog"),
+        f"{INSURANCE}.fields.claim_type.vocabulary.catalog",
+        "non-empty catalog",
+    ),
+    (
+        "catalog key not a token",
+        lambda m: m["classes"][0]["subclasses"]["catalog"].append(
+            {"key": "lease", "label": "Lease Agreement"}
+        ),
+        "classes[0].subclasses.catalog[25].key",
+        "not a token",
+    ),
+    (
+        "catalog label without letters",
+        lambda m: m["classes"][0]["subclasses"].update(catalog=[{"key": "ip", "label": "--"}]),
+        "classes[0].subclasses.catalog[0].label",
+        "no letters",
+    ),
+    (
+        "unknown fold",
+        lambda m: _insurance(m)["fields"]["claim_type"]["vocabulary"].update(fold="fuzzy"),
+        f"{INSURANCE}.fields.claim_type.vocabulary.fold",
+        "exact, aliases, inventory, catalog, allowed_set",
+    ),
+    (
+        "subclass fold exact",
+        lambda m: _insurance(m)["subclasses"].update(fold="exact"),
+        f"{INSURANCE}.subclasses.fold",
+        "catalog or allowed_set",
+    ),
+    (
+        "field subclass unknown",
+        lambda m: m["classes"][1]["fields"]["holder"].update(subclasses=["warrant"]),
+        "classes[1].fields.holder.subclasses[0]",
+        "not a subclass",
+    ),
+    (
+        "accepted field is scored",
+        lambda m: m["classes"][0].update(accepted_unscored_fields=["parties"]),
+        "classes[0].accepted_unscored_fields",
+        "scored field",
+    ),
+    (
+        "match order unknown class",
+        lambda m: m["classification"].update(match_order=["contracts"]),
+        "classification.match_order[0]",
+        "not a class",
+    ),
+    (
+        "match order duplicate",
+        lambda m: m["classification"].update(match_order=["contract", "contract"]),
+        "classification.match_order[1]",
+        "duplicate",
+    ),
+    (
+        "class alias shadows a class",
+        lambda m: m.update(class_aliases={"contract": "merger_agreement"}),
+        "class_aliases.contract",
+        "must not be a class key",
+    ),
+    (
+        "class alias to nowhere",
+        lambda m: m.update(class_aliases={"claim": "insurance_claims"}),
+        "class_aliases.claim",
+        "not a class",
+    ),
+    (
+        "plug-in shadows a built-in",
+        lambda m: m.update(scorer_plugins=["cms_doc_ref", "date"]),
+        "scorer_plugins[1]",
+        "replace a built-in",
+    ),
+    (
+        "never-scored blank",
+        lambda m: m.update(never_scored_fields=["gt_presence", " "]),
+        "never_scored_fields[1]",
+        "blank",
+    ),
     ("client with spaces", lambda m: m.update(client=" mailroom "), "client", "surrounding whitespace"),
     ("section not a mapping", lambda m: m.update(audit=[True, 0.7]), "audit", "must be a mapping"),
-    ("fields not a mapping", lambda m: _insurance(m).update(fields=["claim_number"]), f"{INSURANCE}.fields",
-     "must be a mapping"),
+    (
+        "fields not a mapping",
+        lambda m: _insurance(m).update(fields=["claim_number"]),
+        f"{INSURANCE}.fields",
+        "must be a mapping",
+    ),
     ("non-string key", lambda m: m["thresholds"].update({True: 1}), "thresholds", "keys must be strings"),
 ]
 
@@ -370,7 +714,9 @@ def test_top_level_must_be_a_mapping(tmp_path):
 
 def test_duplicate_yaml_key_is_refused(tmp_path):
     """PyYAML would keep the last of two equal keys; the loader refuses instead and names the line."""
-    text = MAILROOM_PROFILE_PATH.read_text().replace("  list_match_threshold: 0.6", "  list_match_threshold: 0.6\n  list_match_threshold: 0.9")
+    text = MAILROOM_PROFILE_PATH.read_text().replace(
+        "  list_match_threshold: 0.6", "  list_match_threshold: 0.6\n  list_match_threshold: 0.9"
+    )
     path = tmp_path / "scoring.yaml"
     path.write_text(text)
     error = _expect_error(path, "", "duplicate key 'list_match_threshold'")
@@ -385,7 +731,8 @@ def test_invalid_yaml_is_a_profile_error(tmp_path):
 
 
 def test_yaml_one_point_one_booleans_as_keys_are_refused(tmp_path):
-    """``yes:`` and ``no:`` are booleans in YAML 1.1, so a field called ``no`` is refused, not silently renamed."""
+    """``yes:`` and ``no:`` are booleans in YAML 1.1, so a field called ``no`` is refused, not silently
+    renamed."""
     mapping = minimal_profile_mapping()
     text = yaml.safe_dump(mapping).replace("policy_number: id", "no: id")
     path = tmp_path / "scoring.yaml"
@@ -413,7 +760,9 @@ def test_minimal_profile_gets_the_engine_defaults():
 
 def test_class_aliases_resolve():
     """A class alias finds the class it names."""
-    profile = load_scoring_profile(minimal_profile_mapping(class_aliases={"declaration": "auto_policy_declaration"}))
+    profile = load_scoring_profile(
+        minimal_profile_mapping(class_aliases={"declaration": "auto_policy_declaration"})
+    )
     assert profile.class_spec("declaration").key == "auto_policy_declaration"
     assert profile.field_types("declaration")["premium"] == "money"
 
@@ -457,12 +806,17 @@ def test_profiles_are_hashable_and_equal_by_content(mailroom_profile):
     assert again == mailroom_profile and hash(again) == hash(mailroom_profile)
     assert len({again, mailroom_profile}) == 1
     assert {hash(spec) for spec in mailroom_profile.classes}
-    assert hash(mailroom_profile.require_class("contract").subclasses) == hash(again.require_class("contract").subclasses)
+    assert hash(mailroom_profile.require_class("contract").subclasses) == hash(
+        again.require_class("contract").subclasses
+    )
 
 
 def test_content_hash_is_the_sha256_of_the_canonical_form(mailroom_profile):
     """The hash can be recomputed from the canonical form alone."""
-    assert hashlib.sha256(_canonical_json(profile_canonical_form(mailroom_profile))).hexdigest() == mailroom_profile.content_hash
+    assert (
+        hashlib.sha256(_canonical_json(profile_canonical_form(mailroom_profile))).hexdigest()
+        == mailroom_profile.content_hash
+    )
     assert len(mailroom_profile.content_hash) == 64
 
 
@@ -516,7 +870,9 @@ def test_content_hash_changes_with_content(mailroom_profile, edit):
 def test_stating_a_default_explicitly_keeps_the_hash():
     """Writing a default value out does not change the profile's identity."""
     plain = load_scoring_profile(minimal_profile_mapping())
-    explicit = load_scoring_profile(minimal_profile_mapping(thresholds={"list_match_threshold": 0.6}, unknown_label="other"))
+    explicit = load_scoring_profile(
+        minimal_profile_mapping(thresholds={"list_match_threshold": 0.6}, unknown_label="other")
+    )
     assert plain.content_hash == explicit.content_hash
 
 
@@ -552,6 +908,7 @@ def test_profile_file_is_valid_for_a_fresh_reader():
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert result.stdout.strip() == load_scoring_profile(Path(MAILROOM_PROFILE_PATH)).content_hash
 
+
 def test_every_class_field_type_equals_the_frozen_old_registry(mailroom_profile):
     """Each class's fields, types and order equal the old Dojo's registry, byte for byte.
 
@@ -565,7 +922,9 @@ def test_every_class_field_type_equals_the_frozen_old_registry(mailroom_profile)
     for class_key, old_types in expected.items():
         new_types = dict(mailroom_profile.field_types(class_key))
         assert new_types == old_types, class_key
-        if class_key != "corporate_record":  # the old union lists the schema fields first; only the content matters
+        if (
+            class_key != "corporate_record"
+        ):  # the old union lists the schema fields first; only the content matters
             assert list(new_types) == list(old_types), f"{class_key}: field order differs"
 
 

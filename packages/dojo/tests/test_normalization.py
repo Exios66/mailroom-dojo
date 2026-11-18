@@ -12,12 +12,24 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from mailroom_dojo.field_scoring.scalar_scorers import score_date_field
 from mailroom_dojo.normalization import dates, money, text
 from mailroom_dojo.normalization.dates import DateParts, parse_date, parse_date_parts
-from mailroom_dojo.field_scoring.scalar_scorers import score_date_field
 
-MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September",
-          "October", "November", "December"]
+MONTHS = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+]
 
 date_like_text = st.one_of(
     st.builds(
@@ -31,7 +43,10 @@ date_like_text = st.one_of(
             f"Monday {MONTHS[month - 1]} {day}",
             f"{year}",
         ][form],
-        st.integers(1900, 2099), st.integers(1, 12), st.integers(1, 28), st.integers(0, 7),
+        st.integers(1900, 2099),
+        st.integers(1, 12),
+        st.integers(1, 28),
+        st.integers(0, 7),
     ),
     st.text(max_size=30),
 )
@@ -88,7 +103,9 @@ def test_parse_date_parts_states_only_what_the_text_states(text_value, parts):
     assert tuple(parse_date_parts(text_value)) == parts
 
 
-@pytest.mark.parametrize("text_value", ["", "   ", "12", "Tuesday", "10:30", "garbage", None, 2014, ["2014-08-18"]])
+@pytest.mark.parametrize(
+    "text_value", ["", "   ", "12", "Tuesday", "10:30", "garbage", None, 2014, ["2014-08-18"]]
+)
 def test_non_dates_parse_to_none(text_value):
     """Blanks, bare numbers, weekdays, times, garbage and non-strings are not dates."""
     assert parse_date_parts(text_value) is None
@@ -110,12 +127,20 @@ def test_date_parts_report_their_stated_components():
 
 @pytest.mark.parametrize(
     ("text_value", "year"),
-    [("1/1/77", 1977), ("1/1/50", 2050), ("1/1/68", 2068), ("1/1/69", 1969), ("1/1/00", 2000),
-     ("March 3, 99", 1999), ("1/1/1877", 1877)],
+    [
+        ("1/1/77", 1977),
+        ("1/1/50", 2050),
+        ("1/1/68", 2068),
+        ("1/1/69", 1969),
+        ("1/1/00", 2000),
+        ("March 3, 99", 1999),
+        ("1/1/1877", 1877),
+    ],
 )
 @pytest.mark.parametrize("today", [2014, 2026, 2031, 2080])
 def test_two_digit_years_use_a_fixed_pivot_not_the_clock(freeze_clock, text_value, year, today):
-    """A two-digit year maps to the same century in any year the scorer runs, even with a parser built then."""
+    """A two-digit year maps to the same century in any year the scorer runs, even with a parser built
+    then."""
     freeze_clock(today)
     assert parse_date_parts(text_value).year == year
     rebuilt = dates._FixedPivotParserInfo()
@@ -174,9 +199,23 @@ def test_dateutil_is_never_asked_for_the_current_time(monkeypatch):
 
 @pytest.mark.parametrize(
     ("value", "amount"),
-    [("$1,234.56", 1234.56), ("1.2M USD", 1.2e6), ("USD 1.2M", 1.2e6), ("€500", 500.0), ("1k", 1000.0),
-     ("2B", 2e9), ("12 dollars", 12.0), (12, 12.0), (True, 1.0), ("", None), ("$", None), ("M", None),
-     ("twelve", None), (None, None), ([5], None)],
+    [
+        ("$1,234.56", 1234.56),
+        ("1.2M USD", 1.2e6),
+        ("USD 1.2M", 1.2e6),
+        ("€500", 500.0),
+        ("1k", 1000.0),
+        ("2B", 2e9),
+        ("12 dollars", 12.0),
+        (12, 12.0),
+        (True, 1.0),
+        ("", None),
+        ("$", None),
+        ("M", None),
+        ("twelve", None),
+        (None, None),
+        ([5], None),
+    ],
 )
 def test_parse_money(value, amount):
     """Currency symbols, words and magnitude suffixes are read; everything else is None."""
@@ -192,7 +231,8 @@ def test_parse_money_never_raises(value):
 
 @given(st.text())
 def test_normalize_text_is_idempotent_uppercase_and_punctuation_free(value):
-    """Normalizing twice changes nothing, and the result has no lowercase-able ASCII letters or punctuation."""
+    """Normalizing twice changes nothing, and the result has no lowercase-able ASCII letters or
+    punctuation."""
     once = text.normalize_text(value)
     assert text.normalize_text(once) == once
     assert not any(character in once for character in ",.;:'\"()[]{}!?@#$%^&*+=|\\/<>~`_-")
@@ -202,8 +242,12 @@ def test_normalize_text_is_idempotent_uppercase_and_punctuation_free(value):
 @given(st.text(), st.text())
 def test_similarities_are_bounded_and_token_f1_is_symmetric(first, second):
     """Every similarity is in [0, 1]; token F1 does not depend on which side is predicted."""
-    for value in (text.token_f1(first, second), text.token_set_ratio(first, second),
-                  text.jaro_winkler(first, second), text.sequence_ratio(first, second)):
+    for value in (
+        text.token_f1(first, second),
+        text.token_set_ratio(first, second),
+        text.jaro_winkler(first, second),
+        text.sequence_ratio(first, second),
+    ):
         assert 0.0 <= value <= 1.0
     if text.tokenize(first) and text.tokenize(second):
         assert text.token_f1(first, second) == pytest.approx(text.token_f1(second, first), abs=1e-12)

@@ -85,12 +85,8 @@ class LabelVocabulary:
     prefix_aliases: FrozenMapping[str, str] = field(default_factory=FrozenMapping)
     catalog: tuple[CatalogEntry, ...] = ()
     unknown_token: str = "other"
-    _tokens_by_compact: FrozenMapping[str, str] = field(
-        init=False, repr=False, compare=False, hash=False
-    )
-    _aliases_by_compact: FrozenMapping[str, str] = field(
-        init=False, repr=False, compare=False, hash=False
-    )
+    _tokens_by_compact: FrozenMapping[str, str] = field(init=False, repr=False, compare=False, hash=False)
+    _aliases_by_compact: FrozenMapping[str, str] = field(init=False, repr=False, compare=False, hash=False)
 
     def __post_init__(self) -> None:
         """Freeze the inputs and precompute the compact lookup tables."""
@@ -99,11 +95,13 @@ class LabelVocabulary:
         object.__setattr__(self, "prefix_aliases", FrozenMapping(self.prefix_aliases))
         object.__setattr__(self, "catalog", tuple(self.catalog))
         object.__setattr__(
-            self, "_tokens_by_compact",
+            self,
+            "_tokens_by_compact",
             FrozenMapping({compact_label(token): token for token in self.tokens}),
         )
         object.__setattr__(
-            self, "_aliases_by_compact",
+            self,
+            "_aliases_by_compact",
             FrozenMapping({compact_label(alias): target for alias, target in self.aliases.items()}),
         )
 

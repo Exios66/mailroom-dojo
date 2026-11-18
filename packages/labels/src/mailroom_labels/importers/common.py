@@ -54,10 +54,18 @@ def known_warnings_for(path: Path | str | None, snapshot_id: str) -> list[dict[s
         raise ImportRefused(f"{path}: {snapshot_id} must map to a list of warnings")
     out = []
     for entry in entries:
-        if not (isinstance(entry, dict) and {"kind", "doc", "field", "reason"} <= set(entry) <= _KNOWN_KEYS
-                and isinstance(entry["kind"], str) and isinstance(entry["reason"], str) and entry["reason"].strip()
-                and isinstance(entry.get("file", ""), str)):
-            raise ImportRefused(f"{path}: a known warning must be {{kind, doc, field, reason, file?}} with a reason: {entry!r}")
+        if not (
+            isinstance(entry, dict)
+            and {"kind", "doc", "field", "reason"} <= set(entry) <= _KNOWN_KEYS
+            and isinstance(entry["kind"], str)
+            and isinstance(entry["reason"], str)
+            and entry["reason"].strip()
+            and isinstance(entry.get("file", ""), str)
+        ):
+            raise ImportRefused(
+                f"{path}: a known warning must be {{kind, doc, field, reason, file?}} "
+                f"with a reason: {entry!r}"
+            )
         out.append({k: entry[k] for k in sorted(_KNOWN_KEYS) if k in entry})
     return out
 
@@ -130,13 +138,15 @@ def read_jsonl_lenient(path: Path, name: str) -> tuple[list[SourceLine], list[di
     with Path(path).open("rb") as fh:
         for number, raw in enumerate(fh, start=1):
             if number == 1 and raw.startswith(_BOM):
-                raw = raw[len(_BOM):]
+                raw = raw[len(_BOM) :]
             if not raw.strip():
                 continue
             try:
                 obj = loads_source(raw.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                rejected.append({"file": name, "line": number, "reason": f"not JSON: {exc.__class__.__name__}"})
+                rejected.append(
+                    {"file": name, "line": number, "reason": f"not JSON: {exc.__class__.__name__}"}
+                )
                 continue
             except _DuplicateKey as exc:
                 rejected.append({"file": name, "line": number, "reason": f"not JSON: {exc}"})
@@ -145,7 +155,9 @@ def read_jsonl_lenient(path: Path, name: str) -> tuple[list[SourceLine], list[di
                 rejected.append({"file": name, "line": number, "reason": "not JSON: nested too deeply"})
                 continue
             if not isinstance(obj, dict):
-                rejected.append({"file": name, "line": number, "reason": f"not a JSON object ({type(obj).__name__})"})
+                rejected.append(
+                    {"file": name, "line": number, "reason": f"not a JSON object ({type(obj).__name__})"}
+                )
                 continue
             rows.append(SourceLine(name, number, obj))
     return rows, rejected
@@ -159,7 +171,9 @@ def refuse_dropped(dropped: dict[str, list[Any]], *, allow: bool) -> None:
     counts = {key: len(entries) for key, entries in sorted(dropped.items()) if entries}
     if counts and not allow:
         detail = ", ".join(f"{key} {n}" for key, n in counts.items())
-        raise ImportRefused(f"source data left out ({detail}); see --allow-rejected to write it for inspection")
+        raise ImportRefused(
+            f"source data left out ({detail}); see --allow-rejected to write it for inspection"
+        )
 
 
 @dataclass
@@ -174,7 +188,9 @@ def _tree(directory: Path) -> dict[str, bytes | None]:
     """Every file (its bytes) and every directory (``None``, keyed ``<path>/``) below
     ``directory``, so an extra file or subdirectory at any depth is a difference."""
     return {
-        p.relative_to(directory).as_posix() + ("/" if p.is_dir() else ""): None if p.is_dir() else p.read_bytes()
+        p.relative_to(directory).as_posix() + ("/" if p.is_dir() else ""): None
+        if p.is_dir()
+        else p.read_bytes()
         for p in sorted(directory.rglob("*"))
     }
 

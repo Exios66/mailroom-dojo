@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 
 from labels_testkit import make_snapshot, near_gold_row, profile
-
 from mailroom_labels.coverage import coverage, render_markdown
 from mailroom_labels.layers import corpus_index, read_layers
 from mailroom_labels.models import RANKS, STATUS_WORDS
@@ -32,7 +31,10 @@ def cell(scorable: int = 0, status: dict | None = None, rank: dict | None = None
 # Worked out by hand from standard_set (see the worked example in test_resolve.py).
 EXPECTED_CLASSES = {
     "filing": {
-        "in_profile": True, "documents": 1, "verified_documents": 1, "scorable_documents": 1,
+        "in_profile": True,
+        "documents": 1,
+        "verified_documents": 1,
+        "scorable_documents": 1,
         "fields": {
             "entity": cell(1, {"hub": 1}, {"hub": 1}),
             "filing_id": cell(0),
@@ -41,13 +43,17 @@ EXPECTED_CLASSES = {
         },
     },
     "letter": {
-        "in_profile": True, "documents": 3, "verified_documents": 3, "scorable_documents": 3,
+        "in_profile": True,
+        "documents": 3,
+        "verified_documents": 3,
+        "scorable_documents": 3,
         "fields": {
             "action_items": cell(1, {"near_gold": 1}, {"review:near_gold": 1}),
             "amount": cell(1, {"hub": 1}, {"hub": 1}),
             "recipient": cell(1, {"interim": 1}, {"interim:correction": 1}),
-            "sender": cell(3, {"hub": 1, "interim": 1, "near_gold": 1},
-                           {"hub": 1, "interim:gap_fill": 1, "near_gold": 1}),
+            "sender": cell(
+                3, {"hub": 1, "interim": 1, "near_gold": 1}, {"hub": 1, "interim:gap_fill": 1, "near_gold": 1}
+            ),
             "sent_on": cell(1, {"gold": 1}, {"review:gold": 1}),
             "urgency": cell(1, {"hub": 1}, {"hub": 1}),
         },
@@ -58,13 +64,25 @@ EXPECTED_CLASSES = {
 def test_coverage_matches_the_hand_computed_answer(snapshot_dirs) -> None:
     docs, refs = docs_and_refs(snapshot_dirs)
     report = coverage(docs, profile(), refs)
-    assert report["totals"] == {"documents": 4, "verified_documents": 4, "scorable_documents": 4, "scorable_labels": 11}
+    assert report["totals"] == {
+        "documents": 4,
+        "verified_documents": 4,
+        "scorable_documents": 4,
+        "scorable_labels": 11,
+    }
     assert report["classes"] == EXPECTED_CLASSES
-    assert [s["snapshot_id"] for s in report["snapshots"]] == ["hub-test", "interim-test", "near_gold-test", "review-test"]
+    assert [s["snapshot_id"] for s in report["snapshots"]] == [
+        "hub-test",
+        "interim-test",
+        "near_gold-test",
+        "review-test",
+    ]
 
 
 def test_unverified_and_unknown_documents_are_counted_not_scored(tmp_path: Path, snapshot_dirs) -> None:
-    extra = make_snapshot(tmp_path, "near_gold", [near_gold_row("GHOST", {"sender": "Boo"})], snapshot_id="ng-x")
+    extra = make_snapshot(
+        tmp_path, "near_gold", [near_gold_row("GHOST", {"sender": "Boo"})], snapshot_id="ng-x"
+    )
     docs, refs = docs_and_refs([*snapshot_dirs, extra])
     report = coverage(docs, profile(), refs)
     letter = report["classes"]["letter"]
@@ -74,10 +92,16 @@ def test_unverified_and_unknown_documents_are_counted_not_scored(tmp_path: Path,
 
 def test_a_class_outside_the_profile_is_listed(snapshot_dirs) -> None:
     docs, _ = docs_and_refs(snapshot_dirs)
-    stranger = docs[0].model_copy(update={"document_id": "Z9", "doc_class": "mystery", "scorable_fields": frozenset()})
+    stranger = docs[0].model_copy(
+        update={"document_id": "Z9", "doc_class": "mystery", "scorable_fields": frozenset()}
+    )
     report = coverage([*docs, stranger], profile())
     assert report["classes"]["mystery"] == {
-        "in_profile": False, "documents": 1, "verified_documents": 1, "scorable_documents": 0, "fields": {},
+        "in_profile": False,
+        "documents": 1,
+        "verified_documents": 1,
+        "scorable_documents": 0,
+        "fields": {},
     }
     assert list(report["classes"]) == ["filing", "letter", "mystery"]
 

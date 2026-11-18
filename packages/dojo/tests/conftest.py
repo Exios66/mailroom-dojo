@@ -5,14 +5,16 @@ from __future__ import annotations
 import os
 
 import pytest
-from dojo_testkit import MAILROOM_PROFILE_PATH
 from hypothesis import HealthCheck, settings
 
+from dojo_testkit import MAILROOM_PROFILE_PATH
 from mailroom_dojo.profile import ScoringProfile, load_scoring_profile
 
 # Hypothesis profiles. "dojo" (default) keeps the suite fast; "thorough"
 # (HYPOTHESIS_PROFILE=thorough) explores ten times more cases for a soak.
-settings.register_profile("dojo", max_examples=60, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+settings.register_profile(
+    "dojo", max_examples=60, deadline=None, suppress_health_check=[HealthCheck.too_slow]
+)
 settings.register_profile(
     "dojo-thorough", max_examples=600, deadline=None, suppress_health_check=[HealthCheck.too_slow]
 )

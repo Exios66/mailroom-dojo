@@ -104,13 +104,19 @@ def check_against_ledger(
         entry = ledger.pop(case_id, None)
         differs = not same_outcome(recorded, outcome)
         if differs and entry is None:
-            problems.append(f"unlisted difference in {fixture} case {case_id} ({function}): "
-                            f"old {canonical(recorded)[:300]} new {canonical(outcome)[:300]}")
+            problems.append(
+                f"unlisted difference in {fixture} case {case_id} ({function}): "
+                f"old {canonical(recorded)[:300]} new {canonical(outcome)[:300]}"
+            )
         elif not differs and entry is not None:
-            problems.append(f"stale intended difference in {fixture} case {case_id} ({function}): it no longer differs")
+            problems.append(
+                f"stale intended difference in {fixture} case {case_id} ({function}): it no longer differs"
+            )
         elif differs and not same_outcome(entry["new_outcome"], outcome):
-            problems.append(f"intended difference in {fixture} case {case_id} ({function}) changed again: "
-                            f"listed {canonical(entry['new_outcome'])[:300]} now {canonical(outcome)[:300]}")
+            problems.append(
+                f"intended difference in {fixture} case {case_id} ({function}) changed again: "
+                f"listed {canonical(entry['new_outcome'])[:300]} now {canonical(outcome)[:300]}"
+            )
     for case_id, entry in ledger.items():
         if entry["function"] in functions:
             problems.append(f"intended difference in {fixture} case {case_id} names no replayed case")

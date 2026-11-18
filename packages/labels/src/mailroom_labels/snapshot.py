@@ -220,7 +220,9 @@ def _clear_earlier_build(directory: Path, snapshot_id: str) -> None:
     try:
         old = _read_manifest(directory)
     except LabelsError as exc:
-        raise FileExistsError(f"{directory} is not empty and holds no valid snapshot manifest ({exc})") from exc
+        raise FileExistsError(
+            f"{directory} is not empty and holds no valid snapshot manifest ({exc})"
+        ) from exc
     if old.snapshot_id != snapshot_id:
         raise FileExistsError(f"{directory} holds snapshot {old.snapshot_id!r}, not {snapshot_id!r}")
     listed = {f.path for f in old.files}
@@ -228,11 +230,15 @@ def _clear_earlier_build(directory: Path, snapshot_id: str) -> None:
         raise FileExistsError(f"{directory}: its manifest lists an unsafe path")
     unknown = sorted(set(_data_files(directory)) - listed)
     if unknown:
-        raise FileExistsError(f"{directory} holds {len(unknown)} file(s) its manifest does not list: {unknown[0]}")
+        raise FileExistsError(
+            f"{directory} holds {len(unknown)} file(s) its manifest does not list: {unknown[0]}"
+        )
     for rel in sorted(listed):
         (directory / rel).unlink(missing_ok=True)
     (directory / MANIFEST_NAME).unlink()
-    for sub in sorted((p for p in directory.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+    for sub in sorted(
+        (p for p in directory.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True
+    ):
         if not any(sub.iterdir()):
             sub.rmdir()
     if any(directory.iterdir()):
@@ -315,8 +321,9 @@ def _read_manifest(directory: Path) -> SnapshotManifest:
     if not path.is_file():
         raise ManifestMissing(directory)
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_keys,
-                         parse_constant=_no_constant)
+        raw = json.loads(
+            path.read_text(encoding="utf-8"), object_pairs_hook=_unique_keys, parse_constant=_no_constant
+        )
     except (UnicodeDecodeError, json.JSONDecodeError, _BadJson, RecursionError) as exc:
         raise ManifestMismatch("manifest_invalid", path, f"not JSON: {exc}") from exc
     if not isinstance(raw, dict):
@@ -350,8 +357,11 @@ def load_snapshot(directory: Path | str) -> LabelSnapshot:
     if extra:
         raise ManifestMismatch("extra", directory / extra[0], f"{len(extra)} unlisted file(s)")
     needed = {parent.as_posix() for rel in listed for parent in PurePosixPath(rel).parents} - {"."}
-    stray = sorted(p.relative_to(directory).as_posix() for p in directory.rglob("*")
-                   if p.is_dir() and not p.is_symlink() and p.relative_to(directory).as_posix() not in needed)
+    stray = sorted(
+        p.relative_to(directory).as_posix()
+        for p in directory.rglob("*")
+        if p.is_dir() and not p.is_symlink() and p.relative_to(directory).as_posix() not in needed
+    )
     if stray:
         raise ManifestMismatch("extra", directory / stray[0], f"{len(stray)} unlisted directory(ies)")
     for entry in manifest.files:

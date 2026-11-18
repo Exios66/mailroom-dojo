@@ -23,7 +23,9 @@ hostile = st.one_of(
     st.floats(),
     st.lists(st.text(max_size=8), max_size=3),
     st.dictionaries(st.text(max_size=4), st.integers(), max_size=2),
-    st.sampled_from(["N/A", "null", "[]", "{}", "$", "1e309", "-0", "​", "２０１４年８月１８日", "Ⅻ", "ﬁ"]),
+    st.sampled_from(
+        ["N/A", "null", "[]", "{}", "$", "1e309", "-0", "\u200b", "２０１４年８月１８日", "Ⅻ", "ﬁ"]
+    ),
 )
 
 
@@ -61,7 +63,11 @@ def test_documented_examples(scorer, predicted, expected, score):
 
 def test_date_credit_constants_are_the_old_values():
     """The partial-credit ladder and the money tolerance are part of the scoring contract."""
-    assert (scorers.DATE_PARTIAL_CREDIT, scorers.DATE_WEAK_CREDIT, scorers.UNVERIFIED_YEAR_CAP) == (0.67, 0.33, 0.67)
+    assert (scorers.DATE_PARTIAL_CREDIT, scorers.DATE_WEAK_CREDIT, scorers.UNVERIFIED_YEAR_CAP) == (
+        0.67,
+        0.33,
+        0.67,
+    )
     assert (scorers.MONEY_TOLERANCE, scorers.DATE_NEAR_WINDOW_DAYS) == (0.01, 45)
 
 
@@ -73,7 +79,8 @@ def test_dates_outside_the_near_window_get_no_day_credit():
 
 
 def test_money_tolerance_is_one_cent_in_binary_floating_point():
-    """Half a cent matches and two cents do not; exactly one cent depends on float rounding (kept from the old Dojo)."""
+    """Half a cent matches and two cents do not; exactly one cent depends on float rounding (kept from the old
+    Dojo)."""
     assert scorers.score_money_field("100.00", "100.005") == 1.0
     assert scorers.score_money_field("100.00", "100.02") == 0.0
     assert scorers.score_money_field("0.00", "0.01") == 1.0
@@ -129,12 +136,14 @@ def test_a_parsed_full_date_matches_itself(value):
 @pytest.mark.parametrize("name", ["id", "label"])
 @given(first=hostile, second=hostile)
 def test_exact_match_scorers_are_symmetric(name, first, second):
-    """id and label ignore which side is the prediction (money, dates and names are deliberately not symmetric)."""
+    """id and label ignore which side is the prediction (money, dates and names are deliberately not
+    symmetric)."""
     assert BUILTIN_SCORERS[name](first, second) == BUILTIN_SCORERS[name](second, first)
 
 
 def test_date_scoring_is_directional():
-    """A prediction that leaves out a stated day loses credit; one that adds a day to a month label does not."""
+    """A prediction that leaves out a stated day loses credit; one that adds a day to a month label does
+    not."""
     assert scorers.score_date_field("August 2014", "2014-08-18") == scorers.DATE_PARTIAL_CREDIT
     assert scorers.score_date_field("2014-08-18", "August 2014") == 1.0
 
@@ -152,5 +161,6 @@ def test_date_scoring_is_directional():
     ],
 )
 def test_cms_document_signatures(text, signature):
-    """Supporting-document items are classified by identifier kind, normalized NDC form, or descriptor letters."""
+    """Supporting-document items are classified by identifier kind, normalized NDC form, or descriptor
+    letters."""
     assert cms_document_signature(text) == signature

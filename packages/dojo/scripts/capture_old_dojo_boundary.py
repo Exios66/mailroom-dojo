@@ -43,12 +43,12 @@ temporary directory, pytest with its cache plugin off).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import hashlib
 import importlib.metadata
 import importlib.util
 import json
-import math
 import os
 import random
 import subprocess
@@ -80,9 +80,19 @@ HUB_ROW_TEST_FILES = ("tests/test_gt_metadata.py",)
 CLASSIFICATION_TARGETS: dict[tuple[str, str], str] = {
     ("scoring/classification.py", name): name
     for name in (
-        "normalize_label", "exact_match", "failure", "accuracy", "fbeta", "per_class_stats",
-        "macro_accuracy", "confusion_matrix", "binary_metrics", "macro_prf", "confusion_accuracy",
-        "top_confusions", "class_distribution",
+        "normalize_label",
+        "exact_match",
+        "failure",
+        "accuracy",
+        "fbeta",
+        "per_class_stats",
+        "macro_accuracy",
+        "confusion_matrix",
+        "binary_metrics",
+        "macro_prf",
+        "confusion_accuracy",
+        "top_confusions",
+        "class_distribution",
     )
 }
 CLASSIFICATION_TARGETS[("scoring/_paired.py", "require_equal_lengths")] = "require_equal_lengths"
@@ -91,7 +101,10 @@ HUB_ROW_TARGETS: dict[tuple[str, str], str] = {
     ("schemas/gt_metadata.py", "gt_presence_map"): "hub_presence_statuses",
     ("schemas/gt_metadata.py", "normalize_field_values"): "parse_field_values",
     ("schemas/gt_metadata.py", "scoring_gt_fields"): "scoring_fields_from_hub_row",
-    ("schemas/gt_metadata.py", "presence_expectations_from_cuad_labels"): "presence_expectations_from_clause_labels",
+    (
+        "schemas/gt_metadata.py",
+        "presence_expectations_from_cuad_labels",
+    ): "presence_expectations_from_clause_labels",
     ("schemas/gt_metadata.py", "derive_presence_from_gt"): "presence_expectations_from_hub_row",
 }
 
@@ -137,7 +150,9 @@ def plain(value: Any) -> Any:
 def collect_boundary(old_dojo: Path, output: Path) -> None:
     """Regenerate the old goldens under a profile hook and write every boundary call."""
     package_root = str(old_dojo / "llm_dojo_scoring") + os.sep
-    spec = importlib.util.spec_from_file_location("freeze_goldens", old_dojo / "scripts" / "freeze_goldens.py")
+    spec = importlib.util.spec_from_file_location(
+        "freeze_goldens", old_dojo / "scripts" / "freeze_goldens.py"
+    )
     goldens = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(goldens)
 
@@ -145,7 +160,7 @@ def collect_boundary(old_dojo: Path, output: Path) -> None:
         """The in-scope module a file is, or None."""
         if not filename.startswith(package_root):
             return None
-        relative = filename[len(package_root):]
+        relative = filename[len(package_root) :]
         return relative if relative in IN_SCOPE_MODULES else None
 
     current_case: list[str | None] = [None]
@@ -172,7 +187,8 @@ def collect_boundary(old_dojo: Path, output: Path) -> None:
                 variable: copy.deepcopy(frame.f_locals.get(variable))
                 for variable in code.co_varnames[: code.co_argcount + code.co_kwonlyargcount]
             }
-            caller_name = f"{caller.f_code.co_filename.rsplit('llm_dojo_scoring' + os.sep, 1)[-1]}:{caller.f_code.co_name}"
+            caller_file = caller.f_code.co_filename.rsplit("llm_dojo_scoring" + os.sep, 1)[-1]
+            caller_name = f"{caller_file}:{caller.f_code.co_name}"
             open_calls[id(frame)] = (module, name, arguments, caller_name)
         elif event == "return" and id(frame) in open_calls:
             module, name, arguments, caller_name = open_calls.pop(id(frame))
@@ -206,12 +222,14 @@ def collect_boundary(old_dojo: Path, output: Path) -> None:
         current_case[0] = None
         sys.setprofile(None)
     regenerated_identical = goldens.render_goldens(payload) == goldens.SCORES_PATH.read_text(encoding="utf-8")
-    output.write_text(json.dumps({"records": records, "excluded": excluded,
-                                  "regenerated_identical": regenerated_identical}))
+    output.write_text(
+        json.dumps({"records": records, "excluded": excluded, "regenerated_identical": regenerated_identical})
+    )
 
 
 def scores_json_paths(scores: Any, target: Any) -> list[str]:
-    """Every path in ``scores`` (``/suites/x/score/field_scores``) whose canonical JSON equals ``target``'s."""
+    """Every path in ``scores`` (``/suites/x/score/field_scores``) whose canonical JSON equals
+    ``target``'s."""
     wanted = canonical_text(target)
     found: list[str] = []
 
@@ -237,7 +255,8 @@ def scores_json_paths(scores: Any, target: Any) -> list[str]:
 
 
 def collect_test_inputs(old_dojo: Path, output: Path, targets_name: str) -> None:
-    """Run the old direct tests of one corpus under a profile hook and write every targeted call's arguments."""
+    """Run the old direct tests of one corpus under a profile hook and write every targeted call's
+    arguments."""
     targets = CLASSIFICATION_TARGETS if targets_name == "classification" else HUB_ROW_TARGETS
     test_files = CLASSIFICATION_TEST_FILES if targets_name == "classification" else HUB_ROW_TEST_FILES
     package_root = str(old_dojo / "llm_dojo_scoring") + os.sep
@@ -248,7 +267,7 @@ def collect_test_inputs(old_dojo: Path, output: Path, targets_name: str) -> None
         """Record the arguments of a targeted function at call time."""
         if event != "call" or not frame.f_code.co_filename.startswith(package_root):
             return
-        name = targets.get((frame.f_code.co_filename[len(package_root):], frame.f_code.co_name))
+        name = targets.get((frame.f_code.co_filename[len(package_root) :], frame.f_code.co_name))
         if name is None:
             return
         code = frame.f_code
@@ -272,7 +291,8 @@ def collect_test_inputs(old_dojo: Path, output: Path, targets_name: str) -> None
     sys.setprofile(profile)
     try:
         exit_code = pytest.main(
-            ["-q", "-p", "no:cacheprovider", "--rootdir", str(old_dojo)] + [str(old_dojo / path) for path in test_files]
+            ["-q", "-p", "no:cacheprovider", "--rootdir", str(old_dojo)]
+            + [str(old_dojo / path) for path in test_files]
         )
     finally:
         sys.setprofile(None)
@@ -292,37 +312,126 @@ def label_surfaces(label: str) -> list[str]:
     """Written forms of one label a sorter might emit."""
     spaced = label.replace("_", " ")
     return [
-        label, label.upper(), spaced, spaced.title(), f"  {spaced}  ", label.replace("_", "-"),
-        label.replace("_", ""), f"{label}s", f"{spaced}s", label[:-1], f"{label}x", f"x{label}",
-        spaced.replace(" ", "  "), spaced.replace(" ", "\t"), f"This document is a {spaced}.",
-        f"not a {spaced}", f"**{spaced}**", f"`{label}`", f'"{label}"', f"'{label}'", f"_{label}_",
-        f'{{"doc_type": "{spaced.title()}"}}', f'{{"doc_type": "{label}", "confidence": 0.91}}',
-        f'{{"DOC_TYPE": "{label.upper()}"}}', f'  {{"doc_type": "{label}"}}  ', f'{{"doc_type": "{label}"',
-        f'```json\n{{"doc_type": "{label}"}}\n```', f"```\n{label}\n```", f'["{label}"]',
-        f'{{"label": "{label}"}}', f'{{"doc_type": "", "label": "{label}"}}', f"ERROR: {label}",
-        f"Error: {label}", f" ERROR: {label}", f"ERROR:{label}", f"Answer: {spaced}", f"{spaced}?",
-        f"{spaced} or contract", f"contract or {spaced}", f"{label}_agreement", f"{label}.pdf",
+        label,
+        label.upper(),
+        spaced,
+        spaced.title(),
+        f"  {spaced}  ",
+        label.replace("_", "-"),
+        label.replace("_", ""),
+        f"{label}s",
+        f"{spaced}s",
+        label[:-1],
+        f"{label}x",
+        f"x{label}",
+        spaced.replace(" ", "  "),
+        spaced.replace(" ", "\t"),
+        f"This document is a {spaced}.",
+        f"not a {spaced}",
+        f"**{spaced}**",
+        f"`{label}`",
+        f'"{label}"',
+        f"'{label}'",
+        f"_{label}_",
+        f'{{"doc_type": "{spaced.title()}"}}',
+        f'{{"doc_type": "{label}", "confidence": 0.91}}',
+        f'{{"DOC_TYPE": "{label.upper()}"}}',
+        f'  {{"doc_type": "{label}"}}  ',
+        f'{{"doc_type": "{label}"',
+        f'```json\n{{"doc_type": "{label}"}}\n```',
+        f"```\n{label}\n```",
+        f'["{label}"]',
+        f'{{"label": "{label}"}}',
+        f'{{"doc_type": "", "label": "{label}"}}',
+        f"ERROR: {label}",
+        f"Error: {label}",
+        f" ERROR: {label}",
+        f"ERROR:{label}",
+        f"Answer: {spaced}",
+        f"{spaced}?",
+        f"{spaced} or contract",
+        f"contract or {spaced}",
+        f"{label}_agreement",
+        f"{label}.pdf",
     ]
 
 
 def sorter_outputs(rng: random.Random) -> list[Any]:
     """Sorter outputs: every label surface, hostile values and random mixtures."""
     outputs: list[Any] = [
-        None, "", " ", "\t\n", 0, 1, -1, 1.5, float("nan"), float("inf"), True, False, [], ["contract"],
-        {"doc_type": "contract"}, ("contract",), "None", "null", "{}", "{ }", '{"doc_type": null}',
-        '{"doc_type": ""}', '{"doc_type": 0}', '{"doc_type": 7}', '{"doc_type": true}',
-        '{"doc_type": ["contract"]}', '{"doc_type": {"kind": "contract"}}', '{"doc_type": "\\u0043ontract"}',
-        "{bad json}", "{'doc_type': 'contract'}", '[{"doc_type": "contract"}]', '{"a": ' * 50 + "1" + "}" * 50,
-        "日本語", "契約 contract", "ＣＯＮＴＲＡＣＴ", "contract​", "con­tract", "cóntract",
-        "İnsurance claim", "insurance claim", "merger agreement", "Merger_Agreement",
-        "MERGER AGREEMENT", "mergeragreement", "merger__agreement", "merger - agreement",
-        "corporate records", "correspondences", "insurance claims", "contracts", "subcontract",
-        "contract-based", "contract_", "_contract", "re: contract", "email correspondence",
-        "correspondence about an insurance claim", "insurance claim correspondence",
-        "a merger agreement amending a contract", "contract amendment to a merger agreement",
-        "corporate record of a merger agreement", "compliance filing", "court opinion",
-        "due diligence", "court_opinion", "compliance_filing", "due_diligence",
-        "x" * 5000 + " contract", "contract " * 400, "\ud800contract", "ERROR: ", "ERROR", "error: x",
+        None,
+        "",
+        " ",
+        "\t\n",
+        0,
+        1,
+        -1,
+        1.5,
+        float("nan"),
+        float("inf"),
+        True,
+        False,
+        [],
+        ["contract"],
+        {"doc_type": "contract"},
+        ("contract",),
+        "None",
+        "null",
+        "{}",
+        "{ }",
+        '{"doc_type": null}',
+        '{"doc_type": ""}',
+        '{"doc_type": 0}',
+        '{"doc_type": 7}',
+        '{"doc_type": true}',
+        '{"doc_type": ["contract"]}',
+        '{"doc_type": {"kind": "contract"}}',
+        '{"doc_type": "\\u0043ontract"}',
+        "{bad json}",
+        "{'doc_type': 'contract'}",
+        '[{"doc_type": "contract"}]',
+        '{"a": ' * 50 + "1" + "}" * 50,
+        "日本語",
+        "契約 contract",
+        "ＣＯＮＴＲＡＣＴ",
+        "contract\u200b",
+        "con­tract",
+        "cóntract",
+        "İnsurance claim",
+        "insurance claim",
+        "merger agreement",
+        "Merger_Agreement",
+        "MERGER AGREEMENT",
+        "mergeragreement",
+        "merger__agreement",
+        "merger - agreement",
+        "corporate records",
+        "correspondences",
+        "insurance claims",
+        "contracts",
+        "subcontract",
+        "contract-based",
+        "contract_",
+        "_contract",
+        "re: contract",
+        "email correspondence",
+        "correspondence about an insurance claim",
+        "insurance claim correspondence",
+        "a merger agreement amending a contract",
+        "contract amendment to a merger agreement",
+        "corporate record of a merger agreement",
+        "compliance filing",
+        "court opinion",
+        "due diligence",
+        "court_opinion",
+        "compliance_filing",
+        "due_diligence",
+        "x" * 5000 + " contract",
+        "contract " * 400,
+        "\ud800contract",
+        "ERROR: ",
+        "ERROR",
+        "error: x",
     ]
     for label in LIVE_CLASSES + RETIRED_CLASSES + FOREIGN_LABELS:
         outputs += label_surfaces(label)
@@ -335,8 +444,35 @@ def sorter_outputs(rng: random.Random) -> list[Any]:
 
 def flag_values() -> list[Any]:
     """Raw binary flags: strings, numbers, booleans and hostile values."""
-    return [True, False, 1, 0, 2, -1, 1.0, 0.0, float("nan"), "yes", "Y", " true ", "TRUE", "1", "1.0", "1.00",
-            "no", "", " ", "on", "0", "false", None, [], ["yes"], "ERROR: x", "contract"]
+    return [
+        True,
+        False,
+        1,
+        0,
+        2,
+        -1,
+        1.0,
+        0.0,
+        float("nan"),
+        "yes",
+        "Y",
+        " true ",
+        "TRUE",
+        "1",
+        "1.0",
+        "1.00",
+        "no",
+        "",
+        " ",
+        "on",
+        "0",
+        "false",
+        None,
+        [],
+        ["yes"],
+        "ERROR: x",
+        "contract",
+    ]
 
 
 def generated_classification_cases(rng: random.Random) -> list[dict[str, Any]]:
@@ -345,10 +481,8 @@ def generated_classification_cases(rng: random.Random) -> list[dict[str, Any]]:
 
     def add(function: str, **arguments: Any) -> None:
         """Append a case, skipping arguments the format cannot hold."""
-        try:
+        with contextlib.suppress(Unencodable):
             cases.append({"function": function, "args": encode(arguments)})
-        except Unencodable:
-            pass
 
     every_output = sorter_outputs(rng)
     for value in every_output:
@@ -357,9 +491,11 @@ def generated_classification_cases(rng: random.Random) -> list[dict[str, Any]]:
     outputs = [value for value in every_output if not (isinstance(value, str) and len(value) > 200)]
     for value in outputs:
         add("class_distribution", labels=[value, value, "contract"])
-    expected_pool: list[Any] = list(LIVE_CLASSES) + list(RETIRED_CLASSES) + ["license", "a", "b", "", None,
-                                                                             "Contract", "corporate record",
-                                                                             "ERROR: expected", 3]
+    expected_pool: list[Any] = (
+        list(LIVE_CLASSES)
+        + list(RETIRED_CLASSES)
+        + ["license", "a", "b", "", None, "Contract", "corporate record", "ERROR: expected", 3]
+    )
     for _ in range(600):
         add("exact_match", output=rng.choice(outputs), expected=rng.choice(expected_pool))
     for _ in range(450):
@@ -372,17 +508,30 @@ def generated_classification_cases(rng: random.Random) -> list[dict[str, Any]]:
         explicit = rng.choice([None, [], list(LIVE_CLASSES), ["b", "a"], ["contract", "contract"]])
         add("confusion_matrix", expected=expected, predicted=predicted, labels=explicit)
         add("macro_prf", expected=expected, predicted=predicted, normalize=rng.random() < 0.7)
-        add("binary_metrics", expected=expected, predicted=predicted,
-            positive=rng.choice(list(LIVE_CLASSES) + ["license", "true", ""]), normalize=True)
+        add(
+            "binary_metrics",
+            expected=expected,
+            predicted=predicted,
+            positive=rng.choice(list(LIVE_CLASSES) + ["license", "true", ""]),
+            normalize=True,
+        )
         add("class_distribution", labels=expected + predicted)
     flags = flag_values()
     for _ in range(300):
         size = rng.randint(0, 8)
-        add("binary_metrics", expected=[rng.choice(flags) for _ in range(size)],
-            predicted=[rng.choice(flags) for _ in range(size)], positive=rng.choice(["yes", "true", "contract"]),
-            normalize=rng.random() < 0.3)
-        add("macro_prf", expected=[rng.choice(flags) for _ in range(size)],
-            predicted=[rng.choice(flags) for _ in range(size)], normalize=False)
+        add(
+            "binary_metrics",
+            expected=[rng.choice(flags) for _ in range(size)],
+            predicted=[rng.choice(flags) for _ in range(size)],
+            positive=rng.choice(["yes", "true", "contract"]),
+            normalize=rng.random() < 0.3,
+        )
+        add(
+            "macro_prf",
+            expected=[rng.choice(flags) for _ in range(size)],
+            predicted=[rng.choice(flags) for _ in range(size)],
+            normalize=False,
+        )
     rates = [0.0, 1e-9, 0.0001, 0.25, 0.3333, 0.5, 0.6667, 0.75, 1.0, -0.5, 1.5, float("nan"), float("inf")]
     for precision in rates:
         for recall in rates:
@@ -401,30 +550,94 @@ def generated_classification_cases(rng: random.Random) -> list[dict[str, Any]]:
     for expected_size, predicted_size in ((2, 1), (1, 2), (0, 1), (1, 0), (3, 5), (0, 0)):
         expected = ["contract"] * expected_size
         predicted = ["ERROR: unavailable"] * predicted_size
-        for function in ("accuracy", "per_class_stats", "macro_accuracy", "confusion_matrix", "macro_prf",
-                         "require_equal_lengths"):
+        for function in (
+            "accuracy",
+            "per_class_stats",
+            "macro_accuracy",
+            "confusion_matrix",
+            "macro_prf",
+            "require_equal_lengths",
+        ):
             add(function, expected=expected, predicted=predicted)
-        add("binary_metrics", expected=[True] * expected_size, predicted=[False] * predicted_size,
-            positive="yes", normalize=False)
+        add(
+            "binary_metrics",
+            expected=[True] * expected_size,
+            predicted=[False] * predicted_size,
+            positive="yes",
+            normalize=False,
+        )
     return cases
 
 
-PRESENCE_STATUSES = ("populated", "not_applicable", "schema_documented_absence", "pending_annotation", "unknown", "")
+PRESENCE_STATUSES = (
+    "populated",
+    "not_applicable",
+    "schema_documented_absence",
+    "pending_annotation",
+    "unknown",
+    "",
+)
 HUB_VALUES: tuple[Any, ...] = (
-    "Acme Corp", "", " ", "[]", "{}", '["Bylaws", "Charter"]', '{"a": 1}', "41", "true", "null", "N/A", "nan",
-    None, 0, 3.5, False, ["x"], [], {"k": "v"}, "[1, 2", "Ab\ud800c",
+    "Acme Corp",
+    "",
+    " ",
+    "[]",
+    "{}",
+    '["Bylaws", "Charter"]',
+    '{"a": 1}',
+    "41",
+    "true",
+    "null",
+    "N/A",
+    "nan",
+    None,
+    0,
+    3.5,
+    False,
+    ["x"],
+    [],
+    {"k": "v"},
+    "[1, 2",
+    "Ab\ud800c",
 )
 HUB_FIELD_NAMES = (
-    "claim_number", "adjuster", "denial_reasons", "claim_type", "cms_source_table", "supporting_documents",
-    "parties", "effective_date", "governing_law", "intent", "subject_matter", "keywords", "sender",
-    "token_estimate", "intent_status", "expected_subclass", "label_evidence", "unmapped_extra",
+    "claim_number",
+    "adjuster",
+    "denial_reasons",
+    "claim_type",
+    "cms_source_table",
+    "supporting_documents",
+    "parties",
+    "effective_date",
+    "governing_law",
+    "intent",
+    "subject_matter",
+    "keywords",
+    "sender",
+    "token_estimate",
+    "intent_status",
+    "expected_subclass",
+    "label_evidence",
+    "unmapped_extra",
 )
 CLASS_FIELD_TYPES: dict[str, dict[str, str]] = {
-    "insurance_claim": {"claim_number": "id", "adjuster": "name", "denial_reasons": "entity_list:free_text",
-                        "claim_type": "label", "supporting_documents": "entity_list", "intent": "label",
-                        "subject_matter": "free_text", "keywords": "entity_list:name"},
-    "contract": {"parties": "entity_list:name", "effective_date": "date", "governing_law": "name",
-                 "intent": "label", "keywords": "entity_list:name"},
+    "insurance_claim": {
+        "claim_number": "id",
+        "adjuster": "name",
+        "denial_reasons": "entity_list:free_text",
+        "claim_type": "label",
+        "supporting_documents": "entity_list",
+        "intent": "label",
+        "subject_matter": "free_text",
+        "keywords": "entity_list:name",
+    },
+    "contract": {
+        "parties": "entity_list:name",
+        "effective_date": "date",
+        "governing_law": "name",
+        "intent": "label",
+        "keywords": "entity_list:name",
+    },
     "correspondence": {"sender": "name", "intent": "label", "subject_matter": "free_text"},
 }
 
@@ -435,7 +648,9 @@ def generated_hub_rows(rng: random.Random) -> list[dict[str, Any]]:
     for _ in range(260):
         names = rng.sample(HUB_FIELD_NAMES, rng.randint(0, 8))
         row: dict[str, Any] = {name: rng.choice(HUB_VALUES) for name in names}
-        presence = {name: rng.choice(PRESENCE_STATUSES) for name in rng.sample(HUB_FIELD_NAMES, rng.randint(0, 6))}
+        presence = {
+            name: rng.choice(PRESENCE_STATUSES) for name in rng.sample(HUB_FIELD_NAMES, rng.randint(0, 6))
+        }
         form = rng.randrange(5)
         if form == 0:
             row["gt_presence"] = json.dumps(presence)
@@ -450,12 +665,38 @@ def generated_hub_rows(rng: random.Random) -> list[dict[str, Any]]:
 def clause_label_maps(rng: random.Random) -> list[Any]:
     """CUAD-style category -> spans maps, stringified or not, with placeholders and malformed spans."""
     span_choices: list[Any] = [
-        {"start": 0, "text": "The Agreement shall terminate."}, {"start": 3, "text": "[*]"}, {"start": 1, "text": "____"},
-        {"text": "."}, {"start": 2}, {"text": ""}, {"text": 42}, "loose text", None, {"text": "Ünïcode clause 9"},
+        {"start": 0, "text": "The Agreement shall terminate."},
+        {"start": 3, "text": "[*]"},
+        {"start": 1, "text": "____"},
+        {"text": "."},
+        {"start": 2},
+        {"text": ""},
+        {"text": 42},
+        "loose text",
+        None,
+        {"text": "Ünïcode clause 9"},
     ]
-    maps: list[Any] = [None, "", "{}", "[]", "not json", 5, [], {}, {"Governing Law": []}, {"Governing Law": "[]"},
-                       {"Governing Law": "not a list"}, {"Governing Law": None}]
-    categories = ["Governing Law", "Termination For Convenience", "Exclusivity", "Cap On Liability", "Parties"]
+    maps: list[Any] = [
+        None,
+        "",
+        "{}",
+        "[]",
+        "not json",
+        5,
+        [],
+        {},
+        {"Governing Law": []},
+        {"Governing Law": "[]"},
+        {"Governing Law": "not a list"},
+        {"Governing Law": None},
+    ]
+    categories = [
+        "Governing Law",
+        "Termination For Convenience",
+        "Exclusivity",
+        "Cap On Liability",
+        "Parties",
+    ]
     for _ in range(120):
         labels = {
             category: [rng.choice(span_choices) for _ in range(rng.randint(0, 3))]
@@ -471,22 +712,39 @@ def generated_hub_row_cases(rng: random.Random) -> list[dict[str, Any]]:
 
     def add(function: str, **arguments: Any) -> None:
         """Append a case, skipping arguments the format cannot hold."""
-        try:
+        with contextlib.suppress(Unencodable):
             cases.append({"function": function, "args": encode(arguments)})
-        except Unencodable:
-            pass
 
     rows = generated_hub_rows(rng)
-    raw_forms: list[Any] = ["", "  ", "not a dict", "[1, 2]", "41", "{'a': 1}", '{"a": "[]"}', None, 5, [], ("a",)]
+    raw_forms: list[Any] = [
+        "",
+        "  ",
+        "not a dict",
+        "[1, 2]",
+        "41",
+        "{'a': 1}",
+        '{"a": "[]"}',
+        None,
+        5,
+        [],
+        ("a",),
+    ]
     for row in rows[:60]:
-        safe = {key: value for key, value in row.items() if isinstance(value, (str, int, float, bool, type(None)))}
+        safe = {
+            key: value for key, value in row.items() if isinstance(value, (str, int, float, bool, type(None)))
+        }
         raw_forms += [row, json.dumps(safe), repr(safe)]
     for raw in raw_forms:
         add("parse_hub_fields", raw=raw)
         add("parse_field_values", record=raw)
-        add("hub_presence_statuses", fields=raw if isinstance(raw, dict) or raw is None else {"gt_presence": raw})
+        add(
+            "hub_presence_statuses",
+            fields=raw if isinstance(raw, dict) or raw is None else {"gt_presence": raw},
+        )
     for row in rows:
-        doc_type = rng.choice([None, "insurance_claim", "contract", "correspondence", "Insurance_Claim", "unknown"])
+        doc_type = rng.choice(
+            [None, "insurance_claim", "contract", "correspondence", "Insurance_Claim", "unknown"]
+        )
         field_types = rng.choice([None, {}] + list(CLASS_FIELD_TYPES.values()))
         add(
             "scoring_fields_from_hub_row",
@@ -495,10 +753,16 @@ def generated_hub_row_cases(rng: random.Random) -> list[dict[str, Any]]:
             extra_keys=rng.choice([(), ("unmapped_extra",), ("gt_presence", "token_estimate")]),
             drop_unmapped=rng.random() < 0.8,
             doc_type=doc_type,
-            subclass=rng.choice([None, "", "carrier", " PDE ", "inpatient", "outpatient", "auto", "property", 5]),
+            subclass=rng.choice(
+                [None, "", "carrier", " PDE ", "inpatient", "outpatient", "auto", "property", 5]
+            ),
         )
     for labels in clause_label_maps(rng):
-        add("presence_expectations_from_clause_labels", labels=labels, field=rng.choice(["cuad_clauses", "clauses"]))
+        add(
+            "presence_expectations_from_clause_labels",
+            labels=labels,
+            field=rng.choice(["cuad_clauses", "clauses"]),
+        )
         status = rng.choice(PRESENCE_STATUSES)
         row = {"cuad_clause_labels": labels, "gt_presence": json.dumps({"cuad_clause_labels": status})}
         add("presence_expectations_from_hub_row", fields=row, field="cuad_clauses")
@@ -549,13 +813,19 @@ def capture_child(old_dojo: Path, flag: str, extra: list[str]) -> dict[str, Any]
         output = Path(scratch) / "captured.json"
         subprocess.run(
             [sys.executable, __file__, "--old-dojo", str(old_dojo), flag, str(output), *extra],
-            check=True, cwd=scratch, env=environment, stdout=subprocess.DEVNULL,
+            check=True,
+            cwd=scratch,
+            env=environment,
+            stdout=subprocess.DEVNULL,
         )
         return json.loads(output.read_text())
 
 
 def write_corpus(
-    path: Path, description: str, sources: list[tuple[str, dict[str, Any]]], functions: dict[str, Any],
+    path: Path,
+    description: str,
+    sources: list[tuple[str, dict[str, Any]]],
+    functions: dict[str, Any],
     header_extra: dict[str, Any],
 ) -> dict[str, int]:
     """Compute old outcomes for unique cases and write a JSONL corpus; return counts per function."""
@@ -568,16 +838,26 @@ def write_corpus(
             continue
         seen.add(key)
         outcome = run_case(functions, case)
-        lines.append(canonical_text({
-            "id": hashlib.sha256(key.encode("utf-8")).hexdigest()[:16],
-            "source": source,
-            "function": case["function"],
-            "args": case["args"],
-            "outcome": outcome,
-        }))
+        lines.append(
+            canonical_text(
+                {
+                    "id": hashlib.sha256(key.encode("utf-8")).hexdigest()[:16],
+                    "source": source,
+                    "function": case["function"],
+                    "args": case["args"],
+                    "outcome": outcome,
+                }
+            )
+        )
         counts[case["function"]] = counts.get(case["function"], 0) + 1
-    header = {"header": {"description": description, "cases": len(lines),
-                         "cases_by_function": dict(sorted(counts.items())), **header_extra}}
+    header = {
+        "header": {
+            "description": description,
+            "cases": len(lines),
+            "cases_by_function": dict(sorted(counts.items())),
+            **header_extra,
+        }
+    }
     path.write_text("\n".join([json.dumps(header, sort_keys=True, ensure_ascii=True)] + lines) + "\n")
     return counts
 
@@ -613,7 +893,10 @@ def main() -> int:
 
     boundary = capture_child(old_dojo, "--collect-boundary", [])
     if not boundary["regenerated_identical"]:
-        print("the regenerated old golden baseline differs from scores.json; refusing to freeze", file=sys.stderr)
+        print(
+            "the regenerated old golden baseline differs from scores.json; refusing to freeze",
+            file=sys.stderr,
+        )
         return 1
     classification_inputs = capture_child(old_dojo, "--collect-test-inputs", ["--targets", "classification"])
     hub_row_inputs = capture_child(old_dojo, "--collect-test-inputs", ["--targets", "hub_rows"])
@@ -646,10 +929,16 @@ def main() -> int:
             call["scores_json_paths"] = scores_json_paths(scores, field_scores)
             call["field_scores_sha256"] = sha256_of(field_scores)
         calls.append(call)
-    unmatched = [call["index"] for call in calls if call["function"] == "score_extraction"
-                 and not call["scores_json_paths"]]
+    unmatched = [
+        call["index"]
+        for call in calls
+        if call["function"] == "score_extraction" and not call["scores_json_paths"]
+    ]
     if unmatched:
-        print(f"score_extraction calls not found in scores.json: {unmatched}; refusing to freeze", file=sys.stderr)
+        print(
+            f"score_extraction calls not found in scores.json: {unmatched}; refusing to freeze",
+            file=sys.stderr,
+        )
         return 1
     counts: dict[str, int] = {}
     for call in calls:
@@ -679,8 +968,13 @@ def main() -> int:
         [("old_tests", record) for record in classification_inputs["records"]]
         + [("generated", case) for case in generated_classification_cases(rng)],
         functions,
-        {**common_header, "seed": options.seed, "captured_test_files": list(CLASSIFICATION_TEST_FILES),
-         "captured_calls": len(classification_inputs["records"]), "captured_skipped": classification_inputs["skipped"]},
+        {
+            **common_header,
+            "seed": options.seed,
+            "captured_test_files": list(CLASSIFICATION_TEST_FILES),
+            "captured_calls": len(classification_inputs["records"]),
+            "captured_skipped": classification_inputs["skipped"],
+        },
     )
     hub_row_counts = write_corpus(
         output_directory / "hub_row_cases.jsonl",
@@ -688,8 +982,13 @@ def main() -> int:
         [("old_tests", record) for record in hub_row_inputs["records"]]
         + [("generated", case) for case in generated_hub_row_cases(rng)],
         functions,
-        {**common_header, "seed": options.seed, "captured_test_files": list(HUB_ROW_TEST_FILES),
-         "captured_calls": len(hub_row_inputs["records"]), "captured_skipped": hub_row_inputs["skipped"]},
+        {
+            **common_header,
+            "seed": options.seed,
+            "captured_test_files": list(HUB_ROW_TEST_FILES),
+            "captured_calls": len(hub_row_inputs["records"]),
+            "captured_skipped": hub_row_inputs["skipped"],
+        },
     )
     print(f"old commit {commit}, version {llm_dojo_scoring.__version__}")
     print(f"boundary calls: {len(calls)} (excluded {sum(boundary['excluded'].values())} unencodable)")

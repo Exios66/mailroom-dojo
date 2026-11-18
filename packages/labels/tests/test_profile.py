@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 import yaml
-from labels_testkit import PROFILE_PATH, hub_row, make_snapshot, near_gold_row
 
+from labels_testkit import PROFILE_PATH, hub_row, make_snapshot, near_gold_row
 from mailroom_labels.coverage import coverage
 from mailroom_labels.errors import ProfileError
 from mailroom_labels.layers import corpus_index, read_layers
@@ -35,8 +35,18 @@ def test_synthetic_profile_loads() -> None:
 
 def test_dojo_field_type_vocabulary() -> None:
     assert set(FIELD_TYPES) == {
-        "name", "label", "date", "money", "id", "free_text", "containment", "cms_doc_ref",
-        "entity_list", "entity_list:name", "entity_list:free_text", "entity_list:id",
+        "name",
+        "label",
+        "date",
+        "money",
+        "id",
+        "free_text",
+        "containment",
+        "cms_doc_ref",
+        "entity_list",
+        "entity_list:name",
+        "entity_list:free_text",
+        "entity_list:id",
         "entity_list:cms_doc_ref",
     }
 
@@ -130,7 +140,9 @@ def test_a_new_document_class_is_a_profile_entry_only(tmp_path: Path) -> None:
     prof = parse_profile(data)
     dirs = [
         make_snapshot(tmp_path, "hub", [hub_row("INV1", "invoice", "utility", {"total": "$5.00"})]),
-        make_snapshot(tmp_path, "near_gold", [near_gold_row("INV1", {"state": "paid"}, "invoice", "utility")]),
+        make_snapshot(
+            tmp_path, "near_gold", [near_gold_row("INV1", {"state": "paid"}, "invoice", "utility")]
+        ),
     ]
     snaps = load_snapshot_set(dirs)
     assert check(snaps, prof).findings == ()

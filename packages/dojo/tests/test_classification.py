@@ -1,12 +1,13 @@
-"""Classification behaviour: the label set a profile builds, label reading, metrics and their failure states."""
+"""Classification behaviour: the label set a profile builds, label reading, metrics and their failure
+states."""
 
 from __future__ import annotations
 
 import threading
 
 import pytest
-from dojo_testkit import mailroom_profile_mapping, minimal_profile_mapping
 
+from dojo_testkit import mailroom_profile_mapping, minimal_profile_mapping
 from mailroom_dojo.classification import (
     ERROR_PREFIX,
     ClassLabelSet,
@@ -119,8 +120,15 @@ def test_sorter_label_and_synonyms_classify_a_new_class():
     label_set = ClassLabelSet.from_profile(load_scoring_profile(mapping))
     key = "auto_policy_declaration"
     assert dict(label_set.exact) == {key: key, "auto policy dec": key}
-    for text in ("AUTO POLICY DEC", "an auto_policy dec here", "Declarations Page", "dec page", "the policy jacket",
-                 '{"doc_type": "Auto Policy Declaration"}', "auto policy declaration"):
+    for text in (
+        "AUTO POLICY DEC",
+        "an auto_policy dec here",
+        "Declarations Page",
+        "dec page",
+        "the policy jacket",
+        '{"doc_type": "Auto Policy Declaration"}',
+        "auto policy declaration",
+    ):
         assert normalize_label(text, label_set) == key, text
     assert normalize_label("auto policy", label_set) == "auto policy"
 
@@ -128,20 +136,29 @@ def test_sorter_label_and_synonyms_classify_a_new_class():
 def test_a_sorter_label_that_claims_another_class_is_refused():
     """Two live classes may not claim the same exact output; the error names the YAML path."""
     with pytest.raises(ProfileError) as refused:
-        ClassLabelSet.from_profile(load_scoring_profile(_profile_with(correspondence={"sorter_label": "Contract"})))
+        ClassLabelSet.from_profile(
+            load_scoring_profile(_profile_with(correspondence={"sorter_label": "Contract"}))
+        )
     assert refused.value.path == "classes[3].sorter_label"
     assert "classes[0].key" in str(refused.value)
     with pytest.raises(ProfileError) as case_blind:
-        ClassLabelSet.from_profile(load_scoring_profile(
-            _profile_with(contract={"sorter_label": "Legal Agreement"}, correspondence={"sorter_label": "legal agreement"})
-        ))
+        ClassLabelSet.from_profile(
+            load_scoring_profile(
+                _profile_with(
+                    contract={"sorter_label": "Legal Agreement"},
+                    correspondence={"sorter_label": "legal agreement"},
+                )
+            )
+        )
     assert case_blind.value.path == "classes[0].sorter_label"
     assert "classes[3].sorter_label" in str(case_blind.value)
 
 
 def test_a_retired_class_may_reuse_a_live_label():
     """Retired classes are outside the label set, so their labels cannot collide."""
-    label_set = ClassLabelSet.from_profile(load_scoring_profile(_profile_with(court_opinion={"sorter_label": "Contract"})))
+    label_set = ClassLabelSet.from_profile(
+        load_scoring_profile(_profile_with(court_opinion={"sorter_label": "Contract"}))
+    )
     assert normalize_label("contract", label_set) == "contract"
 
 
@@ -183,7 +200,7 @@ def test_the_label_set_is_immutable(labels):
         ('{"doc_type": null, "note": "an insurance claim"}', "insurance_claim"),
         ('{"doc_type": 7}', "7"),
         ('{"doc_type": "contract"', "contract"),
-        ("```json\n{\"doc_type\": \"correspondence\"}\n```", "correspondence"),
+        ('```json\n{"doc_type": "correspondence"}\n```', "correspondence"),
         ('"contracts"', "contracts"),
         ("**Unknown**", "unknown"),
         ("`__x__`", "x"),
@@ -216,7 +233,8 @@ def test_exact_match_and_failure(labels):
 
 
 def test_deeply_nested_json_output_raises_as_the_old_dojo_did(labels):
-    """A JSON output nested past the interpreter's recursion limit raises ``RecursionError`` (kept for parity)."""
+    """A JSON output nested past the interpreter's recursion limit raises ``RecursionError`` (kept for
+    parity)."""
     deep = '{"a":' * 100_000 + "1" + "}" * 100_000
     with pytest.raises(RecursionError):
         normalize_label(deep, labels)
@@ -264,7 +282,8 @@ def test_error_rows_are_dropped_where_documented(labels):
 
 
 def test_per_class_stats_reads_a_none_prediction_as_text(labels):
-    """per_class_stats normalizes ``str(prediction)``, so None is "none"; the confusion matrix reads None as "".
+    """per_class_stats normalizes ``str(prediction)``, so None is "none"; the confusion matrix reads None as
+    "".
 
     Kept from the old Dojo; listed in docs/golden-parity.md.
     """
@@ -307,10 +326,14 @@ def test_confusion_accuracy_faults():
 
 def test_binary_metrics_flags_and_normalized(labels):
     """Raw flags read yes/y/true/1/1.0 case-blind; normalized labels compare to the positive class."""
-    out = binary_metrics([True, True, False, False], [True, False, True, False], positive="true", label_set=labels)
+    out = binary_metrics(
+        [True, True, False, False], [True, False, True, False], positive="true", label_set=labels
+    )
     assert (out["tp"], out["fp"], out["fn"], out["tn"]) == (1, 1, 1, 1)
     assert out["precision"] == out["recall"] == out["f1"] == out["f2"] == 0.5
-    flags = binary_metrics([" YES ", "y", "1.0", 1, "on", "", None, 0], [True] * 8, positive="", normalize=False)
+    flags = binary_metrics(
+        [" YES ", "y", "1.0", 1, "on", "", None, 0], [True] * 8, positive="", normalize=False
+    )
     assert (flags["tp"], flags["fp"]) == (4, 4)
     assert flags["false_positive_rate"] == 1.0 and flags["false_negative_rate"] == 0.0
     empty = binary_metrics([], [], "x", normalize=False)

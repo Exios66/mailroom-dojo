@@ -64,7 +64,8 @@ def _empty_audit(doc_verification: bool) -> dict[str, Any]:
 
 
 def _covered(item_tokens: set[str], document_tokens: set[str], token_coverage: float) -> bool:
-    """True when both token sets are non-empty and ``token_coverage`` of the item's tokens are in the document."""
+    """True when both token sets are non-empty and ``token_coverage`` of the item's tokens are in the
+    document."""
     return (
         bool(item_tokens)
         and bool(document_tokens)
@@ -115,7 +116,8 @@ def audit_list_field(
     matched_gt = verified = true_items = 0
     for item in predicted_texts:
         hit = any(
-            element_similarity(profile, element_type, item, expected, scorer=scorer, rescue=rescue) >= match_threshold
+            element_similarity(profile, element_type, item, expected, scorer=scorer, rescue=rescue)
+            >= match_threshold
             for expected in expected_texts
         )
         grounded = _covered(containment_tokens(item), document_tokens, coverage)
@@ -147,7 +149,7 @@ def verification_tokens(value: object, field_type: str) -> set[str]:
         if parts is not None:
             month = MONTH_NAMES[parts.month - 1].capitalize() if parts.month else ""
             day = f" {parts.day}" if parts.day else ""
-            if parts.year and parts.day:
+            if parts.year and parts.day:  # noqa: SIM108 (a nested conditional expression reads worse)
                 year = f", {parts.year}"
             else:
                 year = f" {parts.year}" if parts.year else ""
@@ -168,14 +170,17 @@ def date_grounded_in_document(predicted_date: datetime.date | DateParts | None, 
     for match in _DATE_CANDIDATE.finditer(doc_text):
         candidate = parse_date_parts(match.group(0))
         if candidate is not None and all(
-            wanted is None or wanted == found for wanted, found in zip(predicted_date, candidate)
+            wanted is None or wanted == found for wanted, found in zip(predicted_date, candidate, strict=True)
         ):
             return True
     return False
 
 
-def _scalar_audit_scorer(registry: FieldScorerRegistry, field_type: str, unknown_type_as: str | None) -> ScalarScorer:
-    """The scorer a scalar audit matches with: the uncapped date similarity for dates, else the type's scorer."""
+def _scalar_audit_scorer(
+    registry: FieldScorerRegistry, field_type: str, unknown_type_as: str | None
+) -> ScalarScorer:
+    """The scorer a scalar audit matches with: the uncapped date similarity for dates, else the type's
+    scorer."""
     if field_type == "date":
         return date_match_similarity
     return element_scorer(registry, field_type, unknown_type_as)

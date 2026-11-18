@@ -16,10 +16,12 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
+from collections.abc import Callable
 from functools import cache
-from typing import Any, Callable
+from typing import Any
 
 import pytest
+
 from dojo_testkit import (
     OLD_DOJO_COMMIT,
     PACKAGE_ROOT,
@@ -29,15 +31,23 @@ from dojo_testkit import (
     encode,
     mailroom_profile_mapping,
 )
-
-from mailroom_dojo.field_scoring import audits, category_presence, entity_lists, extraction, row_variants, trace_capture
+from mailroom_dojo.field_scoring import (
+    audits,
+    category_presence,
+    entity_lists,
+    extraction,
+    row_variants,
+    trace_capture,
+)
 from mailroom_dojo.field_scoring.scorer_registry import FieldScorerRegistry
 from mailroom_dojo.field_scoring.similarity_backend import EmbeddingRescue
 from mailroom_dojo.normalization.dates import DateParts
 from mailroom_dojo.profile import ScoringProfile, load_scoring_profile
 
 EXTRACTION_CORPUS_PATH = PACKAGE_ROOT / "tests" / "fixtures" / "differential" / "extraction_cases.jsonl"
-GOLDEN_CLASSIFICATION_CORPUS_PATH = PACKAGE_ROOT / "tests" / "fixtures" / "golden" / "classification_cases.jsonl"
+GOLDEN_CLASSIFICATION_CORPUS_PATH = (
+    PACKAGE_ROOT / "tests" / "fixtures" / "golden" / "classification_cases.jsonl"
+)
 
 #: Where each old setting lives in a scoring profile.
 SETTING_PATHS: dict[str, tuple[str, str]] = {
@@ -128,8 +138,12 @@ def _score_entity_list(args: dict[str, Any], profile: ScoringProfile) -> dict[st
 def _score_field(args: dict[str, Any], profile: ScoringProfile) -> Any:
     """score_field with the old argument names; a list result as its dict and score."""
     result = extraction.score_field(
-        profile, args["field_type"], args["pred"], args["exp"],
-        recall_coverage=args.get("partial_gt", False), unknown_type_as="name",
+        profile,
+        args["field_type"],
+        args["pred"],
+        args["exp"],
+        recall_coverage=args.get("partial_gt", False),
+        unknown_type_as="name",
     )
     if isinstance(result, entity_lists.EntityListScore):
         return {"list": result.to_dict(), "score": result.score}
@@ -146,15 +160,23 @@ def _date_grounded(args: dict[str, Any], profile: ScoringProfile) -> bool:
 
 def _element_similarity(args: dict[str, Any], profile: ScoringProfile) -> float:
     """element_similarity with the element type's scorer from the profile's registry."""
-    scorer = entity_lists.element_scorer(FieldScorerRegistry.for_profile(profile), args["element_type"], "name")
-    return entity_lists.element_similarity(profile, args["element_type"], args["item"], args["exp"], scorer=scorer)
+    scorer = entity_lists.element_scorer(
+        FieldScorerRegistry.for_profile(profile), args["element_type"], "name"
+    )
+    return entity_lists.element_similarity(
+        profile, args["element_type"], args["item"], args["exp"], scorer=scorer
+    )
 
 
 def _presence(args: dict[str, Any], profile: ScoringProfile) -> Any:
     """score_category_presence with the old default field."""
     similarity = category_presence.PresenceSimilarity.from_profile(profile, _similarity(args))
     return category_presence.score_category_presence(
-        profile, args["predicted"], args["presence_expectations"], similarity=similarity, default_field="cuad_clauses"
+        profile,
+        args["predicted"],
+        args["presence_expectations"],
+        similarity=similarity,
+        default_field="cuad_clauses",
     )
 
 
@@ -176,17 +198,25 @@ ADAPTERS: dict[str, Callable[[dict[str, Any], ScoringProfile], Any]] = {
     "score_entity_list": _score_entity_list,
     "score_field": _score_field,
     "verify_list_items": lambda args, profile: audits.verify_list_items(
-        args["items"], args["doc_text"],
+        args["items"],
+        args["doc_text"],
         profile.audit.token_coverage if args.get("token_coverage") is None else args["token_coverage"],
     ),
     "audit_list_field": lambda args, profile: audits.audit_list_field(
-        profile, args["element_type"], args["pred_items"], args["exp_items"], args["doc_text"],
-        token_coverage=args.get("token_coverage"), unknown_type_as="name",
+        profile,
+        args["element_type"],
+        args["pred_items"],
+        args["exp_items"],
+        args["doc_text"],
+        token_coverage=args.get("token_coverage"),
+        unknown_type_as="name",
     ),
     "audit_scalar_field": lambda args, profile: audits.audit_scalar_field(
         profile, args["field_type"], args["pred"], args["exp"], args["doc_text"], unknown_type_as="name"
     ),
-    "verification_tokens": lambda args, profile: audits.verification_tokens(args["value"], args["field_type"]),
+    "verification_tokens": lambda args, profile: audits.verification_tokens(
+        args["value"], args["field_type"]
+    ),
     "date_grounded_in_document": _date_grounded,
     "element_similarity": _element_similarity,
     "split_clause_spans": lambda args, profile: category_presence.split_clause_spans(args["text"]),
@@ -194,7 +224,9 @@ ADAPTERS: dict[str, Callable[[dict[str, Any], ScoringProfile], Any]] = {
         args["items"], *([args["min_span_tokens"]] if "min_span_tokens" in args else [])
     ),
     "score_category_presence": _presence,
-    "field_is_ambiguous": lambda args, profile: extraction.field_is_ambiguous(profile, args["field_type"], args["score"]),
+    "field_is_ambiguous": lambda args, profile: extraction.field_is_ambiguous(
+        profile, args["field_type"], args["score"]
+    ),
     "expected_cms_source_table": _expected_marker,
     "is_unstated_cms_marker": _unstated_marker,
     "is_parse_compat_key": lambda args, profile: extraction.is_accepted_unscored_field(
@@ -206,7 +238,9 @@ ADAPTERS: dict[str, Callable[[dict[str, Any], ScoringProfile], Any]] = {
     ),
     "parse_confidence": lambda args, profile: trace_capture.parse_confidence(args["value"]),
     "parse_reasoning": lambda args, profile: trace_capture.parse_reasoning(args["value"]),
-    "confidence_gate": lambda args, profile: trace_capture.confidence_gate(args["confidence"], profile.trace_capture),
+    "confidence_gate": lambda args, profile: trace_capture.confidence_gate(
+        args["confidence"], profile.trace_capture
+    ),
     "confidence_calibration_error": lambda args, profile: trace_capture.confidence_calibration_error(
         args["confidence"], args["correctness"]
     ),
@@ -240,7 +274,8 @@ def test_every_corpus_function_has_an_adapter_and_every_adapter_has_cases():
 
 
 def test_golden_cases_are_tied_to_the_old_golden_baseline():
-    """The golden cases carry the old scores.json hash, their paths in it, and field scores that hash to the record."""
+    """The golden cases carry the old scores.json hash, their paths in it, and field scores that hash to the
+    record."""
     header, cases = extraction_corpus()
     golden = [case for case in cases if case["source"] == "golden"]
     assert header["golden_calls"] == 16
@@ -259,7 +294,9 @@ def test_golden_hashes_agree_with_the_classification_corpus():
     """Both corpora name the same old golden inputs and scores, so they come from one baseline."""
     if not GOLDEN_CLASSIFICATION_CORPUS_PATH.exists():
         pytest.skip("classification corpus not present")
-    classification = json.loads(GOLDEN_CLASSIFICATION_CORPUS_PATH.read_text(encoding="utf-8").splitlines()[0])["header"]
+    classification = json.loads(
+        GOLDEN_CLASSIFICATION_CORPUS_PATH.read_text(encoding="utf-8").splitlines()[0]
+    )["header"]
     header, _ = extraction_corpus()
     assert header["golden_scores_json_sha256"] == classification["old_scores_json_sha256"]
     assert header["golden_inputs_json_sha256"] == classification["old_inputs_json_sha256"]

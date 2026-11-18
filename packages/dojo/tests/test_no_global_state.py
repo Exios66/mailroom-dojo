@@ -10,21 +10,43 @@ import ast
 from pathlib import Path
 
 import pytest
+
 from dojo_testkit import SOURCE_ROOT
 
 PACKAGE_DIRECTORY = SOURCE_ROOT
 SOURCE_FILES = sorted(PACKAGE_DIRECTORY.rglob("*.py"))
 
 FORBIDDEN_IMPORTS = {
-    "socket", "urllib", "http", "requests", "httpx", "aiohttp", "threading", "multiprocessing",
-    "concurrent", "asyncio", "openai", "anthropic", "langfuse", "llm_dojo_scoring", "dotenv",
+    "socket",
+    "urllib",
+    "http",
+    "requests",
+    "httpx",
+    "aiohttp",
+    "threading",
+    "multiprocessing",
+    "concurrent",
+    "asyncio",
+    "openai",
+    "anthropic",
+    "langfuse",
+    "llm_dojo_scoring",
+    "dotenv",
 }
 FORBIDDEN_DECORATORS = {"lru_cache", "cache", "cached_property"}
 #: Module-level names that may hold a call result: immutable values built once, and the
 #: loader's section readers (closures that read and never write what they close over).
 IMMUTABLE_FACTORIES = {
-    "frozenset", "tuple", "FrozenMapping", "MappingProxyType", "re.compile", "logging.getLogger",
-    "TypeVar", "_FixedPivotParserInfo", "datetime.datetime", "_simple_section",
+    "frozenset",
+    "tuple",
+    "FrozenMapping",
+    "MappingProxyType",
+    "re.compile",
+    "logging.getLogger",
+    "TypeVar",
+    "_FixedPivotParserInfo",
+    "datetime.datetime",
+    "_simple_section",
 }
 
 
@@ -70,15 +92,21 @@ def test_no_environment_network_thread_or_engine_imports(path):
             target = decorator.func if isinstance(decorator, ast.Call) else decorator
             if _call_name(target).split(".")[-1] in FORBIDDEN_DECORATORS:
                 problems.append(f"cache decorator at line {node.lineno}")
-        if isinstance(node, ast.Call) and _call_name(node.func) in {"datetime.now", "date.today", "time.time",
-                                                                      "datetime.today", "time.localtime"}:
+        if isinstance(node, ast.Call) and _call_name(node.func) in {
+            "datetime.now",
+            "date.today",
+            "time.time",
+            "datetime.today",
+            "time.localtime",
+        }:
             problems.append(f"reads the clock at line {node.lineno}")
     assert not problems, f"{_relative(path)}: {problems}"
 
 
 @pytest.mark.parametrize("path", SOURCE_FILES, ids=_relative)
 def test_no_mutable_module_level_values(path):
-    """Module-level assignments hold constants or immutable values, never a list, dict, set or open call result."""
+    """Module-level assignments hold constants or immutable values, never a list, dict, set or open call
+    result."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     problems = []
     for node in tree.body:

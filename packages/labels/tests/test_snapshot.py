@@ -11,8 +11,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from labels_testkit import hub_row, make_snapshot, near_gold_row, rehash_manifest
 
+from labels_testkit import hub_row, make_snapshot, near_gold_row, rehash_manifest
 from mailroom_labels.errors import (
     CorruptLine,
     DuplicateSnapshot,
@@ -102,6 +102,7 @@ def edit_manifest(edit: Callable[[dict], None], *, rehash: bool) -> Callable[[Pa
             manifest = json.loads(path.read_text())
             edit(manifest)
             path.write_text(json.dumps(manifest))
+
     return mutate
 
 
@@ -155,7 +156,12 @@ TAMPER = [
     ("non_jsonl_and_rehash", edit_manifest(non_jsonl_path, rehash=True), ManifestMismatch, "unsafe_path"),
     ("drop_key_and_rehash", edit_manifest(drop_builder, rehash=True), ManifestMismatch, "manifest_invalid"),
     ("bad_kind_and_rehash", edit_manifest(bad_kind, rehash=True), ManifestMismatch, "manifest_invalid"),
-    ("manifest_not_json", lambda d: (d / MANIFEST_NAME).write_text("{not json"), ManifestMismatch, "manifest_invalid"),
+    (
+        "manifest_not_json",
+        lambda d: (d / MANIFEST_NAME).write_text("{not json"),
+        ManifestMismatch,
+        "manifest_invalid",
+    ),
     ("manifest_a_list", lambda d: (d / MANIFEST_NAME).write_text("[]"), ManifestMismatch, "manifest_invalid"),
     ("delete_manifest", lambda d: (d / MANIFEST_NAME).unlink(), ManifestMissing, None),
     (
@@ -229,7 +235,9 @@ def test_build_refuses_a_non_jsonl_file(tmp_path: Path) -> None:
         (b'{"a":1}\n\xff\xfe\n{"c":3}\n', 2, "not JSON"),
     ],
 )
-def test_corrupt_line_is_reported_with_file_and_line(snap: Path, content: bytes, line: int, detail: str) -> None:
+def test_corrupt_line_is_reported_with_file_and_line(
+    snap: Path, content: bytes, line: int, detail: str
+) -> None:
     (snap / "a.jsonl").write_bytes(content)
     rehash_manifest(snap)  # a tamperer who also fixes the hashes: the manifest now agrees
     loaded = load_snapshot(snap)
@@ -365,7 +373,9 @@ def test_empty_snapshot_is_valid(tmp_path: Path) -> None:
 @pytest.mark.parametrize("bad", ["", "Hub", "a+b", "a/b", "a@b", "-lead", ".hidden", "a b", "é"])
 def test_a_snapshot_id_outside_the_pattern_is_refused_before_writing(tmp_path: Path, bad: str) -> None:
     with pytest.raises(ValueError, match="must match"):
-        make_snapshot(tmp_path, "near_gold", [near_gold_row("D1", {"sender": "Ann"})], snapshot_id=bad or "x/../")
+        make_snapshot(
+            tmp_path, "near_gold", [near_gold_row("D1", {"sender": "Ann"})], snapshot_id=bad or "x/../"
+        )
     assert not any(tmp_path.iterdir())
 
 
@@ -384,7 +394,10 @@ def test_label_set_ids_cannot_collide() -> None:
 
     # the separators a label set and a run use can never occur inside a member id
     assert not any(re.match(SNAPSHOT_ID_PATTERN, s) for s in ("a+b", "a@b", "a/b", "A"))
-    assert all(re.match(SNAPSHOT_ID_PATTERN, s) for s in ("hub-ccd040f6", "near-gold-2026-11-17", "near_gold-test", "v1.2"))
+    assert all(
+        re.match(SNAPSHOT_ID_PATTERN, s)
+        for s in ("hub-ccd040f6", "near-gold-2026-11-17", "near_gold-test", "v1.2")
+    )
 
 
 def test_a_snapshot_id_with_a_trailing_newline_is_refused(tmp_path: Path) -> None:
@@ -411,25 +424,52 @@ def test_a_listed_file_replaced_by_a_dangling_symlink_is_missing(tmp_path: Path)
 
 def test_rebuilding_a_snapshot_drops_files_the_new_build_does_not_produce(tmp_path: Path) -> None:
     d = tmp_path / "hub-a"
-    write_snapshot(d, {"a.jsonl": ROWS_A, "part/b.jsonl": ROWS_B}, snapshot_id="hub-a", kind="hub",
-                   layer_schema=CURRENT_LAYER_SCHEMA["hub"], source={"repository": "synthetic"}, builder="test")
-    manifest = write_snapshot(d, {"a.jsonl": ROWS_A}, snapshot_id="hub-a", kind="hub",
-                              layer_schema=CURRENT_LAYER_SCHEMA["hub"], source={"repository": "synthetic"}, builder="test")
+    write_snapshot(
+        d,
+        {"a.jsonl": ROWS_A, "part/b.jsonl": ROWS_B},
+        snapshot_id="hub-a",
+        kind="hub",
+        layer_schema=CURRENT_LAYER_SCHEMA["hub"],
+        source={"repository": "synthetic"},
+        builder="test",
+    )
+    manifest = write_snapshot(
+        d,
+        {"a.jsonl": ROWS_A},
+        snapshot_id="hub-a",
+        kind="hub",
+        layer_schema=CURRENT_LAYER_SCHEMA["hub"],
+        source={"repository": "synthetic"},
+        builder="test",
+    )
     assert [f.path for f in manifest.files] == ["a.jsonl"]
     assert sorted(p.relative_to(d).as_posix() for p in d.rglob("*")) == ["a.jsonl", "manifest.json"]
     assert load_snapshot(d).manifest.files == manifest.files
 
 
-@pytest.mark.parametrize("setup", ["foreign_file", "other_snapshot", "unlisted_beside_a_build", "broken_manifest"])
-def test_building_into_a_directory_with_other_content_is_refused_untouched(tmp_path: Path, setup: str) -> None:
+@pytest.mark.parametrize(
+    "setup", ["foreign_file", "other_snapshot", "unlisted_beside_a_build", "broken_manifest"]
+)
+def test_building_into_a_directory_with_other_content_is_refused_untouched(
+    tmp_path: Path, setup: str
+) -> None:
     d = tmp_path / "hub-a"
-    args = dict(snapshot_id="hub-a", kind="hub", layer_schema=CURRENT_LAYER_SCHEMA["hub"],
-                source={"repository": "synthetic"}, builder="test")
+    args = dict(
+        snapshot_id="hub-a",
+        kind="hub",
+        layer_schema=CURRENT_LAYER_SCHEMA["hub"],
+        source={"repository": "synthetic"},
+        builder="test",
+    )
     if setup == "foreign_file":
         d.mkdir()
         (d / "old.jsonl").write_text("{}\n")
     else:
-        write_snapshot(d, {"a.jsonl": ROWS_A}, **{**args, "snapshot_id": "hub-b" if setup == "other_snapshot" else "hub-a"})
+        write_snapshot(
+            d,
+            {"a.jsonl": ROWS_A},
+            **{**args, "snapshot_id": "hub-b" if setup == "other_snapshot" else "hub-a"},
+        )
         if setup == "unlisted_beside_a_build":
             (d / "stale.jsonl").write_text("{}\n")
         if setup == "broken_manifest":
@@ -440,7 +480,9 @@ def test_building_into_a_directory_with_other_content_is_refused_untouched(tmp_p
     assert {p.relative_to(d).as_posix(): p.read_bytes() for p in d.rglob("*") if p.is_file()} == before
 
 
-def test_rows_are_parsed_from_the_bytes_that_were_verified(snap: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rows_are_parsed_from_the_bytes_that_were_verified(
+    snap: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # A file that changes right after a separate verification pass must never feed rows:
     # the stream parses exactly the bytes it hashed.
     import mailroom_labels.snapshot as snapshot_module

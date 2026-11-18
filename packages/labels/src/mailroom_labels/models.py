@@ -58,7 +58,12 @@ SEVERITIES: tuple[str, ...] = Severity.__args__  # type: ignore[attr-defined]
 #: Manifest ``source`` keys where an importer lists source data it left out. A non-empty
 #: one means the snapshot is incomplete: the importer refuses it unless told to keep it
 #: for inspection, and the quality gate reports it as an error.
-DROPPED_SOURCE_KEYS: tuple[str, ...] = ("rejected_lines", "unparseable_gt_fields", "not_imported", "unexplained_superseded")
+DROPPED_SOURCE_KEYS: tuple[str, ...] = (
+    "rejected_lines",
+    "unparseable_gt_fields",
+    "not_imported",
+    "unexplained_superseded",
+)
 
 #: A snapshot id: lowercase letters, digits, ``.``, ``_`` and ``-``, starting with a letter
 #: or digit. It never holds ``/`` (a finding location is ``<snapshot_id>/<file>:<line>``),

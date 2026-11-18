@@ -32,7 +32,7 @@ ERROR_PREFIX = "ERROR: "
 LABEL_JSON_KEY = "doc_type"
 
 #: Characters stripped from both ends of an output that matched no class.
-_UNMATCHED_STRIP = "\"`*_ "
+_UNMATCHED_STRIP = '"`*_ '
 
 _WORD_SEPARATOR = re.compile(r"[\W_]+")
 
@@ -89,7 +89,9 @@ class ClassLabelSet:
             label = spec.sorter_label.strip().lower()
             path = f"classes[{profile.class_keys.index(spec.key)}].sorter_label"
             if label in exact and exact[label] != spec.key:
-                raise ProfileError(path, f"sorter label {spec.sorter_label!r} is already claimed by {owners[label]}")
+                raise ProfileError(
+                    path, f"sorter label {spec.sorter_label!r} is already claimed by {owners[label]}"
+                )
             exact[label] = spec.key
             owners.setdefault(label, path)
         for spec in live:
@@ -99,7 +101,9 @@ class ClassLabelSet:
                 compiled.append(re.compile(label_pattern))
             compiled += [re.compile(synonym, re.IGNORECASE) for synonym in spec.synonyms]
             patterns.append((spec.key, tuple(compiled)))
-        return cls(class_keys=tuple(spec.key for spec in live), exact=FrozenMapping(exact), patterns=tuple(patterns))
+        return cls(
+            class_keys=tuple(spec.key for spec in live), exact=FrozenMapping(exact), patterns=tuple(patterns)
+        )
 
     def normalize(self, value: Any) -> str:
         """Read a classifier output as a class key (best effort); see :func:`normalize_label`."""

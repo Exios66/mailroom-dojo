@@ -13,8 +13,8 @@ from fractions import Fraction
 
 import numpy
 import pytest
-from dojo_testkit import FakeSimilarity, minimal_profile_mapping, scalar_corpus, decode
 
+from dojo_testkit import FakeSimilarity, decode, minimal_profile_mapping, scalar_corpus
 from mailroom_dojo.field_scoring import scalar_scorers
 from mailroom_dojo.field_scoring.scorer_registry import BUILTIN_SCORERS
 from mailroom_dojo.field_scoring.sentence_transformer_backend import SentenceTransformerBackend
@@ -68,7 +68,9 @@ def test_blank_sides_are_never_offered(predicted, expected):
     """A blank prediction or expectation is not rescued."""
     backend = _constant(1.0)
     rescue = EmbeddingRescue(backend, 0.7)
-    assert scalar_scorers.score_name_field(predicted, expected, rescue) == scalar_scorers.score_name_field(predicted, expected)
+    assert scalar_scorers.score_name_field(predicted, expected, rescue) == scalar_scorers.score_name_field(
+        predicted, expected
+    )
     assert rescue.rescue(0.0, predicted, expected) == 0.0
     assert backend.calls == []
 
@@ -102,7 +104,11 @@ def test_only_name_like_scorers_consult_the_backend():
 @pytest.mark.parametrize(
     ("backend", "reason", "detail"),
     [
-        (FakeSimilarity({"kind": "raises"}), "backend_raised", "RuntimeError: fake similarity backend failure"),
+        (
+            FakeSimilarity({"kind": "raises"}),
+            "backend_raised",
+            "RuntimeError: fake similarity backend failure",
+        ),
         (FakeSimilarity({"kind": "nan"}), "not_a_number", "nan"),
         (_constant("0.9"), "not_a_number", "'0.9'"),
         (_constant(True), "not_a_number", "True"),
@@ -114,7 +120,19 @@ def test_only_name_like_scorers_consult_the_backend():
         (_constant(Decimal("0.9")), "not_a_number", "Decimal('0.9')"),
         (_constant(10**400), "out_of_range", repr(10**400)[:80]),
     ],
-    ids=["raises", "nan", "text", "bool", "list", "above-one", "below-zero", "inf", "minus-inf", "decimal", "huge-int"],
+    ids=[
+        "raises",
+        "nan",
+        "text",
+        "bool",
+        "list",
+        "above-one",
+        "below-zero",
+        "inf",
+        "minus-inf",
+        "decimal",
+        "huge-int",
+    ],
 )
 def test_a_failing_backend_keeps_the_string_score_and_is_reported(backend, reason, detail, caplog):
     """Every failure keeps the string score and records exactly one fallback with its reason and detail."""
@@ -330,7 +348,11 @@ def test_sentence_backend_loads_local_files_only(monkeypatch):
         calls.append((name, kwargs))
         return _UnitModel()
 
-    monkeypatch.setitem(sys.modules, "sentence_transformers", types.SimpleNamespace(SentenceTransformer=fake_sentence_transformer))
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        types.SimpleNamespace(SentenceTransformer=fake_sentence_transformer),
+    )
     backend = SentenceTransformerBackend("/models/minilm")
     assert calls == [("/models/minilm", {"local_files_only": True})]
     assert backend.similarity("cat", "kitten") == pytest.approx(0.8)
@@ -339,14 +361,18 @@ def test_sentence_backend_loads_local_files_only(monkeypatch):
 def test_sentence_backend_without_the_extra_names_it(monkeypatch):
     """Without sentence-transformers installed, building a named backend says which extra to install."""
     monkeypatch.setitem(sys.modules, "sentence_transformers", None)
-    with pytest.raises(ImportError, match=r'mailroom-dojo\[embeddings\]'):
+    with pytest.raises(ImportError, match=r"mailroom-dojo\[embeddings\]"):
         SentenceTransformerBackend("all-MiniLM-L6-v2")
 
 
 @pytest.mark.parametrize(
     "kwargs",
-    [{}, {"model_name_or_path": "x", "model": _UnitModel()}, {"model": _UnitModel(), "cache_size": 0},
-     {"model": _UnitModel(), "cache_size": True}],
+    [
+        {},
+        {"model_name_or_path": "x", "model": _UnitModel()},
+        {"model": _UnitModel(), "cache_size": 0},
+        {"model": _UnitModel(), "cache_size": True},
+    ],
 )
 def test_sentence_backend_bad_arguments(kwargs):
     """Neither or both of name and model, or a non-positive cache, is refused."""
