@@ -654,31 +654,42 @@ def hand_line(run_id: str, doc_id: str, seq: int, prev_hash: str, **fields: Any)
     return Event.build(**(base | fields)).model_dump(mode="json")
 
 
-def start_handoff_workers(root: Any, n: int, run_id: str = "r1") -> tuple[Any, list[Any]]:
+def start_handoff_workers(root: Any, n: int, run_id: str = "r1", ready_timeout: float = 60.0) -> tuple[Any, list[Any]]:
     """Start ``n`` processes (spawn), each owning ``h<j>`` and handing it between writers.
 
     Even-numbered documents rotate a -> m -> z (each event lands in a segment a reader
     reaches after the one holding the event before: the order that shows a reader a false
     gap), odd ones z -> m -> a. Waits until each has written three events. Returns the
-    stop event and the processes; pass them to ``stop_workers``.
+    stop event and the processes; pass them to ``stop_workers``. If starting fails (a
+    worker that does not start, or is not ready within ``ready_timeout`` seconds), every
+    worker already started is stopped, joined and, if it overruns, killed before the error
+    is raised, so no process outlives the test.
     """
     import multiprocessing
 
     ctx = multiprocessing.get_context("spawn")
     stop = ctx.Event()
-    procs, started = [], []
-    for j in range(n):
-        ids = [f"a{j}", f"m{j}", f"z{j}"]
-        ready = ctx.Event()
-        p = ctx.Process(
-            target=handoff_until_stopped,
-            args=(str(root), run_id, f"h{j}", ids if j % 2 == 0 else ids[::-1], stop, ready),
-        )
-        p.start()
-        procs.append(p)
-        started.append(ready)
-    for ready in started:
-        assert ready.wait(60), "a hand-off worker never started"
+    procs: list[Any] = []
+    started = []
+    try:
+        for j in range(n):
+            ids = [f"a{j}", f"m{j}", f"z{j}"]
+            ready = ctx.Event()
+            p = ctx.Process(
+                target=handoff_until_stopped,
+                args=(str(root), run_id, f"h{j}", ids if j % 2 == 0 else ids[::-1], stop, ready),
+            )
+            procs.append(p)
+            p.start()
+            started.append(ready)
+        for ready in started:
+            if not ready.wait(ready_timeout):
+                raise AssertionError("a hand-off worker never started")
+    except BaseException:
+        # One cleanup path: stop every worker started so far, join it, kill what overruns.
+        stop.set()
+        join_all(procs, timeout=30)
+        raise
     return stop, procs
 
 
@@ -791,11 +802,13 @@ def reindex_in_child(root: str, index_path: str, marker: str, after: int) -> Non
     time.sleep(3600)  # never reached when the parent kills the child mid-build
 
 
-def read_index_until(index_path: str, stop: str, out: str) -> None:
+def read_index_until(index_path: str, stop: str, out: str, marker: str | None = None) -> None:
     """Process target: dump the index in a loop until ``stop`` exists; write what was seen to ``out``.
 
     Each observation is the dump's digest, or ``unavailable:<status>``, plus whether the
-    parent's mid-build marker (``stop + ".building"``) existed just before the read began.
+    rebuild was mid-transaction just before the read began: the parent's marker
+    (``stop + ".building"``, removed once the rebuild returned) existed and, with
+    ``marker``, so did the marker the rebuild writes inside its transaction.
     """
     import hashlib
     import json
@@ -807,7 +820,7 @@ def read_index_until(index_path: str, stop: str, out: str) -> None:
     idx = Index(Path(index_path))
     seen: list[list[Any]] = []
     while not os.path.exists(stop):
-        building = os.path.exists(stop + ".building")
+        building = os.path.exists(stop + ".building") and (marker is None or os.path.exists(marker))
         try:
             digest = hashlib.sha256(json.dumps(idx.dump(), sort_keys=True).encode()).hexdigest()
         except IndexUnavailable as exc:

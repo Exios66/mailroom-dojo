@@ -83,7 +83,8 @@ same rules for the seal chain.
 
 Rebuild rules (``reindex``)
 ---------------------------
-Every run directory is read. A run whose ``run.json`` cannot be read is recorded as a
+Every run directory is read; an entry of ``runs/`` whose name is not a run id (``.staging``)
+is not a run and is skipped. A run whose ``run.json`` cannot be read is recorded as a
 ``corrupt_run_header`` problem and skipped; a directory with neither ``run.json`` nor a
 segment is a run being created and is skipped silently (``add_run`` registers it). Each run is scanned tolerantly
 (``EventLog.scan(strict=False)``): a whole line that is not JSON (``corrupt_line``) or not a
@@ -91,9 +92,15 @@ valid event (``invalid_event``) is recorded and skipped, never fatal, and a torn
 counted (it is benign while a run is live; ``verify_run`` judges it). Each document's
 events are then taken in ``seq`` order through the same rule as ``apply``; at the first
 event it refuses (``seq_gap``, ``forked_chain``, ``broken_link``) the document's head stays
-at the last good event and the problem is recorded. A scan that finds a gap is repeated
-(up to three reads) until two reads agree, so a writer handing a document over during the
-scan is not mistaken for damage. Seals are read with ``list_seals``; the index counts the
+at the last good event and the problem is recorded. The same event stored twice (one ``seq``
+and hash in two places) is a ``forked_chain`` too, as ``verify_run`` reports it, not a
+replay. A scan that finds a gap is repeated (up to three reads), each read bounded by the
+one before: a gap at a ``seq`` at or below the highest ``seq`` the previous read saw of that
+document is real (the missing event was written before that read ended, so this one would
+have seen it) and is recorded; a gap above it may be an event written during this read by a
+writer that handed the document over, so the read is repeated, and if the last read still
+shows one, the document's head stops before it with no problem recorded (the events after it
+were in flight; the next rebuild or ``verify_run`` sees them). Seals are read with ``list_seals``; the index counts the
 seals that are numbered from 0 and chained, and records ``seal_corrupt`` or
 ``seal_chain`` otherwise. Problem details name error types and field locations only,
 never stored content.
@@ -113,7 +120,7 @@ from pathlib import Path
 from typing import Any
 
 from mailroom_record.log import CorruptLine, EventLog, RunScan, _safe_detail
-from mailroom_record.models import GENESIS, Event, Run, Seal
+from mailroom_record.models import _RUN_ID_RE, GENESIS, Event, Run, Seal
 from mailroom_record.seal import SealCorrupt, list_seals
 
 __all__ = [
@@ -690,23 +697,42 @@ def _dump(con: sqlite3.Connection) -> dict[str, list[tuple[Any, ...]]]:
     return {t: sorted(tuple(r) for r in con.execute(f"SELECT * FROM {t}")) for t in _DUMP_TABLES}
 
 
-def _stable_scan(log: EventLog, run_id: str) -> RunScan:
-    """A tolerant scan; re-read while it shows a gap that a second read does not confirm."""
-    previous: dict[str, int] | None = None
+def _scan_heads(scan: RunScan) -> dict[str, int]:
+    """The highest ``seq`` of each document in ``scan``."""
+    out: dict[str, int] = {}
+    for doc in scan.doc_ids():
+        for seq, *_ in scan._ordered(doc):  # ascending: the last row is the highest
+            out[doc] = seq
+    return out
+
+
+def _stable_scan(log: EventLog, run_id: str) -> tuple[RunScan, dict[str, int] | None]:
+    """A tolerant scan, re-read while it shows a gap no earlier read confirms, and its bound.
+
+    The bound is the highest ``seq`` per document of the read before the returned one
+    (``None`` when the first read showed no gap). A gap at or below it is real: the read
+    before saw a later ``seq``, so the missing one was written before that read ended, and
+    every later read lists and reads past it. A gap above it may be a hand-off between
+    writers during the read. ``_reading.stable_scan`` keeps the same rule (a deliberate
+    copy); change both together.
+    """
     scan = log.scan(run_id, strict=False)
+    bound: dict[str, int] | None = None
     for _ in range(_SCAN_TRIES - 1):
-        if not scan.gaps() or scan.ends == previous:
+        gaps = scan.gaps()
+        if not gaps or (bound is not None and all(g <= bound.get(d, -1) for d, g in gaps.items())):
             break
-        previous = dict(scan.ends)
+        bound = _scan_heads(scan)
         scan = log.scan(run_id, strict=False)
-    return scan
+    return scan, bound
 
 
 def _run_ids(log: EventLog) -> list[str]:
+    """Every directory under ``runs/`` whose name is a run id (``.staging`` and the like are not)."""
     runs_dir = log.root / "runs"
     if not runs_dir.is_dir():
         return []
-    return sorted(p.name for p in runs_dir.iterdir() if p.is_dir())
+    return sorted(p.name for p in runs_dir.iterdir() if _RUN_ID_RE.fullmatch(p.name) and p.is_dir())
 
 
 def _build(con: sqlite3.Connection, log: EventLog) -> IndexStats:
@@ -742,11 +768,12 @@ def _build(con: sqlite3.Connection, log: EventLog) -> IndexStats:
         n_seals += seals or 0
         con.execute("INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?)", (run_id, *_run_header(run), seals, last))
 
-        scan = _stable_scan(log, run_id)
+        scan, bound = _stable_scan(log, run_id)
         n_torn += len(scan.torn)
         spans: dict[tuple[str, str], list[int]] = {}
         heads: dict[str, _Head] = {}
         stopped: set[str] = set()
+        last_seq: dict[str, int] = {}  # the seq of each document's previous line in this scan
         for located in scan.events():
             e = located.event
             span = spans.get((e.doc_id, located.segment))
@@ -757,10 +784,18 @@ def _build(con: sqlite3.Connection, log: EventLog) -> IndexStats:
                 span[1] = max(span[1], located.byte_offset + located.length)
             if e.doc_id in stopped:
                 continue
+            repeated = last_seq.get(e.doc_id) == e.seq  # lines come in seq order: a repeat is a second copy
+            last_seq[e.doc_id] = e.seq
             try:
+                if repeated:
+                    raise ApplyRefused("forked_chain", f"document {e.doc_id!r} of run {run_id!r}: seq {e.seq} is stored twice")
                 new = _next_head(run_id, heads.get(e.doc_id), e)
             except ApplyRefused as exc:
                 stopped.add(e.doc_id)
+                head = heads.get(e.doc_id)
+                missing = 0 if head is None else head.seq + 1
+                if exc.kind == "seq_gap" and bound is not None and missing > bound.get(e.doc_id, -1):
+                    continue  # in flight during the read, not damage (module doc)
                 problems.append(IndexProblem(run_id, e.doc_id, located.segment, located.byte_offset, exc.kind, str(exc)))
                 continue
             if new is not None:

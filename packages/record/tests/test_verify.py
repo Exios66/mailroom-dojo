@@ -1110,7 +1110,15 @@ def test_verify_a_busy_run_while_another_process_seals(store: SimpleNamespace, m
 
     monkeypatch.setattr(verify_module, "iter_raw_segment", slow)
     reports = []
+    first_seal = store.root / "runs" / "r1" / "seals" / "0.json"
     try:
+        # Readiness: the sealer has committed its first seal (seal files are written whole
+        # and atomically), so every report below has a seal to check.
+        ready_by = time.monotonic() + 60
+        while not first_seal.exists():
+            assert time.monotonic() < ready_by, "the sealer process never wrote its first seal"
+            assert sealer.is_alive() or first_seal.exists(), "the sealer process exited before its first seal"
+            time.sleep(0.01)
         deadline = time.monotonic() + 4
         while time.monotonic() < deadline and len(reports) < 6:
             reports.append(verify_run(store.log, store.blobs, "r1"))
@@ -1306,3 +1314,105 @@ def test_unlistable_directories_are_reported(
     want = {"segments": "corrupt_line", "seals": "seal_corrupt", "columns": "columns_missing"}[which]
     assert (want, None, None) in failing(r)
     assert any(f"{which}/ cannot be listed" in p.detail for p in r.problems)
+
+
+# --- PR #2 re-review: probes that fail, races, forks after the last seal (items 12-17) ---
+
+
+def _stat_fails_for(monkeypatch: pytest.MonkeyPatch, target: Path) -> None:
+    original = Path.stat
+
+    def stat(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self == target:
+            raise PermissionError(13, "injected")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat)
+
+
+@pytest.mark.parametrize("which", ["content", "tombstone"])
+def test_a_blob_probe_that_raises_is_reported_for_that_blob(
+    sealed_store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, which: str
+) -> None:
+    s = sealed_store
+    sha = s.originals["d3"]
+    path = s.blobs.content_path(sha) if which == "content" else s.blobs.tombstone_path(sha)
+    _stat_fails_for(monkeypatch, path)
+    r = verify(s)
+    monkeypatch.undo()
+    assert failing(r) == [("corrupt_blob", "d3", 0)]
+    assert "cannot be checked (PermissionError, errno 13)" in r.problems[0].detail
+
+
+def test_a_column_file_that_cannot_be_checked_is_reported_for_that_seal(
+    sealed_store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    s = sealed_store
+    _stat_fails_for(monkeypatch, columns_path(s, 1))
+    r = verify(s)
+    monkeypatch.undo()
+    assert [(p.kind, p.seal, p.fails) for p in r.problems] == [("columns_mismatch", 1, True)]
+    assert "cannot be checked (PermissionError, errno 13)" in r.problems[0].detail
+
+
+@pytest.mark.parametrize("n", [1, 2])
+def test_a_directory_at_a_column_file_path_fails(sealed_store: SimpleNamespace, n: int) -> None:
+    # The latest seal's missing file is a recoverable note; a directory there is not
+    # (seal_run cannot write the file over it).
+    s = sealed_store
+    columns_path(s, n).unlink()
+    columns_path(s, n).mkdir()
+    r = verify(s)
+    assert [(p.kind, p.seal, p.fails) for p in r.problems] == [("columns_mismatch", n, True)]
+    assert "is not a regular file" in r.problems[0].detail
+
+
+@pytest.mark.parametrize("tombstoned", [True, False])
+def test_content_deleted_while_it_is_read(
+    sealed_store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tombstoned: bool
+) -> None:
+    # The content probe saw the blob; the deletion completes before verify opens it.
+    s = sealed_store
+    sha = s.originals["d3"]
+    content = s.blobs.content_path(sha)
+    original = Path.open
+    fired: list[bool] = []
+
+    def open_(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self == content and not fired:
+            fired.append(True)
+            if tombstoned:
+                s.blobs.tombstone(sha, "erasure request")
+            else:
+                content.unlink()
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", open_)
+    r = verify(s)
+    monkeypatch.undo()
+    assert fired
+    if tombstoned:
+        assert r.ok and r.problems == [] and r.tombstoned_blobs == 1
+    else:
+        assert failing(r) == [("missing_blob", "d3", 0)]
+
+
+def test_a_fork_after_the_last_seal_keeps_the_sealed_rows_compared(sealed_store: SimpleNamespace) -> None:
+    s = sealed_store
+    _tamper_column_row(columns_path(s, 0), "d1", 1, node="EDITED")
+    head, seq = s.log.doc_heads("r1")["d1"], last_seq(s, "d1") + 1
+    forge_event(s, "d1", seq, head, node="one")
+    forge_event(s, "d1", seq, head, segment="w8.jsonl", node="two")
+    r = verify(s)
+    assert ("forked_chain", "d1", seq) in failing(r)
+    assert ("columns_mismatch", "d1", 1) in failing(r), failing(r)
+
+
+def test_one_event_naming_a_blob_twice_counts_once(store: SimpleNamespace) -> None:
+    ref = store.blobs.put(blob_bytes("seen twice"), "original")
+    with store.log.open_writer("r1", "w0") as w:
+        w.append(doc_id="d1", node="n", kind="output", inputs=[ref], outputs=[ref.model_copy(update={"role": "extraction"})])
+    remove_blob_file(store, ref.sha256)
+    r = verify(store)
+    assert failing(r) == [("missing_blob", "d1", 0)]
+    assert "(named by 1 event)" in r.problems[0].detail

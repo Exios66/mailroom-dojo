@@ -63,7 +63,10 @@ or a seal in progress leaves it missing for a while, and the next ``seal_run`` r
 it. That holds on a closed run too: the closing seal may still be writing it, and the
 export is derived from the log and the seal, which verify has checked. No later seal
 comes on a closed run, so the detail says to run ``seal_run`` once more, which rebuilds
-the file and commits nothing new. A missing older one fails (``seal_run`` rebuilds it too).
+the file and commits nothing new. A missing older one fails (``seal_run`` rebuilds it too). A path that holds something other
+than a regular file (a directory), or that cannot be checked (an ``OSError`` other than
+"not found"), is ``columns_mismatch`` for that seal, latest or not, and verification goes
+on with the other seals.
 
 Blobs. Every blob an event names is checked once. Tombstoned (tombstone, no content):
 passes, counted in ``tombstoned_blobs``, if the tombstone is the record ``BlobStore``
@@ -75,7 +78,11 @@ the content, or content restored afterwards): ``tombstone_with_content``. Conten
 not decompress, is not exactly one whole zstd frame, or decompresses to bytes with another SHA-256 (bit rot; ``BlobStore.put``
 never rewrites present content, so nothing else repairs it): ``corrupt_blob``. Content is
 streamed through the hash, never held whole, and never appears in a report. A blob problem
-names the first event (by ``(doc_id, seq)``) that refers to it and how many do.
+names the first event (by ``(doc_id, seq)``) that refers to it and how many do (an event
+naming one blob twice, say as input and output, counts once). A blob whose paths cannot be
+checked (an ``OSError`` such as a permission error on its shard) is ``corrupt_blob`` for
+that blob only. Content deleted between the check and the read is judged as it is
+afterwards: tombstoned (if the tombstone is lawful) or ``missing_blob``.
 
 Torn tails, and when a run is closed
 ------------------------------------
@@ -117,6 +124,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import stat
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -129,7 +137,7 @@ import zstandard
 
 from mailroom_record.blobs import BlobStore, _zstd_frame_whole
 from mailroom_record.hashing import canonical_json
-from mailroom_record.log import EventLog, OverlongLine, RawLine, StoredLine, TornTail, iter_raw_segment
+from mailroom_record.log import MAX_LINE, EventLog, OverlongLine, RawLine, StoredLine, TornTail, iter_raw_segment
 from mailroom_record.models import GENESIS, INT64_MAX, Event, Run, Seal, event_hash, seal_hash, validation_detail
 from mailroom_record.seal import EVENT_SCHEMA, _columns_path, _row, _seals_dir
 
@@ -181,9 +189,9 @@ _BATCH = 4096
 # Exceptions a parse, encode or hash of stored bytes can raise: bad JSON or UTF-8, NaN,
 # a non-str key, or nesting deeper than the interpreter's recursion limit.
 _PARSE_ERRORS = (ValueError, TypeError, RecursionError)
-# The longest line verify reads (64 MiB). Content belongs in blobs, so an event line is a
-# few KB; a longer line is reported as corrupt_line without being held in memory.
-MAX_LINE = 64 * 1024 * 1024
+# The longest line verify reads is log.MAX_LINE (64 MiB), the limit LogWriter.append
+# enforces. Content belongs in blobs, so an event line is a few KB; a longer line is
+# reported as corrupt_line without being held in memory.
 _INT_COLUMNS = tuple(name for name, t in zip(EVENT_SCHEMA.names, EVENT_SCHEMA.types) if pa.types.is_integer(t))
 _INT64 = (-(2**63), 2**63 - 1)
 _INF = float("inf")
@@ -423,7 +431,11 @@ def _check_line(line: RawLine, st: _State) -> None:
         if ev.run_id != st.run_id:
             st.add("invalid_event", doc, seq, f"{at}: the event belongs to run {ev.run_id!r}", **where)
         else:
+            seen: set[str] = set()
             for ref in (*ev.inputs, *ev.outputs):
+                if ref.sha256 in seen:
+                    continue  # one event naming a blob twice (input and output) is one reference
+                seen.add(ref.sha256)
                 cur = st.refs.get(ref.sha256)
                 if cur is None:
                     st.refs[ref.sha256] = [(doc, seq), ref.role, 1]
@@ -447,7 +459,7 @@ def _check_line(line: RawLine, st: _State) -> None:
 
 
 def _check_chains(st: _State) -> dict[str, dict[int, _Entry]]:
-    """Check each document's chain; return ``doc -> seq -> entry`` for unforked documents."""
+    """Check each document's chain; return ``doc -> seq -> entry`` of its unforked seqs."""
     out: dict[str, dict[int, _Entry]] = {}
     for doc in sorted(st.entries):
         by_seq: dict[int, list[_Entry]] = defaultdict(list)
@@ -476,8 +488,9 @@ def _check_chains(st: _State) -> dict[str, dict[int, _Entry]]:
                         st.add("broken_link", doc, seq,
                                f"{e.segment} at byte {e.byte_offset}: prev_hash is not the hash of seq {seq - 1}",
                                segment=e.segment, byte_offset=e.byte_offset)
-        if all(len(es) == 1 for es in by_seq.values()):
-            out[doc] = {seq: es[0] for seq, es in by_seq.items()}
+        # Forked seqs are left out; a forked_chain problem marks them damaged, so only the
+        # seal whose rows they touch skips this document (st.damaged in _check_columns).
+        out[doc] = {seq: es[0] for seq, es in by_seq.items() if len(es) == 1}
     return out
 
 
@@ -651,7 +664,20 @@ def _check_columns(
 ) -> None:
     for n, info in sorted(seals.items()):
         path = _columns_path(log, run_id, n)
-        if not path.is_file():
+        name = f"columns/events-{n}.parquet"
+        try:
+            mode: int | None = path.stat().st_mode
+        except (FileNotFoundError, NotADirectoryError):
+            mode = None
+        except OSError as exc:
+            st.add("columns_mismatch", None, None, f"{name} cannot be checked ({_oserror(exc)})", seal=n)
+            continue
+        if mode is not None and not stat.S_ISREG(mode):
+            # Not the recoverable "missing" case: seal_run cannot write the file over it.
+            st.add("columns_mismatch", None, None, f"{name} is not a regular file; remove it, then seal_run rebuilds it",
+                   seal=n)
+            continue
+        if mode is None:
             latest = n == max(seals)
             # The latest seal's file is written just after the seal: a crash or a seal_run
             # still running leaves it missing for a while, and the next seal_run writes it.
@@ -776,10 +802,25 @@ def _check_blobs(blobs: BlobStore, st: _State) -> int:
         (doc, seq), role, count = st.refs[sha]
         named = f"{role} blob {sha} (named by {count} event{'s' if count != 1 else ''})"
         tomb_path, content_path = blobs.tombstone_path(sha), blobs.content_path(sha)
-        has_tomb, has_content = tomb_path.exists(), content_path.exists()
+        try:
+            has_tomb, has_content = tomb_path.exists(), content_path.exists()
+        except OSError as exc:  # an unreadable shard: this blob only, the report goes on
+            st.add("corrupt_blob", doc, seq, f"{named}: cannot be checked ({_oserror(exc)})")
+            continue
+        why: str | None = None
+        if has_content and not has_tomb:
+            why = _blob_damage(content_path, sha)
+            if why is _VANISHED:
+                # Deleted between the probe and the open: judge it as it is now.
+                has_content = False
+                try:
+                    has_tomb = tomb_path.exists()
+                except OSError as exc:
+                    st.add("corrupt_blob", doc, seq, f"{named}: cannot be checked ({_oserror(exc)})")
+                    continue
         if has_tomb and has_content:
             st.add("tombstone_with_content", doc, seq, f"{named}: content sits next to its tombstone")
-        elif has_tomb or (not has_content and tomb_path.exists()):  # or tombstoned between the checks
+        elif has_tomb or (not has_content and _exists(tomb_path)):  # or tombstoned between the checks
             why = _tombstone_damage(tomb_path, sha)
             if why is None:
                 tombstoned += 1
@@ -787,11 +828,18 @@ def _check_blobs(blobs: BlobStore, st: _State) -> int:
                 st.add("corrupt_tombstone", doc, seq, f"{named}: {why}; BlobStore.tombstone(sha, reason) rewrites the record")
         elif not has_content:
             st.add("missing_blob", doc, seq, f"{named}: no content and no tombstone")
-        else:
-            why = _blob_damage(content_path, sha)
-            if why is not None:
-                st.add("corrupt_blob", doc, seq, f"{named}: {why}")
+        elif why is not None:
+            st.add("corrupt_blob", doc, seq, f"{named}: {why}")
     return tombstoned
+
+
+def _exists(path: Path) -> bool:
+    """``path.exists()``, with an error that is not "absent" counted as present (and then
+    reported by ``_tombstone_damage``, which reads it)."""
+    try:
+        return path.exists()
+    except OSError:
+        return True
 
 
 def _tombstone_damage(path: Path, sha: str) -> str | None:
@@ -820,8 +868,13 @@ def _tombstone_damage(path: Path, sha: str) -> str | None:
     return None
 
 
+# _blob_damage's answer when the content was deleted between the probe and the open.
+_VANISHED = "content vanished while it was read"
+
+
 def _blob_damage(path: Path, sha: str) -> str | None:
-    """Why the stored content does not hold the bytes ``sha`` names, or ``None`` if it does."""
+    """Why the stored content does not hold the bytes ``sha`` names, or ``None`` if it does
+    (``_VANISHED`` if it was deleted before it could be opened)."""
     digest = hashlib.sha256()
     try:
         with path.open("rb") as f:
@@ -832,7 +885,7 @@ def _blob_damage(path: Path, sha: str) -> str | None:
                 while chunk := reader.read(_CHUNK):
                     digest.update(chunk)
     except FileNotFoundError:
-        return "content vanished while it was read"
+        return _VANISHED
     except zstandard.ZstdError:
         return "content does not decompress"
     except OSError as exc:

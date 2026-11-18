@@ -433,3 +433,21 @@ def test_a_closed_pipe_exits_quietly(review_store: SimpleNamespace) -> None:
     err = proc.stderr.read().decode()
     assert proc.wait(timeout=60) == 141, err
     assert err == ""
+
+
+def test_trace_doc_reports_an_unlistable_runs_directory_as_damage(
+    review_store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # With no index and runs/ unlistable, "no run holds the document" would be a false negative.
+    runs_dir = review_store.root / "runs"
+    original = Path.iterdir
+
+    def iterdir(self: Path):
+        if self == runs_dir:
+            raise PermissionError(13, "injected")
+        return original(self)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+    res = run_cli("trace", "doc", "d1", root=review_store.root)
+    assert res.exit_code == 1, (res.stdout, res.stderr)
+    assert "store is damaged" in res.stderr and "run verify" in res.stderr and res.stderr.count("\n") == 1

@@ -170,14 +170,38 @@ def test_digest_shows_shape_keys_and_hash_never_values() -> None:
     assert SENTINEL not in json.dumps([str(digest(v)) for v in ({"x": SENTINEL}, [SENTINEL], SENTINEL)])
 
 
-def test_index_note_says_when_the_index_is_behind_the_log(review_store: SimpleNamespace, tmp_path: Path) -> None:
+def test_index_note_says_when_the_index_differs_from_the_log(review_store: SimpleNamespace, tmp_path: Path) -> None:
     idx = built_index(review_store, tmp_path)
     assert trace_run(review_store.log, idx, "r1").index == "ready"
     with review_store.log.open_writer("r1", "w1") as w:
         w.append(doc_id="d3", node="classify", kind="decision")
     t = trace_run(review_store.log, idx, "r1")
-    assert "behind the log: 1 document(s) differ" in t.index
+    assert "differs from the log: 1 document head(s) differ" in t.index
     assert t.documents[2].events == 2  # the log is the truth, not the index
+
+
+def test_index_note_does_not_call_an_index_ahead_of_the_read_behind(
+    review_store: SimpleNamespace, tmp_path: Path, monkeypatch
+) -> None:
+    # A writer advances after trace_run read the log and before it reads the index: the
+    # index is then ahead of what the trace read, not behind the log.
+    from mailroom_record import trace as trace_module
+
+    idx = built_index(review_store, tmp_path)
+    real = trace_module.stable_scan_bounded
+
+    def scan_then_write(log, run_id, *args):
+        read = real(log, run_id, *args)
+        with log.open_writer("r1", "w1") as w:
+            w.append(doc_id="d3", node="classify", kind="decision")
+        idx.reindex(log)
+        return read
+
+    monkeypatch.setattr(trace_module, "stable_scan_bounded", scan_then_write)
+    t = trace_run(review_store.log, idx, "r1")
+    assert t.documents[2].events == 1  # the read happened before the write
+    assert "behind" not in t.index
+    assert "differs from the log: 1 document head(s) differ" in t.index
 
 
 def test_a_segment_that_fails_mid_read_keeps_what_was_read(review_store: SimpleNamespace, monkeypatch) -> None:
@@ -488,14 +512,46 @@ def test_a_run_directory_deleted_after_indexing_is_reported(two_run_store: Simpl
     import shutil
 
     idx = built_index(two_run_store, tmp_path)
+    assert run_cli("reindex", root=two_run_store.root).exit_code == 0  # the CLI's own index.sqlite
     shutil.rmtree(two_run_store.log.run_dir("r2"))
     t = trace_doc(two_run_store.log, idx, "d1")
     assert [r.run_id for r in t.runs] == ["r1", "r2"]
     gone = t.runs[1]
     assert (gone.header, gone.steps, gone.versions, gone.source) == (None, (), (), "index")
     assert _kinds(gone.summary.damage) == {"missing_from_log"} and t.damaged
-    res = run_cli("trace", "doc", "d1", root=two_run_store.root)  # the CLI's own index, built before
-    assert res.exit_code == 0
+    res = run_cli("trace", "doc", "d1", "--json", root=two_run_store.root)  # reads that index.sqlite
+    assert res.exit_code == 0, res.stderr
+    out = json.loads(res.stdout)
+    assert [r["run_id"] for r in out["runs"]] == ["r1", "r2"]
+    assert [d["kind"] for d in out["runs"][1]["summary"]["damage"]] == ["missing_from_log"]
+    assert out["damaged"] is True
+
+
+def test_an_unlistable_runs_directory_is_damage_not_deleted_runs(
+    two_run_store: SimpleNamespace, tmp_path: Path, monkeypatch
+) -> None:
+    # The index lists r1 and r2; listing runs/ then fails. That says nothing about the runs
+    # being gone: trace_doc must not report them deleted (missing_from_log).
+    idx = built_index(two_run_store, tmp_path)
+    runs_dir = two_run_store.root / "runs"
+    original = Path.iterdir
+
+    def iterdir(self: Path):
+        if self == runs_dir:
+            raise PermissionError(13, "injected")
+        return original(self)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+    t = trace_doc(two_run_store.log, idx, "d1")
+    no_index = trace_doc(two_run_store.log, None, "d1")
+    monkeypatch.undo()
+    missing = [r.run_id for r in t.runs if "missing_from_log" in _kinds(r.summary.damage)]
+    assert missing == []
+    assert [(r.run_id, r.summary.events > 0) for r in t.runs] == [("r1", True), ("r2", True)]  # still read
+    assert [d.kind for d in t.damage] == ["unreadable"] and "runs/ could not be listed" in t.damage[0].detail
+    assert t.damaged
+    # Without an index nothing can be found, and the trace says why instead of "no run".
+    assert no_index.runs == () and [d.kind for d in no_index.damage] == ["unreadable"] and no_index.damaged
 
 
 def test_a_document_lost_to_an_unreadable_line_is_damage_not_unknown(review_store: SimpleNamespace, tmp_path: Path) -> None:
@@ -567,7 +623,10 @@ def test_index_note_counts_indexed_documents_gone_from_the_log(review_store: Sim
     delete_line(review_store, "d3", 0)  # d3's only line
     t = trace_run(review_store.log, idx, "r1")
     assert [d.doc_id for d in t.documents] == ["d1", "d2"]
-    assert t.index == "ready; behind the log: 1 indexed document(s) not in the log (run reindex)"
+    assert t.index == (
+        "ready; differs from the log: 1 indexed document(s) not in the log "
+        "(a writer may have moved on between the two reads; run reindex if it persists)"
+    )
 
 
 def test_a_gap_faked_by_a_handoff_during_the_scan_is_read_again(store: SimpleNamespace, monkeypatch) -> None:
@@ -591,3 +650,29 @@ def test_a_gap_faked_by_a_handoff_during_the_scan_is_read_again(store: SimpleNam
     monkeypatch.setattr(RunScan, "_scan_span", span)
     t = trace_run(store.log, None, "r1")
     assert fired and [(d.doc_id, d.events, d.damage) for d in t.documents] == [("d1", 3, ()), ("d2", 1, ())]
+
+
+def test_a_gap_from_an_event_in_flight_is_not_damage(store: SimpleNamespace, monkeypatch) -> None:
+    """A writer keeps handing d1 between two segments while every scan runs, so each read
+    shows a gap above the heads the read before it saw: events in flight, not damage. The
+    trace shows d1 up to the gap and leaves the rest for the next read."""
+    from record_testkit import chain, write_lines
+
+    events = chain("d1", 20)
+    write_lines(store.root, "a.jsonl", events[:1])
+    write_lines(store.root, "b.jsonl", chain("d2", 1))
+    real = RunScan._scan_span
+    nxt = [1]
+
+    def span(self, seg_idx, path, start, end):
+        real(self, seg_idx, path, start, end)
+        if path.name == "a.jsonl" and nxt[0] + 1 < len(events):
+            write_lines(store.root, "a.jsonl", [events[nxt[0]]])
+            write_lines(store.root, "b.jsonl", [events[nxt[0] + 1]])
+            nxt[0] += 2
+
+    monkeypatch.setattr(RunScan, "_scan_span", span)
+    t = trace_run(store.log, None, "r1")
+    d1 = t.documents[0]
+    assert d1.doc_id == "d1" and d1.damage == (), d1.damage
+    assert d1.events >= 3 and d1.head_seq == d1.events - 1

@@ -391,3 +391,26 @@ def test_decision_rejects_non_json_or_scalars(bad: Any) -> None:
 def test_trailing_newline_is_rejected(overrides: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
         make_event(**overrides)
+
+
+# --- validation_detail masks stored keys that equal a field name (PR #2 re-review, item 20) ---
+
+
+@pytest.mark.parametrize(
+    ("build", "want"),
+    [
+        (lambda: Run(**run_fields(prompt_hashes={"hash": "x"})), "prompt_hashes.<key>: string_pattern_mismatch"),
+        (lambda: Run(**run_fields(caps={"seq": "a"})), "caps.<key>: float_type"),
+        (lambda: Run(**run_fields(agent_models={"kind": 3})), "agent_models.<key>: string_type"),
+        (lambda: Seal(**seal_fields(doc_heads={"run_id": "x"}, document_ids=["run_id"], hash=GENESIS)), "doc_heads.<key>: string_pattern_mismatch"),
+        (lambda: Event.model_validate(v1_event_dict() | {"inputs": [{"sha256": "x", "role": "original", "size": 1}]}),
+         "inputs.0.sha256: string_pattern_mismatch"),
+        (lambda: Event.model_validate(v1_event_dict() | {"seq": -1}), "seq: greater_than_equal"),
+    ],
+)
+def test_validation_detail_masks_a_stored_key_that_equals_a_field_name(build: Any, want: str) -> None:
+    from mailroom_record.models import validation_detail
+
+    with pytest.raises(ValidationError) as info:
+        build()
+    assert validation_detail(info.value) == want

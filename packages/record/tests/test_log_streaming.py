@@ -325,3 +325,72 @@ def test_one_large_document_costs_a_few_words_per_event(store: SimpleNamespace, 
     scan = store.log.scan("r1")
     assert peak_bytes(scan.gaps) < 64 * 1024
     assert scan.gaps() == {}
+
+
+# --- open handles and unreadable segments (PR #2 re-review, items 9 and 10) ----------
+
+_LOW_FD_CHILD = """
+import resource, sys
+from pathlib import Path
+from mailroom_record.blobs import BlobStore
+from mailroom_record.log import EventLog
+
+root = Path(sys.argv[1])
+resource.setrlimit(resource.RLIMIT_NOFILE, (int(sys.argv[2]), resource.getrlimit(resource.RLIMIT_NOFILE)[1]))
+log = EventLog(root, BlobStore(root))
+print(sum(1 for _ in log.iter_events("r1")))
+"""
+
+
+def test_pass_two_keeps_a_bounded_number_of_segments_open(store: SimpleNamespace) -> None:
+    # 300 segments, one document each: pass two reads them in doc order. Holding every
+    # segment open would need 300 descriptors; a child with a limit of 128 must still read
+    # every event (EMFILE otherwise).
+    import subprocess
+    import sys
+
+    n = 300
+    for i in range(n):
+        write_lines(store.root, f"w{i:03d}.jsonl", chain(f"d{i:03d}", 1))
+    res = subprocess.run(
+        [sys.executable, "-c", _LOW_FD_CHILD, str(store.root), "128"], capture_output=True, text=True, timeout=120
+    )
+    assert res.returncode == 0, res.stderr[-2000:]
+    assert res.stdout.strip() == str(n)
+
+
+def test_pass_two_reopens_an_evicted_segment(store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    # One document handed back and forth between more segments than the cache holds: each
+    # read must land on the right segment after its handle was evicted and reopened.
+    monkeypatch.setattr(log_module, "_MAX_OPEN_SEGMENTS", 2)
+    events = chain("d1", 12)
+    for i, e in enumerate(events):
+        write_lines(store.root, f"w{i % 4}.jsonl", [e])
+    got = [(x.segment, x.event.seq, x.event.hash) for x in store.log.scan("r1").events()]
+    assert got == [(f"w{i % 4}.jsonl", i, e.hash) for i, e in enumerate(events)]
+
+
+def test_tolerant_scan_keeps_other_segments_when_one_cannot_be_opened(
+    store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_lines(store.root, "a.jsonl", chain("d1", 2))
+    write_lines(store.root, "b.jsonl", chain("d2", 3))
+    write_lines(store.root, "c.jsonl", chain("d3", 1))
+    real_open = Path.open
+
+    def failing_open(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self.name == "b.jsonl":
+            raise PermissionError(13, "injected")
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", failing_open)
+    with pytest.raises(PermissionError):  # strict readers still fail loudly
+        store.log.scan("r1")
+    scan = store.log.scan("r1", strict=False)
+    assert scan.unreadable == [("b.jsonl", "PermissionError")]
+    assert scan.doc_ids() == ["d1", "d3"]
+    got: list[tuple[str, int]] = []
+    with pytest.raises(PermissionError):  # after every readable event: the read was partial
+        for located in scan.events():
+            got.append((located.event.doc_id, located.event.seq))
+    assert got == [("d1", 0), ("d1", 1), ("d3", 0)]

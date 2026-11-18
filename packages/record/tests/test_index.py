@@ -414,13 +414,15 @@ def test_a_rebuild_killed_mid_transaction_leaves_the_old_index_or_none(store_wit
     ctx = multiprocessing.get_context("spawn")
     proc = ctx.Process(target=reindex_in_child, args=(str(store.root), str(p), str(marker), 4))
     proc.start()
-    deadline = time.monotonic() + 60
-    while not marker.exists():
-        assert proc.is_alive() and time.monotonic() < deadline
-        time.sleep(0.02)
-    os.kill(proc.pid, signal.SIGKILL)
-    proc.join(timeout=30)
-    assert proc.exitcode == -signal.SIGKILL
+    try:
+        deadline = time.monotonic() + 60
+        while not marker.exists():
+            assert proc.is_alive() and time.monotonic() < deadline
+            time.sleep(0.02)
+        os.kill(proc.pid, signal.SIGKILL)
+    finally:
+        (code,) = join_all([proc], timeout=30)  # reaped, and killed if the wait failed
+    assert code == -signal.SIGKILL
     idx = Index(p)
     if had_index:
         assert idx.status() == "ready" and idx.dump() == before
@@ -443,12 +445,13 @@ def test_a_reader_process_sees_the_old_index_or_the_new_one_never_a_mix(store_wi
     assert old != new
     stop = str(tmp_path / "stop")
     out = tmp_path / "seen.json"
+    mid = str(tmp_path / "mid")  # written by the rebuild inside its transaction
     ctx = multiprocessing.get_context("spawn")
-    reader = ctx.Process(target=read_index_until, args=(str(p), stop, str(out)))
+    reader = ctx.Process(target=read_index_until, args=(str(p), stop, str(out), mid))
     reader.start()
     try:
         Path(stop + ".building").touch()
-        slow = slow_log(store.root, store.blobs, marker=str(tmp_path / "mid"), after=3, pause=1.5)
+        slow = slow_log(store.root, store.blobs, marker=mid, after=3, pause=1.5)
         time.sleep(0.5)  # let the reader start reading the old index
         Index(p).reindex(slow)
         os.unlink(stop + ".building")
@@ -459,7 +462,7 @@ def test_a_reader_process_sees_the_old_index_or_the_new_one_never_a_mix(store_wi
     assert code == 0
     seen = json.loads(out.read_text())
     assert {d for _, d in seen} <= {old, new}, {d for _, d in seen} - {old, new}
-    assert any(b and d == old for b, d in seen)  # positive control: it read mid-build
+    assert any(b and d == old for b, d in seen)  # positive control: it read inside the open transaction
     assert seen[-1][1] == new
 
 
@@ -884,3 +887,151 @@ def test_a_document_whose_first_event_is_a_review_is_in_the_queue(store: SimpleN
     assert [d.doc_id for d in rebuilt.review_queue("r1")] == ["d9"]
     idx.apply(append(store, doc_id="d9", node="triage", kind="decision"))
     assert idx.review_queue("r1") == [] and idx.drift(store.log) == []
+
+
+# --- fix pass 3: re-review findings (PR #2) -------------------------------------------
+
+
+def test_a_directory_that_is_not_a_run_is_skipped(store_with_events: SimpleNamespace, tmp_path: Path) -> None:
+    # runs/.staging (an import in progress) is no run id; it used to abort the rebuild with
+    # ValueError: bad run id '.staging'.
+    store = store_with_events
+    (store.root / "runs" / ".staging" / "segments").mkdir(parents=True)
+    (store.root / "runs" / "-dash").mkdir()
+    idx = Index(tmp_path / "i.sqlite")
+    stats = idx.reindex(store.log)
+    assert stats.problems == () and [r.run_id for r in idx.runs()] == ["r1"]
+    assert idx.drift(store.log) == []
+
+
+def test_a_line_stored_twice_in_two_segments_is_a_fork(tmp_path: Path) -> None:
+    # The same event (same seq, same hash) in two segments is a forked chain, as verify_run
+    # reports it; it is not an apply replay.
+    from mailroom_record.verify import verify_run
+
+    blobs = BlobStore(tmp_path)
+    log = EventLog(tmp_path, blobs)
+    log.create_run(Run(**run_fields()))
+    d = chain("d", 3, inputs=[])
+    write_lines(tmp_path, "a.jsonl", d)
+    write_lines(tmp_path, "b.jsonl", [d[1]])  # seq 1 again, byte for byte
+    stats = Index(tmp_path / "i.sqlite").reindex(log)
+    assert [(p.doc_id, p.kind, p.segment) for p in stats.problems] == [("d", "forked_chain", "b.jsonl")]
+    assert "forked_chain" in {p.kind for p in verify_run(log, blobs, "r1").problems}  # the same verdict
+
+
+def _racing_handoffs(store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, times: int) -> list[bool]:
+    """After each whole read of a.jsonl, ``a`` writes d1's next seq there and ``b`` the one after.
+
+    Every scan then sees a gap (the event ``a`` wrote after the scan passed a.jsonl), and
+    every re-read sees a new one: repeated hand-offs between segments.
+    """
+    from record_testkit import append_more
+
+    append_more(store, doc_id="d2", n=1, writer_id="b")  # b.jsonl exists before any scan lists it
+    append_more(store, doc_id="d1", n=3, writer_id="a")
+    original = log_module._stream_lines
+    fired: list[bool] = []
+    busy: list[bool] = []  # a writer's own recovery read streams a.jsonl too: no re-entry
+
+    def racing(path: Path, start: int = 0, end: int | None = None) -> Any:
+        yield from original(path, start, end)
+        if path.name == "a.jsonl" and start == 0 and end is None and len(fired) < times and not busy:
+            fired.append(True)
+            busy.append(True)
+            try:
+                append_more(store, doc_id="d1", n=1, writer_id="a")
+                append_more(store, doc_id="d1", n=1, writer_id="b")
+            finally:
+                busy.clear()
+
+    monkeypatch.setattr(log_module, "_stream_lines", racing)
+    return fired
+
+
+def test_repeated_handoffs_during_every_reread_are_not_recorded_as_a_gap(
+    store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fired = _racing_handoffs(store, monkeypatch, times=10)
+    idx = Index(tmp_path / "i.sqlite")
+    stats = idx.reindex(store.log)
+    assert len(fired) >= 3  # every read raced, past the old retry limit
+    assert stats.problems == ()  # no false seq_gap
+    monkeypatch.undo()
+    (d1,) = [d for d in idx.documents("r1") if d.doc_id == "d1"]
+    stats = idx.reindex(store.log)  # quiet now: the whole chain, still no problem
+    assert stats.problems == () and d1.events <= [d for d in idx.documents("r1") if d.doc_id == "d1"][0].events
+
+
+def test_a_real_gap_is_still_recorded_while_writers_hand_off(
+    store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Positive control: a gap below what an earlier read already saw is real damage.
+    g = chain("g", 4, inputs=[])
+    write_lines(store.root, "c.jsonl", [g[0], g[1], g[3]])
+    _racing_handoffs(store, monkeypatch, times=10)
+    stats = Index(tmp_path / "i.sqlite").reindex(store.log)
+    assert [(p.doc_id, p.kind) for p in stats.problems] == [("g", "seq_gap")]
+
+
+def test_a_per_document_read_does_not_report_handoffs_as_a_gap(
+    store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mailroom_record._reading import read_document
+
+    fired = _racing_handoffs(store, monkeypatch, times=10)
+    got = read_document(store.log, None, "r1", "d1")
+    assert len(fired) >= 3
+    assert [d.kind for d in got.damage] == []
+    assert [e.seq for e in got.events] == list(range(len(got.events)))  # contiguous, from 0
+
+
+def test_reindex_survives_runs_listing_error_but_trace_listing_reports_it(
+    store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mailroom_record._reading import list_runs
+
+    assert list_runs(store.log) == (["r1"], None)
+    runs = store.root / "runs"
+    real_iterdir = Path.iterdir
+
+    def iterdir(self: Path) -> Any:
+        if self == runs:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+    ids, damage = list_runs(store.log)
+    assert ids == [] and damage is not None and damage.kind == "unreadable"
+    assert "PermissionError" in damage.detail and str(store.root) not in damage.detail  # no local path
+
+
+def test_a_store_with_no_runs_folder_lists_no_runs_and_no_damage(tmp_path: Path) -> None:
+    from mailroom_record._reading import list_runs
+
+    assert list_runs(EventLog(tmp_path, BlobStore(tmp_path))) == ([], None)
+
+
+def test_a_failed_worker_start_leaves_no_worker_running(store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The second worker fails to start: the first, already running, must be stopped and reaped.
+    from multiprocessing.context import SpawnProcess
+
+    from record_testkit import start_handoff_workers
+
+    real_start = SpawnProcess.start
+    seen: list[Any] = []
+
+    def start(self: Any) -> None:
+        seen.append(self)
+        if len(seen) == 2:
+            raise RuntimeError("injected: the second worker cannot start")
+        real_start(self)
+
+    monkeypatch.setattr(SpawnProcess, "start", start)
+    try:
+        with pytest.raises(RuntimeError, match="injected"):
+            start_handoff_workers(store.root, 3)
+        assert len(seen) == 2 and seen[0].pid is not None
+        assert not seen[0].is_alive() and seen[0].exitcode is not None  # stopped and reaped
+    finally:
+        join_all(seen, timeout=30)  # never leave a child behind, even when the assert fails

@@ -28,9 +28,15 @@ Rules:
 - Tombstones are created exclusively (temp file, fsync, ``os.link``): under concurrent
   ``tombstone`` calls the first record written is kept and never replaced. Before the
   content is unlinked the directory is fsynced (the record is durable first), and after
-  it is fsynced again, also when a retry finds the content already gone. A tombstone file
-  that is not a readable record (empty, truncated, not this hash's) is replaced atomically
-  by a new record on the next ``tombstone`` call; a readable record is never replaced.
+  it is fsynced again, also when a retry finds the content already gone. A tombstone path
+  that does not hold a readable record (an empty, truncated or other hash's file, a symlink,
+  dangling or not, or a FIFO or other special file) is replaced atomically by a new record
+  on the next ``tombstone`` call; a readable record is never replaced. An empty directory
+  there is removed and the record written; a non-empty one is refused with
+  ``IsADirectoryError`` (remove it by hand, then call ``tombstone`` again). An ``OSError``
+  while reading the existing record (a transient I/O or permission error) is raised, never
+  taken as damage. The record is read back before the content is unlinked, and temp copies
+  of the content left by a crashed ``put`` (``.<sha>.zst.*.tmp``) are removed with it.
 - Files are created 0600 (owner only), because blobs hold private document content.
 - ``tombstone`` of a blob that was never stored (or was lost) raises ``BlobMissing``: a
   tombstone passes verification, so it must not be used to paper over a lost blob.
@@ -51,6 +57,7 @@ import io
 import json
 import os
 import re
+import stat
 import tempfile
 from pathlib import Path
 from typing import Any, Literal
@@ -154,14 +161,14 @@ def _makedirs_durable(path: Path, root: Path | None = None) -> None:
     while not p.exists():
         missing.append(p)
         p = p.parent
+    root = None if root is None else Path(root)
     for d in reversed(missing):
         with contextlib.suppress(FileExistsError):
             d.mkdir()
-        if root is None:
+        if root is None or root not in d.parents:  # the root itself (or above): the loop below stops at it
             _fsync_dir(d.parent)
     if root is None:
         return
-    root = Path(root)
     if root != path and root not in path.parents:
         raise ValueError(f"{path} is not under the store root {root}")
     d = path
@@ -222,12 +229,8 @@ def _zstd_frame_whole(f: Any) -> bool:
     return pos == size
 
 
-def _tombstone_readable(path: Path, sha256: str) -> bool:
-    """Whether ``path`` holds the record ``tombstone`` writes: this hash, a reason, a time."""
-    try:
-        raw = json.loads(path.read_bytes())
-    except (OSError, ValueError, RecursionError):  # unreadable, empty, not JSON (UnicodeDecodeError too)
-        return False
+def _is_record(raw: Any, sha256: str) -> bool:
+    """Whether ``raw`` is the record ``tombstone`` writes: this hash, a reason, a time."""
     return (
         isinstance(raw, dict)
         and raw.get("sha256") == sha256
@@ -236,6 +239,40 @@ def _tombstone_readable(path: Path, sha256: str) -> bool:
         and isinstance(raw.get("tombstoned_at"), str)
         and bool(raw["tombstoned_at"])
     )
+
+
+def _tombstone_state(path: Path, sha256: str) -> Literal["absent", "valid", "damaged", "directory"]:
+    """What sits at the tombstone path, without following a symlink or opening a special file.
+
+    ``damaged``: a regular file that is not this hash's record, a symlink (dangling or not;
+    ``tombstone`` never writes one) or a FIFO, socket or device. An ``OSError`` while reading
+    a regular file propagates: a transient error is not evidence of damage.
+    """
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return "absent"
+    if stat.S_ISDIR(st.st_mode):
+        return "directory"
+    if not stat.S_ISREG(st.st_mode):
+        return "damaged"
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return "absent"
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:  # replaced by a symlink since the lstat
+            return "damaged"
+        raise
+    with os.fdopen(fd, "rb") as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            return "damaged"
+        body = f.read()
+    try:
+        raw = json.loads(body)
+    except (ValueError, RecursionError):  # empty, truncated, not JSON (UnicodeDecodeError too)
+        return "damaged"
+    return "valid" if _is_record(raw, sha256) else "damaged"
 
 
 def write_exclusive(final: Path, body: bytes, root: Path | None = None) -> bool:
@@ -393,15 +430,35 @@ class BlobStore:
         record = canonical_json({"sha256": sha256, "reason": reason, "tombstoned_at": utc_now()})
         _makedirs_durable(directory, self.root)
         with _dir_lock(directory):
-            if not tomb.exists():
+            found = _tombstone_state(tomb, sha256)  # an OSError reading it propagates
+            if found == "directory":
+                try:
+                    os.rmdir(tomb)  # an empty one holds nothing; a non-empty one is refused
+                except OSError as exc:
+                    if exc.errno not in (errno.ENOTEMPTY, errno.EEXIST):
+                        raise
+                    raise IsADirectoryError(
+                        errno.EISDIR,
+                        f"a non-empty directory sits at the tombstone path of {sha256}; "
+                        "remove it, then call tombstone again",
+                        str(tomb),
+                    ) from None
+                found = "absent"
+            if found == "absent":
                 write_exclusive(tomb, record, self.root)
-            elif not _tombstone_readable(tomb, sha256):
-                # Damaged (empty, truncated, another hash's): replace it whole with a new
-                # record. A readable record is the first one written and is never replaced.
+            elif found == "damaged":
+                # Not a record (empty, truncated, another hash's, a symlink, a special
+                # file): replace it whole. A readable record is the first one written and
+                # is never replaced.
                 self._write_atomic_locked(tomb, record)
+            if _tombstone_state(tomb, sha256) != "valid":  # never unlink without a record
+                raise OSError(errno.EIO, f"{tomb.name} is not a readable tombstone record; the content is kept")
             _fsync_dir(directory)  # the record is durable before the content goes
             with contextlib.suppress(FileNotFoundError):
                 content.unlink()
+            for stray in directory.glob(f".{sha256}.zst.*.tmp"):  # copies a crashed put left
+                with contextlib.suppress(FileNotFoundError):
+                    stray.unlink()
             _fsync_dir(directory)  # also when a retry finds the content already gone
 
     def _write_atomic_locked(self, final: Path, body: bytes) -> None:

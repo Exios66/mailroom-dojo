@@ -623,6 +623,35 @@ def test_iter_raw_reproduces_any_segment_bytes(tmp_path_factory: Any, lines: lis
     whole = [i for i in items if isinstance(i, log_module.RawLine)]
     torn = [i for i in items if isinstance(i, TornTail)]
     assert [i.data for i in whole] == lines
+    # Each line starts where the one before it ended (newline included), from byte 0.
+    ends = [0]
+    for line in lines:
+        ends.append(ends[-1] + len(line) + 1)
+    assert [i.byte_offset for i in whole] == ends[:-1]
     for i in whole:
         assert data[i.byte_offset : i.byte_offset + len(i.data) + 1] == i.data + b"\n"
     assert torn == ([TornTail("w0.jsonl", len(data) - len(tail))] if tail else [])
+
+
+# --- the writer keeps verify's line limit (PR #2 re-review, item 11) ------------------
+
+
+def test_writer_refuses_a_line_verify_would_not_read(store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    from mailroom_record import verify as verify_module
+    from mailroom_record.log import EventTooLarge
+
+    assert verify_module.MAX_LINE == log_module.MAX_LINE == 64 * 1024 * 1024  # one limit
+    limit = 2000
+    monkeypatch.setattr(log_module, "MAX_LINE", limit)
+    monkeypatch.setattr(verify_module, "MAX_LINE", limit)
+    with store.log.open_writer("r1", "w0", flush_every=1) as w:
+        probe = len(canonical_json(w.append(doc_id="d1", node="n", kind="decision", payload={"p": ""}).model_dump(mode="json")))
+        fits = w.append(doc_id="d1", node="n", kind="decision", payload={"p": "f" * (limit - probe)})
+        with pytest.raises(EventTooLarge):
+            w.append(doc_id="d1", node="n", kind="decision", payload={"p": "f" * (limit - probe + 1)})
+        w.append(doc_id="d1", node="n", kind="decision")  # the refused event took no seq
+    line = next(s for s in log_module.iter_raw_segment(store.root / "runs" / "r1" / "segments" / "w0.jsonl") if json.loads(s.data)["seq"] == 1)
+    assert len(line.data) == limit and json.loads(line.data)["hash"] == fits.hash
+    assert [e.seq for e in store.log.iter_events("r1", "d1")] == [0, 1, 2]
+    report = verify_module.verify_run(store.log, store.blobs, "r1")
+    assert report.ok, report.problems

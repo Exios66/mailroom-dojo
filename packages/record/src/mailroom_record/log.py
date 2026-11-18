@@ -71,14 +71,18 @@ that has no newline yet, so a writer appending meanwhile can never hand it half 
 (the rest of a line it saw the start of). Memory is bounded by the longest line plus, for
 the ordered readers, a few machine words per event; never by the size of the run.
 
-The longest line is not capped here. ``verify_run`` skips a line over ``MAX_LINE``
-(64 MiB) in chunks without holding it, but these readers, ``RunScan`` and ``seal_run``
-(through ``_stream_lines``) hold each line whole, so a hostile multi-gigabyte line in a
-segment costs that much memory before it is rejected. A writer never writes such a line
-for a real event (content belongs in blobs), but ``LogWriter`` does not refuse one either,
-and capping the readers alone would make a line the writer accepted unreadable. So the
-cap is left out by design for now: run ``verify_run`` before sealing or reading a run
-whose segments came from somewhere untrusted.
+``LogWriter.append`` refuses an event whose line (newline excluded) is longer than
+``MAX_LINE`` (64 MiB) with ``EventTooLarge``, the same limit ``verify_run`` reads to, so a
+writer never stores a line that verification reports as ``corrupt_line`` (content belongs
+in blobs). The readers here are not capped: ``verify_run`` skips a line over ``MAX_LINE``
+in chunks without holding it, but these readers, ``RunScan`` and ``seal_run`` (through
+``_stream_lines``) hold each line whole, so a hostile multi-gigabyte line in a segment
+costs that much memory before it is rejected. Run ``verify_run`` before sealing or
+reading a run whose segments came from somewhere untrusted.
+
+Pass two of an ordered read keeps at most ``_MAX_OPEN_SEGMENTS`` segment files open (the
+least recently used is closed and reopened when needed), so a run with thousands of
+segments never runs out of file descriptors.
 
 Streaming means a strict reader can fail part way. ``iter_stored`` yields the lines before a
 corrupt one and then raises ``CorruptLine``; ``iter_events`` (pass two) yields the valid
@@ -105,7 +109,11 @@ Error text never quotes stored content. ``CorruptLine`` and ``InvalidEvent`` (bo
 does ``RecursionError`` from a line nested too deep. ``read_run`` likewise raises a
 ``ValueError`` naming fields only for an invalid ``run.json``.
 The tolerant mode (``strict=False``, for the index) records such lines as ``BadLine`` and
-skips them instead. ``spans`` limits a scan to byte ranges of named segments (the index's
+skips them instead. It also goes on past a segment it cannot open or read (``OSError``):
+the segment is named in ``RunScan.unreadable`` with the error type, and what was read of
+it and of every other segment is kept. ``events()`` then yields every event it can and
+raises the first such ``OSError`` at the end, so a caller cannot take a partial read for
+the whole run. ``spans`` limits a scan to byte ranges of named segments (the index's
 per-document locations, Task 8), so a per-document read need not read the whole run.
 
 ``iter_raw`` is the tolerant reader for verification (Task 7): it streams every segment one
@@ -127,6 +135,7 @@ import re
 import threading
 import weakref
 from array import array
+from collections import OrderedDict
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -142,10 +151,12 @@ __all__ = [
     "CorruptLine",
     "DocumentInUse",
     "EventLog",
+    "EventTooLarge",
     "ForkedChain",
     "InvalidEvent",
     "LocatedEvent",
     "LogWriter",
+    "MAX_LINE",
     "OverlongLine",
     "RawLine",
     "RunExists",
@@ -158,6 +169,12 @@ __all__ = [
 # Above this many ascending runs in one document's rows (a damaged log), pass two sorts a
 # copy instead of merging the runs lazily (RunScan._ordered).
 _MAX_RUNS = 1024
+
+# Pass two keeps at most this many segment files open (RunScan.events).
+_MAX_OPEN_SEGMENTS = 32
+
+# The longest event line (newline excluded) a writer stores and ``verify_run`` reads.
+MAX_LINE = 64 * 1024 * 1024
 
 # A writer id names a file: letters, digits, "_" and "-" only (no dots: "<id>.<k>.jsonl"
 # names a writer's later segments).
@@ -179,6 +196,10 @@ class WriterInUse(RuntimeError):
 
 class DocumentInUse(RuntimeError):
     """Another live writer in this process holds this document's chain."""
+
+
+class EventTooLarge(ValueError):
+    """An event whose stored line would exceed ``MAX_LINE``: the writer refuses it."""
 
 
 class CorruptLine(ValueError):
@@ -393,6 +414,9 @@ class RunScan:
         self.ends: dict[str, int] = {}  # segment -> end of the last whole line scanned
         self.torn: list[TornTail] = []
         self.bad: list[BadLine] = []
+        # segment -> the error type, for a segment a tolerant scan could not open or read
+        self.unreadable: list[tuple[str, str]] = []
+        self._io_error: OSError | None = None
         self._docs: dict[str, array[int]] = {}
 
     def _bad(self, segment: str, offset: int, kind: Literal["corrupt_line", "invalid_event"], exc: BaseException) -> None:
@@ -405,12 +429,28 @@ class RunScan:
     def _scan_span(self, seg_idx: int, path: Path, start: int, end: int | None) -> None:
         name = path.name
         reached = start
+        try:
+            reached = self._scan_lines(seg_idx, path, start, end)
+        except OSError as exc:
+            if self.strict:
+                raise
+            # Keep every location read so far, here and in the other segments.
+            if name not in (u[0] for u in self.unreadable):
+                self.unreadable.append((name, type(exc).__name__))
+            if self._io_error is None:
+                self._io_error = exc
+            reached = self._reached
+        self.ends[name] = max(self.ends.get(name, 0), reached)
+
+    def _scan_lines(self, seg_idx: int, path: Path, start: int, end: int | None) -> int:
+        name = path.name
+        reached = self._reached = start
         for offset, data, whole in _stream_lines(path, start, end):
             if not whole:
                 if end is None:
                     self.torn.append(TornTail(name, offset))
                 break
-            reached = offset + len(data) + 1
+            reached = self._reached = offset + len(data) + 1
             try:
                 raw = _parse_line(name, offset, data)
             except CorruptLine as exc:
@@ -431,7 +471,7 @@ class RunScan:
             if arr is None:
                 arr = self._docs[doc] = array("q")
             arr.extend((seq, seg_idx, offset, len(data) + 1))
-        self.ends[name] = max(self.ends.get(name, 0), reached)
+        return reached
 
     def doc_ids(self) -> list[str]:
         return sorted(self._docs)
@@ -516,15 +556,24 @@ class RunScan:
         return sum(len(a) // 4 for a in self._docs.values())
 
     def events(self) -> Iterator[LocatedEvent]:
-        """Pass two: every scanned event, upgraded and validated, in the documented order."""
-        files: dict[int, Any] = {}
+        """Pass two: every scanned event, upgraded and validated, in the documented order.
+
+        Keeps at most ``_MAX_OPEN_SEGMENTS`` segments open, closing the least recently
+        used. After a tolerant scan that could not read a segment (``unreadable``), raises
+        that ``OSError`` once every readable event has been yielded.
+        """
+        files: OrderedDict[int, Any] = OrderedDict()
         try:
             for doc in self.doc_ids():
                 for seq, seg_idx, offset, length in self._ordered(doc):
                     path = self.segments[seg_idx]
                     f = files.get(seg_idx)
                     if f is None:
+                        while len(files) >= max(1, _MAX_OPEN_SEGMENTS):
+                            files.popitem(last=False)[1].close()
                         f = files[seg_idx] = path.open("rb")
+                    else:
+                        files.move_to_end(seg_idx)
                     f.seek(offset)
                     data = f.read(length)
                     try:
@@ -545,6 +594,8 @@ class RunScan:
         finally:
             for f in files.values():
                 f.close()
+        if self._io_error is not None:
+            raise self._io_error
 
 
 # In-process document ownership: (store root, run_id, doc_id) -> the live writer.
@@ -866,7 +917,8 @@ class LogWriter:
         The event is buffered, not yet durable: it reaches disk (and readers) on the next
         flush, which ``flush()``, ``close()`` or every ``flush_every``-th append performs.
         Index or export callers must act on it only after that flush. Raises
-        ``ForkedChain`` if this writer takes ``doc_id`` and its stored chain is forked.
+        ``ForkedChain`` if this writer takes ``doc_id`` and its stored chain is forked, and
+        ``EventTooLarge`` if the stored line would exceed ``MAX_LINE`` (nothing is stored).
         """
         fields: dict[str, Any] = copy.deepcopy(
             {
@@ -904,6 +956,8 @@ class LogWriter:
                 if self.log.blobs.exists(ref.sha256) != "present":
                     raise BlobNotStored(f"{ref.role} blob {ref.sha256} is not present")
             line = canonical_json(event.model_dump(mode="json")) + b"\n"
+            if len(line) - 1 > MAX_LINE:  # verify_run would report it as corrupt_line
+                raise EventTooLarge(f"an event line of {len(line) - 1} bytes exceeds MAX_LINE ({MAX_LINE} bytes)")
             self._buffer.append(line)
             self._heads[doc_id] = (event.seq, event.hash)
             if len(self._buffer) >= self.flush_every:

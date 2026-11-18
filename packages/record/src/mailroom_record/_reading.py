@@ -16,9 +16,12 @@ document's events (each is re-read first, so one whose bytes were restored since
 is not reported). When there is no usable index, when the index read raises (a corrupt or
 invalid line inside the document's ranges), or when the events it returns do not form one
 clean chain, the document is read again from the log with a tolerant scan
-(``EventLog.scan(strict=False)``), re-read while it shows a ``seq`` gap a second read does
-not confirm (a hand-off between writers during the scan). That read records every line it
-skipped, so damage is always reported from the log itself, never from a stale index.
+(``EventLog.scan(strict=False)``), re-read while it shows a ``seq`` gap no earlier read
+confirms (a hand-off between writers during the scan; the rule is ``index._stable_scan``'s).
+A gap the last read still shows above the highest ``seq`` the read before it saw is an event
+in flight, not damage: the document is shown up to it, and the events after it are left for
+the next read. That read records every line it skipped, so damage is always reported from
+the log itself, never from a stale index.
 
 What is reported (``Damage.kind``)
 ---------------------------------
@@ -34,7 +37,9 @@ What is reported (``Damage.kind``)
 - ``corrupt_run_header``: ``run.json`` missing or unreadable; the run is still read.
 - ``unreadable``: a segment that could not be opened or read (``OSError``), or a stored line
   nested too deep to read (``RecursionError``), which stops the read there: what was read
-  before it is kept and the damage says the rest is not shown.
+  before it is kept and the damage says the rest is not shown. ``list_runs`` reports a
+  ``runs/`` folder it cannot list (a ``PermissionError``, say) the same way, so a caller
+  never takes an unreadable folder for an empty store.
 - ``missing_from_log``: the index lists the document in a run, but the log holds no
   readable event of it.
 
@@ -63,6 +68,7 @@ __all__ = [
     "DocRead",
     "UnknownRun",
     "check_run_id",
+    "list_runs",
     "require_run",
 ]
 
@@ -131,12 +137,26 @@ def require_run(log: EventLog, run_id: object) -> str:
 
 
 def run_ids(log: EventLog) -> list[str]:
-    """Every run directory under the store root with a well-formed name, sorted."""
+    """Every run directory under the store root with a well-formed name, sorted.
+
+    An unlistable ``runs/`` gives ``[]``; use ``list_runs`` to tell that from an empty store.
+    """
+    return list_runs(log)[0]
+
+
+def list_runs(log: EventLog) -> tuple[list[str], Damage | None]:
+    """``(run_ids(log), damage)``: ``damage`` is ``None``, or ``unreadable`` when ``runs/`` exists
+    but cannot be listed (``PermissionError`` or another ``OSError``; no local path in it).
+
+    A store with no ``runs/`` folder yet has no runs and no damage.
+    """
     runs_dir = log.root / "runs"
     try:
-        return sorted(p.name for p in runs_dir.iterdir() if p.is_dir() and _RUN_ID_RE.fullmatch(p.name))
-    except OSError:
-        return []
+        return sorted(p.name for p in runs_dir.iterdir() if _RUN_ID_RE.fullmatch(p.name) and p.is_dir()), None
+    except FileNotFoundError:
+        return [], None
+    except OSError as exc:
+        return [], Damage("unreadable", None, None, f"runs/ could not be listed: {type(exc).__name__}")
 
 
 def seal_files(log: EventLog, run_id: str) -> int:
@@ -224,19 +244,38 @@ def chain_damage(doc_id: str, events: tuple[Event, ...] | list[Event]) -> list[D
 
 
 def stable_scan(log: EventLog, run_id: str, doc_id: str | None = None) -> RunScan:
-    """A tolerant scan, re-read while it shows a gap that a second read does not confirm.
+    """A tolerant scan, re-read while it shows a gap no earlier read confirms.
 
-    The same rule as ``index._stable_scan`` (a deliberate copy: index.py is not imported
-    for a private helper); change both together.
+    ``stable_scan_bounded`` without the bound. The same rule as ``index._stable_scan`` (a
+    deliberate copy: index.py is not imported for a private helper); change both together.
     """
-    previous: dict[str, int] | None = None
+    return stable_scan_bounded(log, run_id, doc_id)[0]
+
+
+def stable_scan_bounded(log: EventLog, run_id: str, doc_id: str | None = None) -> tuple[RunScan, dict[str, int] | None]:
+    """``(scan, bound)``: ``bound`` is the highest ``seq`` per document of the read before ``scan``.
+
+    ``None`` when the first read showed no gap. A gap at or below the bound is real (the
+    earlier read saw a later ``seq``, so the missing event was written before it ended);
+    one above it may be an event in flight (``in_flight_from``).
+    """
     scan = log.scan(run_id, doc_id, strict=False)
+    bound: dict[str, int] | None = None
     for _ in range(_SCAN_TRIES - 1):
-        if not scan.gaps() or scan.ends == previous:
+        gaps = scan.gaps()
+        if not gaps or (bound is not None and all(g <= bound.get(d, -1) for d, g in gaps.items())):
             break
-        previous = dict(scan.ends)
+        bound = {d: max(scan.seqs(d)) for d in scan.doc_ids()}
         scan = log.scan(run_id, doc_id, strict=False)
-    return scan
+    return scan, bound
+
+
+def in_flight_from(scan: RunScan, bound: dict[str, int] | None, doc_id: str) -> int | None:
+    """The first missing ``seq`` of ``doc_id`` if it is above ``bound`` (an event in flight), else ``None``."""
+    if bound is None:
+        return None
+    gap = scan.gaps().get(doc_id)
+    return gap if gap is not None and gap > bound.get(doc_id, -1) else None
 
 
 def iter_scan_documents(scan: RunScan, damage: list[Damage]) -> Iterator[tuple[str, tuple[Event, ...]]]:
@@ -278,12 +317,15 @@ def iter_scan_documents(scan: RunScan, damage: list[Damage]) -> Iterator[tuple[s
 def _read_from_log(log: EventLog, run_id: str, doc_id: str) -> DocRead:
     damage: list[Damage] = []
     try:
-        scan = stable_scan(log, run_id, doc_id)
+        scan, bound = stable_scan_bounded(log, run_id, doc_id)
+        cut = in_flight_from(scan, bound, doc_id)
     except OSError as exc:
         return DocRead((), (Damage("unreadable", None, None, f"a segment could not be read: {type(exc).__name__}"),), "log")
     events: tuple[Event, ...] = ()
     for _, evs in iter_scan_documents(scan, damage):
         events = evs  # the scan holds this one document only
+    if cut is not None:  # written during the read: shown up to the gap, the rest on the next read
+        events = tuple(e for e in events if e.seq < cut)
     return DocRead(events, tuple(chain_damage(doc_id, events)) + tuple(damage), "log")
 
 

@@ -404,6 +404,11 @@ def trace_doc_cmd(doc_id: DocArg, root: Root, as_json: AsJson = False) -> None:
                 f"no readable event of document {doc_id!r}, but {_unread_text(t.unread_lines)} "
                 "may hold it; run verify"
             )
+        if not t.runs and t.damage:
+            raise _Damaged(
+                f"no run found for document {doc_id!r}, but the store is damaged ({t.damage[0].detail}); "
+                "run verify"
+            )
         if not t.runs:
             raise _Usage(f"no run in this store holds document {doc_id!r}")
         if as_json:

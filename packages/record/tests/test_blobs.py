@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import multiprocessing
 import os
+import stat
 import threading
 from pathlib import Path
 
@@ -452,7 +453,7 @@ def test_a_put_racing_a_deletion_never_puts_the_content_back(tmp_path: Path, mon
 
     def fsync_hook(fd: int) -> None:
         real_fsync(fd)
-        if not fired and os.readlink(f"/proc/self/fd/{fd}").endswith(".tmp"):
+        if not fired and stat.S_ISREG(os.fstat(fd).st_mode):  # B's temp file, not a directory
             fired.append(True)
             other = BlobStore(tmp_path)  # writer A and the deletion, while B is mid-write
             other.put(data, "original")
@@ -483,16 +484,17 @@ def test_an_existing_tombstone_is_synced_before_the_content_is_unlinked(tmp_path
     ref = s.put(b"half deleted", "original")
     record = {"sha256": ref.sha256, "reason": "erasure request", "tombstoned_at": "2026-11-18T12:00:00Z"}
     s.tombstone_path(ref.sha256).write_text(json.dumps(record))
-    order: list[str] = []
+    shard = s.content_path(ref.sha256).parent
+    order: list[tuple[str, Path]] = []
     real_unlink = Path.unlink
 
     def unlink(self: Path, missing_ok: bool = False) -> None:
         if self == s.content_path(ref.sha256):
-            order.append("unlink")
+            order.append(("unlink", self))
         real_unlink(self, missing_ok=missing_ok)
 
     def fsync_dir(path: Path) -> None:
-        order.append("fsync")
+        order.append(("fsync", Path(path)))
         os_fd = os.open(path, os.O_RDONLY)
         try:
             os.fsync(os_fd)
@@ -502,8 +504,9 @@ def test_an_existing_tombstone_is_synced_before_the_content_is_unlinked(tmp_path
     monkeypatch.setattr(Path, "unlink", unlink)
     monkeypatch.setattr(blobs_module, "_fsync_dir", fsync_dir)
     s.tombstone(ref.sha256, "erasure request")
-    assert "unlink" in order and "fsync" in order[: order.index("unlink")]
-    assert order[-1] == "fsync"
+    unlinked = order.index(("unlink", s.content_path(ref.sha256)))
+    assert ("fsync", shard) in order[:unlinked]  # the shard itself, not only its ancestors
+    assert order[-1] == ("fsync", shard)
     assert json.loads(s.tombstone_path(ref.sha256).read_text()) == record  # the first record stays
 
 
@@ -531,8 +534,8 @@ def test_an_unreadable_tombstone_is_rewritten_and_a_readable_one_kept(
                       "other_hash": good.replace(ref.sha256.encode(), b"c" * 64)}[damage])
     if content_left:
         s.content_path(ref.sha256).write_bytes(b"left behind")
-    found = {p.kind for p in verify_run(log, s, "r1").problems}
-    assert found & {"corrupt_tombstone", "tombstone_with_content"}, found
+    found = [p.kind for p in verify_run(log, s, "r1").problems]
+    assert found == (["tombstone_with_content"] if content_left else ["corrupt_tombstone"])
 
     s.tombstone(ref.sha256, "erasure request (repair)")  # the supported repair
     info = s.tombstone_info(ref.sha256)
@@ -626,3 +629,112 @@ def test_get_never_returns_content_whose_deletion_was_recorded_while_it_read(
     monkeypatch.setattr(BlobStore, "exists", exists_then_tombstone_record)
     with pytest.raises(BlobTombstoned):
         s.get(ref.sha256)
+
+
+# --- fix pass 3: tombstone damage and durability (PR #2 re-review) ----------------------
+
+
+def _record_body(sha: str, reason: str = "erasure request") -> str:
+    return json.dumps({"sha256": sha, "reason": reason, "tombstoned_at": "2026-11-18T12:00:00Z"})
+
+
+@pytest.mark.parametrize("target", ["dangling", "elsewhere"])
+def test_a_symlink_at_the_tombstone_path_is_replaced_by_a_real_record(tmp_path: Path, target: str) -> None:
+    # A symlink is never a record tombstone() writes. A dangling one used to make tombstone()
+    # unlink the content with no record kept, so the deletion was not recorded at all.
+    s = BlobStore(tmp_path)
+    ref = s.put(b"linked away", "original")
+    tomb = s.tombstone_path(ref.sha256)
+    elsewhere = tmp_path / "elsewhere.json"
+    if target == "elsewhere":
+        elsewhere.write_text(_record_body(ref.sha256, "planted"))
+    tomb.symlink_to(elsewhere)
+    s.tombstone(ref.sha256, "erasure request")
+    assert not tomb.is_symlink() and tomb.is_file()
+    info = s.tombstone_info(ref.sha256)
+    assert info["sha256"] == ref.sha256 and info["reason"] == "erasure request"
+    assert s.exists(ref.sha256) == "tombstoned" and not s.content_path(ref.sha256).exists()
+    assert tmp_files(tmp_path) == []
+
+
+def test_content_is_kept_when_the_record_is_not_there_after_writing_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Re-validate before unlinking: if the exclusive write lost to something that is not a
+    # record, the content must stay and the call must fail.
+    s = BlobStore(tmp_path)
+    ref = s.put(b"keep me", "original")
+    monkeypatch.setattr(blobs_module, "write_exclusive", lambda final, body, root=None: False)
+    with pytest.raises(OSError, match="not a readable tombstone record"):
+        s.tombstone(ref.sha256, "erasure request")
+    assert s.content_path(ref.sha256).exists() and s.get(ref.sha256) == b"keep me"
+
+
+def test_a_transient_read_error_never_replaces_a_valid_tombstone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    s = BlobStore(tmp_path)
+    ref = s.put(b"deleted once", "original")
+    s.tombstone(ref.sha256, "first request")
+    tomb = s.tombstone_path(ref.sha256)
+    first = tomb.read_bytes()
+    s.content_path(ref.sha256).write_bytes(b"restored by a backup")  # a retry has work to do
+    real_read_bytes, real_open = Path.read_bytes, os.open
+
+    def read_bytes(self: Path) -> bytes:
+        if self == tomb:
+            raise PermissionError(13, "transient", str(self))
+        return real_read_bytes(self)
+
+    def os_open(path: object, flags: int, *args: object, **kw: object) -> int:
+        if Path(path) == tomb:  # type: ignore[arg-type]
+            raise PermissionError(13, "transient", str(path))
+        return real_open(path, flags, *args, **kw)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    monkeypatch.setattr(os, "open", os_open)
+    with pytest.raises(PermissionError):
+        s.tombstone(ref.sha256, "second request")
+    monkeypatch.undo()
+    assert tomb.read_bytes() == first  # never overwritten
+    assert s.content_path(ref.sha256).exists()  # and nothing unlinked on an unknown state
+    s.tombstone(ref.sha256, "second request")  # once the error clears, the retry finishes
+    assert tomb.read_bytes() == first and not s.content_path(ref.sha256).exists()
+
+
+def test_creating_the_store_root_syncs_its_parent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    s = BlobStore(tmp_path / "store")  # does not exist yet: put creates it
+    calls = _record_dir_fsyncs(monkeypatch)
+    ref = s.put(b"first blob", "original")
+    shard = s.content_path(ref.sha256).parent
+    assert tmp_path in calls  # the root's own entry
+    assert {shard, shard.parent, s.blob_root, s.root} <= set(calls)
+
+
+def test_tombstone_sweeps_temp_copies_of_the_content(tmp_path: Path) -> None:
+    # A put that crashed before its rename leaves a temp copy of the private content.
+    s = BlobStore(tmp_path)
+    ref = s.put(b"private content", "original")
+    shard = s.content_path(ref.sha256).parent
+    stray = shard / f".{ref.sha256}.zst.crashed1.tmp"
+    stray.write_bytes(b"compressed private content")
+    other = shard / f".{'e' * 64}.zst.crashed2.tmp"  # another hash's: not ours to remove
+    other.write_bytes(b"someone else")
+    s.tombstone(ref.sha256, "erasure request")
+    assert not stray.exists() and other.exists()
+
+
+def test_an_empty_directory_at_the_tombstone_path_is_repaired(tmp_path: Path) -> None:
+    s = BlobStore(tmp_path)
+    ref = s.put(b"dir in the way", "original")
+    s.tombstone_path(ref.sha256).mkdir()
+    s.tombstone(ref.sha256, "erasure request")  # the repair verify advises
+    assert s.tombstone_info(ref.sha256)["reason"] == "erasure request"
+    assert not s.content_path(ref.sha256).exists() and s.exists(ref.sha256) == "tombstoned"
+
+
+def test_a_non_empty_directory_at_the_tombstone_path_is_refused_and_named(tmp_path: Path) -> None:
+    s = BlobStore(tmp_path)
+    ref = s.put(b"dir in the way", "original")
+    tomb = s.tombstone_path(ref.sha256)
+    tomb.mkdir()
+    (tomb / "something").write_bytes(b"x")
+    with pytest.raises(IsADirectoryError, match="remove it, then call tombstone again"):
+        s.tombstone(ref.sha256, "erasure request")
+    assert s.content_path(ref.sha256).exists() and (tomb / "something").exists()  # nothing lost

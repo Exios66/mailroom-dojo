@@ -174,10 +174,13 @@ def seal_hash(fields_without_hash: Mapping[str, Any]) -> str:
 def validation_detail(exc: BaseException) -> str | None:
     """A pydantic ``ValidationError`` as field locations and error types, never stored content.
 
-    A location step that is a field name of the record's models, or a list index, is kept;
-    any other step (an unknown top-level key, a key inside ``payload``, ``decision`` or
-    ``doc_heads``, a union branch tag) is a stored key, so it is shown as ``<key>``. Input
-    values never appear. Returns ``None`` for an exception that is not a validation error.
+    A list index is kept, and so is a field name where the location is still inside a
+    model: at the top (a field of ``Run``, ``Event`` or ``Seal``) or inside a ``BlobRef``
+    of ``inputs`` or ``outputs``. Every other step is a stored key, so it is shown as
+    ``<key>``: an unknown top-level key, a union branch tag, and any key inside a map
+    field (``payload``, ``decision``, ``doc_heads``, ``caps``, ...), even one that equals
+    a field name. Input values never appear. Returns ``None`` for an exception that is not
+    a validation error.
     """
     errors = getattr(exc, "errors", None)
     if not callable(errors):
@@ -185,9 +188,7 @@ def validation_detail(exc: BaseException) -> str | None:
     try:
         parts = []
         for e in errors():
-            loc = ".".join(
-                str(x) if isinstance(x, int) or x in _FIELD_NAMES else "<key>" for x in e.get("loc", ())
-            )
+            loc = ".".join(_loc_steps(e.get("loc", ())))
             kind = e.get("type")
             parts.append(f"{loc or '<record>'}: {kind if isinstance(kind, str) and kind.isidentifier() else 'invalid'}")
         return "; ".join(parts)
@@ -310,5 +311,28 @@ class Seal(_Frozen):
         return cls.model_validate(upgrade_seal(raw))
 
 
-# Location steps ``validation_detail`` may show: the field names of every model above.
-_FIELD_NAMES = frozenset(f for m in (BlobRef, Run, Event, Seal) for f in m.model_fields)
+# Location steps ``validation_detail`` may show: the field names of the top-level models,
+# and of a BlobRef inside the fields that hold a list of them.
+_FIELD_NAMES = frozenset(f for m in (Run, Event, Seal) for f in m.model_fields)
+_REF_FIELD_NAMES = frozenset(BlobRef.model_fields)
+_REF_LISTS = frozenset({"inputs", "outputs"})
+
+
+def _loc_steps(loc: Any) -> list[str]:
+    """A validation error location with every stored key masked (see ``validation_detail``)."""
+    out: list[str] = []
+    names: frozenset[str] | None = _FIELD_NAMES  # the field names valid at this step; None: none
+    in_ref_list = False
+    for x in loc:
+        if isinstance(x, int) and not isinstance(x, bool):
+            out.append(str(x))
+            names, in_ref_list = (_REF_FIELD_NAMES if in_ref_list else None), False
+            continue
+        if names is not None and x in names:
+            out.append(str(x))
+            in_ref_list = names is _FIELD_NAMES and x in _REF_LISTS
+            names = None
+            continue
+        out.append("<key>")
+        names, in_ref_list = None, False
+    return out

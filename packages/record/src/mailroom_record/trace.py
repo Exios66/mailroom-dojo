@@ -25,14 +25,21 @@ Reading (see ``_reading`` for the exact rules)
 ----------------------------------------------
 ``trace_run`` reads the run once from the log with a tolerant scan (one pass is cheaper
 than one lookup per document when every document is wanted) and holds one document's
-events at a time. With an index it also compares each undamaged document's head with
-``Index.documents`` and says when the index is behind the log (``index`` note).
+events at a time. A gap that the last re-read shows above the heads the read before it saw
+is an event in flight (``_reading.in_flight_from``): the document is shown up to it. With an index it also compares each undamaged document's head with
+``Index.documents`` and says when the two differ (``index`` note). It does not say which
+is behind: the log is read first, so a writer that moves on before the index is read makes
+the index look ahead.
 
 ``trace_doc`` makes the index ready (``Index.ensure``), then reads the document from every
 run through ``Index.iter_events``, which reads only the document's byte ranges plus what
 was written since the last rebuild; ``Index.runs_for_document`` gives the runs the index
 already knows hold it, so a run the index lists but whose log no longer holds the document,
-or whose run directory is gone, is reported (``missing_from_log``). A run that does not
+or whose run directory is gone, is reported (``missing_from_log``). "Gone" means a direct
+check of that directory says it does not exist: when listing ``runs/`` fails (a permission
+error, say), a run the index lists is still read, and ``DocTrace.damage`` holds an
+``unreadable`` damage (from ``_reading.list_runs``): runs the index does not list may be
+missing from the trace. A run that does not
 show the document but holds lines that could not be read is counted in ``unread_lines``
 (any of them may be the document's), so a document whose only lines are unreadable is
 damage, not unknown. Without a usable index (none given, or it cannot be built: a read-only
@@ -56,14 +63,15 @@ from mailroom_record._reading import (
     Damage,
     UnknownRun,
     chain_damage,
+    in_flight_from,
     iter_scan_documents,
+    list_runs,
     open_index,
     read_document,
     read_header,
     require_run,
-    run_ids,
     seal_files,
-    stable_scan,
+    stable_scan_bounded,
 )
 from mailroom_record.hashing import hash_obj, sha256_hex
 from mailroom_record.index import Index, IndexUnavailable
@@ -219,10 +227,13 @@ class DocTrace:
     # read: run id -> how many. A skipped line has no usable doc id, so any may be this
     # document's; a document whose only lines are unreadable shows up here, not in ``runs``.
     unread_lines: dict[str, int] = field(default_factory=dict)
+    # Store-level damage: ``runs/`` could not be listed, so runs the index does not list
+    # may be missing from ``runs``.
+    damage: tuple[Damage, ...] = ()
 
     @property
     def damaged(self) -> bool:
-        return bool(self.unread_lines) or any(
+        return bool(self.unread_lines) or bool(self.damage) or any(
             any(d.kind != "torn_tail" for d in r.damage) or r.summary.damage for r in self.runs
         )
 
@@ -292,12 +303,15 @@ def trace_run(log: EventLog, index: Index | None, run_id: str) -> RunTrace:
     damage: list[Damage] = [] if header_damage is None else [header_damage]
     docs: list[DocSummary] = []
     try:
-        scan = stable_scan(log, rid)
+        scan, bound = stable_scan_bounded(log, rid)
     except OSError as exc:
         damage.append(Damage("unreadable", None, None, f"a segment could not be read: {type(exc).__name__}"))
-        scan = None
+        scan, bound = None, None
     if scan is not None:
         for doc_id, events in iter_scan_documents(scan, damage):
+            cut = in_flight_from(scan, bound, doc_id)
+            if cut is not None:  # written during the read: shown up to the gap, the rest next time
+                events = tuple(e for e in events if e.seq < cut)
             docs.append(_summary(doc_id, events, chain_damage(doc_id, events)))
     note = _index_note(log, index, rid, docs)
     return RunTrace(
@@ -321,13 +335,27 @@ def _index_note(log: EventLog, index: Index | None, run_id: str, docs: list[DocS
     except (IndexUnavailable, OSError, ValueError) as exc:
         return f"unavailable ({type(exc).__name__})"
     clean = [d for d in docs if not d.damage]
-    behind = sum(1 for d in clean if indexed.get(d.doc_id) != d.head_hash)
+    differ = sum(1 for d in clean if indexed.get(d.doc_id) != d.head_hash)
     gone = len(set(indexed) - {d.doc_id for d in docs})
-    if behind or gone:
-        parts = [f"{behind} document(s) differ from the log"] if behind else []
+    if differ or gone:
+        # The log was read before the index, so a writer that moved on in between makes
+        # the index look ahead: say only that they differ, never which one is behind.
+        parts = [f"{differ} document head(s) differ"] if differ else []
         parts += [f"{gone} indexed document(s) not in the log"] if gone else []
-        return f"{note}; behind the log: {', '.join(parts)} (run reindex)"
+        return (
+            f"{note}; differs from the log: {', '.join(parts)} "
+            "(a writer may have moved on between the two reads; run reindex if it persists)"
+        )
     return note
+
+
+def _run_dir_state(log: EventLog, run_id: str) -> str:
+    """``"gone"`` if the run directory does not exist, ``"present"`` if it does, else the
+    type of the error that stopped the check (never taken for "gone")."""
+    try:
+        return "present" if log.run_dir(run_id).is_dir() else "gone"
+    except OSError as exc:
+        return type(exc).__name__
 
 
 def trace_doc(log: EventLog, index: Index | None, doc_id: str) -> DocTrace:
@@ -341,12 +369,23 @@ def trace_doc(log: EventLog, index: Index | None, doc_id: str) -> DocTrace:
             usable, note = None, f"unavailable ({type(exc).__name__}), read from the log"
     found: list[tuple[tuple[int, str, str], DocRun]] = []
     unread_lines: dict[str, int] = {}
-    on_disk = run_ids(log)
+    on_disk, listing_damage = list_runs(log)
+    store_damage = [] if listing_damage is None else [listing_damage]
+    unlisted: set[str] = set()  # runs the index lists that the listing of runs/ did not show
     for rid in sorted(set(listed) - set(on_disk)):
-        # The index lists the run, but its directory is gone (deleted after the rebuild).
-        lost = Damage("missing_from_log", doc_id, None, "the index lists this run, but its run directory is gone")
-        doc_run = DocRun(rid, None, _summary(doc_id, (), [lost]), (), (), (), "index")
-        found.append(((0, listed[rid], rid), doc_run))
+        state = _run_dir_state(log, rid)
+        if state == "gone":
+            # The index lists the run, but its directory is gone (deleted after the rebuild).
+            lost = Damage("missing_from_log", doc_id, None, "the index lists this run, but its run directory is gone")
+            doc_run = DocRun(rid, None, _summary(doc_id, (), [lost]), (), (), (), "index")
+            found.append(((0, listed[rid], rid), doc_run))
+            continue
+        # The directory is there (or cannot be checked): the listing of runs/ failed or was
+        # incomplete, which says nothing about this run, so it is read like any other.
+        unlisted.add(rid)
+    if unlisted and not store_damage:
+        store_damage.append(Damage("unreadable", None, None, "runs/ was listed without runs the index lists"))
+    on_disk = sorted(set(on_disk) | unlisted)
     for rid in on_disk:
         read = read_document(log, usable, rid, doc_id)
         doc_damage = [d for d in read.damage if d.doc_id == doc_id]
@@ -375,4 +414,4 @@ def trace_doc(log: EventLog, index: Index | None, doc_id: str) -> DocTrace:
         order = (0, run.created_at, rid) if run is not None else (1, "", rid)
         found.append((order, doc_run))
     found.sort(key=lambda pair: pair[0])
-    return DocTrace(doc_id, tuple(r for _, r in found), note, unread_lines)
+    return DocTrace(doc_id, tuple(r for _, r in found), note, unread_lines, tuple(store_damage))
