@@ -19,6 +19,7 @@ JJB added these during the build, after the design was approved. They are part o
 | R7 | The CLI, the TUI and all floor replay move into this repo; the TUI starts from `mailroom-reloaded` and adds every native sandbox CLI and TUI feature | Record (replay timeline), launcher |
 | R8 | Tests exercise real behavior and detect every error state and point of failure, never only one-off unit tests | All; see `docs/test-strategy-record.md` |
 | R9 | Stays tunable and maintainable as goals shift, with no repeat of the old multi-repo dependency mess: minimal coupling, clear package boundaries, config-driven tuning, and a human-logical file layout | All; layout map below and in `README.md` |
+| R10 | Decision-model experiments are easy to set up, as in the current pipeline: the slot design from mailroom #309 carried over as policies and config, every decision recorded, scored by the Dojo | Record (decision events), Dojo, engine, launcher |
 
 ### R1. Fit AmFam's problem and become a benchmark
 
@@ -114,6 +115,12 @@ mailroom-dojo/
 ```
 
 Rules: dependencies point one way and a test enforces them: `labels` imports `record`; `dojo` imports `record` and `labels`; `engine` imports `record` (and reads client profiles from `config/`); `launcher` may import all of them; the Dojo never imports the engine, and `record` imports nothing of ours. Tuning lives in `config/` and `labels/`, never in code. A new folder needs a line in this map. Names say what a thing is, in full words; nesting goes from general to specific.
+
+### R10. Decision-model experiments by configuration
+
+Decision models stay a first-class experiment, as they are on the current pipeline. The decision slots of mailroom #309 carry over: sorter reviewer, archive gate, judge and boss checks, arbiter veto, closed-field resolver and field-level routing. Each slot is off by default, has its own caps (including per-slot override caps for slots that can reroute), and is switched on and tuned in a policy file or run spec. An experiment arm is a named policy plus config, with no code change per experiment.
+
+Every slot call is an event in the record (`kind="decision"`, the slot as `node`, the model, tokens, latency, and the decision with its probability and cause as our own tokens), so a run can be replayed and audited per slot. The Dojo scores slots from the record: per-slot accuracy and override rate, silent-wrong per 1,000, cost per decision, and the risk-coverage curve with bounds (Sets A, B, D and E).
 
 ## Summary
 
