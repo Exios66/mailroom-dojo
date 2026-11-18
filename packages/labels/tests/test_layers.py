@@ -233,3 +233,11 @@ def test_review_provenance_keys_are_read_and_checked(tmp_path: Path) -> None:
     read = read_layer(load_snapshot(make_snapshot(tmp_path, "review", [good, bad_origin, bad_time])))
     assert [(r.document_id, r.rank, r.value) for r in read.records] == [("D1", "review:gold", "Ann")]
     assert sorted((f.kind, f.doc) for f in read.findings) == [("malformed_record", "D2"), ("malformed_record", "D3")]
+
+
+def test_hash_matches_compares_every_digit_of_a_longer_label_hash() -> None:
+    full = text_hash("D1")
+    for n in (17, 32, 63, 64):
+        changed = full[: n - 1] + ("0" if full[n - 1] != "0" else "1")
+        assert not hash_matches(changed, full), f"a {n}-digit hash differing in its last digit names other text"
+        assert hash_matches(full[:n], full)

@@ -686,3 +686,35 @@ def test_check_and_load_treat_an_extra_file_or_directory_as_a_difference(tmp_pat
     with pytest.raises(ManifestMismatch) as info:
         load_snapshot(out)
     assert info.value.kind == "extra"
+
+
+# --- Hub fields without a presence code, and list placeholders --------------------------------
+
+
+def test_hub_field_without_a_presence_code_is_unlabeled_only_when_empty(tmp_path: Path) -> None:
+    row = gt_row("D9", "letter", "email", "train",
+                 {"sender": "Zed", "recipient": "", "action_items": "[]", "amount": "nan", "urgency": "routine"},
+                 {"urgency": "populated"})
+    data = write_dataset(tmp_path / "data", extra=[row])
+    manifest = hub_build(tmp_path / "hub-x", data, default=False)
+    fields = hub_rows(tmp_path / "hub-x")["D9"]["fields"]
+    assert {k: v["presence"] for k, v in fields.items()} == {
+        "sender": "populated", "recipient": "unlabeled", "action_items": "unlabeled", "amount": "unlabeled",
+        "urgency": "populated"}
+    assert fields["action_items"]["value"] == []  # the list string is still decoded, never invented
+    assert manifest.source["fields_without_presence"] == {"action_items": 1, "amount": 1, "recipient": 1, "sender": 1}
+
+
+@pytest.mark.parametrize(("placeholder", "nulled"), [("[]", True), ("{}", True), ("nan", True), ("", True),
+                                                      ("[\"x\"]", False), ("none", False)])
+def test_hub_not_applicable_list_placeholders_are_nulled(tmp_path: Path, placeholder: str, nulled: bool) -> None:
+    row = gt_row("D9", "letter", "email", "train", {"action_items": placeholder, "sender": "Zed"},
+                 {"action_items": "not_applicable", "sender": "populated"})
+    data = write_dataset(tmp_path / "data", extra=[row])
+    manifest = hub_build(tmp_path / "hub-x", data, default=False)
+    value = hub_rows(tmp_path / "hub-x")["D9"]["fields"]["action_items"]["value"]
+    counted = manifest.source["not_applicable_placeholders_nulled"]
+    if nulled:
+        assert value is None and counted.get(f"action_items={placeholder!r}") == 1
+    else:
+        assert value is not None and not any(k.startswith("action_items=") for k in counted)
