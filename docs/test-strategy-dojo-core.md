@@ -100,11 +100,17 @@ Plan: `docs/plans/2026-11-18-dojo-d2-measures-plan.md`.
 | A `Measure` is valid when built | `test_measure.py`: finite values, `n == 0` has no value, a missing value needs a reason, unverified labels carry no value, closed vocabularies, interval rules, any integral `n` (numpy too, never bool), `missing()` unverified by default; hypothesis property tests both ways |
 | Only like is compared with like | `test_measure.py`: method, subject, cost basis, label status and each provenance key; `vary` keys present but free; `draw_seed` absent on both sides allowed; an unknown `vary` key raises |
 | The table keeps every old id and golden metric | `test_metric_table_parity.py`: 184 registry ids in the old order plus ten golden-only metrics, the old fields kept (units through `UNIT_NORMALISED`), the 28 nested golden blocks and the chained composite accounted for, the owner-dropped intake diagnostics listed, against the re-captured `old_metric_registry.json` |
-| Design needs are planned rows with readers | `test_metric_table_parity.py::test_design_rows_are_planned_needs_with_a_named_reader`: the 18 `design` rows, `dojo:<id>` ids, readers, paired keep-rule rows |
+| Design needs are planned rows with readers | `test_metric_table_parity.py::test_design_rows_are_planned_needs_with_a_named_reader`: the 19 `design` rows, `dojo:<id>` ids, readers, paired keep-rule rows |
 | The loader refuses a broken table at its path | `test_metric_table.py`: fault cases for every column, duplicate YAML keys, the roster, default views and guards, label layers, pairing, alias, `same_as` and design ids; `check()` refuses a fractional count, an interval outside the unit range or not around the value, a negative value outside `utility`, and a measure filed under an alias |
 | Every live agent has a view; none for legacy or retired | `test_metric_table.py`: `test_every_live_agent_has_one_entry_and_no_legacy_or_retired_agent_has_one`, `test_no_default_or_guard_uses_a_directionless_or_dropped_metric`, `test_the_default_views_are_the_reviewed_ones` (views and roster against `fixtures/measures/default_views.json`); agent picks are read from the data, never named in code |
 | Directions are stated and frozen; names are only linted | `test_metric_directions.py`: every direction equals `fixtures/measures/metric_directions.json`; the whole-word name lint reports exactly the 48 reviewed exceptions; whole words only; keep-rule rows have a direction |
 | One spelling per unit | `test_metric_table.py::test_the_unit_vocabulary_is_closed` |
+| Every column moves the content hash | `test_metric_table.py::test_every_column_is_part_of_the_hash` (one valid single-column edit each) and `test_the_canonical_form_writes_every_row_and_view_field` |
+| Label layers are the labels package's | `test_metric_table.py::test_label_layers_are_the_labels_package_layers_and_derived_gold` (skips without `mailroom_labels`) |
+| An unstated ground truth may need labels | `test_metric_table.py::test_an_unstated_ground_truth_is_unknown_not_label_free`, `test_every_kept_number_states_its_ground_truth`; `test_metric_table_parity.py::test_every_stated_ground_truth_was_unset_in_the_old_registry` |
+| Dashboard queries show kept rows | `test_metric_table.py::test_dashboard_queries_leave_out_dropped_rows_unless_asked` |
+| Shared ids keep their meaning; intake has its own row | `test_metric_table.py::test_intake_is_judged_on_its_own_class_accuracy_and_accuracy_keeps_its_meaning` |
+| Every default-view and guard metric says how it is compared | `test_metric_table.py::test_every_default_and_guard_metric_names_its_pairing_or_why_not`, the "default without pairing" and "guard without pairing" faults, `test_a_whole_set_statistic_has_no_per_document_pairing` |
 | Pairings are D1's methods | `test_metric_table.py`: each pairing maps to a D1 method string (the D1 import test skips until D1 is on the branch) |
 
 Mutation check (D2): each single mutation below, applied by a scratch script that restores
@@ -125,6 +131,9 @@ the file and prints its hash, turned the suite red.
 | "a `same_as` target is canonical" removed | 1 failed |
 | the signed-unit exception removed (`utility`) | 1 failed |
 | the name lint matching substrings | 3 failed |
+| the boolean 0-or-1 check of `check()` removed | 1 failed |
+| one of `same_as`, `alias_of`, `pairing_note`, `readers`, `status`, a view's `label_layers` or `agent_families` dropped from the canonical form | 1 failed each |
+| "a default view or guard names its pairing" removed | 2 failed |
 | a reviewed name-lint exception renamed | 1 failed |
 
 Earlier mutations of code the review replaced (the derived-direction check, the
