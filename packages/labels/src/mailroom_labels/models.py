@@ -17,6 +17,7 @@ client profile defines.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any, Literal
@@ -220,6 +221,29 @@ class DocumentLabels(BaseModel):
     @field_serializer("fields", "untrusted")
     def _as_dict(self, value: Mapping[str, Any]) -> dict[str, Any]:
         return dict(value)
+
+    # A ``MappingProxyType`` neither pickles nor deep-copies, so the state carries plain
+    # dicts and ``__setstate__`` wraps them in read-only views again.
+    def __getstate__(self) -> dict[Any, Any]:
+        state = super().__getstate__()
+        values = dict(state["__dict__"])
+        for name in _READ_ONLY:
+            values[name] = dict(values[name])
+        return {**state, "__dict__": values}
+
+    def __setstate__(self, state: dict[Any, Any]) -> None:
+        values = dict(state["__dict__"])
+        for name in _READ_ONLY:
+            values[name] = MappingProxyType(dict(values[name]))
+        super().__setstate__({**state, "__dict__": values})
+
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> DocumentLabels:
+        twin = type(self).__new__(type(self))
+        twin.__setstate__(copy.deepcopy(self.__getstate__(), memo))
+        return twin
+
+
+_READ_ONLY = ("fields", "untrusted")
 
 
 class Finding(BaseModel):

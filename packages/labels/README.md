@@ -200,8 +200,13 @@ labels.snapshot_refs()      # [{snapshot_id, kind, manifest_hash}, ...]
 labels.label_snapshot_ids() # Run.label_snapshot_ids: ["<snapshot_id>@<manifest_hash>", ...]
 ```
 
-`documents()` and `document(id)` hand out copies of list and dict values, so changing a
-value you were given never changes the label set.
+`documents()` and `document(id)` hand out copies of list and dict label values, so
+changing a value you were given never changes the label set; a document's `fields` and
+`untrusted` are read-only views and the models are frozen. That is the whole guarantee:
+a deliberate write through `__dict__` or `object.__setattr__` is not defended against (a
+document with no list or dict value is the stored object itself), and `profile` and the
+snapshot manifests are not deep-frozen. A `DocumentLabels` copies (`copy.deepcopy`) and
+pickles; a `LabelSet` does neither.
 
 `load_label_set` verifies every manifest, runs the quality gate and raises
 `QualityGateFailed` (with the full report) when it finds an error or a warning that the

@@ -241,3 +241,23 @@ def test_a_label_set_built_directly_with_a_repeated_id_answers_with_the_first() 
     assert labels.document("D1") == first and labels.document("D1") != second
     listed = next(d for d in labels.documents() if d.document_id == "D1")
     assert labels.document("D1") == listed
+
+
+def test_resolved_documents_deepcopy_and_pickle_and_stay_read_only(tmp_path: Path) -> None:
+    """A ``DocumentLabels`` copies (``copy.copy``, ``copy.deepcopy``) and pickles: the copy
+    equals the original, its mappings are read-only views again, and a deep copy's list
+    value is its own."""
+    import copy
+    import pickle
+    from types import MappingProxyType
+
+    doc = load_label_set(standard_set(tmp_path), profile()).document("D2")
+    assert doc is not None and isinstance(doc.fields["action_items"].value, list)
+    for twin in (copy.copy(doc), copy.deepcopy(doc), pickle.loads(pickle.dumps(doc))):
+        assert twin == doc and twin.model_dump() == doc.model_dump()
+        assert isinstance(twin.fields, MappingProxyType) and isinstance(twin.untrusted, MappingProxyType)
+        with pytest.raises(TypeError):
+            twin.fields["x"] = doc.fields["sender"]  # type: ignore[index]
+    deep = copy.deepcopy(doc)
+    deep.fields["action_items"].value.append("X")  # type: ignore[union-attr]
+    assert "X" not in doc.fields["action_items"].value  # type: ignore[operator]

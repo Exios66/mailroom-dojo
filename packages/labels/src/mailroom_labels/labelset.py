@@ -3,9 +3,16 @@
 ``load_label_set(directories, profile)`` is what the Dojo codes against. It loads every
 snapshot (manifest verification first), runs the quality gate, refuses the set when the
 gate finds an error (``QualityGateFailed``, which carries the report), and resolves every
-document once. The result is immutable: its own fields are frozen, and every resolved
-value it hands out (``documents()``, ``document()``) is a fresh copy of any list or dict,
-so a caller that changes the value it was given never changes the labels:
+document once. What holds against change, and no more: the ``LabelSet`` dataclass is
+frozen, each document's ``fields`` and ``untrusted`` are read-only views, and every list or
+dict label value that ``documents()`` and ``document()`` hand out is a fresh copy, so a
+caller that changes a value it was given never changes the labels. The frozen models are
+not defended against a deliberate write through ``__dict__`` or ``object.__setattr__`` (a
+document with no list or dict value is handed out as the stored object itself), and
+``profile`` and the snapshot manifests (``source``, ``known_warnings`` entries) are plain
+objects, not deep-frozen. A ``DocumentLabels`` copies (``copy.copy``, ``copy.deepcopy``)
+and pickles; the ``LabelSet`` itself neither pickles nor deep-copies (its id index is a
+read-only view). Its surface:
 
 - ``snapshot_id``: the member snapshot ids, sorted and joined with ``+`` (deterministic,
   readable, and different for any other membership);
