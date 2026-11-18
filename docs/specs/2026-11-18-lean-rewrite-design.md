@@ -48,6 +48,7 @@ JJB added these on 2026-11-18, after the design was approved. They bind every pr
 **2. The CLI, the TUI and floor replay move into this repo.**
 
 - The sandbox's operator CLI capabilities, its TUI and the floor viewer with recorded replay are rolled in, reading the run record instead of sandbox run folders (launcher project, with the TUI as part of it).
+- The TUI starts from the TUI enhancements in `LLM-Mailroom-Services/mailroom-reloaded` (JJB, 2026-11-18) and is extended with every native sandbox CLI and TUI feature; the launcher project's plan inventories both before building.
 - The record must carry what the floor needs: node start and finish times, node status (running, done, paused, failed), step, stage, agent and model, document outcomes, and the run's terminal state, cursor and total. Project 1 stores these and provides a replay timeline built from the record that matches the sandbox's recorded-replay contract (`tui/floor_replay.py:build_timeline`), so any stored or imported run can be replayed on the floor.
 
 ## Goals, non-goals and anti-goals
@@ -334,7 +335,7 @@ The launcher is what the sandbox becomes: it starts runs and writes records, and
 - **It keeps:** the run spec, preflight, the spend gate with initials and caps, the price sheet check, the Modal and Compose deploy helpers, and the autoresearch loop as a driver that proposes the next policy.
 - **It hands to the Dojo:** run metrics, the archive gate and causes, specialist cards and grid cards, serving parity, schema adherence, the routing audit, and the autoresearch scoring and keep rule.
 - **It retires:** the study-specific report modules. Their tables become Dojo reports rebuilt from records.
-- **It takes over the operator surfaces:** the `sandbox` CLI capabilities, the TUI and the floor viewer with recorded replay, all reading the record (the replay timeline comes from the record package).
+- **It takes over the operator surfaces:** the `sandbox` CLI capabilities, the TUI and the floor viewer with recorded replay, all reading the record (the replay timeline comes from the record package). The TUI is based on the `mailroom-reloaded` TUI enhancements plus all native sandbox CLI and TUI features.
 
 | Backend | How it runs | What it adds to the record |
 | --- | --- | --- |
