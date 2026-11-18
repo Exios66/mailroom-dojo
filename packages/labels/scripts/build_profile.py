@@ -43,7 +43,7 @@ import yaml
 
 from mailroom_labels.importers.common import ImportRefused, file_sha256
 from mailroom_labels.importers.hub import SPLITS, load_hub_pins, parse_dataset_manifest, shard_path
-from mailroom_labels.profile import parse_profile
+from mailroom_labels.profile import load_unique_yaml, parse_profile
 from mailroom_labels.snapshot import load_snapshot
 
 CLIENT = "mailroom-dataset"
@@ -135,7 +135,10 @@ def _hub_facts(rows: list[dict[str, Any]]) -> tuple[dict[str, set[str]], dict[st
 
 
 def build(eda_dir: Path, eda_commit: str, hub_dir: Path, covers: list[Path], pinned: dict[str, str]) -> str:
-    registry = yaml.safe_load((eda_dir / FIELDS_YAML).read_text(encoding="utf-8"))
+    try:
+        registry = load_unique_yaml((eda_dir / FIELDS_YAML).read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:  # a repeated field or class would silently replace the first
+        raise BuildError(f"{FIELDS_YAML}: {exc}") from exc
     dojo = json.loads((eda_dir / DOJO_SCHEMAS).read_text(encoding="utf-8"))
     rows, hub_files = _hub_rows(hub_dir, pinned)
     subclasses, hub_labelled = _hub_facts(rows)

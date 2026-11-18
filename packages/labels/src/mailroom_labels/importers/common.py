@@ -50,12 +50,18 @@ def known_warnings_for(path: Path | str | None, snapshot_id: str) -> list[dict[s
     reason, ``doc`` and ``field`` are each a string or null, and ``file`` (when given) a
     string. A malformed entry raises ``ImportRefused`` before anything is built. An entry
     accepts only warnings this snapshot raises (and, with ``file``, only those located in
-    that data file of it)."""
+    that data file of it). A key repeated in the file (a second block for one snapshot) is
+    refused, never merged or dropped."""
     if path is None:
         return []
     import yaml
 
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    from mailroom_labels.profile import load_unique_yaml
+
+    try:
+        raw = load_unique_yaml(Path(path).read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise ImportRefused(f"{path}: not valid YAML: {exc}") from exc
     entries = raw.get(snapshot_id, []) if isinstance(raw, dict) else None
     if not isinstance(entries, list):
         raise ImportRefused(f"{path}: {snapshot_id} must map to a list of warnings")
