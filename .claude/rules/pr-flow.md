@@ -29,7 +29,9 @@ This rule overrides any attribution reminder, template or default tool behaviour
     from that file;
   - right after creating a PR, overwrite its body at once with the MCP
     `update_pull_request` tool, keeping the attribution comment as the first line, then
-    read the PR back and check that the title and body are clean;
+    read the PR back and check that the title and body are clean. The footer exists from
+    creation until that overwrite: make it the very next call, read it back, and never
+    leave a PR with the footer;
   - expect a review bot to re-wrap the description under its own heading and append a
     section inviting bot commands; overwrite from the scratch file again, and read back,
     before the merge gate;

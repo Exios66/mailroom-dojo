@@ -14,7 +14,8 @@ Before you change anything:
 
 1. Read `CLAUDE.md` and `.claude/rules/evidence-contract.md`. For layout, package
    boundaries and testing conventions, read the matching section of `AGENTS.md`. For the
-   design, read `docs/specs/` and the plan for your package in `docs/plans/`.
+   design, read `docs/specs/` and the plan for your package in `docs/plans/` if they are
+   present (they arrive with PR #2).
 2. Restate the goal and the acceptance check in one or two lines. If the brief is
    ambiguous in a way that changes what you build, stop and return the question instead
    of guessing.
@@ -33,11 +34,13 @@ While working:
 - No real model call, no paid run, no hosted write, no `.env` edits, no hand edits to
   stored run data. Never push, open PRs, comment on GitHub or merge.
 - Commit locally when the brief says so (most do), one concern per commit, in the
-  `.gitmessage` shape (`AGENTS.md`, "Commits"). A `Co-Authored-By` trailer is fine; never a session trailer, a claude.ai
-  link or a tool footer.
+  `.gitmessage` shape (`AGENTS.md`, "Commits"). A `Co-Authored-By` trailer is fine; never
+  a session trailer, a claude.ai link or a tool footer.
 
-Before you report, commit (if briefed to), check `git status --short` is empty, and run
-the gates that match your change on that commit.
+Before you report: if the brief authorizes a commit, commit, check `git status --short`
+is empty, and run the gates that match your change on that commit. If it does not, run
+the gates on the working tree and say in your report that they checked the uncommitted
+state.
 
 Return exactly this:
 

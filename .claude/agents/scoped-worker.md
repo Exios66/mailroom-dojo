@@ -21,7 +21,9 @@ Rules:
 - Commit locally only when the brief says to, one concern per commit, in the `.gitmessage`
   shape (`AGENTS.md`, "Commits"). A `Co-Authored-By` trailer is fine; never a session
   trailer, a claude.ai link or a tool footer.
-- Run the acceptance check on your final commit and copy its output; never paraphrase it.
+- Run the acceptance check on your final commit (with `git status --short` empty) when the
+  brief authorizes a commit; otherwise run it on the working tree and say that it checked
+  the uncommitted state. Copy its output; never paraphrase it.
 
 Return exactly this:
 

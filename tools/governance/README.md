@@ -10,8 +10,9 @@ installed or imported by `packages/`.
 | The PreToolUse hook that refuses a Bash, edit or GitHub tool call carrying a session link, session id or trailer, or a Claude Code footer | `.claude/hooks/no_session_links.py` |
 | The hook wiring and the allow, ask and deny lists | `.claude/settings.json` |
 
-Run them with the standard library, git, bash and pytest only (no network, no package
-install):
+Run them with Python 3.10 or later, the standard library, git, bash and pytest only (no
+network, no package install). The suite and the hooks run `python3` from `PATH`, so that
+interpreter must be 3.10 or later too:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python -m pytest tools/governance/tests -q --import-mode=importlib -p no:cacheprovider

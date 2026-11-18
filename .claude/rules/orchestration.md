@@ -35,7 +35,8 @@ minimum for anything that needs judgement, and every review runs on Opus.
 4. Do not delegate a lookup you can answer with one `Read` or `Grep`. Every subagent starts
    cold and re-reads context.
 5. Run independent subagents in parallel (one message, several calls) and dependent ones
-   in sequence.
+   in sequence. Parallel subagents that edit files and commit must each run in their own
+   worktree (`isolation: worktree`), so they never share a staging index.
 6. **Subagents never push, open or edit PRs, comment on GitHub, publish, merge, tag or run
    anything that spends money or writes to a hosted service.** Those stay with the
    orchestrator, and most need the owner's go-ahead (`.claude/rules/pr-flow.md`).

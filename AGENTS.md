@@ -375,13 +375,17 @@ job after opening the PR and after every body edit.
 - on `main`, it checks the commit at HEAD (the squash message) and, when HEAD is a merge
   commit, every commit that merge brought in (`git rev-list HEAD --not HEAD^1`). Older
   commits already on `main`, including ones pushed straight to it, are not re-checked;
-  on any other branch, every commit not on `origin/main`;
+  on any other branch, every commit not on `origin/main`. For each such commit it scans
+  the message and the lines the commit adds to files, so text added by one commit and
+  removed by a later one still fails (history keeps it);
 - every pull request CircleCI lists for the build (`CIRCLE_PULL_REQUESTS`, falling back
   to `CIRCLE_PULL_REQUEST`), title and description, through the GitHub API. The token is
   handed to `curl` on stdin, never on its command line;
-- every tracked text file.
+- every tracked text file in the final tree.
 
-It names offending commits, PRs and files and never prints the matched text, because CI
+A grep or `git grep` that errors, or reports read errors, is a failed scan, never a clean
+one. A link needs a host boundary after the domain, so a longer host name that merely
+starts with the domain passes. It names offending commits, PRs and files and never prints the matched text, because CI
 logs are public. Run it locally before every push. Its pattern is written with bracket
 letters so the script, the hook and these docs pass their own scan; keep it that way, and
 keep the hook's pattern in step (a test checks that they agree on a shared corpus).
@@ -484,8 +488,12 @@ and hooks), `.github/` (PR templates and contributing guide) and `tools/governan
 
 The hooks are guards against accidents, not security boundaries. `guard_paths.py` sees
 only the file path of `Edit`, `Write`, `MultiEdit` and `NotebookEdit`, so a Bash redirect,
-`sed -i`, `cp` or a script writes past it. `no_session_links.py` sees only the tool input,
+`sed -i`, `cp` or a script writes past it. It applies the repository-only rules in both
+the checkout the session started in (`CLAUDE_PROJECT_DIR`) and the checkout of the
+payload's `cwd` (its `git rev-parse --show-toplevel`), so a linked worktree is covered.
+`no_session_links.py` sees only the tool input,
 so it misses strings built at runtime and footers a tool appends on the server side; the
 overwrite-and-read-back step and the guard script are what catch those.
-`tools/governance/tests/test_settings.py` checks the matchers, the hook files and these
-lists.
+Claude Code searches each hook matcher as a regular expression, so the matchers in
+`settings.json` are anchored (`^(...)$`); `tools/governance/tests/test_settings.py`
+checks the matchers, the hook files and these lists.
