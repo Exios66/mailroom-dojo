@@ -1,5 +1,7 @@
-"""Shared pytest fixtures. Enable in a package's ``tests/conftest.py`` with
-``pytest_plugins = ["mailroom_common.pytest_plugin"]``.
+"""Shared pytest fixtures, loaded automatically: ``mailroom-common`` registers this module
+as a ``pytest11`` entry point, so any test run where the package is installed has them
+and no ``conftest.py`` needs a ``pytest_plugins`` line (pytest refuses that line outside
+the top-level conftest anyway).
 
 Fixtures:
 

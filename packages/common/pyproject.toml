@@ -16,6 +16,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest", "pytest-xdist", "hypothesis"]
 
+[project.entry-points.pytest11]
+# Loads the shared fixtures in every pytest run where mailroom-common is installed.
+mailroom_common = "mailroom_common.pytest_plugin"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

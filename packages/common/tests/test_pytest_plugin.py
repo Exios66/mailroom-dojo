@@ -1,31 +1,13 @@
-"""The shared fixtures, exercised the way another package uses them: a conftest that lists
-``mailroom_common.pytest_plugin`` in ``pytest_plugins``, run in a separate pytest process."""
+"""The shared fixtures, exercised the way another package uses them: a test directory with
+no conftest at all, run in a separate pytest process. The fixtures arrive through the
+``pytest11`` entry point that ``mailroom-common`` installs."""
 
 from __future__ import annotations
 
-import pytest
-
-CONFTEST = """
+import os
+import subprocess
 import sys
-import types
-from datetime import datetime
-
-pytest_plugins = ["mailroom_common.pytest_plugin"]
-
-try:
-    import mailroom_common.clock  # noqa: F401
-except ImportError:  # clock.py is written by another builder; stand in for it
-    class ManualClock:
-        def __init__(self, start: datetime) -> None:
-            self._now = start
-
-        def now(self) -> datetime:
-            return self._now
-
-    stub = types.ModuleType("mailroom_common.clock")
-    stub.ManualClock = ManualClock
-    sys.modules["mailroom_common.clock"] = stub
-"""
+from pathlib import Path
 
 TESTS = """
 import json
@@ -77,24 +59,57 @@ def test_root_level_restored_after_capture():
 """
 
 
-def test_fixtures_work_from_a_consumer_conftest(pytester: pytest.Pytester) -> None:
-    pytester.makeconftest(CONFTEST)
-    pytester.makepyfile(test_consumer=TESTS)
-    result = pytester.runpytest_subprocess("-q", "-p", "no:cacheprovider")
-    result.assert_outcomes(passed=6)
+def run_pytest(directory: Path) -> subprocess.CompletedProcess[str]:
+    """Run pytest on ``directory`` in a fresh interpreter with plug-in autoloading on."""
+    env = {key: value for key, value in os.environ.items() if not key.startswith("PYTEST_")}
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "--rootdir",
+            str(directory),
+            str(directory),
+        ],
+        cwd=directory,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
 
 
-def test_failing_fixture_use_is_reported_not_hidden(pytester: pytest.Pytester) -> None:
+def test_fixtures_resolve_without_any_conftest_line(tmp_path: Path) -> None:
+    (tmp_path / "test_consumer.py").write_text(TESTS, encoding="utf-8")
+    assert not list(tmp_path.rglob("conftest.py"))
+    result = run_pytest(tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "6 passed" in result.stdout
+
+
+def test_failing_fixture_use_is_reported_not_hidden(tmp_path: Path) -> None:
     """Positive control: the subprocess run really executes the assertions."""
-    pytester.makeconftest(CONFTEST)
-    pytester.makepyfile(
-        test_bad="""
+    (tmp_path / "test_bad.py").write_text(
+        """
 def test_fake_model_scripted_twice(fake_model):
     from mailroom_common.models import ChatMessage, ModelRequest
     request = ModelRequest(messages=[ChatMessage(role="user", content="x")], max_output_tokens=1)
     fake_model.complete(request)
-"""
+""",
+        encoding="utf-8",
     )
-    result = pytester.runpytest_subprocess("-q", "-p", "no:cacheprovider")
-    result.assert_outcomes(failed=1)
-    result.stdout.fnmatch_lines(["*ScriptExhaustedError*script exhausted: call 1 has no scripted reply*"])
+    result = run_pytest(tmp_path)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "1 failed" in result.stdout
+    assert "script exhausted: call 1 has no scripted reply" in result.stdout
+
+
+def test_plugin_is_registered_as_a_pytest11_entry_point() -> None:
+    from importlib.metadata import entry_points
+
+    (point,) = [ep for ep in entry_points(group="pytest11") if ep.name == "mailroom_common"]
+    assert point.value == "mailroom_common.pytest_plugin"
