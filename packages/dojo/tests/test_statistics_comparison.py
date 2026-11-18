@@ -302,6 +302,22 @@ def test_calibration_by_group_reads_numpy_confidences():
     assert groups["sorter"].auroc == 1.0
 
 
+def test_calibration_by_group_drops_out_of_range_float_confidences():
+    """A float confidence outside [0, 1] (1.2, -0.1, a percentage 85.0) is dropped, not scored."""
+    rows = [
+        ("judge", 0.9, True),
+        ("judge", 1.2, False),
+        ("judge", 0.2, False),
+        ("judge", -0.1, True),
+        ("judge", 85.0, False),
+        ("judge", 0.7, True),
+    ]
+    judge = calibration_by_group(rows)["judge"]
+    assert (judge.n, judge.dropped, judge.auroc) == (3, 3, 1.0)
+    in_range = calibration_by_group([rows[0], rows[2], rows[5]])["judge"]
+    assert judge.to_dict() == in_range.to_dict() | {"dropped": 3}
+
+
 # --- bad input -----------------------------------------------------------------
 
 
