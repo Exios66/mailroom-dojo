@@ -438,3 +438,35 @@ def test_building_into_a_directory_with_other_content_is_refused_untouched(tmp_p
     with pytest.raises(FileExistsError):
         write_snapshot(d, {"a.jsonl": ROWS_A}, **args)
     assert {p.relative_to(d).as_posix(): p.read_bytes() for p in d.rglob("*") if p.is_file()} == before
+
+
+def test_rows_are_parsed_from_the_bytes_that_were_verified(snap: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A file that changes right after a separate verification pass must never feed rows:
+    # the stream parses exactly the bytes it hashed.
+    import mailroom_labels.snapshot as snapshot_module
+
+    loaded = load_snapshot(snap)
+    original = [r.data for r in loaded.rows()]
+    real_facts = snapshot_module._file_facts
+
+    def facts_then_tamper(path: Path, *, parse: bool):
+        result = real_facts(path, parse=parse)
+        path.write_bytes(path.read_bytes().replace(b'"S0"', b'"XX"'))
+        return result
+
+    monkeypatch.setattr(snapshot_module, "_file_facts", facts_then_tamper)
+    yielded = []
+    try:
+        for row in loaded.rows():
+            yielded.append(row.data)
+    except ManifestMismatch:
+        pass  # refusing is fine; yielding a row that was never verified is not
+    assert all(r in original for r in yielded)
+
+
+def test_rows_split_lines_like_a_binary_file_read(tmp_path: Path) -> None:
+    from mailroom_labels.snapshot import _jsonl_lines
+
+    data = b'{"a": "x\\ry"}\n{"b": 1}\n'
+    assert _jsonl_lines(data) == list(__import__("io").BytesIO(data))
+    assert _jsonl_lines(b"x\ny") == [b"x\n", b"y"] and _jsonl_lines(b"") == []

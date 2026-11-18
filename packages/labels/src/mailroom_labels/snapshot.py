@@ -119,6 +119,13 @@ def _file_facts(path: Path, *, parse: bool) -> tuple[str, int, int]:
     return digest.hexdigest(), rows, size
 
 
+def _jsonl_lines(data: bytes) -> list[bytes]:
+    """The lines of a JSONL file as reading it in binary mode gives them (split on ``\\n``
+    only, each keeping its newline; a last line without one is kept as it is)."""
+    parts = data.split(b"\n")
+    return [part + b"\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
+
+
 def manifest_hash_of(manifest: Mapping[str, Any]) -> str:
     """``hash_obj`` of a manifest mapping with its ``manifest_hash`` key left out."""
     return hash_obj({k: v for k, v in manifest.items() if k != "manifest_hash"})
@@ -282,31 +289,25 @@ class LabelSnapshot:
         """
         for entry in self.manifest.files:
             path = self.directory / entry.path
-            # Verified again when the stream opens, so a consumer that stops early still
-            # never reads a file that changed after load_snapshot; the end-of-file check
-            # below catches a change while the file is being read.
+            # Read once, verify those bytes, then parse the same bytes: what is yielded is
+            # exactly what was hashed, so a change after load_snapshot (or during the read)
+            # is caught before any row of the file is yielded. Files are a few MB at most.
             try:
-                opened = _file_facts(path, parse=False)
+                data = path.read_bytes()
             except OSError as exc:
                 raise ManifestMismatch("missing", path, f"cannot read: {exc}") from exc
-            if opened[0] != entry.sha256 or opened[1] != entry.rows:
+            lines = _jsonl_lines(data)
+            if sha256(data).hexdigest() != entry.sha256 or len(lines) != entry.rows:
                 raise ManifestMismatch("changed", path, "file changed after it was verified")
-            digest = sha256()
-            line_no = 0
-            with path.open("rb") as fh:
-                for raw in fh:
-                    line_no += 1
-                    digest.update(raw)
-                    try:
-                        data = _parse_line(raw, path, line_no)
-                    except CorruptLine as exc:
-                        if on_corrupt is None:
-                            raise
-                        on_corrupt(exc)
-                        continue
-                    yield Row(entry.path, line_no, data)
-            if digest.hexdigest() != entry.sha256 or line_no != entry.rows:
-                raise ManifestMismatch("changed", path, "file changed after it was verified")
+            for line_no, raw in enumerate(lines, start=1):
+                try:
+                    row = _parse_line(raw, path, line_no)
+                except CorruptLine as exc:
+                    if on_corrupt is None:
+                        raise
+                    on_corrupt(exc)
+                    continue
+                yield Row(entry.path, line_no, row)
 
 
 def _read_manifest(directory: Path) -> SnapshotManifest:
