@@ -123,7 +123,9 @@ the owner's decisions, the rest are proposals.
 `tests/fixtures/measures/metric_directions.json`, and a test lints it against the id's
 words. `noise_floor` is unset (D7 measures it). The header of the file documents every
 column, reader and rule. `MetricTable.content_hash` is the sha256 of the table's canonical
-JSON form, so a run can record which table it was scored against.
+JSON form, so a run can record which table it was scored against; it is frozen with the
+table's `version` (2) in `tests/fixtures/measures/table_identity.json`, so a content change
+without a version bump fails a test.
 
 `tests/test_metric_table_parity.py` checks the table against
 `tests/fixtures/measures/old_metric_registry.json`, which

@@ -105,6 +105,7 @@ Plan: `docs/plans/2026-11-18-dojo-d2-measures-plan.md`.
 | The loader refuses a broken table at its path | `test_metric_table.py`: fault cases for every column, duplicate YAML keys, a `table_format` that is not an int (`1.0`, `true`), a noise floor too large for a float (`10**400`, raised `OverflowError` before), a `source` key that is not a non-empty string (`1` and `"1"` collapsed through `str()` before), the roster, default views and guards, label layers, pairing, alias, `same_as` and design ids; `check()` refuses a fractional count, an interval outside the unit range or not around the value, a negative value outside `utility`, and a measure filed under an alias |
 | Every live agent has a view; none for legacy or retired | `test_metric_table.py`: `test_every_live_agent_has_one_entry_and_no_legacy_or_retired_agent_has_one`, `test_no_default_or_guard_uses_a_directionless_or_dropped_metric`, `test_the_default_views_are_the_reviewed_ones` (views and roster against `fixtures/measures/default_views.json`); agent picks are read from the data, never named in code |
 | Directions are stated and frozen; names are only linted | `test_metric_directions.py`: every direction equals `fixtures/measures/metric_directions.json`; the whole-word name lint reports exactly the 49 reviewed exceptions; whole words only; keep-rule rows have a direction |
+| A content change bumps the version | `test_metric_table.py::test_the_version_and_content_hash_are_the_frozen_ones` against `fixtures/measures/table_identity.json` (version 2) |
 | One spelling per unit | `test_metric_table.py::test_the_unit_vocabulary_is_closed` |
 | Every column moves the content hash | `test_metric_table.py::test_every_column_is_part_of_the_hash` (one valid single-column edit each) and `test_the_canonical_form_writes_every_row_and_view_field` |
 | Label layers are the labels package's | `test_metric_table.py::test_label_layers_are_the_labels_package_layers_and_derived_gold` (skips without `mailroom_labels`) |
@@ -141,6 +142,7 @@ the file and prints its hash, turned the suite red.
 | a reviewed name-lint exception renamed | 1 failed |
 | "a non-numeric row has direction none and no pairing" removed | 4 failed (the four row faults) |
 | "a view or guard is a number" removed | 2 failed (the view and guard faults) |
+| a description edited without a version bump | 1 failed ("metrics.yaml changed ... but version is still 2") |
 | `INTENDED_PARITY_DIFFERENCES` emptied | 1 failed (`score.api`, `gpu_memory_used_gb`) |
 | "a run denominator has no pairing" removed from the loader | 2 failed (the two faults) |
 | `wrong_archive_rate` paired again with denominator gold | 3 failed (the reviewed run rows, the paired-row check, the "run denominator paired" fault) |

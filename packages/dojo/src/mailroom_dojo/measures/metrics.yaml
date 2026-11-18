@@ -7,7 +7,8 @@
 # `origin: golden` are metrics the old golden baseline (tests/fixtures/golden/scores.json)
 # emits that the old registry never listed. `load_metric_table()` reads and validates
 # this file; its content hash goes on every scorecard. Change a meaning only with an
-# entry in packages/dojo/docs/score-changelog.md, and bump `version` on every change.
+# entry in packages/dojo/docs/score-changelog.md, and bump `version` on every change (the
+# version and content hash are frozen in tests/fixtures/measures/table_identity.json).
 #
 # Columns (required unless a default is given):
 #   id            the old registry name, unchanged
@@ -150,7 +151,7 @@
 #   old_source    default null; the old function, relative to llm_dojo_scoring
 
 table_format: 1
-version: 1
+version: 2
 source:
   old_dojo_commit: "23f8234c3c548bdc203033388bb316e52e588a2c"
   old_dojo_version: "0.30.1"

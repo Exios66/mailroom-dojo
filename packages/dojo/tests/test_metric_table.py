@@ -51,10 +51,13 @@ def _row_index(raw: dict[str, Any], metric: str) -> int:
     return next(index for index, row in enumerate(raw["metrics"]) if row["id"] == metric)
 
 
+IDENTITY_PATH = Path(__file__).parent / "fixtures" / "measures" / "table_identity.json"
+
+
 def test_the_packaged_table_loads() -> None:
     table = load_metric_table()
     assert len(table.rows) >= 184
-    assert table.version == 1
+    assert table.version >= 2
     assert len(table.content_hash) == 64 and int(table.content_hash, 16) >= 0
     assert "f1_macro" in table and "not_a_metric" not in table
 
@@ -66,6 +69,22 @@ def test_the_hash_is_the_canonical_form_hash_and_is_stable(tmp_path: Path) -> No
     copy_path.write_text(PACKAGED_TEXT, encoding="utf-8")
     assert load_metric_table(copy_path).content_hash == table.content_hash
     assert load_metric_table(_raw()).content_hash == table.content_hash
+
+
+def test_the_version_and_content_hash_are_the_frozen_ones() -> None:
+    """A content change moves the hash; it must come with a version bump and a fixture refresh."""
+    import json
+
+    frozen = json.loads(IDENTITY_PATH.read_text(encoding="utf-8"))
+    table = load_metric_table()
+    if table.content_hash != frozen["content_hash"]:
+        assert table.version > frozen["version"], (
+            f"metrics.yaml changed (hash {table.content_hash}) but version is still {table.version}: "
+            "bump version, then refresh fixtures/measures/table_identity.json"
+        )
+    assert (table.version, table.content_hash) == (frozen["version"], frozen["content_hash"]), (
+        "refresh fixtures/measures/table_identity.json with the new version and content hash"
+    )
 
 
 def test_comments_and_key_order_do_not_change_the_hash() -> None:
@@ -89,7 +108,7 @@ def test_writing_a_default_explicitly_does_not_change_the_hash() -> None:
     "edit",
     [
         lambda raw: raw["metrics"][0].__setitem__("description", raw["metrics"][0]["description"] + "."),
-        lambda raw: raw.__setitem__("version", 2),
+        lambda raw: raw.__setitem__("version", raw["version"] + 1),
         lambda raw: raw["metrics"].reverse(),
         lambda raw: raw["metrics"][0].__setitem__("noise_floor", 0.01),
         lambda raw: raw["default_views"][CONFIRMED_AGENT].__setitem__("source", "another source"),

@@ -244,6 +244,11 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   class accuracy, wrong-accept and routed-to-review rates (the old ids and the `_vs_gold` row)
   were paired; they now carry a `pairing_note`, and D7 builds the resample. No value
   changes; only how two runs' values may be compared.
+- **The table is `version: 2`.** Its content changed after version 1 (the `_vs_gold` rows,
+  the restored decision rows, the `denominator` column and the pairing notes above), so the
+  version moved with it. The version and content hash are frozen in
+  `tests/fixtures/measures/table_identity.json`; a test fails when the hash moves, and says
+  so when the version did not.
 - **27 planned design rows** (`origin: design`, ids `dojo:<id>`) add numbers the old Dojo never
   had; none changes an old number. Eight of them are the `_vs_gold` rows above.
 
