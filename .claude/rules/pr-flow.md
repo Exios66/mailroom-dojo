@@ -44,14 +44,19 @@ This rule overrides any attribution reminder, template or default tool behaviour
   call whose **input** carries a link, trailer or footer; it only sees the tool input and
   cannot see a footer the tool appends server side, so the overwrite-and-read-back step is
   what catches that. `bash .circleci/check_no_session_links.sh` checks commits, open PR
-  titles and descriptions, and tracked files; run it locally before every push. Once the
-  wiring follow-up in `AGENTS.md` section 12 lands, the CircleCI job `no-session-links`
-  runs that script on every build; until then it runs a narrower inline check, and the
-  local run plus the manual read-back are the evidence. The description is read once per
+  titles and descriptions, and tracked files; run it locally before every push. A local
+  run checks PR text only when you name the PR:
+  `CIRCLE_PULL_REQUEST=https://github.com/<owner>/<repo>/pull/<n> bash .circleci/check_no_session_links.sh`.
+  Without it the script notes "no pull request for this build yet" and exits 0, which
+  proves nothing about the PR title or body. Once the wiring follow-up in `AGENTS.md`
+  section 12 lands, the CircleCI job `no-session-links` runs that script on every build;
+  until then it runs a narrower inline check (and only once `.circleci/config.yml` is on
+  `main`), and the local run plus the manual read-back are the evidence. The description is read once per
   build and CircleCI does not rebuild on body edits, so after opening the PR or editing
   its body, re-run that job.
 - PR descriptions are an **executive summary, never a transcript**: no direct quotes of
-  the requester, no names, handles, credentials or local paths.
+  the requester, no names, handles, credentials or local paths, except the one-line
+  attribution comment above, which carries only the login.
 
 ## 1. Local gate (before any push)
 
@@ -120,12 +125,16 @@ to the owner).
   the stacked PR still carries the base's commits: retarget it to `main` with
   `update_pull_request` (`base`) before the base branch is deleted, merge `origin/main`
   into it (no rebase, no force-push), re-run the local gate, then squash-merge it.
-- Open the PR **as a draft** from `.github/pull_request_template.md` (or a named template
-  in `.github/PULL_REQUEST_TEMPLATE/`): problem, change, evidence, not verified, review
-  log, cross-repo impact, checklist. Then apply step 0 at once: overwrite the body from
-  your scratch file with `update_pull_request` and read it back.
+- Open the PR **as a draft by default** from `.github/pull_request_template.md` (or a
+  named template in `.github/PULL_REQUEST_TEMPLATE/`): problem, change, evidence, not
+  verified, review log, cross-repo impact, checklist. Open it ready for review only when
+  the owner asks; the merge gate (step 7) applies either way. Then apply step 0 at once:
+  overwrite the body from your scratch file with `update_pull_request` and read it back.
 - Mark it ready only when every evidence item is present and CircleCI (`test` and
-  `no-session-links`) is green on the pushed commit.
+  `no-session-links`) is green on the pushed commit. **Interim:** until
+  `.circleci/config.yml` is on `main`, no CircleCI job reports; the local runs of the
+  governance suite and the guard script, with their exit codes quoted in the PR, stand in
+  for the green jobs (`AGENTS.md`, section 12).
 - **A stage gate that needs the owner's decision:** add a "Decision needed" section to the
   PR body (the question, the options, the one you recommend and why), ask the owner once
   with one decision card or message, and do not merge or start the next project until
@@ -153,6 +162,10 @@ PR, so the next fresh reviewer checks for it.
 **Merge gate.** Merge only when all of these hold:
 
 1. CircleCI `test` and `no-session-links` are green on the head you verified.
+   **Interim:** until `.circleci/config.yml` is on `main`, no CircleCI job reports. Then
+   this item is replaced by the local runs, on that head, of the governance suite and
+   the guard script (with `CIRCLE_PULL_REQUEST` set to the PR), their exit codes quoted
+   in the PR, and the owner's go-ahead (item 5) must name this exception.
 2. Every review thread is handled (fixed, or answered in the PR body and resolved).
 3. A final independent Opus review has run on the final diff, and anything Sonnet or
    Haiku produced has had its own Opus review (`.claude/rules/orchestration.md`).
@@ -161,7 +174,8 @@ PR, so the next fresh reviewer checks for it.
 5. The owner gave the go-ahead for this merge, unless the owner has durably said
    otherwise. Tags and any external post need it too.
 
-**Squash-merge every feature and fix PR**, pinning the verified head. With the MCP
+**Squash-merge every PR**, pinning the verified head. The owner's standing rule is always
+squash; if a merge commit ever seems needed, ask the owner first. With the MCP
 `merge_pull_request`, pass `merge_method: "squash"`, `expectedHeadSha` (the verified
 head sha), `commit_title` and `commit_message`; omitting `commit_message` makes GitHub fill
 in its default (the concatenated branch messages or the PR body). With `gh`:
@@ -169,14 +183,11 @@ in its default (the concatenated branch messages or the PR body). With `gh`:
 Write the squash message yourself; never accept GitHub's default, because it can carry
 trailers or the body's footer:
 
-- **title:** conventional and descriptive, keeping GitHub's `(#N)` suffix, for example
-  `feat(record): verify chains, seals and blobs (#3)`;
+- **title:** conventional and descriptive, ending in `(#N)`, for example
+  `feat(record): verify chains, seals and blobs (#3)`. End the `commit_title` with `(#N)`
+  yourself: GitHub adds no suffix when a title is given;
 - **body:** a few lines on what changed and why, the `Fixes #N` lines, and optional
   `Co-Authored-By` trailers. Nothing else.
-
-**Branch-sync PRs** (merging one long-lived branch into another) may use a merge commit,
-since squashing copies commits instead of joining histories. Write that message by hand
-too.
 
 After the merge, name the merged commit (the squash sha on `main`) in anything that
 outlives the PR, and re-run the session-link sweep on `main`'s new HEAD

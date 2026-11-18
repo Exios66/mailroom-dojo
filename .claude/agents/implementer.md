@@ -32,12 +32,12 @@ While working:
   call time.
 - No real model call, no paid run, no hosted write, no `.env` edits, no hand edits to
   stored run data. Never push, open PRs, comment on GitHub or merge.
-- Commit locally, one concern per commit, in the `.gitmessage` shape (`AGENTS.md`,
-  "Commits"). A `Co-Authored-By` trailer is fine; never a session trailer, a claude.ai
+- Commit locally when the brief says so (most do), one concern per commit, in the
+  `.gitmessage` shape (`AGENTS.md`, "Commits"). A `Co-Authored-By` trailer is fine; never a session trailer, a claude.ai
   link or a tool footer.
 
-Before you report, commit, check `git status --short` is empty, and run the gates that
-match your change on that commit.
+Before you report, commit (if briefed to), check `git status --short` is empty, and run
+the gates that match your change on that commit.
 
 Return exactly this:
 

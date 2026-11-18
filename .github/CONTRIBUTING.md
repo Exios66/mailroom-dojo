@@ -27,14 +27,16 @@ This workspace replaces three older repositories with packages around one run re
 
 ## Writing the PR
 
-- **Open it as a draft, and mark it ready when the gate is met**: every evidence item
-  present and CircleCI green on the pushed commit (`.claude/rules/pr-flow.md`, step 4).
+- **Open it as a draft by default, and mark it ready when the gate is met**: every
+  evidence item present and CircleCI green on the pushed commit
+  (`.claude/rules/pr-flow.md`, step 4). Open it ready for review only when the owner
+  asks; the merge gate applies either way.
 - Use the default template, or a named one in `.github/PULL_REQUEST_TEMPLATE/`
   (`docs.md` for specs, plans and ADRs; `stage-gate.md` for a stage gate). Add
   `?template=docs.md` to the new-PR URL to pick one.
 - Write an **executive summary, never a transcript**: no direct quotes of the requester,
-  no names, handles, credentials or local paths, and no document text. This repository
-  is public.
+  no names, handles, credentials or local paths (except the one-line attribution comment,
+  which carries only the login), and no document text. This repository is public.
 - Fill in Evidence with the commit sha and raw output, Not verified, the Review log (with
   the model and effort of each review) and Cross-repo impact ("none" needs a reason).
 - **No session links, ever.** No claude.ai link, session trailer or Claude Code footer in
@@ -44,7 +46,7 @@ This workspace replaces three older repositories with packages around one run re
   (MCP `update_pull_request`), read it back, and do not post comments from those
   sessions. `bash .circleci/check_no_session_links.sh` checks commits, PR text and
   tracked files; once the wiring follow-up in `AGENTS.md` section 12 lands, CircleCI's
-  `no-session-links` job runs it on every build (re-run it after editing a PR body).
+  `no-session-links` job runs it on every build (re-run it after editing a PR body). A local run checks PR text only when you name the PR: `CIRCLE_PULL_REQUEST=https://github.com/<owner>/<repo>/pull/<n> bash .circleci/check_no_session_links.sh`. Without it the script prints "no pull request for this build yet" and exits 0, which proves nothing about the PR title or body.
 
 ## Merging
 
@@ -53,13 +55,19 @@ This workspace replaces three older repositories with packages around one run re
   governance tests; the local runs above are the evidence.
   No linter or type checker is configured yet: say "not configured" rather than claiming
   one passed.
+- **Interim:** until `.circleci/config.yml` is on `main`, no CircleCI job reports. Then
+  "both jobs green" is replaced by the local runs of the governance suite and the guard
+  script on the verified head, with exit codes quoted in the PR, and the owner's go-ahead
+  must name this exception (`AGENTS.md`, section 12). The governance PR merges
+  independently of PRs #1 to #3 (no overlapping files); the wiring follow-up comes after.
 - Merge only when both jobs are green on the verified head, every review thread is
   handled, a final independent review has run, a final sweep for session links is clean,
   and the owner has given the go-ahead (unless the owner has durably said otherwise).
 - **Squash-merge** with a hand-written title (`type(scope): summary (#N)`) and body (what
   and why, `Fixes #N`, optional `Co-Authored-By`). Never accept GitHub's concatenated
-  default or the PR body as the message. Pin the verified head sha. Branch-sync PRs may
-  use a merge commit.
+  default or the PR body as the message. End the title with `(#N)` yourself (GitHub adds
+  no suffix when a title is given). Pin the verified head sha. Always squash; if a merge
+  commit ever seems needed, ask the owner.
 - Never force-push or rewrite pushed history. For a stacked PR, retarget it to `main`
   after its base merges, merge `origin/main` into it and re-run the gates
   (`.claude/rules/pr-flow.md`, step 4).

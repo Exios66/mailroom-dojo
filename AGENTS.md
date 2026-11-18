@@ -223,7 +223,10 @@ The full flow is `.claude/rules/pr-flow.md`. The points that matter most:
   `.github/PULL_REQUEST_TEMPLATE/stage-gate.md` for a project stage gate.
   `.github/CONTRIBUTING.md` is the one-page guide.
 - **Executive summary, never a transcript:** no direct quotes of the requester, no names,
-  handles, credentials, local paths or document text.
+  handles, credentials, local paths or document text, except the one-line attribution
+  comment below, which carries only the login.
+- **Drafts:** open PRs as drafts by default; open one ready for review only when the owner
+  asks. The merge gate applies either way.
 - **Session links:** none, anywhere. In cloud sessions the PR and comment tools append a
   footer with a session link on the server side, after any hook has seen the input. So
   keep the PR body in a scratch file, overwrite a new PR body at once from that file with
@@ -238,11 +241,13 @@ The full flow is `.claude/rules/pr-flow.md`. The points that matter most:
   and never reply to a bot by comment.
 - **Merge gate:** CircleCI `test` and `no-session-links` green on the verified head, every
   review thread handled, a final independent Opus review, a clean final sweep for session
-  links, and the owner's go-ahead (unless the owner has durably said otherwise).
+  links, and the owner's go-ahead (unless the owner has durably said otherwise). Until `.circleci/config.yml` is on `main` no CircleCI job reports, so gate item 1 is replaced by the local runs of the governance suite and the guard script, with their exit codes quoted in the PR, and the owner's go-ahead must name this exception. (Section 12.)
 - **Squash-merge** with a hand-written title (`type(scope): summary (#N)`) and body (what,
   why, `Fixes #N`, optional `Co-Authored-By`), pinned to the verified head sha: pass
   `commit_title` and `commit_message` explicitly, so neither GitHub's default nor the PR
-  body becomes the squash message. Branch-sync PRs may use a merge commit.
+  body becomes the squash message. End `commit_title` with `(#N)` yourself: GitHub adds
+  no suffix when a title is given. Always squash; if a merge commit ever seems needed, ask
+  the owner first.
 - **Never force-push** or rewrite pushed history. Deleting a PR's branch or emptying it
   closes the PR, and a closed PR whose head was force-pushed has not been reopenable here;
   open a replacement instead.
@@ -325,10 +330,20 @@ not run the governance tests.** Until then the evidence is a local
 `bash .circleci/check_no_session_links.sh` run (exit 0) on the final commit and a manual
 read-back of the PR title and body after the last edit.
 
+**Interim merge gate.** `.circleci/config.yml` is not on `main` yet (nor on the governance
+branch), so for a PR merged before it lands no CircleCI job reports at all. For such a PR,
+merge-gate item 1 (CircleCI green) is replaced by the local runs, on the verified head, of
+`PYTHONDONTWRITEBYTECODE=1 python -m pytest tools/governance/tests -q --import-mode=importlib -p no:cacheprovider`
+and `CIRCLE_PULL_REQUEST=<the PR's URL> bash .circleci/check_no_session_links.sh`, with
+their exit codes quoted in the PR, and the owner's go-ahead must name this exception. The
+other gate items still hold.
+
+A local run checks PR text only when you name the PR: `CIRCLE_PULL_REQUEST=https://github.com/<owner>/<repo>/pull/<n> bash .circleci/check_no_session_links.sh`. Without it the script prints "no pull request for this build yet" and exits 0, which proves nothing about the PR title or body.
+
 ### Merge order and the wiring follow-up
 
 The governance PR touches no file that PR #1, #2 or #3 touch (checked with
-`git diff --name-only` on each), so it can merge before or after them. Once it and PR #2
+`git diff --name-only` on each), so it merges independently of them, before or after. Once it and PR #2
 are both on `main`, one small follow-up PR comes next:
 
 1. Replace the inline `no-session-links` step with
@@ -435,23 +450,37 @@ and hooks), `.github/` (PR templates and contributing guide) and `tools/governan
 
 - **allow** read-only git (`status`, `diff`, `log`, `show`, `rev-parse`, `ls-files`,
   branch listing), the governance tests and the guard script. `git grep` and `git fetch`
-  are not on the list (they prompt), and the flags that read past the deny rules or run
-  commands (`--no-index`, `--output`, `-O`, `--open-files-in-pager`, `--upload-pack`) are
-  denied on every git command.
+  are not on the list (they prompt). The flags that read past the deny rules, write files
+  or run commands are denied per command: `git grep` with `-O` or
+  `--open-files-in-pager`, `git diff`, `git log` or `git show` with `--output`,
+  `git diff --no-index`, and `--upload-pack` on any git command.
+- **These rules are an accident guard, not a sandbox.** Patterns match the command text,
+  so other spellings get through: `git diff /dev/null .env`, for example, still prints a
+  file (even one outside the tree) past the `--no-index` and `.env` read denies. Never
+  use such a form on purpose.
 - **ask** before push, tag, merge, rebase, `gh` PR and release commands, `gh api`, Docker
   Compose, and the MCP tools that merge, enable auto-merge or write files straight to a
   branch (`merge_pull_request`, `enable_pr_auto_merge`, `push_files`,
   `create_or_update_file`, `delete_file`), since those skip the local gate and signing.
-  `create_pull_request` and `update_pull_request` are left alone: the flow needs
-  `update_pull_request` to overwrite a body.
-- **deny** force-pushes, remote branch deletes, tag deletes, signing bypass, `gh` comment
-  and review commands, the MCP comment and review tools (`add_issue_comment`,
+  It also asks before `mcp__github__issue_write` and before any command carrying
+  `--real` or `--live` (an ask rather than a deny, so a commit message that mentions the
+  flags still works). `create_pull_request` and `update_pull_request` are left alone: the
+  flow needs `update_pull_request` to overwrite a body.
+- **deny** force-pushes, remote branch deletes, tag deletes, signing bypass
+  (`--no-gpg-sign`, `git -c commit.gpgsign=…` and `git config … commit.gpgsign …`, in the
+  `gpgsign`, `gpgSign` and `GPGSIGN` spellings, and the same for `tag.gpgsign`), `gh`
+  comment and review commands, the MCP comment and review tools (`add_issue_comment`,
   `add_reply_to_pull_request_comment`, `add_comment_to_pending_review`,
   `pull_request_review_write`, `update_issue_comment`; the server appends a footer with a
-  session link that no hook can see), paid and hosted-write commands, and reading the
+  session link that no hook can see) under the two GitHub server prefixes seen so far
+  (`mcp__github__` and `mcp__plugin_engineering_github__`), paid and hosted-write
+  commands, and reading the
   named secrets files (`.env`, `.env.local`, `.env.production`, `.env.development`,
   `.env.test`, at the root and in any folder). `.env.example` stays readable with the
-  normal tools.
+  normal tools. Permission rules name MCP tools exactly, so a GitHub server under another
+  prefix is not covered: add its names here when one appears. Other key spellings
+  (for example `commit.GpgSign`) are not covered either; git keys are case-insensitive,
+  globs are not.
 
 The hooks are guards against accidents, not security boundaries. `guard_paths.py` sees
 only the file path of `Edit`, `Write`, `MultiEdit` and `NotebookEdit`, so a Bash redirect,

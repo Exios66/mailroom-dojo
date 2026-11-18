@@ -39,7 +39,7 @@ run), so a wrong number here becomes a wrong number in every report built on it.
 | Package boundaries hold | The package's boundary test (for the record package, `packages/record/tests/test_boundaries.py`, after PR #2 merges) passes. |
 | Docs are true | Every path, count and command named exists, was run (paste the result) or is marked unverified. |
 | Stage gate met | Numbers from the stored runs, produced by the gate script, with the method, the sample size and the commit; the report under `docs/reports/` is written by that script, never by hand. |
-| No session links | `bash .circleci/check_no_session_links.sh` on the final commit (exit 0) and the PR title and body read back after the last edit. Once the wiring follow-up in `AGENTS.md` section 12 lands, also the CircleCI `no-session-links` job green on the head, re-run after the last body edit; until then that job runs a narrower inline check and is not this evidence. |
+| No session links | `CIRCLE_PULL_REQUEST=<the PR's URL> bash .circleci/check_no_session_links.sh` on the final commit (exit 0; without the variable the PR text is not checked) and the PR title and body read back after the last edit. Once the wiring follow-up in `AGENTS.md` section 12 lands, also the CircleCI `no-session-links` job green on the head, re-run after the last body edit; until then that job runs a narrower inline check and is not this evidence. |
 | Config or policy change | The run spec or policy hash before and after, and the tests or mock run that read it. |
 | Cross-repo impact | Which older repo or downstream user is affected and whether it needs a follow-up. "None" is a claim too: say why. |
 

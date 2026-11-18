@@ -24,7 +24,7 @@ Commit: `<short sha>`
 |:---|:---|:---|
 | `<path or command>` | yes / marked "(after PR #N merges)" / marked unverified | `<command and result>` |
 
-- **Session links:** `bash .circleci/check_no_session_links.sh` -> `<exit code>`; title and body read back after the last edit
+- **Session links:** `CIRCLE_PULL_REQUEST=<this PR's URL> bash .circleci/check_no_session_links.sh` -> `<exit code>`; title and body read back after the last edit
 - **Layout map:** every new folder has a line in the README map (or "no new folder")
 
 ## Decisions left to the owner

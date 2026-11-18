@@ -24,7 +24,7 @@ trailer or tool footer anywhere (.claude/rules/pr-flow.md).
 Commit: `<short sha>`
 Gate script: `<command>` -> `<exit code>`
 Report: `docs/reports/<kind>/<file>` (written by the script)
-Session links: `bash .circleci/check_no_session_links.sh` -> `<exit code>`; title and body read back after the last edit
+Session links: `CIRCLE_PULL_REQUEST=<this PR's URL> bash .circleci/check_no_session_links.sh` -> `<exit code>`; title and body read back after the last edit
 
 <details><summary>Raw gate output</summary>
 

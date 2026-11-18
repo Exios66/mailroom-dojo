@@ -74,8 +74,8 @@ type cleanliness, and do not add one inside an unrelated PR.
   not post comments from those sessions (the MCP comment tools are denied;
   `.claude/rules/pr-flow.md`, step 0).
 - **CircleCI is the only CI.** No GitHub Actions workflows.
-- **Squash-merge** every feature and fix PR with a hand-written title and body, pinned to
-  the verified head. Never accept GitHub's concatenated default. Merge only through the
+- **Squash-merge** every PR (always; ask the owner before any merge commit) with a
+  hand-written title and body, pinned to the verified head. Never accept GitHub's concatenated default. Merge only through the
   merge gate in `pr-flow.md`, and only with the owner's go-ahead unless the owner has
   durably said otherwise. Never force-push or rewrite pushed history.
 - **No real model call in any test.** Prefer mock and `--check` modes. Paid runs, real
@@ -96,7 +96,8 @@ type cleanliness, and do not add one inside an unrelated PR.
   never real documents, names, tokens or local paths. Logs and exports carry our own
   tokens, never document or model free text.
 - PR descriptions are an executive summary, never a transcript: no direct quotes of the
-  requester, no names, handles or credentials.
+  requester, no names, handles or credentials (except the one-line attribution comment,
+  which carries only the login).
 
 ## Do not hand-edit (a hook blocks these)
 
@@ -106,9 +107,9 @@ type cleanliness, and do not add one inside an unrelated PR.
   The record is append-only; write it only through `mailroom_record`.
 - `docs/reports/` and any `docs/**/*gate-report.md`: gate reports are written by scripts.
 
-The hook is a guard against accidents, not a security boundary: it sees only the edit tools' file
-path, so a Bash redirect, `sed -i` or a script writes past it. Those are equally
-forbidden. Likewise `no_session_links.py` sees only tool input and cannot catch a string
+The hook is a guard against accidents, not a security boundary: it sees only the edit
+tools' file path, so a Bash redirect, `sed -i` or a script writes past it. Those are
+equally forbidden. Likewise `no_session_links.py` sees only tool input and cannot catch a string
 built at runtime or a footer a tool appends server side (`AGENTS.md`, section 14).
 
 Not hook-enforced but equally binding: a committed label snapshot is never edited in place

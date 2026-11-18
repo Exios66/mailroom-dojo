@@ -39,8 +39,9 @@ minimum for anything that needs judgement, and every review runs on Opus.
 6. **Subagents never push, open or edit PRs, comment on GitHub, publish, merge, tag or run
    anything that spends money or writes to a hosted service.** Those stay with the
    orchestrator, and most need the owner's go-ahead (`.claude/rules/pr-flow.md`).
-7. Subagents that change files commit locally, one concern per commit, in the `.gitmessage`
-   shape. Reviewers commit nothing. Nobody rewrites pushed history.
+7. Subagents that change files commit locally only when the brief says so (most briefs
+   do), one concern per commit, in the `.gitmessage` shape. Reviewers commit nothing.
+   Nobody rewrites pushed history.
 
 ## Mind the usage budget
 

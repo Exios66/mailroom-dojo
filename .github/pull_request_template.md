@@ -23,11 +23,11 @@ See .claude/rules/evidence-contract.md. Quote real output; trim with … ; long 
 Commit: `<short sha>`
 
 - **Tests:** `<each touched package's suite>` -> `<summary line>`
-- **Governance guards:** `python -m pytest tools/governance/tests -q --import-mode=importlib` -> `<summary line>`
+- **Governance guards:** `PYTHONDONTWRITEBYTECODE=1 python -m pytest tools/governance/tests -q --import-mode=importlib -p no:cacheprovider` -> `<summary line>`
 - **Regression test (bug fixes):** `<test name>` fails before, passes after
 - **Failure detection (R8):** `<the deliberate mutation or injected fault, and the test that went red>`
 - **Lint and types:** not configured in this repository
-- **Session links:** `bash .circleci/check_no_session_links.sh` -> `<exit code>`; title and body read back after the last edit
+- **Session links:** `CIRCLE_PULL_REQUEST=<this PR's URL> bash .circleci/check_no_session_links.sh` -> `<exit code>`; title and body read back after the last edit
 
 <details><summary>Raw output</summary>
 

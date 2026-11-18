@@ -36,7 +36,8 @@ Work through:
    in the layout map.
 7. **Leaks:** no claude.ai link, session trailer or tool footer in any commit message in
    the range, the PR title or body, or a tracked file. Run
-   `bash .circleci/check_no_session_links.sh` (it fetches `origin/main`). No document
+   `bash .circleci/check_no_session_links.sh` (it fetches `origin/main`; it checks PR text
+   only with `CIRCLE_PULL_REQUEST` set to the PR's URL). No document
    text, names, handles, credentials or local paths in the PR description or evidence.
 8. **The PR description:** is it an executive summary, not a transcript? Does the evidence
    prove the original problem is solved, on the stated commit? Is "Not verified" honest?
