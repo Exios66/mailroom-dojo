@@ -331,6 +331,20 @@ def test_redacts_credential_shapes_in_text(text: str, expected: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('https://password2://x"u@h', f"https://{REDACTED}@h"),
+        ('see https://token://a"b@host', f"see https://{REDACTED}@host"),
+    ],
+)
+def test_masks_that_expose_a_new_shape_settle_in_one_call(text: str, expected: str) -> None:
+    # Masking the key=value pair removes the "//" that ended the URL authority, which
+    # exposes userinfo; one call must reach the settled form, or a second call changes it.
+    assert redact_text(text) == expected
+    assert redact_text(expected) == expected
+
+
+@pytest.mark.parametrize(
     "text",
     [
         "key-value store",
