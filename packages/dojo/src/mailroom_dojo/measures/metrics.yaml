@@ -16,10 +16,18 @@
 #                 old metric_meta.py); ground_truth null = the old registry left it unset
 #   agents        as the old registry wrote them; family tokens expand through
 #                 agent_families below (the old roster, frozen)
-#   direction     higher | lower | none. New here: the old registry did not state it.
-#                 Each value follows from the definition (a share right is higher; an
-#                 error, risk, wrong-decision rate, cost or latency is lower); none
-#                 where the definition names no better direction (counts, tags, mixes).
+#   direction     higher | lower | none. New here: the old registry did not state it,
+#                 so every value is derived, owner to confirm. The rule, in order: an
+#                 explicit override; unit error_rate or a lower-is-better word in the id
+#                 (error, wrong, false_, violation, wasted, upper, ece, brier, latency,
+#                 seconds, cost, usd, _p50, _p95) -> lower; a higher-is-better word
+#                 (accuracy, f1, f2, precision, recall, completeness, similarity,
+#                 coverage, per_second) -> higher; else none. none is for descriptive
+#                 behaviour rates and resource readings (audit, intake and routing rates,
+#                 token counts, GPU readings). All 193 values and the overrides, with
+#                 their reasons, are frozen in tests/fixtures/measures/metric_directions.json
+#                 (tests/test_metric_directions.py). A row the keep rule reads needs a
+#                 direction other than none (the loader refuses it).
 #   headline      true exactly for the old tier-0 metrics (tiers are gone)
 #   metric_id     the old canonical comparison id (docs/contracts/METRIC_IDS.md), else
 #                 registry:<id>, as the old emitter stamped it

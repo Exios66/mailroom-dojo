@@ -170,6 +170,11 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
     ("unknown reader", _set("f1_macro", "readers", ["dashboard"]), "(f1_macro).readers[0]: 'dashboard'"),
     ("reader twice", _set("schema_valid", "readers", ["run_report", "run_report"]), "lists a reader twice"),
     ("bad pairing", _set("f1_macro", "pairing", "paired_t"), "(f1_macro).pairing"),
+    (
+        "keep rule without direction",
+        _set("extraction_overall_score", "direction", "none"),
+        "(extraction_overall_score).direction: a metric the keep rule reads needs a direction",
+    ),
     ("negative noise floor", _set("f1_macro", "noise_floor", -0.1), "(f1_macro).noise_floor"),
     ("nan noise floor", _set("f1_macro", "noise_floor", float("nan")), "(f1_macro).noise_floor"),
     ("bool noise floor", _set("f1_macro", "noise_floor", True), "(f1_macro).noise_floor"),

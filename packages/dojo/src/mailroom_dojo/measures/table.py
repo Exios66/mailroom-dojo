@@ -435,6 +435,9 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
         raise _fail(
             f"{path}.readers", f"a {status} metric names the gate, report or projection that reads it"
         )
+    direction = str(_choice(spec["direction"], DIRECTIONS, f"{path}.direction"))
+    if "keep_rule" in readers and direction == "none":
+        raise _fail(f"{path}.direction", "a metric the keep rule reads needs a direction (higher or lower)")
     noise_floor = spec["noise_floor"]
     if noise_floor is not None and (
         isinstance(noise_floor, bool)
@@ -450,7 +453,7 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
         id=metric,
         description=_string(spec["description"], f"{path}.description"),
         unit=str(_choice(spec["unit"], UNITS, f"{path}.unit")),
-        direction=str(_choice(spec["direction"], DIRECTIONS, f"{path}.direction")),
+        direction=direction,
         aggregation=str(_choice(spec["aggregation"], AGGREGATIONS, f"{path}.aggregation")),
         agents=agents,
         expanded_agents=expanded,
