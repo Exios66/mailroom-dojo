@@ -18,6 +18,7 @@ from record_testkit import (
     append_more,
     check_chains,
     hand_line,
+    run_fields,
     seal_in_child,
     slow_segment_reads,
     start_handoff_workers,
@@ -836,3 +837,97 @@ def test_damaged_column_file_is_rebuilt(store_with_events: SimpleNamespace, dama
     assert rows(store, which) == want
     assert verify_run(store.log, store.blobs, "r1").problems == []
     assert not list((store.root / "runs/r1/columns").glob("*.tmp"))
+
+
+# --- fix pass 2: what a seal relies on is durable, cheap and of this run ------------------
+
+
+def test_a_seal_with_nothing_new_does_not_read_the_last_export(store_with_events: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Independent review of fix pass 1: re-reading and re-validating the whole latest
+    # Parquet file made a no-op seal after a 100k-event seal take ~5x longer.
+    s = store_with_events
+    first = seal_run(s.log, "r1")
+    reads: list[Any] = []
+    real = pq.read_table
+    monkeypatch.setattr(pq, "read_table", lambda *a, **k: reads.append(a) or real(*a, **k))
+    assert seal_run(s.log, "r1") == first
+    assert reads == []
+    monkeypatch.undo()
+    # A damaged latest file is still rebuilt: the footer check catches it.
+    path = s.root / "runs/r1/columns/events-0.parquet"
+    path.write_bytes(path.read_bytes()[:-20])
+    assert seal_run(s.log, "r1") == first
+    assert pq.read_table(path).num_rows == 3
+
+
+def test_a_segment_of_another_run_is_refused_not_sealed(tmp_path: Path) -> None:
+    # A restore put r2's segment under r1: sequences, links and hashes are all fine.
+    from mailroom_record.blobs import BlobStore
+    from mailroom_record.log import EventLog
+    from mailroom_record.models import Run
+
+    log = EventLog(tmp_path, BlobStore(tmp_path))
+    for run_id in ("r1", "r2"):
+        log.create_run(Run(**run_fields(run_id=run_id)))
+    with log.open_writer("r2", "w0") as w:
+        w.append(doc_id="d1", node="n", kind="decision")
+    src = tmp_path / "runs/r2/segments/w0.jsonl"
+    (tmp_path / "runs/r1/segments/w0.jsonl").write_bytes(src.read_bytes())
+    with pytest.raises(SealRefused, match=r"w0.jsonl at byte 0\): the line belongs to another run"):
+        seal_run(log, "r1")
+    assert list_seals(log, "r1") == [] and not (tmp_path / "runs/r1/columns").exists()
+
+
+def test_sealed_lines_are_fsynced_before_the_seal_file_is_linked(store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A writer can have written a whole line and not yet fsynced it (or failed to). A seal
+    # must not commit a line that is only in the page cache.
+    import os
+
+    with store.log.open_writer("r1", "w0") as w:
+        w.append(doc_id="d1", node="n", kind="decision")
+    order: list[str] = []
+    real_fsync, real_link = os.fsync, os.link
+
+    def fsync(fd: int) -> None:
+        target = os.readlink(f"/proc/self/fd/{fd}")
+        if target.endswith(".jsonl"):
+            order.append("fsync " + Path(target).name)
+        real_fsync(fd)
+
+    def link(src: Any, dst: Any, *a: Any, **k: Any) -> None:
+        order.append("link " + Path(dst).name)
+        real_link(src, dst, *a, **k)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(os, "link", link)
+    seal_run(store.log, "r1")
+    assert order.index("fsync w0.jsonl") < order.index("link 0.json"), order
+
+    # And if that fsync fails, nothing is sealed.
+    with store.log.open_writer("r1", "w0") as w:
+        w.append(doc_id="d1", node="n", kind="decision")
+
+    def failing(fd: int) -> None:
+        if os.readlink(f"/proc/self/fd/{fd}").endswith(".jsonl"):
+            raise OSError(5, "injected EIO on the segment")
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", failing)
+    with pytest.raises(OSError, match="injected EIO"):
+        seal_run(store.log, "r1")
+    monkeypatch.undo()
+    assert [x.n for x in list_seals(store.log, "r1")] == [0]
+
+
+def test_a_seal_with_nothing_new_still_syncs_the_seal_and_column_directories(
+    store_with_events: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A seal file or export whose rename was visible but whose directory fsync failed must
+    # be made durable before a later seal builds on it, also when nothing new is sealed.
+    s = store_with_events
+    seal_run(s.log, "r1")
+    calls: list[str] = []
+    real = seal_module._fsync_dir
+    monkeypatch.setattr(seal_module, "_fsync_dir", lambda p: (calls.append(Path(p).name), real(p))[1])
+    seal_run(s.log, "r1")
+    assert {"seals", "columns"} <= set(calls)

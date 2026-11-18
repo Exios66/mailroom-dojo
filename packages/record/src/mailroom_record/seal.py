@@ -41,11 +41,21 @@ Rules
   (the latest, after a crash between the two writes; any other, after a deletion) or
   damaged has it rebuilt from the log by the next ``seal_run`` (temp file and rename, so
   the damaged file is replaced whole), from the rows between that seal's heads and the
-  previous seal's, checked like new rows (below). The latest seal's file must read back
-  as exactly those rows; an older seal's file must open with ``EVENT_SCHEMA`` and the row
-  count its seal implies (a cheap footer check, so sealing cost does not grow with the
-  number of seals). Damage that keeps an older file readable with the right count is
-  verify's to find (``columns_mismatch``).
+  previous seal's, checked like new rows (below). Every seal's file, the latest included,
+  is checked cheaply: it must open with ``EVENT_SCHEMA`` and hold the row count its seal
+  implies (the Parquet footer only), so a seal with nothing new costs the same whatever
+  the size of the last export. A missing, truncated or unreadable file is rebuilt; damage
+  that keeps a file readable with the right count is verify's to find
+  (``columns_mismatch``). The column directory is fsynced on every call, so a file whose
+  rename was visible but whose directory fsync failed is durable before a seal builds on it.
+- Visible is not durable. Under the lock, the seals directory is fsynced before the stored
+  seals are trusted (a seal file linked by a call whose directory fsync then failed), and
+  every segment holding a line about to be sealed is fsynced before the seal file is
+  written, so a seal never commits a line that is only in the page cache (a writer may
+  have written it and not yet fsynced it, or failed its fsync).
+- Every line about to be sealed must name this run (``run_id``); a line of another run (a
+  segment restored into the wrong run) raises ``SealRefused`` naming its segment and byte
+  offset, and nothing is written.
 - Because the seal file always comes first, a column file ``events-<m>.parquet`` with no
   ``seals/<m>.json`` (``m`` above the latest seal) is never a crash state: the seal file was
   deleted. ``seal_run`` refuses (``SealRefused``) instead of sealing ``m`` again with a new
@@ -324,6 +334,8 @@ def _check_links(
             ok = False
         if not ok:
             raise SealRefused(f"{where} does not hash to its stored hash; run verify before sealing")
+        if raw.get("run_id") != run_id:
+            raise SealRefused(f"{where}: the line belongs to another run; run verify before sealing")
         if seq == 0:
             if raw.get("prev_hash") != GENESIS:
                 raise SealRefused(f"{where}: prev_hash is not GENESIS; run verify before sealing")
@@ -413,17 +425,18 @@ def _columns_look_whole(path: Path, n_rows: int) -> bool:
         return False
 
 
-def _columns_hold(path: Path, lines: Sequence[StoredLine]) -> bool:
-    """Whether the latest seal's column file reads back as exactly the rows of ``lines``."""
-    try:
-        stored = pq.read_table(path)
-    except (OSError, pa.ArrowException, ValueError):
-        return False
-    try:
-        want = _table(lines)
-    except CorruptLine:
-        return False  # rebuilding raises it with its segment and offset
-    return stored.schema.equals(EVENT_SCHEMA) and stored.equals(want)
+def _fsync_segments(log: EventLog, run_id: str, names: set[str]) -> None:
+    """fsync each named segment, so the lines read from it are on disk before a seal commits them.
+
+    A read-only descriptor is enough: fsync writes back the file's dirty pages whoever wrote them.
+    """
+    seg_dir = log.segment_dir(run_id)
+    for name in sorted(names):
+        fd = os.open(seg_dir / name, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
 
 
 def _between(lines: Sequence[StoredLine], after: dict[str, int], upto: dict[str, int] | None) -> list[StoredLine]:
@@ -465,6 +478,7 @@ def seal_run(log: EventLog, run_id: str, *, sealed_at: str | None = None) -> Sea
     seals_dir = _seals_dir(log, run_id)
     _makedirs_durable(seals_dir, log.root)
     with _seal_lock(seals_dir):
+        _fsync_dir(seals_dir)  # a visible seal file may not be durable yet (its writer's fsync failed)
         loaded = _load_seals(log, run_id)
         _check_seal_chain(loaded)
         seals = [seal for seal, _ in loaded]
@@ -487,23 +501,25 @@ def seal_run(log: EventLog, run_id: str, *, sealed_at: str | None = None) -> Sea
         for s in seals:
             path = _columns_path(log, run_id, s.n)
             added = s.event_count - (seals[s.n - 1].event_count if s.n > 0 else 0)
-            if s is not prev and _columns_look_whole(path, added):
+            if _columns_look_whole(path, added):
                 continue
             upto = prev_seqs if s is prev else _head_seqs(s, where, run_id)
             before = _head_seqs(seals[s.n - 1], where, run_id) if s.n > 0 else {}
             part = _between(lines, before, upto)
-            if s is prev and _columns_hold(path, part):
-                continue
             _check_links(part, by_key, run_id)
             rebuilt.append((s, _table(part)))
         for s, table in rebuilt:
             _write_columns(_columns_path(log, run_id, s.n), table, log.root)
+        columns_dir = log.run_dir(run_id) / "columns"
+        if columns_dir.is_dir():
+            _fsync_dir(columns_dir)  # an existing export's rename may not be durable yet
 
         new = lines if prev is None else _between(lines, prev_seqs, None)
         if prev is not None and not new:
             return prev
         _check_links(new, by_key, run_id)
         table = _table(new)  # validates every new row before anything is written
+        _fsync_segments(log, run_id, {s.segment for s in new})
 
         doc_heads = {d: h for d, (_, h) in sorted(heads.heads.items())}
         seal = Seal.build(
