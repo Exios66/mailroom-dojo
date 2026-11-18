@@ -44,17 +44,18 @@ behind the spend gate).
    legacy or retired agent has none. A view names its metric and an optional guard (both kept,
    applying to the agent, with a direction) and the label layers its gold comes from; a `null`
    view gives a reason. `confirmed` marks the owner's decisions; the rest are proposals.
-4. **Gold sources (owner decision, 2026-11-18).** Gold for evaluation is the generated interim
-   labels (`interim`, `near_gold`), the dataset ground truth (`hub`) and additional gold
-   generated to support the evaluations; it no longer waits for human resolutions. Each view
-   names its layers (the labels package's layer kinds `hub`, `interim`, `near_gold` and `review`,
-   or `derived_gold` alone; `derived` is not used, because the labels package already uses it
-   for an interim truth status). The decision agents (sorter reviewer, judge, arbiter, boss)
-   read `derived_gold`, computed
-   deterministically from the class and field labels in those layers; each of their rows states
-   the rule in `status_reason`, with the score bands taken from the scoring profile in
-   `config/`. No scoring code for it in D2. The planned row `fields_without_gold` is what the
-   future gold-generation step reads.
+4. **Gold sources (owner decision, 2026-11-18).** Gold for evaluation is the dataset ground
+   truth (`hub`), the Claude interim and near-gold labels already generated (`interim`,
+   `near_gold`), the review desk's gold (`review`), and further gold generated to support the
+   evaluations (a planned paid run behind the spend gate); it no longer waits for human
+   resolutions. Label precedence does not change: the labels package's profile orders the ranks
+   as before. Each view names its layers (the labels package's layer kinds `hub`, `interim`,
+   `near_gold` and `review`, or `derived_gold` alone; `derived` is not used, because the labels
+   package already uses it for an interim truth status). The decision agents (sorter reviewer,
+   judge, arbiter, boss) read `derived_gold`, computed deterministically from the class and
+   field labels in those layers; each of their rows states the rule in `status_reason`, with
+   the score bands taken from the scoring profile in `config/`. No scoring code for it in D2.
+   The planned row `fields_without_gold` is what the future gold-generation step reads.
 5. **Pairing.** Every kept headline or keep-rule row, and every metric a default view shows
    (its number or its guard), names a pairing or a `pairing_note`.
    `paired_percentile_bootstrap` is D1's `paired_bootstrap_delta` (per document, same documents
