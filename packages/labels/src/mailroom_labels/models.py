@@ -222,6 +222,11 @@ class DocumentLabels(BaseModel):
     def _as_dict(self, value: Mapping[str, Any]) -> dict[str, Any]:
         return dict(value)
 
+    @field_serializer("scorable_fields")
+    def _sorted_fields(self, value: frozenset[str]) -> list[str]:
+        """Sorted, so a dump is the same bytes whatever the process's hash seed."""
+        return sorted(value)
+
     # A ``MappingProxyType`` neither pickles nor deep-copies, so the state carries plain
     # dicts and ``__setstate__`` wraps them in read-only views again.
     def __getstate__(self) -> dict[Any, Any]:

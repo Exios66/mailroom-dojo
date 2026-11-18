@@ -261,3 +261,42 @@ def test_resolved_documents_deepcopy_and_pickle_and_stay_read_only(tmp_path: Pat
     deep = copy.deepcopy(doc)
     deep.fields["action_items"].value.append("X")  # type: ignore[union-attr]
     assert "X" not in doc.fields["action_items"].value  # type: ignore[operator]
+
+
+_DUMP_BOTH = """
+import sys
+from mailroom_labels import load_profile
+from mailroom_labels.models import DocumentLabels
+names = frozenset(f"field_{i:02d}" for i in range(24))
+doc = DocumentLabels(document_id="D1", doc_class="letter", verified=True, fields={}, scorable_fields=names)
+print(doc.model_dump_json())
+print(load_profile(sys.argv[1]).model_dump_json())
+"""
+
+
+def test_frozenset_fields_dump_in_sorted_order_whatever_the_hash_seed(tmp_path: Path) -> None:
+    """``DocumentLabels.scorable_fields`` and ``ClientProfile.scorable_statuses`` are sets:
+    their dump is sorted, so it is the same bytes in every process (string hashing, and so a
+    set's iteration order, changes with ``PYTHONHASHSEED``)."""
+    import json
+    import os
+    import subprocess
+    import sys
+
+    from labels_testkit import PROFILE_PATH
+
+    dumps = set()
+    for seed in ("0", "1", "2", "3", "4", "5", "6", "7"):
+        out = subprocess.run(
+            [sys.executable, "-c", _DUMP_BOTH, str(PROFILE_PATH)],
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        dumps.add(out)
+    assert len(dumps) == 1, f"{len(dumps)} different dumps over 8 hash seeds"
+    doc_line, profile_line = dumps.pop().splitlines()
+    assert json.loads(doc_line)["scorable_fields"] == [f"field_{i:02d}" for i in range(24)]
+    assert json.loads(profile_line)["scorable_statuses"] == ["gold", "hub", "interim", "near_gold"]

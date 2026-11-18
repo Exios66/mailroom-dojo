@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
+from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError, field_serializer
 
 from mailroom_labels.errors import ProfileError
 from mailroom_labels.models import RANKS, STATUS_WORDS, UNTRUSTED_RANKS
@@ -106,6 +106,11 @@ class ClientProfile(BaseModel):
     scorable_statuses: frozenset[str]
     vocabularies: Mapping[str, tuple[str, ...]]
     classes: Mapping[str, ClassSpec]
+
+    @field_serializer("scorable_statuses")
+    def _sorted_statuses(self, value: frozenset[str]) -> list[str]:
+        """Sorted, so a dump is the same bytes whatever the process's hash seed."""
+        return sorted(value)
 
     def rank_index(self, rank: str) -> int | None:
         """Position of ``rank`` in the precedence (0 is highest); None if never truth."""
