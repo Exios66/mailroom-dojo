@@ -1,6 +1,6 @@
 # Handoff: shared libraries, tooling and dictionaries
 
-Branch: `claude/project-thread-221r59` (stacked on PR #2's branch `claude/project-thread-h3rj4z`; #3 is stacked on it too). No PR is open for this branch yet.
+Branch: `claude/project-thread-221r59` (stacked on PR #2's branch `claude/project-thread-h3rj4z`; #3 is stacked on it too). Ready PR: #6 (base = #2's branch; retarget to `main` after #2 and #3 merge).
 
 ## State
 
@@ -19,7 +19,7 @@ Built and merged on the branch, `make check` green on the head (run with `PYTHON
 
 ## Not done
 
-- Open the PR ready for review (not draft) with base = PR #2's branch until #2 merges, then retarget. Body: the attribution HTML comment with the login only, no project-thread link, no footers; strip with `update_pull_request` right after create and verify.
+- PR #6 is open and ready (body verified clean of footers and links). Handle bot review comments by verifying them, fixing real ones with tests, and resolving threads without replying (no footers).
 - CircleCI must be set up for the repo (JJB's to-do), then green on the final head; all review threads resolved; clean session-link sweep (`bash scripts/check_no_session_links.sh`); squash with a clean message, after #2 and #3.
 - Known gaps left on purpose: alias-expansion cap in config; `iter_jsonl` scalar-tail and CRLF-at-limit edge cases; the `label_statuses` override guard lives in `DictionarySet.with_overrides` only (a hand-built `DictionarySet` or `load_dictionary_dir` can still carry a re-ranked copy, but the manifest shows `origin: override`); `append_jsonl` refuses a whitespace-only tail and there is no repair helper; `append_jsonl` is 1.3 to 1.6 times slower than before because of its `flock`; NFKC folding diverges from the Dojo for non-ASCII spellings (documented in the dictionary module).
 
