@@ -73,31 +73,32 @@ _SENSITIVE_WORDS = (
     r"api[_-]?key|apikey|token|secret|password|passwd|authorization|cookie"
     r"|credentials?|private[_-]?key|passphrase"
 )
-# A key is sensitive when one of its _-./ separated segments is a sensitive word.
-_SENSITIVE_KEY = re.compile(rf"(?:^|[_\-./ ])(?:{_SENSITIVE_WORDS})(?:$|[_\-./ ])")
+# A key is sensitive when one of its _-./ separated segments is a sensitive word,
+# optionally followed by digits (``password2``, ``token_v2`` matches through ``token``).
+_SENSITIVE_KEY = re.compile(rf"(?:^|[_\-./ ])(?:{_SENSITIVE_WORDS})[0-9]*(?:$|[_\-./ ])")
 _KEY_SEPARATORS = re.compile(r"[_\-./ ]")
 # A key ending in one of these names a number about a credential, not the credential.
 _NUMERIC_SUFFIXES = frozenset({"count", "budget", "limit", "size", "total", "ratio"})
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+
+# Every text pattern runs in linear time: a pattern starts only at the beginning of a run
+# of its characters (a lookbehind), and runs and separators use possessive quantifiers, so
+# a failed attempt never rescans the run it started in.
+_HEADER_VALUE = re.compile(
+    r"(?i)(?<![\w-])((?:proxy-)?authorization|(?:set-)?cookie)(['\"]?\s*+[=:]\s*+)(['\"]?)"
+    r"(?!\[REDACTED\])[^\s'\"][^\r\n'\"]*+"
+)
+_MAX_PASSES = 8
+_URL_AUTHORITY = re.compile(r"(?i)(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*+://)([^\s/?#]*+)")
+_KEY_SEPARATOR = re.compile(r"(?<![\w.-])([\w.-]++)(['\"]?\s*+[=:]\s*+)(['\"]?)")
+_VALUE = re.compile(r"(?!\[REDACTED\]|(?i:bearer)\s)[^\s'\",;&]++")
 _TEXT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    # An authorization header value is masked whole, up to the end of the line or quote.
+    (re.compile(r"(?i)(?<![\w-])bearer\s++(?!\[REDACTED\])[A-Za-z0-9._~+/=-]++"), f"Bearer {REDACTED}"),
+    (re.compile(r"(?<![\w-])sk-[A-Za-z0-9_-]{8,}+"), REDACTED),
+    (re.compile(r"(?<![\w-])key-(?=[A-Za-z]*+[0-9])[A-Za-z0-9]{16,}+(?![_-])"), REDACTED),
     (
-        re.compile(
-            r"(?i)\b((?:proxy-)?authorization)(['\"]?\s*[=:]\s*)(['\"]?)(?!\[REDACTED\])[^\s'\"][^\r\n'\"]*"
-        ),
-        rf"\1\2\3{REDACTED}",
-    ),
-    (re.compile(r"(?i)\bbearer\s+(?!\[REDACTED\])[A-Za-z0-9._~+/=-]+"), f"Bearer {REDACTED}"),
-    (re.compile(r"\bsk-[A-Za-z0-9_-]{8,}"), REDACTED),
-    (re.compile(r"\bkey-(?=[A-Za-z]*[0-9])[A-Za-z0-9]{16,}(?![A-Za-z0-9_-])"), REDACTED),
-    (re.compile(r"\b(?:hf_|gh[pousr]_)[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}"), REDACTED),
-    # URL userinfo: scheme://user:password@host
-    (re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^\s/?#@:]*:[^\s/?#@]+@"), rf"\1{REDACTED}@"),
-    (
-        re.compile(
-            rf"(?i)\b([\w.-]*?(?:{_SENSITIVE_WORDS}))\b(['\"]?\s*[=:]\s*)(['\"]?)(?!\[REDACTED\]|bearer\s)[^\s'\",;&]+"
-        ),
-        rf"\1\2\3{REDACTED}",
+        re.compile(r"(?<![\w-])(?:hf_|gh[pousr]_)[A-Za-z0-9]{20,}+|(?<![\w-])github_pat_[A-Za-z0-9_]{20,}+"),
+        REDACTED,
     ),
 )
 
@@ -109,16 +110,56 @@ def _is_sensitive_key(key: str) -> bool:
     return _SENSITIVE_KEY.search(normalized) is not None
 
 
+def _mask_userinfo(match: re.Match[str]) -> str:
+    """Mask everything before the last ``@`` of a URL authority when it holds a password."""
+    authority = match.group(2)
+    at = authority.rfind("@")
+    if at < 0 or ":" not in authority[:at]:
+        return match.group(0)
+    return f"{match.group(1)}{REDACTED}{authority[at:]}"
+
+
+def _mask_key_values(text: str) -> str:
+    """Mask the value after every ``key=``/``key:`` whose key is sensitive.
+
+    A non-sensitive key's value is not consumed, so a pair inside it (``KeyError:
+    'token=…'``) is still found; each step moves forward, so the scan stays linear.
+    """
+    parts: list[str] = []
+    pos = 0
+    while (match := _KEY_SEPARATOR.search(text, pos)) is not None:
+        parts.append(text[pos : match.end()])
+        pos = match.end()
+        if _is_sensitive_key(match.group(1)) and (value := _VALUE.match(text, pos)) is not None:
+            parts.append(REDACTED)
+            pos = value.end()
+    parts.append(text[pos:])
+    return "".join(parts)
+
+
 def redact_text(text: str) -> str:
     """Mask credentials in ``text``.
 
-    Masked: an ``Authorization``/``Proxy-Authorization`` value (whole, to the end of the
-    line or quote), ``Bearer <token>``, ``sk-…``, Mailgun-style ``key-…`` (16+ letters and
-    digits, at least one digit), ``hf_``/``ghp_``-style and ``github_pat_`` tokens, URL
-    userinfo (``scheme://user:pass@``) and ``<sensitive word>=value`` pairs.
+    Masked: an ``Authorization``/``Proxy-Authorization``/``Cookie``/``Set-Cookie`` value
+    (whole, to the end of the line or quote), ``Bearer <token>``, ``sk-…``, Mailgun-style
+    ``key-…`` (16+ letters and digits, at least one digit), ``hf_``/``ghp_``-style and
+    ``github_pat_`` tokens, URL userinfo (everything before the last ``@`` of the
+    authority, when it holds a ``:``) and the value of any ``key=value``/``key: value``
+    whose key is sensitive by the same segment rule as structured keys. Linear in the
+    length of ``text``.
     """
-    for pattern, replacement in _TEXT_PATTERNS:
-        text = pattern.sub(replacement, text)
+    # One mask can join text into a shape another pattern masks (a value that held the
+    # ``//`` ending a URL authority), so passes repeat until nothing changes: that makes
+    # redaction idempotent. Each pass only masks, so this settles within a few passes.
+    for _ in range(_MAX_PASSES):
+        before = text
+        text = _HEADER_VALUE.sub(rf"\1\2\3{REDACTED}", text)
+        for pattern, replacement in _TEXT_PATTERNS:
+            text = pattern.sub(replacement, text)
+        text = _URL_AUTHORITY.sub(_mask_userinfo, text)
+        text = _mask_key_values(text)
+        if text == before:
+            break
     return text
 
 

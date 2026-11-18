@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import threading
+import time
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
@@ -309,6 +310,19 @@ def test_redacts_secrets_in_message_text_and_args() -> None:
         ("credentials=abc123 passphrase: open-sesame", f"credentials={REDACTED} passphrase: {REDACTED}"),
         ("private_key=-----BEGIN", f"private_key={REDACTED}"),
         ("mailgun key-3ax6xnjp29jd6fds4gc373sgvjxteol0", f"mailgun {REDACTED}"),
+        ("SECRET_KEY=abc", f"SECRET_KEY={REDACTED}"),
+        ("LANGFUSE_SECRET_KEY=x", f"LANGFUSE_SECRET_KEY={REDACTED}"),
+        ("AWS_SECRET_ACCESS_KEY=x", f"AWS_SECRET_ACCESS_KEY={REDACTED}"),
+        ("PASSWORD_HASH=x", f"PASSWORD_HASH={REDACTED}"),
+        ("api_secret_value=x", f"api_secret_value={REDACTED}"),
+        ("TOKEN_V2=x", f"TOKEN_V2={REDACTED}"),
+        ("password2=x", f"password2={REDACTED}"),
+        ("my.password.value: abc", f"my.password.value: {REDACTED}"),
+        ("GET /x?access_token=abc&n=1", f"GET /x?access_token={REDACTED}&n=1"),
+        ("Cookie: session=abc; theme=dark", f"Cookie: {REDACTED}"),
+        ("set-cookie: id=abc; Path=/; HttpOnly\nnext", f"set-cookie: {REDACTED}\nnext"),
+        ("https://user:p@ssSECRET@host.example/x", f"https://{REDACTED}@host.example/x"),
+        ("u=ftp://a:b:c@d@e@host?q=1", f"u=ftp://{REDACTED}@host?q=1"),
     ],
 )
 def test_redacts_credential_shapes_in_text(text: str, expected: str) -> None:
@@ -324,11 +338,47 @@ def test_redacts_credential_shapes_in_text(text: str, expected: str) -> None:
         "doc_class=key-dates-schedule",
         "max_tokens=4096 input_tokens=10",
         "token_count: 5",
+        "token_budget=5000 prompt_token_count=12",
         "see https://host.example/a:b@c",
+        "mail https://user@host.example/x",
     ],
 )
 def test_ordinary_text_is_not_redacted(text: str) -> None:
     assert redact_text(text) == text
+
+
+_ADVERSARIAL = {
+    "dotted run": "a." * 500_000,
+    "dashed run": "a-" * 500_000,
+    "token. run": "token." * 170_000,
+    "key-a run": "key-a" * 200_000,
+    "base64url-like": "aB3-_x9Z." * 110_000,
+    "long userinfo": "https://" + "u:p" * 330_000 + " x",
+    "many schemes": "a://" * 250_000,
+    "long authorization line": "Authorization:" + " " * 1_000_000 + "'",
+    "repeated authorization": "authorization " * 75_000,
+    "bearer spaces": "bearer" + " " * 1_000_000 + "!",
+    "key= spaces": "password" + " " * 1_000_000 + "!",
+    "pair chain": "a=" * 500_000,
+    "sensitive pairs": "token=x " * 125_000,
+    "at signs": "https://a:" + "@" * 1_000_000,
+}
+
+
+@pytest.mark.parametrize("name", sorted(_ADVERSARIAL))
+def test_redaction_is_linear_on_adversarial_input(name: str) -> None:
+    text = _ADVERSARIAL[name]
+    started = time.perf_counter()
+    redact_text(text)
+    assert time.perf_counter() - started < 2.0
+
+
+def test_a_long_dashed_argument_logs_quickly() -> None:
+    stream = configured()
+    started = time.perf_counter()
+    get_logger("t").info("doc id %s", "-".join(["ab"] * 50_000))
+    assert time.perf_counter() - started < 2.0
+    assert lines(stream)[0]["event"].startswith("doc id ab-ab")
 
 
 def test_header_pairs_with_a_sensitive_name_are_redacted_as_key_and_value() -> None:
@@ -452,6 +502,7 @@ _FRAGMENTS = st.sampled_from(
         "Authorization", "Proxy-Authorization", "authorization", ":", "=", " ", "  ", "'", '"', "\n",
         "Basic", "Bearer", "abc123", "[REDACTED]", "https://", "u", "@", "/", "key-", "sk-",
         "hf_", "ghp_", "github_pat_", "AbCdEfGhIjKlMnOpQrStUvWxYz123456", "password", "token_count",
+        "Cookie", "set-cookie", "SECRET_KEY", "password2", ".", "-", "://", "?", "#", ";",
     ]
 )  # fmt: skip
 
