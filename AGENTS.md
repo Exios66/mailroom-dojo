@@ -240,8 +240,8 @@ The full flow is `.claude/rules/pr-flow.md`. The points that matter most:
   section inviting bot commands. Overwrite from your scratch file again before merging,
   and never reply to a bot by comment.
 - **Merge gate:** CircleCI `test` and `no-session-links` green on the verified head, every
-  review thread handled, a final independent Opus review, a clean final sweep for session
-  links, and the owner's go-ahead (unless the owner has durably said otherwise). Until `.circleci/config.yml` is on `main` no CircleCI job reports, so gate item 1 is replaced by the local runs of the governance suite and the guard script, with their exit codes quoted in the PR, and the owner's go-ahead must name this exception. (Section 12.)
+  review thread handled, the PR's one independent Opus review with its fixes verified on
+  the final head, a clean final sweep for session links, and the owner's go-ahead (unless the owner has durably said otherwise). Until `.circleci/config.yml` is on `main` no CircleCI job reports, so gate item 1 is replaced by the local runs of the governance suite and the guard script, with their exit codes quoted in the PR, and the owner's go-ahead must name this exception. (Section 12.)
 - **Squash-merge** with a hand-written title (`type(scope): summary (#N)`) and body (what,
   why, `Fixes #N`, optional `Co-Authored-By`), pinned to the verified head sha: pass
   `commit_title` and `commit_message` explicitly, so neither GitHub's default nor the PR
@@ -270,18 +270,25 @@ The full flow is `.claude/rules/pr-flow.md`. The points that matter most:
 | Basic fetches, searches, running commands, simple mechanical edits | Haiku (`runner`) |
 | An excellently scoped, well-bounded task | Sonnet, effort high (`scoped-worker`) |
 | Design, multi-file implementation, debugging, CI root-causing | Opus, effort medium or higher (`implementer`) |
-| Every review, adversarial and pre-PR | Opus, effort high |
+| Every review (the one pre-PR review, or the optional adversarial review) | Opus, effort high |
 
-Always pass model and effort explicitly. Anything Sonnet or Haiku produced gets a fresh
-Opus review of the full diff and its claims before merge or hand-off. Adversarial rounds
-are sized 1 to 3 by size and risk, each a new reviewer with its own lens (does it solve
-the problem, what breaks, try to break it). Reviewers are read-only. Subagents never push,
+Always pass model and effort explicitly. Each PR gets one review: before the first push,
+a fresh `pre-pr-reviewer` reviews the final diff and the draft PR description in a single
+pass through its checklist, covering all three lenses (does it solve the problem, what
+breaks, try to break it). That review also counts as the Opus review of anything Sonnet
+or Haiku produced. The orchestrator verifies the fixes (a red-then-green test for each
+BLOCKING or MAJOR finding, gates re-run on the final commit) rather than sending them back
+for review. A second review only when the fixes changed the design or added more than
+about 150 lines; never more than two per PR, then escalate to the owner. The
+`adversarial-reviewer` is optional: only when the owner asks, or for a record schema,
+security or governance-guard change, where it replaces the pre-PR review. No review of an
+unchanged commit and no review loops. Reviewers are read-only. Subagents never push,
 open PRs, comment, publish, merge or spend money. Each PR's Review log names the tier and
 effort of every review.
 
 Pass model and effort on every call. If the Agent tool takes no per-call effort, use the
 project agents (`implementer`, `scoped-worker`, `runner`, the reviewers), whose
-frontmatter sets it. Output of `scoped-worker` or `runner` always gets an Opus review.
+frontmatter sets it. Output of `scoped-worker` or `runner` always gets an Opus review (the PR's one review).
 
 Mind usage: no wide fan-outs, no double passes, no idle polling. Chunk big work into fresh
 threads. A thread finishes its chunk, writes a hand-off and stops. The hand-off goes in a
@@ -428,15 +435,15 @@ and hooks), `.github/` (PR templates and contributing guide) and `tools/governan
 |:---|:---|
 | `CLAUDE.md` | Short rules Claude Code loads every session. |
 | `AGENTS.md` | This manual. |
-| `.claude/rules/orchestration.md` | Model tiers, adversarial rounds, orchestrator verification. |
+| `.claude/rules/orchestration.md` | Model tiers, one review per PR, orchestrator verification. |
 | `.claude/rules/evidence-contract.md` | What counts as proof, claim by claim. |
-| `.claude/rules/pr-flow.md` | No session links, local gate, pre-PR review, merge gate, squash messages. |
+| `.claude/rules/pr-flow.md` | No session links, local gate, the one pre-PR review, merge gate, squash messages. |
 | `.claude/rules/code-mode.md` | One script with a digest for bulk work. |
 | `.claude/agents/implementer.md` | Opus subagent for heavy lifting. |
 | `.claude/agents/scoped-worker.md` | Sonnet subagent (effort high) for tightly scoped tasks. |
 | `.claude/agents/runner.md` | Haiku subagent for fetches, commands and mechanical edits. |
-| `.claude/agents/adversarial-reviewer.md` | Opus read-only reviewer, one lens per round. |
-| `.claude/agents/pre-pr-reviewer.md` | Opus fresh-context reviewer, with "Lessons from bot reviews". |
+| `.claude/agents/adversarial-reviewer.md` | Optional Opus read-only reviewer; replaces the pre-PR review when used. |
+| `.claude/agents/pre-pr-reviewer.md` | Opus fresh-context reviewer: the one review per PR, its checklist and "Lessons from bot reviews". |
 | `.claude/settings.json` | Permissions and the hook wiring (below). |
 | `.claude/hooks/guard_paths.py` | Refuses edit-tool writes to `.env` files, stored run data and script-written gate reports (everything under `docs/reports/` except its `README.md`). |
 | `.claude/hooks/no_session_links.py` | Refuses Bash, edit and GitHub tool calls whose input carries a session link, session id or trailer, or a Claude Code footer. |

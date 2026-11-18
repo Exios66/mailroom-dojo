@@ -15,8 +15,8 @@ minimum for anything that needs judgement, and every review runs on Opus.
 | `implementer` | `.claude/agents/implementer.md` | `opus`, effort `medium` or higher | Heavy lifting: design, multi-file implementation, debugging, root-causing a CI failure, an investigation write-up. |
 | `scoped-worker` | `.claude/agents/scoped-worker.md` (or built-in `general-purpose` with `model: "sonnet"`, `effort: "high"`) | `sonnet`, effort `high` | Only an excellently scoped, well-bounded task: named files, a known approach, a mechanical acceptance check. |
 | `runner` | `.claude/agents/runner.md` | `haiku`, effort `high` | Basic fetches, searches, running commands or test suites, collecting output, simple mechanical edits. |
-| `adversarial-reviewer` | `.claude/agents/adversarial-reviewer.md` | `opus`, effort `high` | Tries to break a change before the orchestrator accepts it. Read-only. |
-| `pre-pr-reviewer` | `.claude/agents/pre-pr-reviewer.md` | `opus`, effort `high` | Fresh-context review of the final diff before anything is pushed for a PR. Read-only. |
+| `pre-pr-reviewer` | `.claude/agents/pre-pr-reviewer.md` | `opus`, effort `high` | The one review per PR: a fresh-context, single pass over the final diff and the draft PR description, worked through its checklist, before the first push. Read-only. |
+| `adversarial-reviewer` | `.claude/agents/adversarial-reviewer.md` | `opus`, effort `high` | Optional. Only when the owner asks for it, or for a record schema, security or governance-guard change, where it replaces the pre-PR review rather than adding to it. Read-only. |
 
 **Hard rules**
 
@@ -31,7 +31,8 @@ minimum for anything that needs judgement, and every review runs on Opus.
    as simple as briefed, re-brief it to an `implementer`; do not retry the same brief.
 3. **Anything Sonnet or Haiku produced (`scoped-worker`, `runner`) gets a fresh,
    independent Opus review** of the full diff and of every claim before it is merged or
-   handed off. Fix the valid findings, then re-verify the tests and CI on the final head.
+   handed off. The one review per PR (below) satisfies this; there is no separate pass.
+   Fix the valid findings, then re-verify the tests and CI on the final head.
 4. Do not delegate a lookup you can answer with one `Read` or `Grep`. Every subagent starts
    cold and re-reads context.
 5. Run independent subagents in parallel (one message, several calls) and dependent ones
@@ -48,6 +49,7 @@ minimum for anything that needs judgement, and every review runs on Opus.
 
 - No wide fan-outs: a few well-briefed subagents beat many vague ones.
 - No double passes: do not re-run a review or a suite on an unchanged commit.
+- No review loops: one review per PR, and at most two ("One review per PR", below).
 - No idle polling: do not loop on CI or a PR. Check once when the result is due.
 - Chunk big work into fresh threads, one chunk each. A thread finishes its chunk, writes
   a hand-off, and stops; it does not start the next chunk.
@@ -72,35 +74,31 @@ by `.claude/rules/pr-flow.md` step 3. Every other brief includes:
   what it could not verify, open questions.
 - For bulk work, the words "use code mode" (`.claude/rules/code-mode.md`).
 
-## Adversarial review (required)
+## One review per PR (required)
 
-Every change produced by subagents gets at least one adversarial round before the
-orchestrator verifies it, and at most three. Size the rounds to the work:
+Many review rounds cost too much usage. Each PR gets one effective review instead.
 
-| Rounds | When |
-|:---|:---|
-| 1 | Up to about 100 changed lines in one area, including docs-only, test-only or mechanical changes of that size. |
-| 2 | About 100 to 500 changed lines, several packages, or any behaviour change. |
-| 3 | More than about 500 lines; or a record schema, package boundary, scoring rule, policy format, security- or secrets-sensitive change, or a governance guard. |
+1. **One fresh review before the first push.** A new `pre-pr-reviewer` (Opus, effort
+   high) reviews the final diff and the draft PR description in a single pass
+   (`.claude/rules/pr-flow.md`, step 3). It covers the three lenses at once: does it
+   solve the problem, what breaks, and try to break it. It works through the checklist in
+   its agent file and reports on every item.
+2. **The orchestrator verifies the fixes; they are not re-reviewed.** Send each BLOCKING
+   and MAJOR finding to an `implementer` (or fix it yourself when trivial). Each fix gets
+   a red-then-green test. Commit, then re-run the gates on the final commit yourself.
+3. **A second review only when needed.** Dispatch a second, new `pre-pr-reviewer` only
+   when the fixes changed the design or added more than about 150 lines (count with
+   `git diff --stat` over the fix commits). Never more than two reviews per PR; beyond
+   that, escalate to the owner.
+4. **The `adversarial-reviewer` is optional.** Use it only when the owner asks for it, or
+   for a record schema, security or governance-guard change. There it replaces the
+   pre-PR review rather than adding to it, and it gets the same checklist and the same
+   fix-verification rule.
 
-Commit first, then count with `git diff --stat origin/main...HEAD` (it does not see
-uncommitted files). Size and risk both count; when in doubt pick the higher tier.
-
-Each round is a **new** `adversarial-reviewer` instance (never resume one with
-`SendMessage`), with its own lens:
-
-1. **Does it solve the problem?** Compare the result with the request. Re-run the claimed
-   evidence. Look for requirements that were skipped or quietly narrowed.
-2. **What breaks?** Edge cases, error paths, callers, package boundaries, config and docs
-   the change made stale.
-3. **Try to break it.** Hostile inputs, concurrency, partial failure, injected faults, the
-   claims in the PR description and docs.
-
-Between rounds, send BLOCKING and MAJOR findings to an `implementer` (or fix them yourself
-when trivial), commit, and start the next round on the new diff. After the last round,
-every BLOCKING finding is fixed and verified by you, or reported to the owner as
-unresolved. Never start a fourth round and never carry a BLOCKING finding silently into a
-PR. Record every round (lens, model and effort, findings, fixes) for the PR's Review log.
+Never start a third review and never carry a BLOCKING finding silently into a PR: after
+the last review, every BLOCKING finding is fixed and verified by you, or reported to the
+owner as unresolved. Record the review (model and effort, findings, fixes and how you
+verified them) for the PR's Review log.
 
 ## Orchestrator verification (required)
 
