@@ -104,6 +104,25 @@ torn tails and an unreadable run header become `Damage` entries, and everything 
 still shown. Only a malformed run id (`BadRunId`) or an unknown run (`UnknownRun`) raises.
 The module docstrings of `versions.py`, `trace.py` and `_reading.py` state the rules.
 
+## Importing sandbox runs
+
+`import_sandbox_run(folder, log, blobs) -> ImportResult` (`mailroom_record.importer.sandbox_run`)
+turns one sandbox run folder (`dataset.jsonl`, `nodes.jsonl`, `items.jsonl`, `events.jsonl`,
+`spec.lock.json`, `prompt.lock.json`, `checkpoint.json`; only `dataset.jsonl` is required)
+into one sealed run with `origin="imported_sandbox"`. A document's id is its
+`content_sha256` and its text becomes an `original` blob; labels (`expected_*`) are not
+imported, except `expected_doc_class` as `draw_class`. Each finished node row is one event
+(`review`, `error`, `decision` or `handoff`, in that order of rules) carrying its start time,
+step, stage and status for the floor replay; each item row is one `output` (or `error`)
+event with `extraction` and `report` blobs; `events.jsonl` and `checkpoint.json` become
+`_run` events. Fields the folder does not capture are `None` and listed in `absent_fields`.
+Importing a folder again is a no-op (`already_imported`); an import that died part way is
+finished by the next one; a different folder under the same run id raises `ImportConflict`.
+
+`audit_sandbox_run(folder) -> RoutingAudit` (`mailroom_record.importer.audit`) reports which
+routing inputs the `legacy` router replay needs are present or absent in a folder. The module
+docstrings state every mapping rule.
+
 ## Command line
 
 `pip install -e packages/record` installs `mailroom-record` (also `python -m mailroom_record`):
@@ -115,6 +134,8 @@ mailroom-record reindex --root <store>               # rebuilds <store>/index.sq
 mailroom-record trace run <run> --root <store>
 mailroom-record trace doc <doc> --root <store>
 mailroom-record versions <run> <doc> --root <store>
+mailroom-record import sandbox-run <folder> --root <store>   # creates <store> when missing
+mailroom-record audit sandbox-run <folder>                   # reads the folder only
 ```
 
 Every command takes `--json` for tools. Exit codes: 0 done (verify: ok); 1 the run is not ok,

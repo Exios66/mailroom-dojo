@@ -1,0 +1,28 @@
+{"doc": "DOC-00000000000000a1", "node": "intake", "status": "running", "agent": null, "model": null, "ts": 1795003201.0, "step": 1}
+{"doc": "DOC-00000000000000a1", "node": "intake", "status": "done", "agent": null, "model": null, "ts": 1795003201.05, "ms": 50.0, "stage": "intake", "decisions": []}
+{"doc": "DOC-00000000000000b2", "node": "intake", "status": "running", "agent": null, "model": null, "ts": 1795003201.0625, "step": 1}
+{"doc": "DOC-00000000000000b2", "node": "intake", "status": "done", "agent": null, "model": null, "ts": 1795003201.1025, "ms": 40.0, "stage": "intake", "decisions": []}
+{"doc": "DOC-00000000000000a1", "node": "classify", "status": "running", "agent": "sorter", "model": "vendor/test-model", "ts": 1795003201.115, "step": 2}
+{"doc": "DOC-00000000000000a1", "node": "classify", "status": "done", "agent": "sorter", "model": "vendor/test-model", "ts": 1795003201.865, "ms": 750.0, "stage": "classified", "decisions": [{"question": "doc_type", "type": "choice", "answer": "contract", "p": 0.93, "expected": null, "options": {"contract": 0.93, "invoice": 0.07}, "source": "agent"}]}
+{"doc": "DOC-00000000000000b2", "node": "classify", "status": "running", "agent": "sorter", "model": "vendor/test-model", "ts": 1795003201.8775, "step": 2}
+{"doc": "DOC-00000000000000b2", "node": "classify", "status": "done", "agent": "sorter", "model": "vendor/test-model", "ts": 1795003202.3775, "ms": 500.0, "stage": "classified", "decisions": [{"question": "doc_type", "type": "choice", "answer": "invoice", "p": 0.55, "expected": null, "options": null, "source": "agent"}]}
+{"doc": "DOC-00000000000000a1", "node": "extract", "status": "running", "agent": "contract_specialist", "model": "vendor/test-model", "ts": 1795003202.39, "step": 3}
+{"doc": "DOC-00000000000000a1", "node": "extract", "status": "done", "agent": "contract_specialist", "model": "vendor/test-model", "ts": 1795003203.64, "ms": 1250.0, "stage": "extracted", "decisions": [{"question": "extraction_confidence", "type": "score", "answer": null, "p": 0.81, "expected": null, "options": null, "source": "agent"}]}
+{"doc": "DOC-00000000000000b2", "node": "review_classify", "status": "running", "agent": "sorter_reviewer", "model": "vendor/test-model", "ts": 1795003203.6525, "step": 3}
+{"doc": "DOC-00000000000000b2", "node": "review_classify", "status": "done", "agent": "sorter_reviewer", "model": "vendor/test-model", "ts": 1795003203.9525, "ms": 300.0, "stage": "classified", "decisions": [{"question": "sorter_review", "type": "choice", "answer": "uphold", "p": 0.55, "expected": null, "options": null, "source": "agent"}]}
+{"doc": "DOC-00000000000000a1", "node": "judge_verify", "status": "running", "agent": "judge", "model": "vendor/test-model", "ts": 1795003203.965, "step": 4}
+{"doc": "DOC-00000000000000a1", "node": "judge_verify", "status": "done", "agent": "judge", "model": "vendor/test-model", "ts": 1795003204.565, "ms": 600.0, "stage": "verified", "decisions": [{"question": "extraction_verdict", "type": "score", "answer": "partial", "p": null, "expected": 0.6, "options": null, "source": "agent"}]}
+{"doc": "DOC-00000000000000b2", "node": "human_review", "status": "running", "agent": null, "model": null, "ts": 1795003204.5775, "step": 4}
+{"doc": "DOC-00000000000000b2", "node": "human_review", "status": "paused", "agent": null, "model": null, "ts": 1795003204.7775, "ms": 200.0}
+{"doc": "DOC-00000000000000a1", "node": "arbiter", "status": "running", "agent": "arbiter", "model": "vendor/test-model", "ts": 1795003204.79, "step": 5}
+{"doc": "DOC-00000000000000a1", "node": "arbiter", "status": "done", "agent": "arbiter", "model": "vendor/test-model", "ts": 1795003204.99, "ms": 200.0, "stage": "verified", "decisions": [{"question": "arbiter_route", "type": "choice", "answer": "accept", "p": null, "expected": null, "options": null, "source": "agent"}]}
+{"doc": "DOC-00000000000000a1", "node": "compile_report", "status": "running", "agent": null, "model": null, "ts": 1795003205.0025, "step": 6}
+{"doc": "DOC-00000000000000a1", "node": "compile_report", "status": "done", "agent": null, "model": null, "ts": 1795003205.0325, "ms": 30.0, "stage": "reported", "decisions": []}
+{"doc": "DOC-00000000000000a1", "node": "archive", "status": "running", "agent": null, "model": null, "ts": 1795003205.045, "step": 7}
+{"doc": "DOC-00000000000000a1", "node": "archive", "status": "done", "agent": null, "model": null, "ts": 1795003205.065, "ms": 20.0, "stage": "archived", "decisions": []}
+{"doc": "DOC-00000000000000c3", "node": "intake", "status": "running", "agent": null, "model": null, "ts": 1795003205.1775, "step": 1}
+{"doc": "DOC-00000000000000c3", "node": "intake", "status": "done", "agent": null, "model": null, "ts": 1795003205.2275, "ms": 50.0, "stage": "intake", "decisions": []}
+{"doc": "DOC-00000000000000c3", "node": "classify", "status": "running", "agent": "sorter", "model": "vendor/test-model", "ts": 1795003205.24, "step": 2}
+{"doc": "DOC-00000000000000c3", "node": "classify", "status": "done", "agent": "sorter", "model": "vendor/test-model", "ts": 1795003205.64, "ms": 400.0, "stage": "classified", "decisions": [{"question": "doc_type", "type": "choice", "answer": "letter", "p": 0.71, "expected": null, "options": null, "source": "agent"}]}
+{"doc": "DOC-00000000000000c3", "node": "extract", "status": "running", "agent": "letter_specialist", "model": "vendor/test-model", "ts": 1795003205.6525, "step": 3}
+{"doc": "DOC-00000000000000c3", "node": "extract", "status": "error", "agent": "letter_specialist", "model": "vendor/test-model", "ts": 1795003205.9525, "ms": 300.0, "error": "RateLimitError: synthetic quota note"}
