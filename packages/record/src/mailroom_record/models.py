@@ -81,7 +81,10 @@ BLOB_ROLES: tuple[str, ...] = BlobRole.__args__  # type: ignore[attr-defined]
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 NonEmpty = Annotated[str, StringConstraints(min_length=1)]
 # A run id names a directory (runs/<run_id>/), so it must be path-safe.
-RunId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")]
+_RUN_ID = r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}"
+RunId = Annotated[str, StringConstraints(pattern=rf"^{_RUN_ID}$")]
+# The same rule for paths built from a run id (``EventLog.run_dir``); used with fullmatch.
+_RUN_ID_RE = re.compile(_RUN_ID)
 # Every count fits a signed 64-bit integer: the Parquet export and the SQLite index store
 # them as int64, and the streaming readers pack ``seq`` into ``array("q")``. A larger value
 # is rejected here, before it can reach the durable log.

@@ -369,6 +369,28 @@ def test_append_accepts_any_mapping_for_payload_and_blob_refs(store: SimpleNames
     check_chains(store.root)
 
 
+@pytest.mark.parametrize("bad", ["bad id", ".hidden", "-r", "r/1", "r\n", "", "x" * 201, 7])
+def test_a_malformed_run_id_is_a_value_error_on_every_path(store: SimpleNamespace, bad: Any) -> None:
+    # The same rule as Run.run_id: an id no run could have is a ValueError, never a lookup
+    # that ends in FileNotFoundError (verify_run documents ValueError for this).
+    from mailroom_record.verify import verify_run
+
+    with pytest.raises(ValueError, match="bad run id"):
+        store.log.run_dir(bad)
+    with pytest.raises(ValueError, match="bad run id"):
+        verify_run(store.log, store.blobs, bad)
+    with pytest.raises(ValueError, match="bad run id"):
+        store.log.open_writer(bad, "w0")
+    with pytest.raises(ValidationError):  # the model agrees
+        Run(**run_fields(run_id=bad))
+
+
+def test_every_valid_run_id_shape_has_a_run_dir(store: SimpleNamespace) -> None:
+    for good in ("r1", "R.2", "a_b-c", "0", "x" * 200):
+        assert store.log.run_dir(good) == store.root / "runs" / good
+        Run(**run_fields(run_id=good))
+
+
 def test_ts_defaults_to_now_and_accepts_an_explicit_value(store: SimpleNamespace) -> None:
     from datetime import datetime
 

@@ -127,7 +127,7 @@ from typing import Any, Literal
 
 from mailroom_record.blobs import BlobStore, _fsync_dir, _makedirs_durable, write_exclusive
 from mailroom_record.hashing import canonical_json
-from mailroom_record.models import GENESIS, INT64_MAX, BlobRef, Event, Run, utc_now, validation_detail
+from mailroom_record.models import _RUN_ID_RE, GENESIS, INT64_MAX, BlobRef, Event, Run, utc_now, validation_detail
 
 __all__ = [
     "BadLine",
@@ -542,8 +542,9 @@ class EventLog:
     # --- paths ----------------------------------------------------------------------
 
     def run_dir(self, run_id: str) -> Path:
-        # Run ids are validated by the Run model on create; reject separators on read too.
-        if not isinstance(run_id, str) or not run_id or "/" in run_id or run_id in {".", ".."}:
+        # The Run model's rule, on every path built from a run id: an id no run could have
+        # is a ValueError here, never a lookup that ends in FileNotFoundError.
+        if not isinstance(run_id, str) or not _RUN_ID_RE.fullmatch(run_id):
             raise ValueError(f"bad run id {run_id!r}")
         return self.root / "runs" / run_id
 
