@@ -258,7 +258,7 @@ def test_queue_spans_every_run_when_none_is_named(env: SimpleNamespace) -> None:
 # --- agreement with Index.review_queue() ------------------------------------------------
 
 DOCS = ("d0", "d1", "d2", "d3")
-RUN_CHAIN = "_run"  # the run-level chain: run events only, never put in review
+RUN_CHAIN = "_run"  # the run-level chain: the desk never enqueues it, but shows it if another writer does
 RUNS = ("r1", "r2")
 NON_REVIEW = ("handoff", "model_call", "decision", "output", "error", "serving")
 FOREIGN = ("garbage", "empty", "assign", "claim_lapsed", "claim_live", "defer", "release")
@@ -266,7 +266,7 @@ HOUR = timedelta(hours=1)
 
 _op = st.one_of(
     st.tuples(st.just("engine"), st.sampled_from(RUNS), st.sampled_from((*DOCS, RUN_CHAIN)), st.sampled_from(NON_REVIEW)),
-    st.tuples(st.just("foreign_review"), st.sampled_from(RUNS), st.sampled_from(DOCS), st.sampled_from(FOREIGN)),
+    st.tuples(st.just("foreign_review"), st.sampled_from(RUNS), st.sampled_from((*DOCS, RUN_CHAIN)), st.sampled_from(FOREIGN)),
     st.tuples(
         st.just("desk"), st.sampled_from(RUNS), st.sampled_from((*DOCS, RUN_CHAIN)), st.sampled_from(("flag_low", "flag_high", "slot:a:b"))
     ),
@@ -342,6 +342,8 @@ class _Model:
         ("foreign_review", "r2", "d3", "defer"),
         ("engine", "r1", "_run", "handoff"),  # the run-level chain
         ("desk", "r1", "_run", "flag_low"),  # refused: not a document
+        ("foreign_review", "r1", "_run", "assign"),  # another writer parks it: queued, as in the index
+        ("desk", "r1", "_run", "flag_high"),  # still refused while in review
         ("engine", "r2", "d2", "handoff"),
     ]
 )
