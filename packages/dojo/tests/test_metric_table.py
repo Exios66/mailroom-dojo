@@ -90,8 +90,10 @@ def test_writing_a_default_explicitly_does_not_change_the_hash() -> None:
         lambda raw: raw.__setitem__("version", 2),
         lambda raw: raw["metrics"].reverse(),
         lambda raw: raw["metrics"][0].__setitem__("noise_floor", 0.01),
+        lambda raw: raw["default_views"]["sorter"].__setitem__("metric", "accuracy"),
+        lambda raw: raw["default_views"]["sorter"].__setitem__("confirmed", False),
     ],
-    ids=["description", "version", "row order", "noise floor"],
+    ids=["description", "version", "row order", "noise floor", "default view", "view confirmation"],
 )
 def test_any_content_change_changes_the_hash(edit: Callable[[dict[str, Any]], None]) -> None:
     raw = _raw()
@@ -109,6 +111,18 @@ def _set(metric: str, key: str, value: Any) -> Callable[[dict[str, Any]], None]:
 def _drop(metric: str, key: str) -> Callable[[dict[str, Any]], None]:
     def edit(raw: dict[str, Any]) -> None:
         del raw["metrics"][_row_index(raw, metric)][key]
+
+    return edit
+
+
+def _view(agent: str, **changes: Any) -> Callable[[dict[str, Any]], None]:
+    def edit(raw: dict[str, Any]) -> None:
+        view = raw["default_views"][agent]
+        for key, value in changes.items():
+            if value is None and key == "reason":
+                view.pop(key, None)
+            else:
+                view[key] = value
 
     return edit
 
@@ -179,6 +193,61 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
     ("nan noise floor", _set("f1_macro", "noise_floor", float("nan")), "(f1_macro).noise_floor"),
     ("bool noise floor", _set("f1_macro", "noise_floor", True), "(f1_macro).noise_floor"),
     ("foreign registry id", _set("f1", "metric_id", "registry:f2"), "(f1).metric_id: a registry id names"),
+    (
+        "headline agent without a view",
+        lambda raw: raw["default_views"].pop("reporter"),
+        "default_views: 'reporter' has headline metrics but no default view",
+    ),
+    (
+        "view metric unknown",
+        _view("sorter", metric="f9"),
+        "default_views.sorter.metric: 'f9' is not a metric",
+    ),
+    ("view not ported", _view("intake", metric="bert_elapsed_ms"), "'bert_elapsed_ms' is not ported"),
+    ("view not for agent", _view("sorter", metric="wer"), "'wer' does not apply to 'sorter'"),
+    ("confirmed non-headline", _view("arbiter", confirmed=True), "is not a headline metric"),
+    (
+        "headline agent non-headline",
+        _view("sorter_reviewer", metric="reviewer_confidence_ece"),
+        "is not a headline",
+    ),
+    (
+        "confirmed without direction",
+        _view("sorter_reviewer", metric="reviewer_routed_to_human_review_rate", confirmed=True),
+        "has no direction; only an unconfirmed proposal may",
+    ),
+    (
+        "null without reason",
+        _view("archivist", reason=None),
+        "default_views.archivist.reason: an agent with no",
+    ),
+    (
+        "null confirmed",
+        _view("archivist", confirmed=True),
+        "default_views.archivist.confirmed: an agent with no",
+    ),
+    ("reason with metric", _view("sorter", reason="because"), "default_views.sorter.reason: only an agent"),
+    ("empty source", _view("sorter", source=" "), "default_views.sorter.source: must not be empty"),
+    ("confirmed not bool", _view("sorter", confirmed="yes"), "default_views.sorter.confirmed: must be true"),
+    ("unknown view key", _view("sorter", tier=0), "default_views.sorter.tier: unknown key"),
+    (
+        "missing view key",
+        lambda raw: raw["default_views"]["sorter"].pop("source"),
+        "default_views.sorter.source: missing",
+    ),
+    (
+        "unknown agent",
+        lambda raw: raw["default_views"].__setitem__("sortr", dict(raw["default_views"]["sorter"])),
+        "'sortr' is not an agent of any metric row",
+    ),
+    ("bad secondary", _view("local_vs_api", secondary=["wer"]), "secondary[0]: 'wer' does not apply"),
+    ("secondary twice", _view("local_vs_api", secondary=["ttft_seconds", "ttft_seconds"]), "listed twice"),
+    ("secondary is metric", _view("local_vs_api", secondary=["tokens_per_second"]), "listed twice"),
+    (
+        "views not a mapping",
+        lambda raw: raw.__setitem__("default_views", []),
+        "default_views: must be a mapping",
+    ),
     (
         "bad family name",
         lambda raw: raw["agent_families"].__setitem__("all", ["sorter"]),
@@ -353,3 +422,58 @@ def test_check_accepts_measures_that_keep_their_rows() -> None:
     assert table.check(_measure("wer", value=1.7, ci=_ci(1.2, 2.4))).id == "wer"
     with pytest.raises(UnknownMetricError):
         table.check(_measure("not_a_metric"))
+
+
+#: The default views the registry names (owner decisions, 2026-11-18); every other is a proposal.
+CONFIRMED_VIEWS = {
+    "sorter": "f1_macro",
+    "judge": "f1_macro",
+    "contracts_specialist": "extraction_overall_score",
+    "merger_agreement_specialist": "extraction_overall_score",
+    "corporate_records_specialist": "extraction_overall_score",
+    "due_diligence_specialist": "extraction_overall_score",
+    "compliance_specialist": "extraction_overall_score",
+    "court_opinions_specialist": "extraction_overall_score",
+    "insurance_claims_specialist": "extraction_f2",
+    "correspondence_specialist": "content_topic_f1_macro",
+}
+
+
+def test_each_agent_with_a_headline_has_one_default_view() -> None:
+    table = load_metric_table()
+    headline_agents = {
+        agent
+        for row in table.headline_rows()
+        if row.status != "not_ported"
+        for agent in row.expanded_agents
+        if agent != "ALL"
+    }
+    assert headline_agents <= set(table.default_views)
+    for agent, view in table.default_views.items():
+        assert view.agent == agent and view.source.strip()
+        if view.metric is None:
+            assert view.reason and not view.confirmed
+            continue
+        row = table.get(view.metric)
+        assert row.status != "not_ported" and row.applies_to(agent)
+        if view.confirmed or agent in headline_agents:
+            assert row.headline, agent
+        if view.confirmed:
+            assert row.direction != "none", agent
+
+
+def test_only_the_registry_named_views_are_confirmed() -> None:
+    table = load_metric_table()
+    confirmed = {agent: view.metric for agent, view in table.default_views.items() if view.confirmed}
+    assert confirmed == CONFIRMED_VIEWS
+    assert table.default_view("archivist") is not None and table.default_view("archivist").metric is None  # type: ignore[union-attr]
+    assert table.default_view("sorter_reviewer").secondary == ("reviewer_wrong_accept_upper_95",)  # type: ignore[union-attr]
+    assert table.default_view("nobody") is None
+
+
+def test_a_repeated_key_is_refused(tmp_path: Path) -> None:
+    text = PACKAGED_TEXT.replace("default_views:\n", "default_views:\n  sorter:\n    metric: accuracy\n", 1)
+    path = tmp_path / "metrics.yaml"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(MetricTableError, match="found duplicate key 'sorter'"):
+        load_metric_table(path)

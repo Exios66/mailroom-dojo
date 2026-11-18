@@ -33,7 +33,7 @@ from `llm_dojo_scoring`.
 | `field_scoring/trace_capture.py` | `capture_trace`: model-emitted `confidence` and `reasoning`, captured for the run log under the profile's `TraceCaptureOptions`, never scored. |
 | `field_scoring/extraction.py` | `score_extraction(profile, class_key, predicted, expected, ...)` → `ExtractionScoreResult` (field scores, overall score, judge-review fields, list scores, audits, trace). A plug-in scorer that returns anything but a finite number in `[0, 1]` raises `ScorerResultError`. |
 | `classification/` | `ClassLabelSet.from_profile(profile)` and the classification metrics: `normalize_label`, `exact_match`, `accuracy`, `fbeta`, `per_class_stats`, `macro_accuracy`, `macro_prf`, `confusion_matrix`, `top_confusions`, `binary_metrics`, `class_distribution`. The class set, its match order and retired classes come from the profile. |
-| `measures/` | `Measure(value, n, cost_basis, label_status, method, ci=None, reason=None)`: an immutable number that carries its sample size, cost basis (closed vocabulary) and label status, validated when built (the old scorecard-honesty rules), plus `comparability_problems` / `assert_comparable` and `combined_label_status`. `load_metric_table()` reads the metric table (`measures/metrics.yaml`, package data) into a `MetricTable` identified by `content_hash`; `MetricTable.check(measure)` applies the per-metric rules (unit range, labels required, cost basis). |
+| `measures/` | `Measure(value, n, cost_basis, label_status, method, ci=None, reason=None, subject=Subject(), provenance=None)`: an immutable number that carries its sample size, cost basis (closed vocabulary), label status, subject (agent, class, field) and provenance (the old provenance keys), validated when built, plus `comparability_problems` / `assert_comparable` (same method, subject, cost basis, label status and provenance; `vary` for the compared axis) and `combined_label_status`. `load_metric_table()` reads the metric table (`measures/metrics.yaml`, package data) into a `MetricTable` identified by `content_hash`; `MetricTable.check(measure)` applies the per-metric rules (unit range, whole counts, interval in range and around the value, labels required, cost basis); `MetricTable.default_view(agent)` gives the agent's one default number. |
 | `labels_interface/` | structural Protocols (`LabelSource`, `ExpectedDocument`, `PresenceExpectation`) that the labels package satisfies, `expected_values(...)` (keeps scorable fields only; refuses or flags unverified documents), and `hub_rows.py`, a reference adapter for Hub rows that is meant to move to `mailroom_labels`. |
 
 ## The scoring profile
@@ -102,8 +102,12 @@ inclusion and citation; tiers are replaced by `headline` (exactly the old tier-0
 `layer`, a `status` and the `readers` (gate, report or projection) that use it. A row is
 `implemented` or `planned` only when a named reader uses it; every other id stays as a
 `not_ported` row with its reason, so it can be revived without changing its meaning.
-`noise_floor` and `pairing` are set only where the old code defines them. The header of the
-file documents every column and reader. `MetricTable.content_hash` is the sha256 of the
+`default_views` names each agent's one default number (the old tier 0, "ONE number per
+agent"): the loader requires one for every agent named by a kept headline row, and only
+the views the old registry names (classifiers and specialists) are `confirmed`; the rest
+are proposals for the owner. `direction` is derived (owner to confirm) and frozen in
+`tests/fixtures/measures/metric_directions.json`. `noise_floor` is unset (D7 measures it). The header of the
+file documents every column, reader and rule. `MetricTable.content_hash` is the sha256 of the
 table's canonical JSON form, so a run can record which table it was scored against.
 
 `tests/test_metric_table_parity.py` checks the table against

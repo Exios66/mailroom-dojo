@@ -78,6 +78,20 @@
 #   noise_floor   default null; the smallest difference that counts, where the old code
 #                 or docs define one (none do today)
 #   origin        registry | golden
+#
+# default_views (top level): the one number each agent's dashboard shows by default,
+# what the old registry's tier 0 meant ("ONE number per agent on the default view",
+# registry.py line 13). agent -> {metric, confirmed, source, secondary?, reason?}.
+# The loader checks: every agent named by a kept headline row (families expanded, ALL
+# not counted) has exactly one entry (a repeated key is refused); the metric is in the
+# table, not not_ported, and applies to the agent; a confirmed entry, or any entry for
+# an agent with headline rows, uses a headline row; an unconfirmed proposal for an agent
+# without headline rows may use any kept row; a confirmed entry's metric has a direction
+# (none only in a proposal); metric null needs a reason and is never confirmed (the
+# archivist); source is never empty; secondary metrics (a guard or second headline) are
+# kept rows that apply to the agent. confirmed: true only where the registry names the
+# number (classifiers and specialists); every other entry is a proposal, owner to
+# confirm. The entries are part of the content hash.
 #   old_source    default null; the old function, relative to llm_dojo_scoring
 
 table_format: 1
@@ -96,6 +110,123 @@ agent_families:
   SERVING: ["local_vs_api"]
   SPECIALISTS: ["contracts_specialist", "merger_agreement_specialist", "corporate_records_specialist", "due_diligence_specialist", "correspondence_specialist", "compliance_specialist", "court_opinions_specialist", "insurance_claims_specialist"]
   TRANSCRIBERS: ["pdf_transcriber", "image_extractor"]
+
+default_views:
+  sorter:
+    metric: "f1_macro"
+    confirmed: true
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 308: f1_macro is 'the universal classifier headline'; line 13: tier 0 is ONE number per agent on the default view. sorter and judge are classifiers (CLASSIFIERS family)."
+  judge:
+    metric: "f1_macro"
+    confirmed: true
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 308: f1_macro is 'the universal classifier headline'; line 13: tier 0 is ONE number per agent on the default view. sorter and judge are classifiers (CLASSIFIERS family)."
+  contracts_specialist:
+    metric: "extraction_overall_score"
+    confirmed: true
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
+  merger_agreement_specialist:
+    metric: "extraction_overall_score"
+    confirmed: true
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
+  corporate_records_specialist:
+    metric: "extraction_overall_score"
+    confirmed: true
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
+  due_diligence_specialist:
+    metric: "extraction_overall_score"
+    confirmed: true
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
+  compliance_specialist:
+    metric: "extraction_overall_score"
+    confirmed: true
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
+  court_opinions_specialist:
+    metric: "extraction_overall_score"
+    confirmed: true
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
+  insurance_claims_specialist:
+    metric: "extraction_f2"
+    confirmed: true
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 344: extraction_f2 is the 'insurance claims board number'; line 13."
+  correspondence_specialist:
+    metric: "content_topic_f1_macro"
+    confirmed: true
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 997: content_topic_f1_macro, 'promoted to T0', is 'the correspondence board number'; line 13."
+  reporter:
+    metric: "extraction_overall_score"
+    confirmed: false
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 327: extraction_overall_score, tier 0, is the only headline that names reporter and boss. Proposal, owner to confirm."
+  boss:
+    metric: "extraction_overall_score"
+    confirmed: false
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 327: extraction_overall_score, tier 0, is the only headline that names reporter and boss. Proposal, owner to confirm."
+  sorter_reviewer:
+    metric: "reviewer_class_accuracy"
+    confirmed: false
+    secondary: ["reviewer_wrong_accept_upper_95"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 352-353: reviewer_class_accuracy, the first of the five tier-0 reviewer metrics, with reviewer_wrong_accept_upper_95 (line 370) as its guard. Open owner question."
+  local_vs_api:
+    metric: "tokens_per_second"
+    confirmed: false
+    secondary: ["ttft_seconds"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 1097-1098: tokens_per_second, tier 0, with ttft_seconds (line 1091, tier 0) as the secondary. Proposal, owner to confirm."
+  arbiter:
+    metric: "arbiter_decision_accuracy"
+    confirmed: false
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 526-534: arbiter_decision_accuracy (tier 1), the arbiter's labelled quality metric; the arbiter has no tier-0 metric. Proposal, owner to confirm."
+  audit_agent:
+    metric: "audit_resolution_rate"
+    confirmed: false
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
+  contract_auditor:
+    metric: "audit_resolution_rate"
+    confirmed: false
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
+  corporate_records_auditor:
+    metric: "audit_resolution_rate"
+    confirmed: false
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
+  due_diligence_auditor:
+    metric: "audit_resolution_rate"
+    confirmed: false
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
+  correspondence_auditor:
+    metric: "audit_resolution_rate"
+    confirmed: false
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
+  compliance_auditor:
+    metric: "audit_resolution_rate"
+    confirmed: false
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
+  court_opinions_auditor:
+    metric: "audit_resolution_rate"
+    confirmed: false
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
+  insurance_claims_auditor:
+    metric: "audit_resolution_rate"
+    confirmed: false
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
+  pdf_transcriber:
+    metric: "word_accuracy"
+    confirmed: false
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 1051: word_accuracy is the 'complementary transcription headline' (tier 1). Proposal, owner to confirm."
+  image_extractor:
+    metric: "word_accuracy"
+    confirmed: false
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 1051: word_accuracy is the 'complementary transcription headline' (tier 1). Proposal, owner to confirm."
+  intake:
+    metric: "intake_prep_completeness"
+    confirmed: false
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 1059-1064 (tier 1, INTAKE), emitted by the golden intake suite (tests/fixtures/golden/scores.json at 23f8234c); bert_elapsed_ms, intake's tier-0 metric, is not ported. Proposal, owner to confirm."
+  human_review:
+    metric: "review_tray_wasted_review_rate"
+    confirmed: false
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 580-588 (tier 1): review_tray_wasted_review_rate, the review tray's one kept metric. Proposal, owner to confirm."
+  archivist:
+    metric: null
+    confirmed: false
+    reason: "procedural; judged by archive-gate checks, not a metric"
+    source: "tests/fixtures/golden/scores.json at 23f8234c: suites.archivist is a cost suite with an empty score; no registry metric names the archivist."
 
 metrics:
   - id: "f1_macro"

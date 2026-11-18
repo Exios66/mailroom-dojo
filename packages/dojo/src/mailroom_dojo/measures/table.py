@@ -32,6 +32,7 @@ from .measure import Measure, MeasureError
 
 __all__ = [
     "AGGREGATIONS",
+    "DefaultView",
     "DIRECTIONS",
     "GROUND_TRUTH",
     "LAYERS",
@@ -141,13 +142,36 @@ _ROW_DEFAULTS: Mapping[str, Any] = MappingProxyType(
         "notes": "",
     }
 )
-_TOP_KEYS = frozenset({"table_format", "version", "source", "agent_families", "metrics"})
+_TOP_KEYS = frozenset({"table_format", "version", "source", "agent_families", "default_views", "metrics"})
+_VIEW_KEYS = frozenset({"metric", "confirmed", "source", "reason", "secondary"})
+_VIEW_REQUIRED = ("metric", "confirmed", "source")
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """A safe loader that refuses a mapping with the same key twice (PyYAML keeps the last)."""
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+        seen: set[Any] = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            try:
+                duplicate = key in seen
+            except TypeError:  # an unhashable key: the base constructor reports it
+                continue
+            if duplicate:
+                raise yaml.constructor.ConstructorError(
+                    "while constructing a mapping",
+                    node.start_mark,
+                    f"found duplicate key {key!r}",
+                    key_node.start_mark,
+                )
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)  # type: ignore[no-any-return]
 
 
 def _parse(text: str) -> Any:
-    """Parse with libyaml's safe loader when PyYAML has it (same rules, faster), else the pure one."""
-    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
-    return yaml.load(text, Loader=loader)  # noqa: S506 - always a safe loader
+    """Parse with PyYAML's safe loader, refusing duplicate keys."""
+    return yaml.load(text, Loader=_UniqueKeyLoader)  # noqa: S506 - always a safe loader
 
 
 class MetricTableError(ValueError):
@@ -200,6 +224,24 @@ class MetricRow:
 
 
 @dataclass(frozen=True)
+class DefaultView:
+    """The one number an agent's dashboard shows by default (the old tier 0, "ONE number per agent").
+
+    ``metric`` is ``None`` for an agent that has no metric, and ``reason`` says why.
+    ``confirmed`` is true only where the owner or the old registry fixed the choice;
+    ``source`` cites where it comes from; ``secondary`` names the metrics shown beside it
+    (a guard or a second headline).
+    """
+
+    agent: str
+    metric: str | None
+    confirmed: bool
+    source: str
+    reason: str | None
+    secondary: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class MetricTable:
     """The loaded, validated table. Immutable; identified by ``content_hash``."""
 
@@ -207,6 +249,7 @@ class MetricTable:
     source: Mapping[str, str]
     agent_families: Mapping[str, tuple[str, ...]]
     rows: tuple[MetricRow, ...]
+    default_views: Mapping[str, DefaultView]
     content_hash: str
 
     def __post_init__(self) -> None:
@@ -227,6 +270,10 @@ class MetricTable:
         except KeyError:
             raise UnknownMetricError(f"unknown metric {metric!r}; it is not in the metric table") from None
         return row
+
+    def default_view(self, agent: str) -> DefaultView | None:
+        """The agent's default view, or ``None`` when the table names none."""
+        return self.default_views.get(agent)
 
     def headline_rows(self) -> tuple[MetricRow, ...]:
         """The headline metrics, in table order."""
@@ -516,6 +563,16 @@ def metric_table_canonical_form(table: MetricTable) -> dict[str, Any]:
         "version": table.version,
         "source": dict(sorted(table.source.items())),
         "agent_families": {name: list(members) for name, members in sorted(table.agent_families.items())},
+        "default_views": {
+            agent: {
+                "metric": view.metric,
+                "confirmed": view.confirmed,
+                "source": view.source,
+                "reason": view.reason,
+                "secondary": list(view.secondary),
+            }
+            for agent, view in sorted(table.default_views.items())
+        },
         "metrics": [_row_canonical(row) for row in table.rows],
     }
 
@@ -523,6 +580,95 @@ def metric_table_canonical_form(table: MetricTable) -> dict[str, Any]:
 def _hash(canonical: Mapping[str, Any]) -> str:
     text = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _view_metric(metric: Any, agent: str, by_id: Mapping[str, MetricRow], path: str) -> MetricRow:
+    if not isinstance(metric, str) or metric not in by_id:
+        raise _fail(path, f"{metric!r} is not a metric in the table")
+    row = by_id[metric]
+    if row.status == "not_ported":
+        raise _fail(path, f"{metric!r} is not ported")
+    if not row.applies_to(agent):
+        raise _fail(path, f"{metric!r} does not apply to {agent!r}")
+    return row
+
+
+def _default_views(
+    raw: Any, rows: tuple[MetricRow, ...], families: Mapping[str, tuple[str, ...]]
+) -> dict[str, DefaultView]:
+    """Validate ``default_views``: one entry per agent with a headline row, and each rule."""
+    if not isinstance(raw, Mapping):
+        raise _fail("default_views", "must be a mapping of agent to its default view")
+    by_id = {row.id: row for row in rows}
+    known = {agent for row in rows for agent in row.expanded_agents} | {
+        agent for members in families.values() for agent in members
+    }
+    known.discard(_ALL_AGENTS)
+    headline_agents = {
+        agent
+        for row in rows
+        if row.headline and row.status != "not_ported"
+        for agent in row.expanded_agents
+        if agent != _ALL_AGENTS
+    }
+    views: dict[str, DefaultView] = {}
+    for agent, spec in raw.items():
+        path = f"default_views.{agent}"
+        if not isinstance(agent, str) or not _AGENT.match(agent):
+            raise _fail(path, f"{agent!r} is not an agent name")
+        if not isinstance(spec, Mapping):
+            raise _fail(path, "must be a mapping")
+        unknown = sorted(set(spec) - _VIEW_KEYS)
+        if unknown:
+            raise _fail(f"{path}.{unknown[0]}", "unknown key")
+        missing = [key for key in _VIEW_REQUIRED if key not in spec]
+        if missing:
+            raise _fail(f"{path}.{missing[0]}", "missing")
+        confirmed = spec["confirmed"]
+        if not isinstance(confirmed, bool):
+            raise _fail(f"{path}.confirmed", "must be true or false")
+        source = _string(spec["source"], f"{path}.source")
+        reason = spec.get("reason")
+        secondary_raw = spec.get("secondary", [])
+        metric = spec["metric"]
+        if metric is None:
+            if reason is None:
+                raise _fail(f"{path}.reason", "an agent with no default metric needs the reason")
+            reason = _string(reason, f"{path}.reason")
+            if confirmed:
+                raise _fail(
+                    f"{path}.confirmed", "an agent with no default metric is a proposal, not confirmed"
+                )
+            if secondary_raw:
+                raise _fail(f"{path}.secondary", "an agent with no default metric has no secondary metric")
+            views[agent] = DefaultView(agent, None, False, source, reason, ())
+            continue
+        if reason is not None:
+            raise _fail(f"{path}.reason", "only an agent with no default metric gives a reason")
+        if agent not in known:
+            raise _fail(path, f"{agent!r} is not an agent of any metric row or family")
+        row = _view_metric(metric, agent, by_id, f"{path}.metric")
+        if (confirmed or agent in headline_agents) and not row.headline:
+            raise _fail(
+                f"{path}.metric",
+                f"{metric!r} is not a headline metric; a confirmed view, or one for an agent "
+                "with headline metrics, uses a headline metric",
+            )
+        if confirmed and row.direction == "none":
+            raise _fail(f"{path}.metric", f"{metric!r} has no direction; only an unconfirmed proposal may")
+        if not isinstance(secondary_raw, list):
+            raise _fail(f"{path}.secondary", "must be a list of metric ids")
+        for index, other in enumerate(secondary_raw):
+            _view_metric(other, agent, by_id, f"{path}.secondary[{index}]")
+            if other == metric or secondary_raw.index(other) != index:
+                raise _fail(f"{path}.secondary[{index}]", f"{other!r} is listed twice")
+        views[agent] = DefaultView(agent, metric, confirmed, source, None, tuple(secondary_raw))
+    absent = sorted(headline_agents - set(views))
+    if absent:
+        raise _fail(
+            "default_views", f"{absent[0]!r} has headline metrics but no default view (one per agent)"
+        )
+    return views
 
 
 def _build(data: Any) -> MetricTable:
@@ -558,11 +704,13 @@ def _build(data: Any) -> MetricTable:
                 f"{row.metric_id!r} is already the id of {seen_metric_ids[row.metric_id]!r}",
             )
         seen_metric_ids[row.metric_id] = row.id
+    views = _default_views(data["default_views"], rows, families)
     table = MetricTable(
         version=version,
         source=MappingProxyType(_source(data["source"])),
         agent_families=MappingProxyType(families),
         rows=rows,
+        default_views=MappingProxyType(views),
         content_hash="",
     )
     object.__setattr__(table, "content_hash", _hash(metric_table_canonical_form(table)))

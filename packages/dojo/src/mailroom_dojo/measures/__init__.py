@@ -24,6 +24,7 @@ from .measure import (
 )
 from .table import (
     READERS,
+    DefaultView,
     MetricRow,
     MetricTable,
     MetricTableError,
@@ -39,6 +40,7 @@ __all__ = [
     "PROVENANCE_KEYS",
     "READERS",
     "ConfidenceInterval",
+    "DefaultView",
     "IncomparableMeasuresError",
     "Measure",
     "MeasureError",
