@@ -1,0 +1,44 @@
+version: 2.1
+
+jobs:
+  test:
+    docker:
+      - image: cimg/python:3.12.7
+    steps:
+      - checkout
+      - run:
+          name: Install mailroom_record
+          command: |
+            python -m venv .venv
+            .venv/bin/pip install -e "packages/record[dev,analysis]"
+      - run:
+          name: Run tests
+          command: .venv/bin/python -m pytest packages/record/tests -q
+
+  no-session-links:
+    docker:
+      - image: cimg/python:3.12.7
+    steps:
+      - checkout
+      - run:
+          name: Reject session links in commit messages and tracked files
+          # The bracketed letters keep this file from matching its own patterns.
+          command: |
+            pattern='claude\.ai/[c]ode|Claude-[S]ession:'
+            git fetch --quiet origin main
+            status=0
+            if git log --format='%H%n%B' origin/main..HEAD | grep -nE "$pattern"; then
+              echo "A commit message on this branch contains a session link."
+              status=1
+            fi
+            if git grep -nE "$pattern"; then
+              echo "A tracked file contains a session link."
+              status=1
+            fi
+            exit $status
+
+workflows:
+  checks:
+    jobs:
+      - test
+      - no-session-links

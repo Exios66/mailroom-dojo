@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mailroom-record"
+version = "0.1.0"
+description = "Append-only, hash-chained run record and content-addressed blob store for the Mailroom."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2",
+    "zstandard",
+    "pyarrow",
+    "typer",
+]
+
+[project.optional-dependencies]
+analysis = ["duckdb"]
+dev = ["pytest", "pytest-xdist"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
