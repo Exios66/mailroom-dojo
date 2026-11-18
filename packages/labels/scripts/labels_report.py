@@ -11,6 +11,11 @@ Writes ``data-quality-<date>.md``, ``coverage-<date>.md`` and ``coverage-<date>.
 number comes from the snapshots (and, for the sandbox cross-check section, from the
 ``--crosscheck`` JSON, which a scratch script outside this repository produces by running
 the sandbox's own merge; see that file's ``method``). Never edit the reports by hand.
+
+The reports carry our own tokens only (ids, field and class names, ranks, counts, hashes),
+never document or model free text: a label value is printed as its JSON type, its size and
+the first 12 hex digits of the sha256 of its canonical JSON (``_token``), and a list in the
+import accounting as its length.
 Exit 0: written; 1: the set fails verification (nothing written); 2: usage.
 """
 
@@ -18,8 +23,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter, defaultdict
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -40,10 +47,44 @@ def _table(header: list[str], rows: list[list[Any]]) -> list[str]:
     return out + [""]
 
 
-def _short(value: Any, limit: int = 90) -> str:
-    text = json.dumps(value, ensure_ascii=False)
-    text = text if len(text) <= limit else text[: limit - 1] + "…"
-    return text.replace("|", "\\|")
+def _token(value: Any) -> str:
+    """A label value as our own token: its JSON type, size and a short hash, never its text.
+    ``null``, ``true`` and ``false`` are printed as they are; they carry no document text."""
+    if value is None or isinstance(value, bool):
+        return json.dumps(value)
+    digest = sha256(canonical_json(value)).hexdigest()[:12]
+    if isinstance(value, str):
+        return f"string of {len(value)} chars, sha256:{digest}"
+    if isinstance(value, list):
+        return f"list of {len(value)}, sha256:{digest}"
+    if isinstance(value, dict):
+        return f"object of {len(value)} keys, sha256:{digest}"
+    return f"number, sha256:{digest}"
+
+
+_WORD = re.compile(r"[a-z_:]+")
+
+
+def _outcome(value: Any) -> str:
+    """A cross-check outcome ``[rank, presence, value]``: the rank and presence words (our
+    own vocabulary) as they are, the value as a token. Anything else is one token."""
+    if isinstance(value, list) and len(value) == 3:
+        words = value[:2]
+        if all(w is None or (isinstance(w, str) and _WORD.fullmatch(w)) for w in words):
+            return ", ".join([*(json.dumps(w) if w is None else w for w in words), _token(value[2])])
+    return _token(value)
+
+
+def _counted(value: Any) -> Any:
+    """Import accounting with every list replaced by its length: the keys are our own names
+    and the leaves counts, but a list entry can quote a source value."""
+    if isinstance(value, dict):
+        return {k: _counted(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return {"entries": len(value)}
+    if isinstance(value, str):
+        return _token(value)
+    return value
 
 
 def build(
@@ -242,7 +283,7 @@ def build(
                         ] += 1
                         if not same and other.rank in ("hub", "interim:correction"):
                             audit_rows.append(
-                                [d.document_id, name, other.rank, _short(other.value), _short(a.value)]
+                                [d.document_id, name, other.rank, _token(other.value), _token(a.value)]
                             )
     md += ["Claude audit decisions (`review:near_gold`) against the other layers on the same label:", ""]
     md += _table(
@@ -271,7 +312,7 @@ def build(
     md += _table(
         ["Document", "Field", "Status", "Value", "Reviewer"],
         [
-            [doc, n, lab.status, _short(lab.value), lab.reviewer]
+            [doc, n, lab.status, _token(lab.value), lab.reviewer]
             for doc, n, lab in sorted(human, key=lambda t: t[:2])
         ],
     )
@@ -284,13 +325,13 @@ def build(
             md += ["Not resolved (no trusted label).", ""]
             continue
         md += [
-            f"Resolved: `{_short(lab.value)}` (rank `{lab.rank}`, status `{lab.status}`, "
+            f"Resolved: {_token(lab.value)} (rank `{lab.rank}`, status `{lab.status}`, "
             f"source `{lab.source}`). Every layer seen:",
             "",
         ]
         md += _table(
             ["Rank", "Source", "Value", "Stale"],
-            [[f.rank, f.source, _short(f.value), f.stale] for f in lab.layers_seen],
+            [[f.rank, f.source, _token(f.value), f.stale] for f in lab.layers_seen],
         )
 
     # --- import accounting
@@ -322,7 +363,7 @@ def build(
             f"### {snap.snapshot_id}",
             "",
             "```json",
-            json.dumps(keep, indent=1, sort_keys=True, ensure_ascii=False),
+            json.dumps(_counted(keep), indent=1, sort_keys=True, ensure_ascii=False),
             "```",
             "",
         ]
@@ -344,7 +385,7 @@ def build(
             md += _table(
                 ["Document", "Class", "Field", "Sandbox", "Ours"],
                 [
-                    [e["doc"], e["class"], e["field"], _short(e["sandbox"], 60), _short(e["ours"], 60)]
+                    [e["doc"], e["class"], e["field"], _outcome(e["sandbox"]), _outcome(e["ours"])]
                     for e in examples
                 ],
             )
@@ -364,9 +405,9 @@ def build(
                 [
                     x["doc"],
                     x["field"],
-                    _short(x["audit"]),
-                    _short(x["catalog"]),
-                    _short(x["near_gold_overlay"]),
+                    _token(x["audit"]),
+                    _token(x["catalog"]),
+                    _token(x["near_gold_overlay"]),
                 ]
                 for x in a["different"]
             ],

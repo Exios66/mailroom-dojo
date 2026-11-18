@@ -112,23 +112,23 @@ Human desk decisions: 8; resolved to `gold`: 8.
 
 | Document | Field | Status | Value | Reviewer |
 | --- | --- | --- | --- | --- |
-| DOC-043551f0a705e5ca | signatories | gold | ["Robert J. Morganti"] | human:review_desk |
-| DOC-b0801e4d4bb58191 | signatories | gold | ["Melanie Figueroa", "Anthony C. Pintsopoulos", "Jawahar Tandon", "Vivek Tandon", "David … | human:review_desk |
-| DOC-ba0a00b00ba2ed62 | effective_date | gold | "2010-01-11" | human:review_desk |
-| DOC-bda69bc956881bab | effective_date | gold | "2010-02-05" | human:review_desk |
+| DOC-043551f0a705e5ca | signatories | gold | list of 1, sha256:d6843a02ea00 | human:review_desk |
+| DOC-b0801e4d4bb58191 | signatories | gold | list of 5, sha256:7021954d1a40 | human:review_desk |
+| DOC-ba0a00b00ba2ed62 | effective_date | gold | string of 10 chars, sha256:a40857a86de5 | human:review_desk |
+| DOC-bda69bc956881bab | effective_date | gold | string of 10 chars, sha256:108a4aeedbc4 | human:review_desk |
 | DOC-bda69bc956881bab | jurisdiction | gold | null | human:review_desk |
-| DOC-bda69bc956881bab | signatories | gold | ["Catherine H. Smith", "Thomas J. McInerney", "Ewout Steenbergen", "Steven T. Pierson", "… | human:review_desk |
-| DOC-c1008f5360c7c806 | signatories | gold | ["Daniel Nye", "Erika Rottenberg"] | human:review_desk |
-| DOC-f1e8af2071cb17fa | signatories | gold | ["David L. Redmond", "Steven Arikian", "John Doyle", "Julian Casciano", "Roman Casciano",… | human:review_desk |
+| DOC-bda69bc956881bab | signatories | gold | list of 8, sha256:088f878eff91 | human:review_desk |
+| DOC-c1008f5360c7c806 | signatories | gold | list of 2, sha256:e572253fdbd8 | human:review_desk |
+| DOC-f1e8af2071cb17fa | signatories | gold | list of 7, sha256:51922e776ec7 | human:review_desk |
 
 ### Case DOC-672cec2c85c83c39 action_items
 
-Resolved: `["please continue to spread the word", "Check it out!"]` (rank `review:near_gold`, status `near_gold`, source `review:claude-opus-audit`). Every layer seen:
+Resolved: list of 2, sha256:5d89b1c4f6a3 (rank `review:near_gold`, status `near_gold`, source `review:claude-opus-audit`). Every layer seen:
 
 | Rank | Source | Value | Stale |
 | --- | --- | --- | --- |
-| review:near_gold | review:claude-opus-audit | ["please continue to spread the word", "Check it out!"] | False |
-| near_gold | near_gold:opus_reviewed_correct | [] | False |
+| review:near_gold | review:claude-opus-audit | list of 2, sha256:5d89b1c4f6a3 | False |
+| near_gold | near_gold:opus_reviewed_correct | list of 0, sha256:4f53cda18c2b | False |
 
 ## Import accounting (nothing dropped silently)
 
@@ -143,9 +143,15 @@ Resolved: `["please continue to spread the word", "Check it out!"]` (rank `revie
  "merged_duplicates": {
   "human": 4
  },
- "not_imported": [],
- "rejected_lines": [],
- "superseded": []
+ "not_imported": {
+  "entries": 0
+ },
+ "rejected_lines": {
+  "entries": 0
+ },
+ "superseded": {
+  "entries": 0
+ }
 }
 ```
 
@@ -270,7 +276,9 @@ Resolved: `["please continue to spread the word", "Check it out!"]` (rank `revie
   "signatories": 53
  },
  "undecodable_list_values": {},
- "unparseable_gt_fields": []
+ "unparseable_gt_fields": {
+  "entries": 0
+ }
 }
 ```
 
@@ -300,7 +308,9 @@ Resolved: `["please continue to spread the word", "Check it out!"]` (rank `revie
    "gap_fill": 93
   }
  },
- "rejected_lines": []
+ "rejected_lines": {
+  "entries": 0
+ }
 }
 ```
 
@@ -324,7 +334,9 @@ Resolved: `["please continue to spread the word", "Check it out!"]` (rank `revie
    "near_gold:two_pass_agree": 3644
   }
  },
- "rejected_lines": []
+ "rejected_lines": {
+  "entries": 0
+ }
 }
 ```
 
@@ -344,21 +356,21 @@ Examples, sandbox scores hub, ours does not: document unverified (stale_label):
 
 | Document | Class | Field | Sandbox | Ours |
 | --- | --- | --- | --- | --- |
-| DOC-e00ef4799dbd6b37 | corporate_record | intent | ["hub", "populated", "governance_rules"] | ["hub", "populated", null] |
-| DOC-e00ef4799dbd6b37 | corporate_record | keywords | ["hub", "populated", ["Bylaws", "stockholders", "Board of D… | ["hub", "populated", null] |
-| DOC-e00ef4799dbd6b37 | corporate_record | record_type | ["hub", "populated", "bylaws"] | ["hub", "populated", null] |
-| DOC-e00ef4799dbd6b37 | corporate_record | subject_matter | ["hub", "populated", "Bylaws of Revenue.com Corporation, a … | ["hub", "populated", null] |
-| DOC-4a8f1db0546e42be | corporate_record | intent | ["hub", "populated", "governance_rules"] | ["hub", "populated", null] |
+| DOC-e00ef4799dbd6b37 | corporate_record | intent | hub, populated, string of 16 chars, sha256:0c4ff0e27162 | hub, populated, null |
+| DOC-e00ef4799dbd6b37 | corporate_record | keywords | hub, populated, list of 8, sha256:d79326e5d582 | hub, populated, null |
+| DOC-e00ef4799dbd6b37 | corporate_record | record_type | hub, populated, string of 6 chars, sha256:88da006bd212 | hub, populated, null |
+| DOC-e00ef4799dbd6b37 | corporate_record | subject_matter | hub, populated, string of 151 chars, sha256:8aedc3778861 | hub, populated, null |
+| DOC-4a8f1db0546e42be | corporate_record | intent | hub, populated, string of 16 chars, sha256:0c4ff0e27162 | hub, populated, null |
 
 Examples, sandbox scores interim, ours does not: document unverified (stale_label):
 
 | Document | Class | Field | Sandbox | Ours |
 | --- | --- | --- | --- | --- |
-| DOC-e00ef4799dbd6b37 | corporate_record | effective_date | ["interim", "populated", "2014-03-14"] | [null, null, null] |
-| DOC-e00ef4799dbd6b37 | corporate_record | entity_name | ["interim", "populated", "Revenue.com Corporation"] | [null, null, null] |
-| DOC-e00ef4799dbd6b37 | corporate_record | filing_number | ["interim", "schema_documented_absence", null] | ["hub:absent", "not_applicable", null] |
-| DOC-e00ef4799dbd6b37 | corporate_record | jurisdiction | ["interim", "populated", "Nevada"] | [null, null, null] |
-| DOC-e00ef4799dbd6b37 | corporate_record | signatories | ["interim", "populated", ["Paul Dillman"]] | [null, null, null] |
+| DOC-e00ef4799dbd6b37 | corporate_record | effective_date | interim, populated, string of 10 chars, sha256:8e2788ed3ea1 | null, null, null |
+| DOC-e00ef4799dbd6b37 | corporate_record | entity_name | interim, populated, string of 23 chars, sha256:6e3e07b4367f | null, null, null |
+| DOC-e00ef4799dbd6b37 | corporate_record | filing_number | interim, schema_documented_absence, null | hub:absent, not_applicable, null |
+| DOC-e00ef4799dbd6b37 | corporate_record | jurisdiction | interim, populated, string of 6 chars, sha256:7a52c4ffc586 | null, null, null |
+| DOC-e00ef4799dbd6b37 | corporate_record | signatories | interim, populated, list of 1, sha256:a1612be07b0e | null, null, null |
 
 Effect of the review layer (not part of the sandbox merge):
 
@@ -376,4 +388,4 @@ Claude audit decisions against the sandbox gold catalog: 1039 decisions, 1038 eq
 
 | Document | Field | Audit | Catalog | Near-gold overlay |
 | --- | --- | --- | --- | --- |
-| DOC-672cec2c85c83c39 | action_items | ["please continue to spread the word", "Check it out!"] | [] | [] |
+| DOC-672cec2c85c83c39 | action_items | list of 2, sha256:5d89b1c4f6a3 | list of 0, sha256:4f53cda18c2b | list of 0, sha256:4f53cda18c2b |

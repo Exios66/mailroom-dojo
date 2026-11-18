@@ -47,7 +47,8 @@ the dataset's `manifest.txt`, deleting any download that fails or does not match
 code here that touches the network);
 `build_profile.py` writes the client profile from the dataset's EDA schemas and the Hub
 (`--check` compares); `labels_report.py` writes the data-quality and coverage reports in
-`docs/reports/labels/`; `derive_review_snapshot.py` derives a new review snapshot whose
+`docs/reports/labels/` with our own tokens only (a label value appears as its type, size and
+a short sha256, never as text); `derive_review_snapshot.py` derives a new review snapshot whose
 notes name the reviewing role instead of a person's initials (`--check` compares; see
 "Rebuild the committed snapshots" below).
 
