@@ -112,3 +112,11 @@ None of these changes a score on the extraction corpus (6,414 cases) or on the 1
 - **A single pair and a matrix treat NaN differently.** A one-to-one list compares a NaN
   element score with the threshold (false, so unmatched); a larger list now raises.
 
+
+## Review fix: plug-in scorer results are checked
+
+Not a score change for any built-in scorer (they are not wrapped and stay proved by parity). A plug-in scorer
+(for example a VIN or policy-number scorer a client adds) now raises `ScorerResultError` when it returns anything
+but a finite number in `[0, 1]`. Before the check, 2.0 flowed into the field scores, NaN into `overall_score`
+(and made the solver refuse an entity-list matrix, which the old Dojo answered by silently switching to the
+greedy matcher), and None failed with an unhelpful `TypeError`.

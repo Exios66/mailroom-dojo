@@ -9,9 +9,10 @@ old fallback asks for it explicitly and gets told when it was used.
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ..profile.field_types import ENTITY_LIST_PREFIX, element_type, is_entity_list
 from ..profile.frozen import FrozenMapping
@@ -35,6 +36,7 @@ __all__ = [
     "FieldScorerRegistry",
     "ResolvedFieldType",
     "ScalarScorer",
+    "ScorerResultError",
     "UnknownFieldTypeError",
     "heuristic_field_type",
     "is_entity_list",
@@ -65,6 +67,28 @@ class UnknownFieldTypeError(LookupError):
     """A field type names a scalar type the registry does not have."""
 
 
+class ScorerResultError(ValueError):
+    """A plug-in scorer returned something other than a finite number in [0, 1]."""
+
+
+def _checked(name: str, scorer: ScalarScorer) -> ScalarScorer:
+    """Wrap a plug-in scorer so that any result outside a finite [0, 1] raises :class:`ScorerResultError`.
+
+    The built-in scorers are never wrapped (they are proved by parity). A plug-in is
+    new code supplied by a client profile, and a result of 2.0, NaN or None would
+    otherwise flow into field scores and the overall score without a trace.
+    """
+
+    @functools.wraps(scorer)
+    def checked(*arguments: Any, **keywords: Any) -> float:
+        result = scorer(*arguments, **keywords)
+        if isinstance(result, bool) or not isinstance(result, (int, float)) or not 0.0 <= result <= 1.0:
+            raise ScorerResultError(f"plug-in scorer {name!r} returned {result!r}; it must return a number in [0, 1]")
+        return float(result)
+
+    return checked
+
+
 @dataclass(frozen=True)
 class ResolvedFieldType:
     """A field type resolved against a registry.
@@ -91,7 +115,9 @@ class FieldScorerRegistry:
                 raise ValueError(f"invalid scalar field type name {name!r}")
             if not callable(scorer):
                 raise TypeError(f"scorer for {name!r} is not callable")
-        self._scorers: Mapping[str, ScalarScorer] = FrozenMapping(scorers)
+        self._scorers: Mapping[str, ScalarScorer] = FrozenMapping(
+            {name: scorer if BUILTIN_SCORERS.get(name) is scorer else _checked(name, scorer) for name, scorer in scorers.items()}
+        )
 
     @classmethod
     def builtin(cls) -> FieldScorerRegistry:

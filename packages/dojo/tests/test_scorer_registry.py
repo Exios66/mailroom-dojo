@@ -47,7 +47,7 @@ def test_every_mailroom_field_type_resolves(mailroom_profile):
     for field_type in types:
         resolved = registry.resolve(field_type)
         assert not resolved.fell_back and callable(resolved.scorer)
-    assert registry.resolve("entity_list:cms_doc_ref").scorer is score_cms_doc_ref
+    assert registry.resolve("entity_list:cms_doc_ref").scorer.__wrapped__ is score_cms_doc_ref
     assert registry.resolve("entity_list").scalar_type == "name"
 
 
@@ -77,7 +77,7 @@ def test_client_plugins_are_declared_in_the_profile_and_supplied_in_code():
     with pytest.raises(UnknownFieldTypeError, match="declares plug-in 'vin'"):
         FieldScorerRegistry.for_profile(declared)
     registry = FieldScorerRegistry.for_profile(declared, {"vin": _exact_text})
-    assert registry.resolve("entity_list:vin").scorer is _exact_text
+    assert registry.resolve("entity_list:vin").scorer.__wrapped__ is _exact_text
     plain = load_scoring_profile(minimal_profile_mapping())
     with pytest.raises(ValueError, match=r"\['vin'\] are not declared"):
         FieldScorerRegistry.for_profile(plain, {"vin": _exact_text})
@@ -86,7 +86,7 @@ def test_client_plugins_are_declared_in_the_profile_and_supplied_in_code():
 def test_a_supplied_plugin_overrides_the_bundled_one(mailroom_profile):
     """A caller can swap the bundled CMS scorer for its own under the declared name."""
     registry = FieldScorerRegistry.for_profile(mailroom_profile, {"cms_doc_ref": _exact_text})
-    assert registry.scalar_scorer("cms_doc_ref") is _exact_text
+    assert registry.scalar_scorer("cms_doc_ref").__wrapped__ is _exact_text
 
 
 def test_with_plugin_returns_a_new_registry_and_never_replaces():

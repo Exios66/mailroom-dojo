@@ -16,7 +16,7 @@ from hypothesis import strategies as st
 
 from mailroom_dojo.field_scoring import entity_lists
 from mailroom_dojo.field_scoring.entity_lists import EntityListScore, as_list, score_entity_list
-from mailroom_dojo.field_scoring.scorer_registry import FieldScorerRegistry, UnknownFieldTypeError
+from mailroom_dojo.field_scoring.scorer_registry import FieldScorerRegistry, ScorerResultError, UnknownFieldTypeError
 from mailroom_dojo.field_scoring.similarity_backend import EmbeddingRescue
 from mailroom_dojo.profile import load_scoring_profile
 
@@ -185,15 +185,16 @@ def test_a_failing_solver_is_never_hidden_by_the_fallback(mailroom_profile, monk
         score_entity_list(mailroom_profile, "name", ["a b", "c"], ["a", "c d"], fallback_matcher="greedy")
 
 
-def test_a_nan_element_score_fails_loudly_in_the_matrix(mailroom_profile):
-    """A plug-in returning NaN makes the solver refuse the matrix (the old Dojo silently switched to greedy).
+def test_a_nan_element_score_is_refused_before_it_reaches_the_matrix(mailroom_profile):
+    """A plug-in returning NaN raises ScorerResultError at once, for a pair or for a matrix.
 
-    A single pair compares NaN with the threshold, which is false, so it is unmatched.
+    The old Dojo silently switched to the greedy matcher when the solver refused the matrix.
     """
     registry = FieldScorerRegistry.for_profile(mailroom_profile).with_plugin("broken", lambda a, b, r=None: math.nan)
-    with pytest.raises(ValueError, match="invalid numeric entries"):
+    with pytest.raises(ScorerResultError, match="returned nan"):
         score_entity_list(mailroom_profile, "broken", ["a", "b"], ["c", "d"], registry=registry)
-    assert score_entity_list(mailroom_profile, "broken", ["a"], ["c"], registry=registry).matched == 0
+    with pytest.raises(ScorerResultError, match="returned nan"):
+        score_entity_list(mailroom_profile, "broken", ["a"], ["c"], registry=registry)
 
 
 def test_a_raising_element_scorer_propagates(mailroom_profile):

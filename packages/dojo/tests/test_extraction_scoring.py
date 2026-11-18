@@ -15,6 +15,8 @@ from hypothesis import strategies as st
 
 from mailroom_dojo.field_scoring import (
     ExtractionScoreResult,
+    FieldScorerRegistry,
+    ScorerResultError,
     UnknownFieldTypeError,
     UnmappedFieldError,
     is_accepted_unscored_field,
@@ -384,3 +386,28 @@ def test_judge_review_uses_the_declared_type_not_the_containment_switch():
                               {"governing_law": "the laws of the State of Delaware"})
     assert 0.0 < result.field_scores["governing_law"] < 1.0
     assert result.ambiguous_fields == []
+
+
+@pytest.mark.parametrize("bad", [2.0, -0.1, float("nan"), float("inf"), None, "0.5", True])
+@pytest.mark.parametrize("shape", ["scalar", "list_element"])
+def test_a_plugin_scorer_result_outside_zero_to_one_is_refused(mailroom_profile, bad, shape):
+    """A plug-in (the extension point for new document types) must return a finite number in [0, 1].
+
+    A result of 2.0, NaN or None would otherwise flow into the field scores and the overall score.
+    """
+    registry = FieldScorerRegistry.builtin().with_plugin("vin", lambda predicted, expected, rescue=None: bad)
+    field_type = "vin" if shape == "scalar" else "entity_list:vin"
+    predicted = {"vin": "1HGCM82633A004352"} if shape == "scalar" else {"vin": ["1HGCM82633A004352"]}
+    expected = {"vin": "1HGCM82633A004352"} if shape == "scalar" else {"vin": ["1HGCM82633A004352"]}
+    with pytest.raises(ScorerResultError, match="'vin' returned"):
+        score_extraction(mailroom_profile, "audit", predicted, expected,
+                         field_types={"vin": field_type}, registry=registry)
+
+
+@pytest.mark.parametrize("good", [0, 1, 0.0, 0.5, 1.0])
+def test_a_plugin_scorer_result_inside_zero_to_one_passes_through_as_a_float(mailroom_profile, good):
+    registry = FieldScorerRegistry.builtin().with_plugin("vin", lambda predicted, expected, rescue=None: good)
+    result = score_extraction(mailroom_profile, "audit", {"vin": "x"}, {"vin": "y"},
+                              field_types={"vin": "vin"}, registry=registry)
+    assert result.field_scores == {"vin": float(good)}
+    assert isinstance(result.field_scores["vin"], float)
