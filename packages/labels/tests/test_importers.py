@@ -651,3 +651,38 @@ def test_fetch_hub_deletes_a_download_that_fails_part_way(tmp_path: Path, monkey
     assert not target.exists()
     assert fetch.fetch(tmp_path / "out2", ["parquet/x.parquet"], revision="0" * 40) == 1
     assert not (tmp_path / "out2" / "manifest.txt").exists()
+
+
+# --- unlisted files and directories ---------------------------------------------------------
+
+
+@pytest.mark.parametrize("stray", ["LETTER.JSONL", "nested/letter.jsonl", "a/b/More.Jsonl"])
+def test_overlay_refuses_unlisted_jsonl_of_any_case_or_depth(tmp_path: Path, stray: str) -> None:
+    src = write_overlay(tmp_path / "src", {"letter.jsonl": jsonl(interim_row("D1", {"sender": ("gap_fill", "A")}))})
+    (src / stray).parent.mkdir(parents=True, exist_ok=True)
+    (src / stray).write_bytes(jsonl(interim_row("D2", {"sender": ("gap_fill", "B")})))
+    with pytest.raises(ImportRefused, match="unlisted overlay file"):
+        overlay(tmp_path / "interim-x", src)
+    (src / "README.md").write_text("notes")  # a non-label file is not refused by itself
+    (src / stray).unlink()
+    overlay(tmp_path / "interim-x", src)
+
+
+@pytest.mark.parametrize("extra", ["sub/stray.jsonl", "sub/", "deep/er/"])
+def test_check_and_load_treat_an_extra_file_or_directory_as_a_difference(tmp_path: Path, extra: str) -> None:
+    from mailroom_labels.errors import ManifestMismatch
+
+    src = write_overlay(tmp_path / "src", {"letter.jsonl": jsonl(interim_row("D1", {"sender": ("gap_fill", "A")}))})
+    out = tmp_path / "interim-x"
+    overlay(out, src)
+    if extra.endswith("/"):
+        (out / extra).mkdir(parents=True)
+    else:
+        (out / extra).parent.mkdir(parents=True)
+        (out / extra).write_bytes(b"{}\n")
+    result = check_snapshot(out, lambda d: overlay(d, src))
+    assert not result.identical
+    assert any(extra.split("/")[0] in line for line in result.differences)
+    with pytest.raises(ManifestMismatch) as info:
+        load_snapshot(out)
+    assert info.value.kind == "extra"

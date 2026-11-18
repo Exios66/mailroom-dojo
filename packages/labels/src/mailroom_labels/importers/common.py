@@ -141,11 +141,12 @@ class CheckResult:
     differences: list[str] = field(default_factory=list)
 
 
-def _tree(directory: Path) -> dict[str, bytes]:
+def _tree(directory: Path) -> dict[str, bytes | None]:
+    """Every file (its bytes) and every directory (``None``, keyed ``<path>/``) below
+    ``directory``, so an extra file or subdirectory at any depth is a difference."""
     return {
-        p.relative_to(directory).as_posix(): p.read_bytes()
+        p.relative_to(directory).as_posix() + ("/" if p.is_dir() else ""): None if p.is_dir() else p.read_bytes()
         for p in sorted(directory.rglob("*"))
-        if p.is_file()
     }
 
 

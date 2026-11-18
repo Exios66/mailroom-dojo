@@ -82,7 +82,13 @@ def build_overlay(
     listed = man.get("files")
     if not isinstance(listed, dict) or not listed:
         raise ImportRefused(f"{_MANIFEST} lists no files")
-    unlisted = sorted(p.name for p in source_dir.glob("*.jsonl") if p.name not in listed)
+    # Any .jsonl the manifest does not list, whatever its case or depth, could be label data
+    # the sandbox meant to ship: refuse rather than import a part of the overlay.
+    unlisted = sorted(
+        rel for p in source_dir.rglob("*")
+        if p.is_file() and p.suffix.lower() == ".jsonl"
+        and (rel := p.relative_to(source_dir).as_posix()) not in listed
+    )
     if unlisted:
         raise ImportRefused(f"unlisted overlay file(s): {', '.join(unlisted)}")
 

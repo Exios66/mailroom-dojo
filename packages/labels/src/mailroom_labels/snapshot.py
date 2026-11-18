@@ -315,6 +315,11 @@ def load_snapshot(directory: Path | str) -> LabelSnapshot:
     extra = [rel for rel in on_disk if rel not in set(listed)]
     if extra:
         raise ManifestMismatch("extra", directory / extra[0], f"{len(extra)} unlisted file(s)")
+    needed = {parent.as_posix() for rel in listed for parent in PurePosixPath(rel).parents} - {"."}
+    stray = sorted(p.relative_to(directory).as_posix() for p in directory.rglob("*")
+                   if p.is_dir() and not p.is_symlink() and p.relative_to(directory).as_posix() not in needed)
+    if stray:
+        raise ManifestMismatch("extra", directory / stray[0], f"{len(stray)} unlisted directory(ies)")
     for entry in manifest.files:
         path = directory / entry.path
         size = path.stat().st_size
