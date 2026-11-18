@@ -346,6 +346,7 @@ def test_committed_reports_match_a_fresh_build(tmp_path: Path) -> None:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     crosscheck = json.loads((REPORTS / "sandbox-crosscheck-2026-11-18.json").read_text(encoding="utf-8"))
+    assert module.scrub_crosscheck(crosscheck) == crosscheck, "commit the cross-check scrubbed"
     quality_md, cov, cov_md = module.build(
         DIRS, PROFILE, crosscheck, [("DOC-672cec2c85c83c39", "action_items")], "2026-11-18"
     )

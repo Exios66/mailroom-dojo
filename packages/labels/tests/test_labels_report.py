@@ -120,3 +120,16 @@ def test_the_data_quality_report_prints_no_value_text(tmp_path: Path) -> None:
     assert f"string of {len(human_value)} chars, sha256:{digest}" in quality_md
     sandbox = hashlib.sha256(canonical_json(f"{SENTINEL} (sandbox)")).hexdigest()[:12]
     assert f"hub, populated, string of {len(SENTINEL) + 10} chars, sha256:{sandbox}" in quality_md
+
+
+def test_scrubbing_the_crosscheck_drops_value_text_and_changes_no_report(tmp_path: Path) -> None:
+    module = _report_module()
+    raw = _crosscheck()
+    scrubbed = module.scrub_crosscheck(raw)
+    assert "Sentinel" not in repr(scrubbed) and "Person" not in repr(scrubbed)
+    assert "Sentinel" in repr(raw), "scrubbing must not change its input"
+    assert module.scrub_crosscheck(scrubbed) == scrubbed
+    snapshots = _sentinel_set(tmp_path)
+    from_raw = module.build(snapshots, PROFILE_PATH, raw, [], "2026-01-01")
+    from_scrubbed = module.build(snapshots, PROFILE_PATH, scrubbed, [], "2026-01-01")
+    assert from_raw is not None and from_raw == from_scrubbed

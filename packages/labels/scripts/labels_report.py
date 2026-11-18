@@ -10,7 +10,9 @@
 Writes ``data-quality-<date>.md``, ``coverage-<date>.md`` and ``coverage-<date>.json``. Every
 number comes from the snapshots (and, for the sandbox cross-check section, from the
 ``--crosscheck`` JSON, which a scratch script outside this repository produces by running
-the sandbox's own merge; see that file's ``method``). Never edit the reports by hand.
+the sandbox's own merge; see that file's ``method``). ``--scrub-crosscheck`` rewrites that
+JSON in place with every label value replaced by its token before it is committed. Never
+edit the reports by hand.
 
 The reports carry our own tokens only (ids, field and class names, ranks, counts, hashes),
 never document or model free text: a label value is printed as its JSON type, its size and
@@ -47,9 +49,15 @@ def _table(header: list[str], rows: list[list[Any]]) -> list[str]:
     return out + [""]
 
 
+_TOKEN_KEY = "$token"
+
+
 def _token(value: Any) -> str:
     """A label value as our own token: its JSON type, size and a short hash, never its text.
-    ``null``, ``true`` and ``false`` are printed as they are; they carry no document text."""
+    ``null``, ``true`` and ``false`` are printed as they are; they carry no document text.
+    A value already scrubbed by ``scrub_crosscheck`` (``{"$token": ...}``) prints its token."""
+    if isinstance(value, dict) and set(value) == {_TOKEN_KEY} and isinstance(value[_TOKEN_KEY], str):
+        return value[_TOKEN_KEY]
     if value is None or isinstance(value, bool):
         return json.dumps(value)
     digest = sha256(canonical_json(value)).hexdigest()[:12]
@@ -73,6 +81,37 @@ def _outcome(value: Any) -> str:
         if all(w is None or (isinstance(w, str) and _WORD.fullmatch(w)) for w in words):
             return ", ".join([*(json.dumps(w) if w is None else w for w in words), _token(value[2])])
     return _token(value)
+
+
+def _scrubbed(value: Any) -> dict[str, str]:
+    return {_TOKEN_KEY: _token(value)}
+
+
+def _scrubbed_outcome(value: Any) -> Any:
+    if isinstance(value, list) and len(value) == 3:
+        words = value[:2]
+        if all(w is None or (isinstance(w, str) and _WORD.fullmatch(w)) for w in words):
+            return [*words, _scrubbed(value[2])]
+    return _scrubbed(value)
+
+
+def scrub_crosscheck(crosscheck: dict[str, Any]) -> dict[str, Any]:
+    """The cross-check with every label value replaced by its token (``{"$token": ...}``).
+
+    The scratch writer emits raw sandbox and audit values; the committed file holds only
+    tokens. The report built from the scrubbed file is byte-identical to the one built from
+    the raw file, and scrubbing twice changes nothing."""
+    out = json.loads(json.dumps(crosscheck))
+    for examples in out["examples"].values():
+        for e in examples:
+            e["sandbox"] = _scrubbed_outcome(e["sandbox"])
+            e["ours"] = _scrubbed_outcome(e["ours"])
+    a = out["audit_vs_sandbox_gold_catalog"]
+    for x in a["different"]:
+        for key in ("audit", "catalog", "near_gold_overlay"):
+            x[key] = _scrubbed(x[key])
+    a["not_in_catalog"] = [_scrubbed(x) for x in a["not_in_catalog"]]
+    return out
 
 
 def _counted(value: Any) -> Any:
@@ -424,13 +463,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--case", action="append", default=[], help="<document_id>:<field> to show in full")
     parser.add_argument("--date", required=True)
     parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument(
+        "--scrub-crosscheck",
+        action="store_true",
+        help="rewrite the --crosscheck file in place with every label value replaced by its token",
+    )
     args = parser.parse_args(argv)
+    if args.scrub_crosscheck and not args.crosscheck:
+        parser.error("--scrub-crosscheck needs --crosscheck")
     cases = []
     for c in args.case:
         if ":" not in c:
             parser.error("--case is <document_id>:<field>")
         cases.append(tuple(c.split(":", 1)))
     crosscheck = json.loads(args.crosscheck.read_text(encoding="utf-8")) if args.crosscheck else None
+    if crosscheck is not None and args.scrub_crosscheck:
+        crosscheck = scrub_crosscheck(crosscheck)
+        args.crosscheck.write_text(json.dumps(crosscheck, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     built = build(args.snapshots, args.profile, crosscheck, cases, args.date)
     if built is None:
         print("the snapshot set fails verification: run mailroom-labels verify", file=sys.stderr)
