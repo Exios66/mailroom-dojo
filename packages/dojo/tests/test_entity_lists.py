@@ -276,29 +276,24 @@ def test_unknown_element_types_fail_unless_a_fallback_type_is_named(mailroom_pro
 
 
 @pytest.mark.parametrize(
-    "spec",
+    ("spec", "expected_reason"),
     [
-        {"kind": "raises"},
-        {"kind": "nan"},
-        {"kind": "value", "value": "0.99"},
-        {"kind": "value", "value": 7.0},
+        ({"kind": "raises"}, "backend_raised"),
+        ({"kind": "nan"}, "not_a_number"),
+        ({"kind": "value", "value": "0.99"}, "not_a_number"),
+        ({"kind": "value", "value": 7.0}, "out_of_range"),
     ],
+    ids=["raises", "nan", "text", "above_one"],
 )
-def test_a_failing_similarity_backend_keeps_string_scores_and_reports(spec):
-    """A broken backend inside a list changes no score; each use is recorded on the rescue."""
+def test_a_failing_similarity_backend_keeps_string_scores_and_reports(spec, expected_reason):
+    """A broken backend inside a list changes no score; each use is recorded on the rescue with its reason."""
     profile = _with(mailroom_profile_mapping(), embedding={"enabled": True})
     predicted, expected = ["Acme Corp", "Totally Different Name"], ["Acme Corporation", "Other Party Inc"]
     rescue = EmbeddingRescue.from_profile(profile, FakeSimilarity(spec))
     rescued = score_entity_list(profile, "name", predicted, expected, rescue=rescue)
     assert rescued.to_dict() == score_entity_list(profile, "name", predicted, expected).to_dict()
     assert rescue.fallbacks
-    expected_reason = {"raises": "backend_raised", "nan": "not_a_number", "value": None}[spec["kind"]]
-    reasons = {fallback.reason for fallback in rescue.fallbacks}
-    assert reasons == ({expected_reason} if expected_reason else reasons) and reasons <= {
-        "backend_raised",
-        "not_a_number",
-        "out_of_range",
-    }
+    assert {fallback.reason for fallback in rescue.fallbacks} == {expected_reason}
 
 
 def test_a_working_backend_lifts_list_matches():
