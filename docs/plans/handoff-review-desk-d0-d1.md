@@ -1,6 +1,6 @@
-# Handoff: human review desk, state after D0 and partial D1
+# Handoff: human review desk, state after D0 and D1
 
-Date: 2026-11-18. Stopped early on JJB's request to save usage.
+Date: 2026-11-18. D0 and D1 are done (D1 after two independent reviews); D2 onward continue in JJB's solo chat on mailroom-dojo.
 
 ## Where the work is
 
@@ -19,23 +19,17 @@ Date: 2026-11-18. Stopped early on JJB's request to save usage.
 | Item | State |
 |---|---|
 | D0 plan, ADR-0007, README layout line | Done, committed |
-| D1: `packages/desk/src/mailroom_desk/` (models, policy, reviewers, lock, fold, desk, errors, _yaml), `config/review/`, `packages/desk/tests/` (268 tests), `docs/test-strategy-desk.md`, root `pyproject.toml` testpaths, CircleCI and README lines | Finished by a second implementer, with a mutation pass; awaiting a separate review |
+| D1: `packages/desk/src/mailroom_desk/` (models, policy, reviewers, lock, fold, desk, errors, _yaml), `config/review/`, `packages/desk/tests/` (323 tests), `docs/test-strategy-desk.md`, root `pyproject.toml` testpaths, CircleCI and README lines | Done: built, reviewed twice independently, every finding fixed, mutation passes re-checked (see "D1 final state" below) |
 | D2-D5 | Not started |
 | D6 web desk UI, D7 Textual TUI | Next chunk, not started |
 
 Baseline before desk work: `.venv/bin/python -m pytest packages/record/tests packages/labels/tests -q -n 4`
-gave `678 passed` (venv: `python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]" -e "packages/labels[dev]" fastapi httpx typer`; add `-e packages/desk` once it installs).
+gave `678 passed` (venv: `python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]" -e "packages/labels[dev]" fastapi httpx typer`, then `-e "packages/desk[dev]"`).
 
 ## Next steps, in order
 
-1. Fresh Opus (medium or higher) implementer: finish D1 using the original brief in the plan's
-   "Tasks" table. Read the WIP source first and keep what is sound. Required: tests on real record
-   directories (two real processes racing one document, SIGKILL between lock and append, torn tail,
-   sealed run refusal, fold-versus-`Index.review_queue()` agreement property, lease expiry with an
-   injected clock), a mutation pass of at least 8 mutations, `docs/test-strategy-desk.md`, the boundary
-   test (desk imports only record and labels; record and labels import nothing of desk), and the minimal
-   edits to root `pyproject.toml` testpaths and `.circleci/config.yml`.
-2. A separate fresh Opus reviewer on D1, fix, re-run the full suite on a clean tree.
+1. D1 is done (see "D1 final state" below); nothing of it is left open except the follow-ups listed there.
+2. Push the local desk commits (the orchestrator, after review).
 3. D2 (assign, claim, release, lease, escalate, defer, reopen, resolve with correction blob), D3 (case
    view, `export-labels` through `mailroom_labels.importers.review.build_review`, round trip to a gold
    label with the reviewer recorded), D4 (`human_review` node, `Disposition`, entry point
@@ -72,43 +66,60 @@ gave `678 passed` (venv: `python3 -m venv .venv && .venv/bin/pip install -e "pac
   resume). The plan keeps the ones that matter.
 
 
-## Update 2026-11-18 (end of this thread): D1 built, reviewed, review fixes applied
+## D1 final state (2026-11-18)
 
-State of D1 on this branch (all pushed): source and tests written by an Opus implementer; an independent
-Opus review found 2 MAJOR and 9 MINOR (no BLOCKING); fixes were being applied when the build moved to a
-solo chat. Latest gate run by the orchestrator on the pushed HEAD:
-`.venv/bin/python -m pytest packages/record/tests packages/labels/tests packages/desk/tests -q -n 4` -> 988 passed; `compileall -q packages/desk/src` exit 0.
+**Push state.** All desk commits after `d46b92f` are local on `claude/project-thread-rdce6z` when
+this file is written (the first review's fixes `c4ec86b`..`14ea7dd` and the second review's fixes
+after them); they are pushed by the orchestrator after review. `origin` held `d46b92f` before that
+push.
 
-Review findings (numbers are the reviewer's):
+**First review** (independent Opus; 2 MAJOR, 9 MINOR, no BLOCKING), all fixed:
 
-| # | Finding | State |
+| # | Finding | Fix |
 |---|---|---|
-| 1 | Free text could enter payloads via `requested_by`, `class_hint`, `prefill_ref` (MAJOR) | Fixed, committed (54955a9) |
-| 2 | Closed-run re-check under the lock untested (MAJOR) | Fixed (d157e23); mutation re-check: deleting the re-check fails `test_seal_landing_while_waiting_for_the_desk_lock_is_seen_under_the_lock` |
-| 3 | Huge ints and deep YAML nesting escape the loaders | Fixed (341a65a) |
-| 4 | Far-future timestamp breaks `due`; `enqueue` raising after a durable append; unwrapped flush OSError | Fixed (5807e77); a close `OSError` after a good flush pinned (e77b0ba) |
-| 5 | Stale index hides cases from `queue()` | Fixed (0f5193a): falls back to the log; head-only drift pinned (e77b0ba) |
-| 6 | Surviving mutations (reopen clears assignee, claim clears deferral, `authenticate` role check, sort_key due vs opened) | Fixed (c4ec86b); each mutation re-checked and caught |
-| 7 | `seal_guard` creates `seals/` without a durable fsync | Fixed (4764061): mkdir, then fsync of `seals/` and the run directory on every call |
-| 8 | `_run` can be enqueued | Fixed (492587a): it could be enqueued; now `RunChainNotReviewable` |
-| 9 | Forked child keeps the flock: document it | Fixed (d839f17): lock.py, README, test strategy; deterministic fork and spawn tests |
-| 10 | Strengthen the fold-vs-index property; replace the 0.3 s sleep positive control | Fixed (729c16a): status, order, `_run`, a test-side model, no stacked review events; the seal-guard pin waits for `seal_run`'s `flock` and compares inodes |
-| docs | README, `docs/test-strategy-desk.md`, plan row for the extra payload fields | Fixed (ba45c84); the plan row already listed the fields (since 54955a9) |
+| 1 | Free text could enter payloads via `requested_by`, `class_hint`, `prefill_ref` (MAJOR) | 54955a9: references (see the second review, (c), for what that guarantees) |
+| 2 | Closed-run re-check under the lock untested (MAJOR) | d157e23 |
+| 3 | Huge ints and deep YAML nesting escape the loaders | 341a65a |
+| 4 | Far-future timestamp breaks `due`; `enqueue` raising after a durable append; unwrapped flush `OSError` | 5807e77, e77b0ba |
+| 5 | Stale index hides cases from `queue()` | 0f5193a (superseded by the second review: reading no longer uses the index) |
+| 6 | Surviving mutations (reopen, claim, `authenticate`, `sort_key`) | c4ec86b |
+| 7 | `seal_guard` creates `seals/` without a durable fsync | 4764061 |
+| 8 | `_run` can be enqueued | 492587a: `RunChainNotReviewable` |
+| 9 | Forked child keeps the flock | d839f17: documented, deterministic fork and spawn tests |
+| 10 | Weak fold-vs-index property; a sleep in a positive control | 729c16a |
 
-Mutation re-check (each applied, desk suite run, restored, `git diff` empty): eight
-mutations for findings 2, 6, 7 and 8 plus eleven more on the fix commits; all caught except one equivalent mutant
-(`policy._is_number` treating a huge integer as a number: the range checks after it refuse
-it anyway). The list and the failing tests are in `docs/test-strategy-desk.md`.
+**Second review** (independent; 2 MAJOR plus minors), all fixed:
 
-Gate on ba45c84 (clean tree; the commit that adds this table is docs only): `.venv/bin/python -m pytest packages/desk/tests -q -n 4`
--> 317 passed (three runs) and serially 317 passed;
-`.venv/bin/python -m pytest packages/record/tests packages/labels/tests packages/desk/tests -q -n 4`
--> 995 passed; `.venv/bin/python -m compileall -q packages/desk/src` exit 0. No linter or type
+| Finding | Fix |
+|---|---|
+| MAJOR: a broken index (a directory in place of `index.sqlite`, raw `sqlite3.OperationalError`) made `queue()` and `case()` raise | 17a437f: `queue()` and `case()` read the log only; the index is only an apply target; `index_drift()` returns `"<run>: <problem>"` lines and never raises |
+| MAJOR: the index read path was slower than the log at scale (40k events, 200 cases: log 2.7 s, index 38.5 s) | 17a437f: one log scan per run; a counting-wrapper test pins one `scan` per run for `queue()` and one for `case()`, and an apply-only index proves reads never touch it. The reviewer's script now gives 2.8 s with an index |
+| Tests that passed without checking their claim (shortening, the seed problem) and untested fix branches (escalate saturation, `index_drift`, append `OSError`, `_apply` on non-`ApplyRefused` errors) | 69eebdc, 17a437f |
+| A reference can still hold a short label or a path-like string; "no payload field can hold free text" overclaimed | a653d64: README, `models.py` and the plan say what is guaranteed; `prefill_ref` is an opaque name that D3 must never use as a filesystem path |
+| `/proc/self/fd` tests are Linux-only | 646ffd3: `LINUX_ONLY` skip marker |
+| Dropping `_run` from the log-only queue survived | 3d3fc58: the property drives foreign review events on `_run` |
+
+Mutation re-check after the second review (each applied, desk suite run, restored, `git diff`
+empty): the reviewer's survivors M4, M6, M7, M9, M13, M15 and M19, and eight on the log-only read
+path (per-case re-scan, ignoring the run filter, dropping `_run`, wrong sort, folding only the
+first document, drift ignoring documents new to the log, drift raising on a damaged log, `case()`
+ignoring `now`): all 15 caught. The failing tests are listed in `docs/test-strategy-desk.md`.
+
+**Gate on the final tree** (clean, after the commit that adds this file; this commit is docs
+only): `.venv/bin/python -m pytest packages/desk/tests -q -n 4` -> 323 passed (three runs) and
+serially 323 passed; `.venv/bin/python -m pytest packages/record/tests packages/labels/tests packages/desk/tests -q -n 4`
+-> 1001 passed; `.venv/bin/python -m compileall -q packages/desk/src` exit 0. No linter or type
 checker is configured.
 
-Next for D1: one more independent Opus review of the fix commits (`git diff ef70506..HEAD`)
-before D1 counts as done. These commits are local until the orchestrator pushes them. Open
-questions from the implementer: should the record
-expose a public way to ask whether a run is closed (the desk relies on `seals/.lock`, pinned by a test), and
-should a sample-only request for a document already in review return `None` instead of raising?
-D2 to D7 are untouched. The work continues in JJB's solo chat on mailroom-dojo.
+**Follow-ups for the record thread** (open questions, not done here):
+
+1. A public "is this run closed" API (and a closing lock): the desk applies `verify`'s rule (an
+   experiment run with a `seals/<n>.json`) and takes `runs/<run_id>/seals/.lock` from the
+   documented layout, pinned by a test (plan follow-up 2).
+2. `seal_run` should always fsync the run directory: it creates `seals/` through
+   `blobs._makedirs_durable`, which skips the directory and its parent when `seals/` already
+   exists, so a `seals/` created by someone else is never made durable by `seal_run`. The desk's
+   `seal_guard` fsyncs both on every call as a workaround.
+
+Other open question from D1: should a sample-only request for a document already in review
+return `None` instead of raising `AlreadyInReview`? D2 to D7 are untouched.
