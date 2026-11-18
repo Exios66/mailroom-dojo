@@ -496,3 +496,27 @@ def test_a_run_directory_deleted_after_indexing_is_reported(two_run_store: Simpl
     assert _kinds(gone.summary.damage) == {"missing_from_log"} and t.damaged
     res = run_cli("trace", "doc", "d1", root=two_run_store.root)  # the CLI's own index, built before
     assert res.exit_code == 0
+
+
+def test_a_document_lost_to_an_unreadable_line_is_damage_not_unknown(review_store: SimpleNamespace, tmp_path: Path) -> None:
+    garble_line(review_store, "d3", 0, f"{SENTINEL} garbled".encode())  # d3's only line
+    for idx in (None, Index(tmp_path / "i.sqlite")):
+        t = trace_doc(review_store.log, idx, "d3")
+        assert (t.runs, t.unread_lines, t.damaged) == ((), {"r1": 1}, True)
+    for args in (("trace", "doc", "d3"), ("versions", "r1", "d3")):
+        res = run_cli(*args, root=review_store.root)
+        assert res.exit_code == 1, (args, res.stderr)
+        assert "unreadable line" in res.stderr and "run verify" in res.stderr and res.stderr.count("\n") == 1
+        assert SENTINEL not in res.stdout + res.stderr
+    # a document no run ever held, in a store with no damage, is still a usage error
+    clean = build_review_store(tmp_path / "clean")
+    assert run_cli("trace", "doc", "d3x", root=clean.root).exit_code == 2
+    assert run_cli("versions", "r1", "d3x", root=clean.root).exit_code == 2
+    # a document found in one run, with unreadable lines in a run not shown, says so
+    review_store.log.create_run(Run(**run_fields(run_id="r2", created_at="2026-11-19T00:00:00Z")))
+    with review_store.log.open_writer("r2", "w0") as w:
+        w.append(doc_id="d3", node="intake", kind="handoff")
+    t = trace_doc(review_store.log, None, "d3")
+    assert ([r.run_id for r in t.runs], t.unread_lines) == (["r2"], {"r1": 1})
+    res = run_cli("trace", "doc", "d3", root=review_store.root)
+    assert res.exit_code == 0 and "unreadable lines in runs not shown: r1 (1)" in res.stdout

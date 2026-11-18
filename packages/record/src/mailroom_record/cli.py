@@ -11,7 +11,7 @@ Commands (each takes ``--root``, the store root, and ``--json`` for machine-read
 
 Exit codes: 0 done (for ``verify``: the run is ok); 1 the record is not ok or an operation
 was refused or failed (``verify`` found a failing problem, ``seal`` refused a damaged log,
-an unexpected error); 2 a usage error (a malformed run id, an unknown run or document, a
+a document that is not readable but may sit in unreadable lines, an unexpected error); 2 a usage error (a malformed run id, an unknown run or document, a
 root that is not a directory, a missing or unknown option). Errors are one line on stderr,
 never a traceback.
 
@@ -69,6 +69,16 @@ DocArg = Annotated[str, typer.Argument(help="The document id.")]
 
 class _Usage(Exception):
     """A usage error: exit 2 with a one-line message."""
+
+
+class _Damaged(Exception):
+    """The record could not be read well enough to answer: exit 1 with a one-line message."""
+
+
+def _unread_text(unread: dict[str, int]) -> str:
+    total = sum(unread.values())
+    runs = ", ".join(sorted(unread))
+    return f"{total} unreadable line{'' if total == 1 else 's'} in run{'' if len(unread) == 1 else 's'} {runs}"
 
 
 class _Store:
@@ -142,6 +152,9 @@ def _guard(body: Callable[[], int]) -> None:
     except (BadRunId, UnknownRun, _Usage) as exc:
         _err(f"usage error: {exc}")
         raise typer.Exit(2) from None
+    except _Damaged as exc:
+        _err(f"damaged: {exc}")
+        raise typer.Exit(1) from None
     except typer.Exit:
         raise
     except Exception as exc:  # noqa: BLE001 - one line, never a traceback (it may hold content)
@@ -369,6 +382,11 @@ def trace_doc_cmd(doc_id: DocArg, root: Root, as_json: AsJson = False) -> None:
     def body() -> int:
         s = _Store(root)
         t = trace_doc(s.log, s.index, doc_id)
+        if not t.runs and t.unread_lines:
+            raise _Damaged(
+                f"no readable event of document {doc_id!r}, but {_unread_text(t.unread_lines)} "
+                "may hold it; run verify"
+            )
         if not t.runs:
             raise _Usage(f"no run in this store holds document {doc_id!r}")
         if as_json:
@@ -389,6 +407,9 @@ def trace_doc_cmd(doc_id: DocArg, root: Root, as_json: AsJson = False) -> None:
                 _echo("  run damage:")
                 for line in _damage_lines(r.damage, "    "):
                     _echo(line)
+        if t.unread_lines:
+            listed = ", ".join(f"{rid} ({n})" for rid, n in sorted(t.unread_lines.items()))
+            _echo(f"unreadable lines in runs not shown: {listed}; one may be this document's (run verify)")
         return 0
 
     _guard(body)
@@ -404,6 +425,12 @@ def versions(run_id: RunArg, doc_id: DocArg, root: Root, as_json: AsJson = False
         usable, note = open_index(s.log, s.index)
         read = read_document(s.log, usable, rid, doc_id)
         if not read.events and not any(d.doc_id == doc_id for d in read.damage):
+            unread = sum(d.kind in ("corrupt_line", "invalid_event", "unreadable") for d in read.damage)
+            if unread:
+                raise _Damaged(
+                    f"run {rid!r} holds no readable event of document {doc_id!r}, but "
+                    f"{_unread_text({rid: unread})} may hold it; run verify"
+                )
             raise _Usage(f"run {rid!r} holds no readable event of document {doc_id!r}")
         chain = versions_from_events(read.events, s.blobs)
         if as_json:

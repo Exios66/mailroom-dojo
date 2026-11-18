@@ -32,8 +32,11 @@ events at a time. With an index it also compares each undamaged document's head 
 run through ``Index.iter_events``, which reads only the document's byte ranges plus what
 was written since the last rebuild; ``Index.runs_for_document`` gives the runs the index
 already knows hold it, so a run the index lists but whose log no longer holds the document,
-or whose run directory is gone, is reported (``missing_from_log``). Without a usable index (none given, or it cannot be
-built: a read-only store) every run is scanned from the log, and the ``index`` note says so.
+or whose run directory is gone, is reported (``missing_from_log``). A run that does not
+show the document but holds lines that could not be read is counted in ``unread_lines``
+(any of them may be the document's), so a document whose only lines are unreadable is
+damage, not unknown. Without a usable index (none given, or it cannot be built: a read-only
+store) every run is scanned from the log, and the ``index`` note says so.
 
 Neither raises on damaged data: corrupt and invalid lines, gaps, forks, broken links, torn
 tails, an unreadable run header or segment each become a ``Damage``, and what can be read
@@ -212,10 +215,19 @@ class DocTrace:
     doc_id: str
     runs: tuple[DocRun, ...] = field(default_factory=tuple)
     index: str = ""
+    # Runs not shown (no readable event of the document) that hold lines which could not be
+    # read: run id -> how many. A skipped line has no usable doc id, so any may be this
+    # document's; a document whose only lines are unreadable shows up here, not in ``runs``.
+    unread_lines: dict[str, int] = field(default_factory=dict)
 
     @property
     def damaged(self) -> bool:
-        return any(any(d.kind != "torn_tail" for d in r.damage) or r.summary.damage for r in self.runs)
+        return bool(self.unread_lines) or any(
+            any(d.kind != "torn_tail" for d in r.damage) or r.summary.damage for r in self.runs
+        )
+
+
+_LINE_KINDS = frozenset({"corrupt_line", "invalid_event", "unreadable"})
 
 
 def to_json(obj: Any) -> str:
@@ -328,6 +340,7 @@ def trace_doc(log: EventLog, index: Index | None, doc_id: str) -> DocTrace:
         except (IndexUnavailable, OSError, ValueError) as exc:
             usable, note = None, f"unavailable ({type(exc).__name__}), read from the log"
     found: list[tuple[tuple[int, str, str], DocRun]] = []
+    unread_lines: dict[str, int] = {}
     on_disk = run_ids(log)
     for rid in sorted(set(listed) - set(on_disk)):
         # The index lists the run, but its directory is gone (deleted after the rebuild).
@@ -340,6 +353,9 @@ def trace_doc(log: EventLog, index: Index | None, doc_id: str) -> DocTrace:
         run_damage = [d for d in read.damage if d.doc_id != doc_id]
         if not read.events and not doc_damage:
             if rid not in listed:
+                unread = sum(d.kind in _LINE_KINDS for d in run_damage)
+                if unread:
+                    unread_lines[rid] = unread
                 continue
             doc_damage.append(
                 Damage("missing_from_log", doc_id, None, "the index lists this run, but its log holds no readable event of the document")
@@ -359,4 +375,4 @@ def trace_doc(log: EventLog, index: Index | None, doc_id: str) -> DocTrace:
         order = (0, run.created_at, rid) if run is not None else (1, "", rid)
         found.append((order, doc_run))
     found.sort(key=lambda pair: pair[0])
-    return DocTrace(doc_id, tuple(r for _, r in found), note)
+    return DocTrace(doc_id, tuple(r for _, r in found), note, unread_lines)
