@@ -18,6 +18,7 @@ JJB added these during the build, after the design was approved. They are part o
 | R6 | All scoring built from the mailroom dataset and the interim and near_gold Claude labels, saved in this repo as versioned snapshots, for the highest data quality | Labels, Dojo |
 | R7 | The CLI, the TUI and all floor replay move into this repo; the TUI starts from `mailroom-reloaded` and adds every native sandbox CLI and TUI feature | Record (replay timeline), launcher |
 | R8 | Tests exercise real behavior and detect every error state and point of failure, never only one-off unit tests | All; see `docs/test-strategy-record.md` |
+| R9 | Stays tunable and maintainable as goals shift, with no repeat of the old multi-repo dependency mess: minimal coupling, clear package boundaries, config-driven tuning, and a human-logical file layout | All; layout map below and in `README.md` |
 
 ### R1. Fit AmFam's problem and become a benchmark
 
@@ -83,6 +84,36 @@ The record package is domain-free: it stores node names, class labels, decision 
 ### R8. Tests that detect failure
 
 Every module is tested against real behavior: real killed processes, real concurrent threads and processes, injected disk-full, short-write and fsync errors, corrupt and truncated files, forked chains and tampering, each asserting the exact error or problem reported, never a silent pass. Property-based tests check the record's invariants over random operation sequences, and each stage gate runs end to end on the stored runs. The full bar and the fault matrix are in `docs/test-strategy-record.md`; later packages get the same treatment in their own strategy.
+
+### R9. Tunable, maintainable, and laid out so anyone can find things
+
+The old constellation became a dependency mess as goals moved: pins between repos, vendored copies, scoring split three ways. This workspace avoids that by construction. Packages depend on the record and nothing else of ours (the launcher alone composes them), enforced by a test. Tuning (classes, schemas, thresholds, policies, prompts, models, labels) is configuration and data, versioned in this repo and hashed into each run, so a goal change is a config change and a measured run, not a code fork. Every task keeps to this map:
+
+```
+mailroom-dojo/
+├── README.md                  what this is, the layout, the test command
+├── packages/                  one folder per package; each is installable alone
+│   ├── record/                mailroom_record: run record, blob store, index, verify, replay (project 1)
+│   ├── labels/                mailroom_labels: label snapshots and coverage (project 2)
+│   ├── dojo/                  mailroom_dojo: scoring, comparison, reports (project 3)
+│   ├── engine/                mailroom_engine: agents, handoffs, policies, API (project 5)
+│   └── launcher/              mailroom_launcher: run specs, backends, CLI, TUI, floor (project 6)
+│       (each package: pyproject.toml, README.md, src/<module>/, tests/, scripts/)
+├── config/                    everything tuned without code (from project 2 on)
+│   ├── clients/<client>/      a client profile: document classes, schemas, thresholds, label snapshot
+│   ├── policies/              routing policies (one file each; its hash is stored on every run)
+│   └── prompts/<prompt_set>/  prompt sets; variants are overlays on the default set
+├── labels/<snapshot>/         committed, versioned label snapshots with manifests (project 2)
+├── docs/
+│   ├── specs/                 the design (the master plan)
+│   ├── plans/                 one build plan per project, dated
+│   ├── adr/                   architecture decision records
+│   ├── test-strategy-*.md     one test strategy per package
+│   └── reports/               gate reports, written by scripts
+└── .circleci/                 CI (CircleCI only)
+```
+
+Rules: a package imports only `mailroom_record` and itself, except the launcher, which may import all of them (a test enforces this). Tuning lives in `config/` and `labels/`, never in code. A new folder needs a line in this map. Names say what a thing is, in full words; nesting goes from general to specific.
 
 ## Summary
 
