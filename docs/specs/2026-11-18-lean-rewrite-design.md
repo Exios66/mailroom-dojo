@@ -22,6 +22,18 @@ Each is measured by the Dojo on the same draws, new stack against the current pi
 | Auditability | Every decision rebuilt from the record alone; every chain verifies; document versions (original, transcript, attempts, archived record, human corrections) visible to a reviewer |
 | Throughput | At least 249 documents a minute with the fake model and durable writes on |
 
+### Critical focus areas
+
+JJB, 2026-11-18. Both are CRITICAL and carry into the Dojo, prompts and engine plans.
+
+1. **Entity extraction quality.** Field-level extraction is scored by field type against the committed labels, per class and per field, with coverage and precision reported separately. Each specialist's extraction is a first-class Dojo report and a first-class optimization target for prompts (project 4). A change that lowers per-field accuracy on any class is a regression even if utility rises.
+2. **Cheap, correct and efficient classification with specialist hand-off.** Ingress keeps the current pattern: a sorter classifies the incoming document, then hands off to a specialist tailored to that document type, tuned to the mailroom dataset. The engine keeps this as its default graph shape (other shapes are policies, not replacements). The Dojo reports class accuracy, silent-wrong per 1,000, cost per classification and the hand-off's effect on extraction.
+
+| Focus | Success metric (per class, new stack against the current pipeline, same draw) |
+| --- | --- |
+| Extraction quality | Per-field accuracy and coverage at or above today's on every class; mean field score up on the classes below the bar |
+| Classification | Class accuracy at or above today's (100 of 100 on v1), silent-wrong per 1,000 not higher, cost per classified document not higher |
+
 ### Modular, expandable and customizable
 
 New clients and document types plug in through configuration and registered plug-ins, never through a code fork.
