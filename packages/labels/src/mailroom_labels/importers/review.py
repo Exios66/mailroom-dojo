@@ -355,8 +355,14 @@ def build_review(
 ) -> SnapshotManifest:
     """Write the review snapshot. ``decisions`` and ``desk`` are ``(local path, name)`` pairs;
     the name (never the local path) is what the manifest records. ``provenance`` (where the
-    files come from: repositories, commits, dates) is recorded as given."""
+    files come from: repositories, commits, dates) is recorded as given. Two sources with the
+    same name raise ``ValueError`` before any is read: the name is every row's ``origin``, so
+    a shared one would merge two files' lines in the audit trail."""
     out_dir = Path(out_dir)
+    names = [name for _, name in (*decisions, *desk)]
+    repeated = sorted({name for name in names if names.count(name) > 1})
+    if repeated:
+        raise ValueError(f"two source files have the same name {repeated[0]!r}; give each its own name")
     rejected: list[dict[str, Any]] = []
     not_imported: list[dict[str, Any]] = []
     undecided: list[dict[str, Any]] = []

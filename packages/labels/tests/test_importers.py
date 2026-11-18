@@ -1674,3 +1674,18 @@ def test_a_pin_or_revision_with_a_trailing_newline_is_refused(tmp_path: Path) ->
     fetch = _load_fetch()
     assert fetch.fetch(tmp_path / "out", ["manifest.txt"], revision=rev + "\n") == 2
     assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize(
+    "names",
+    [("same.jsonl", "same.jsonl"), ("review/a.jsonl", "review/a.jsonl")],
+    ids=["across_kinds", "same_path"],
+)
+def test_review_refuses_two_sources_with_one_name_before_reading(tmp_path: Path, names) -> None:
+    dpath, kpath = tmp_path / "decisions.jsonl", tmp_path / "desk.jsonl"
+    dpath.write_bytes(jsonl())
+    kpath.write_bytes(jsonl(desk("D1", "sender", "Ann", "keep")))
+    with pytest.raises(ValueError, match="same name"):
+        build_review(tmp_path / "gold-review-x", decisions=[(dpath, names[0])], desk=[(kpath, names[1])])
+    assert not (tmp_path / "gold-review-x").exists()
+    build_review(tmp_path / "gold-review-x", decisions=[(dpath, "d.jsonl")], desk=[(kpath, "k.jsonl")])
