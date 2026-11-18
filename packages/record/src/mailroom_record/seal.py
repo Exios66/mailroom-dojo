@@ -46,13 +46,24 @@ Rules
   implies (the Parquet footer only), so a seal with nothing new costs the same whatever
   the size of the last export. A missing, truncated or unreadable file is rebuilt; damage
   that keeps a file readable with the right count is verify's to find
-  (``columns_mismatch``). The column directory is fsynced on every call, so a file whose
-  rename was visible but whose directory fsync failed is durable before a seal builds on it.
+  (``columns_mismatch``). The column directory is fsynced on every call, so an export
+  whose rename is visible but was never synced (its call crashed first) is made durable
+  before a seal builds on it.
 - Visible is not durable. Under the lock, the seals directory is fsynced before the stored
-  seals are trusted (a seal file linked by a call whose directory fsync then failed), and
-  every segment holding a line about to be sealed is fsynced before the seal file is
-  written, so a seal never commits a line that is only in the page cache (a writer may
-  have written it and not yet fsynced it, or failed its fsync).
+  seals are trusted, and every segment holding a line about to be sealed is fsynced
+  before the seal file is written. That covers a line a live writer has written but not
+  yet fsynced: a seal never commits a line that is in the page cache only because nobody
+  synced it yet. It does not cover a write whose fsync already failed. On Linux a
+  writeback error is reported once, the failed pages can be dropped or marked clean, and
+  a later fsync on a fresh descriptor (this one) can return success although those bytes
+  never reached the disk; the same holds for a directory whose fsync failed. A writer
+  whose fsync fails refuses further use (``log.py``), but its lines stay visible and
+  ``seal_run`` cannot tell them from durable ones. After an fsync failure in the store
+  (an I/O error, a full disk), do not seal until the machine has rebooted (or the file
+  system was remounted), so that only what is on disk is visible, and ``verify_run`` has
+  run: a lost line that a later line chained onto shows as a
+  ``seq_gap``; a lost tail of a chain leaves no trace, and sealing after the restart
+  commits only what survived.
 - Every line about to be sealed must name this run (``run_id``); a line of another run (a
   segment restored into the wrong run) raises ``SealRefused`` naming its segment and byte
   offset, and nothing is written.
@@ -426,9 +437,11 @@ def _columns_look_whole(path: Path, n_rows: int) -> bool:
 
 
 def _fsync_segments(log: EventLog, run_id: str, names: set[str]) -> None:
-    """fsync each named segment, so the lines read from it are on disk before a seal commits them.
+    """fsync each named segment, so lines nobody has synced yet are on disk before a seal commits them.
 
-    A read-only descriptor is enough: fsync writes back the file's dirty pages whoever wrote them.
+    A read-only descriptor is enough: fsync writes back the file's dirty pages whoever wrote
+    them. It cannot vouch for pages whose earlier writeback failed (see "Visible is not
+    durable" in the module doc).
     """
     seg_dir = log.segment_dir(run_id)
     for name in sorted(names):
