@@ -341,9 +341,10 @@ paired delta, cost truth, comparisons). None of them may import launcher modules
 
 Findings that shape the chunks:
 
-- **Before the engine exists**, the sandbox drives the pipeline by importing a vendored llm-mailroom,
-  which the workspace forbids. L7 either waits for the engine, or a temporary legacy-driver backend
-  installs llm-mailroom 0.30 as a pinned package and writes records (section 10).
+- **Before the engine exists** (owner, 2026-11-18): the run driver L7 waits for the engine. The
+  sandbox drives the pipeline today by importing a vendored llm-mailroom, which the workspace forbids,
+  and no temporary legacy driver is built. Until the engine lands, L1, L6, the CLI over recorded
+  runs (L3) and the floor (L4) go ahead, and the launcher works over imported runs only.
 - **Two replay contracts.** The reloaded viewer reads a richer `replay/v1` payload (stations, segments,
   generations, scores, rollups) than the sandbox `build_timeline`. The record timeline carries what
   `replay/v1` needs, or the floor computes it from record events. This goes to the record work.
@@ -374,13 +375,10 @@ Decided 2026-11-18:
    the trace exporter needs no span-name compatibility (answers master design open question 2).
 4. The headline registry metrics stay, improved on the new system, with consistent meanings
    (section 4.2).
+5. The run driver waits for the engine; no legacy driver for llm-mailroom 0.30. The CLI over
+   recorded runs, the floor and the spend gate go ahead without a driver (section 8).
 
 Still open:
 
-- What the launcher drives before the engine exists (section 8): a temporary legacy-driver backend
-  that installs llm-mailroom 0.30 as a pinned package and writes records, or the run driver waits for
-  the engine and the early launcher works only over imported runs. Recommended: wait, because the
-  floor, the CLI over records and the spend gate need no driver, and a legacy driver is code that is
-  thrown away at cutover.
 - Confirm the placements of the capabilities in section 7 that the master design does
-not name.
+  not name.
