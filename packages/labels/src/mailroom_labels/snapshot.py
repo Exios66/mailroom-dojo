@@ -256,8 +256,11 @@ def write_snapshot(
     as current.
 
     The new build is written into a temporary directory beside ``directory`` and swapped in
-    only once every row is serialised and the manifest validates. A failure before that
-    leaves the earlier build as it was and removes the temporary directory."""
+    only once every row is serialised and the manifest validates. An error before or during
+    the swap leaves the earlier build as it was and removes the temporary directory. A crash
+    (the process killed) between the swap's two renames is not covered: it can leave the
+    earlier build only in the hidden ``.<name>.build-*/old`` directory beside ``directory``;
+    recover it by hand by renaming that ``old`` directory to ``directory`` (or rebuild)."""
     directory = Path(directory)
     snapshot_id = manifest_args.get("snapshot_id")
     _check_snapshot_id(snapshot_id)
@@ -281,7 +284,9 @@ def write_snapshot(
 
 def _swap_in(build: Path, directory: Path, aside: Path) -> None:
     """Move ``build`` to ``directory``; an existing ``directory`` is moved to ``aside`` first
-    (and moved back if the second rename fails). Both renames stay in one parent directory."""
+    (and moved back if the second rename raises). Both renames stay in one parent directory.
+    A crash between the two renames leaves the earlier build only at ``aside`` (inside the
+    hidden ``.<name>.build-*`` directory); see ``write_snapshot``."""
     if not directory.exists() and not directory.is_symlink():
         build.rename(directory)
         return

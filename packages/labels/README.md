@@ -90,8 +90,11 @@ sha256 of every input file) and its builder (`mailroom_labels.importers.<kind>` 
 replaced whole (no file of the old build survives); anything else, an invalid snapshot id
 or an unreadable option file is a usage error (exit 2, one line). The new build is written
 into a temporary directory beside `--out` and swapped in only once every row is written
-and its manifest validates, so a refused or failed import leaves an earlier build exactly
-as it was and leaves no temporary directory behind.
+and its manifest validates, so a refused import or an error leaves an earlier build exactly
+as it was and leaves no temporary directory behind. A crash (the process killed) between the
+swap's two renames can leave the earlier build only in the hidden `.<name>.build-*/old`
+directory beside `--out`; recover it by hand with `mv .<name>.build-*/old <name>` in that
+parent directory (or rebuild), then delete the hidden directory.
 Nothing is dropped or repaired silently: every omission, mapping and refusal is counted in
 the manifest's `source` (for example `presence_mapped` for `pending_annotation` read as
 `unlabeled`, `decoded_json_lists`, `not_imported`).

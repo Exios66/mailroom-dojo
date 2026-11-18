@@ -562,6 +562,41 @@ def test_a_rebuild_that_fails_after_serialising_leaves_the_earlier_build_and_no_
     assert load_snapshot(d).manifest.files[0].path == "a.jsonl"
 
 
+def test_a_failed_swap_moves_the_earlier_build_back_byte_for_byte(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The second rename of the swap (new build onto ``directory``) fails after the
+    earlier build was moved aside: the earlier build is renamed back and the error
+    propagates."""
+    d = tmp_path / "hub-a"
+    args: dict = dict(
+        snapshot_id="hub-a",
+        kind="hub",
+        layer_schema=CURRENT_LAYER_SCHEMA["hub"],
+        source={"repository": "synthetic"},
+        builder="test",
+    )
+    write_snapshot(d, {"a.jsonl": ROWS_A, "part/b.jsonl": ROWS_B}, **args)
+    before = _tree_bytes(d)
+    real_rename = Path.rename
+    calls: list[tuple[str, str]] = []
+
+    def failing_rename(self: Path, target: Path | str) -> Path:
+        calls.append((self.name, Path(target).name))
+        if self.name == "new" and Path(target) == d:
+            raise OSError("injected: second rename of the swap")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", failing_rename)
+    with pytest.raises(OSError, match="injected: second rename"):
+        write_snapshot(d, {"a.jsonl": ROWS_A[:1]}, **args)
+    monkeypatch.undo()
+    assert calls == [("hub-a", "old"), ("new", "hub-a"), ("old", "hub-a")]
+    assert _tree_bytes(d) == before
+    assert _siblings(d) == ["hub-a"]
+    assert [f.path for f in load_snapshot(d).manifest.files] == ["a.jsonl", "part/b.jsonl"]
+
+
 def test_a_failed_first_build_leaves_no_directory_behind(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
