@@ -433,8 +433,9 @@ def test_review_queue_tracks_last_event_kind(store_with_events, tmp_path):
   - `trace_run(log, index, run_id) -> RunTrace` (per document: nodes visited in order, attempts, last decision, cause, in review or not)
   - `trace_doc(log, index, doc_id) -> DocTrace` (every run that touched the document, with its version chain per run)
   - CLI `mailroom-record` with commands `verify <run>`, `seal <run>`, `reindex`, `trace run <run>`, `trace doc <doc>`, `versions <run> <doc>`. All take `--root`. Exit code 1 when verify is not ok. Output prints hashes, roles, nodes and counts, and never blob content.
+- Decided while building (2026-11-18): `Version` also carries `seq` and `used_as` (`input` or `output`, at first use); `order` counts from 0; a corrupt blob shows as `present` (verify is the integrity tool). `trace_run`/`trace_doc` take `index: Index | None`; `trace_doc` makes the index ready with `ensure(log)`, reads each document through `Index.iter_events` (materialised, so a read that raises late is read again from the log with a tolerant scan) and finds runs and events the index has not seen yet; without a usable index it reads the log. Damage never raises: `Damage(kind, doc_id, seq, detail, segment, byte_offset)` with kinds `corrupt_line`, `invalid_event`, `seq_gap`, `forked_chain`, `broken_link`, `torn_tail`, `corrupt_run_header`, `unreadable`, `missing_from_log`; only `BadRunId` and `UnknownRun` raise. Decisions and causes are shown as a `Digest` (shape, field names, size, SHA-256), never their values. CLI: every command takes `--json`; exit 0 done, 1 not ok / refused / unexpected error, 2 usage error (one line on stderr, never a traceback); console script `mailroom-record = "mailroom_record.cli:app"`, also `python -m mailroom_record`. Shared reading rules live in `_reading.py`.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```python
 def test_version_chain_orders_original_to_correction(review_store):
@@ -455,10 +456,10 @@ def test_cli_never_prints_blob_content(review_store):
     assert "SECRET-DOCUMENT-TEXT" not in out          # the fixture's original blob
 ```
 
-- [ ] **Step 2:** Run; expect import failure.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run; expect 4 passed.
-- [ ] **Step 5:** Commit: `feat(record): version chain, trace and CLI`.
+- [x] **Step 2:** Run; expect import failure.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** Run; expect 4 passed.
+- [x] **Step 5:** Commit: `feat(record): version chain, trace and CLI`.
 
 ### Task 10: Sandbox run importer and routing-input audit
 

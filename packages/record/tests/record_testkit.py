@@ -877,3 +877,104 @@ def deep_payload_line(run_id: str, doc_id: str, seq: int, prev_hash: str, depth:
     raw["payload"] = {"x": nested}
     raw["hash"] = event_hash(raw)
     return canonical_json(raw) + b"\n"
+
+
+# --- version chain, trace and the CLI (Task 9) ------------------------------------------
+
+
+def build_review_store(root: Any, run_id: str = "r1") -> Any:
+    """A real store whose ``d1`` goes original -> transcript -> extraction (two attempts) ->
+    archived_record -> review -> human_correction; ``d2`` is left in review; ``d3`` is one step.
+
+    Blob content, payloads, one decision value and one cause carry ``SENTINEL`` (the leak
+    tests' needle). Returns a namespace with ``root``, ``blobs``, ``log``, ``run_id`` and
+    ``shas`` (role -> sha256 for d1; ``extraction`` is a list of the two attempts).
+    """
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from mailroom_record.blobs import BlobStore
+    from mailroom_record.log import EventLog
+    from mailroom_record.models import Run
+
+    root = Path(root)
+    blobs = BlobStore(root)
+    log = EventLog(root, blobs)
+    log.create_run(Run(**run_fields(run_id=run_id, kind="full_pipeline", document_ids=["d1", "d2", "d3"])))
+    put = blobs.put
+    original = put(blob_bytes("original d1"), "original")
+    transcript = put(blob_bytes("transcript d1"), "transcript")
+    ext_a = put(blob_bytes("extraction d1 attempt 0"), "extraction")
+    ext_b = put(blob_bytes("extraction d1 attempt 1"), "extraction")
+    archived = put(blob_bytes("archived d1"), "archived_record")
+    correction = put(blob_bytes("correction d1"), "human_correction")
+    original2 = put(blob_bytes("original d2"), "original")
+    secret = {"note": f"{SENTINEL} in a payload"}
+    with log.open_writer(run_id, "w0") as w:
+        w.append(doc_id="d1", node="intake", kind="handoff", outputs=[original], payload=secret)
+        w.append(doc_id="d1", node="transcribe", kind="output", inputs=[original], outputs=[transcript])
+        w.append(
+            doc_id="d1", node="extract", kind="output", attempt=0, agent="extractor",
+            inputs=[transcript], outputs=[ext_a], cause=f"{SENTINEL} quoted in a cause", payload=secret,
+        )
+        w.append(
+            doc_id="d1", node="extract", kind="output", attempt=1, agent="extractor",
+            inputs=[transcript], outputs=[ext_b], decision={"fields": 3, "verdict": f"{SENTINEL} verdict"},
+        )
+        w.append(doc_id="d1", node="archive", kind="output", inputs=[ext_b], outputs=[archived])
+        w.append(doc_id="d1", node="human_review", kind="review", inputs=[archived], decision={"state": "paused"})
+        w.append(doc_id="d1", node="human_review", kind="output", inputs=[archived], outputs=[correction])
+        w.append(doc_id="d2", node="intake", kind="handoff", outputs=[original2])
+        w.append(doc_id="d2", node="classify", kind="decision", inputs=[original2], decision=[{"question": "class", "answer": SENTINEL}])
+        w.append(doc_id="d2", node="human_review", kind="review", inputs=[original2])
+        w.append(doc_id="d3", node="intake", kind="handoff", payload=secret)
+    shas = {
+        "original": original.sha256, "transcript": transcript.sha256, "extraction": [ext_a.sha256, ext_b.sha256],
+        "archived_record": archived.sha256, "human_correction": correction.sha256,
+    }
+    return SimpleNamespace(root=root, blobs=blobs, log=log, run_id=run_id, shas=shas)
+
+
+def built_index(store: Any, tmp_path: Any) -> Any:
+    """A fresh index of ``store``'s log under ``tmp_path``."""
+    from mailroom_record.index import Index
+
+    idx = Index(tmp_path / "built-index.sqlite")
+    idx.reindex(store.log)
+    return idx
+
+
+def run_cli(*args: str, root: Any = None) -> Any:
+    """Invoke the ``mailroom-record`` app in process; ``root`` adds ``--root``.
+
+    Returns the click result (``exit_code``, ``stdout``, ``stderr``).
+    """
+    from typer.testing import CliRunner
+
+    from mailroom_record.cli import app
+
+    argv = list(args) + ([] if root is None else ["--root", str(root)])
+    return CliRunner().invoke(app, argv)
+
+
+def insert_line_after(store: Any, doc_id: str, seq: int, data: bytes) -> tuple[Any, int]:
+    """Insert ``data`` + newline right after the line of ``(doc_id, seq)``; returns its place."""
+    seg, off, line = find_line(store, doc_id, seq)
+    at = off + len(line) + 1
+    replace_bytes(seg, at, 0, data + b"\n")
+    return seg, at
+
+
+def garble_line(store: Any, doc_id: str, seq: int, data: bytes = b"#garbled#") -> tuple[Any, int]:
+    """Replace the line of ``(doc_id, seq)`` with ``data`` (not JSON); returns its place."""
+    seg, off, line = find_line(store, doc_id, seq)
+    replace_bytes(seg, off, len(line), data)
+    return seg, off
+
+
+def append_torn_tail(store: Any, data: bytes = b'{"doc_id": "d1", "seq": 99') -> Any:
+    """Append bytes with no newline to the last segment of the run (a crash mid-write)."""
+    seg = store.log.segment_paths(getattr(store, "run_id", "r1"))[-1]
+    with seg.open("ab") as f:
+        f.write(data)
+    return seg

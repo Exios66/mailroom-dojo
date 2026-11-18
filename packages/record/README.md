@@ -78,3 +78,41 @@ review queue. No table holds document text, payloads, decisions or causes.
   match.
 
 The module docstring of `index.py` states every rule.
+
+## Version chain and trace
+
+`version_chain(log, run_id, doc_id)` (`mailroom_record.versions`) lists every blob a
+document's events name, in event order, inputs before outputs, each blob once at its first
+use: role, SHA-256, size, node, attempt, `ts`, `seq`, whether it was first an input or an
+output, and its state from `BlobStore.exists` (`present`, `tombstoned` or `missing`). A blob
+whose stored bytes are corrupt still shows as `present`: `verify_run` is the integrity tool.
+
+`trace_run(log, index, run_id)` and `trace_doc(log, index, doc_id)` (`mailroom_record.trace`)
+show a run's documents (nodes visited, attempts, last decision and cause, in review or not)
+and every run that touched a document (steps and version chain per run). `trace_doc` reads
+each document through the index (`Index.ensure`, then `Index.iter_events` and
+`runs_for_document`) and falls back to the log when there is no usable index; a run or event
+the index has not seen yet is still found. A trace never shows blob content, payloads, or
+the values inside a decision or cause: those appear as a `Digest` (shape, field names, size,
+SHA-256). Damaged data never raises: corrupt and invalid lines, gaps, forks, broken links,
+torn tails and an unreadable run header become `Damage` entries, and everything readable is
+still shown. Only a malformed run id (`BadRunId`) or an unknown run (`UnknownRun`) raises.
+The module docstrings of `versions.py`, `trace.py` and `_reading.py` state the rules.
+
+## Command line
+
+`pip install -e packages/record` installs `mailroom-record` (also `python -m mailroom_record`):
+
+```bash
+mailroom-record verify <run> --root <store>          # exit 1 when the run is not ok
+mailroom-record seal <run> --root <store>
+mailroom-record reindex --root <store>               # rebuilds <store>/index.sqlite
+mailroom-record trace run <run> --root <store>
+mailroom-record trace doc <doc> --root <store>
+mailroom-record versions <run> <doc> --root <store>
+```
+
+Every command takes `--json` for tools. Exit codes: 0 done (verify: ok); 1 the run is not ok,
+a seal was refused, or an unexpected error; 2 a usage error (malformed run id, unknown run or
+document, a root that is not a directory, a bad option). Errors are one line on stderr, never
+a traceback. Output holds hashes, roles, node names, kinds and counts only.
