@@ -392,12 +392,14 @@ def test_tombstoned_blob_passes_missing_blob_fails(sealed_store):   # Review Foc
   - `runs() -> list[RunRow]`, `documents(run_id: str) -> list[DocRow]`, `runs_for_document(doc_id: str) -> list[RunRow]`
   - `DocRow(run_id, doc_id, events, last_node, last_kind, head_hash, in_review: bool)`
 - Tables: `runs`, `documents`, `doc_runs`, `chain_heads`, `review_queue`. SQLite in WAL mode, `synchronous=NORMAL`. No table stores document text or payloads.
+- Decided while building (2026-11-18): `reindex` is the authority and rebuilds in one write transaction (WAL readers see the old index until commit; a crash leaves the old index, or an empty `missing` one); the file is never renamed into place. A `meta` table holds `schema_version` and `state`; a missing, empty, damaged (`quick_check`), old-version or unfinished file is never trusted: queries and `apply` raise `IndexUnavailable(status)`, and `reindex`/`ensure(log)` rebuild it (an unreadable file is deleted and recreated). `apply` takes exactly the next link of each chain: repeats and covered events are no-ops; a gap, a fork at the head and a broken link raise `ApplyRefused` and change nothing. A run must be registered first: `add_run(run)` after `create_run` (or a rebuild); `apply_seal(seal)` follows the seal chain the same way. In review means the document's head event has `kind == "review"` (no node names, decisions or payloads are read). A rebuild never aborts on a damaged log: corrupt and invalid lines, gaps, forks, broken links, unreadable seals and run headers become `problems` rows (`IndexStats.problems`), and a document stops at its last good event; a scan with a gap is re-read until two reads agree. Also added: `RunRow(run_id, kind, origin, backend, created_at, documents, events, in_review, seals)`, `review_queue()`, `problems()`, `dump()`, `drift(log)`, `status()`, `iter_events(log, run_id, doc_id)` (reads the byte ranges the rebuild recorded in `segments`/`doc_spans` plus every unindexed tail, falling back to a full scan when they no longer match). The event log's readers now stream (`EventLog.scan`, `iter_located`), keeping the `(doc_id, seq)` order with two passes.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```python
 def test_reindex_equals_incremental(store_with_events, tmp_path):
-    inc = Index(tmp_path / "a.sqlite"); [inc.apply(e) for e in store.log.iter_events("r1")]
+    inc = Index(tmp_path / "a.sqlite"); inc.add_run(run)   # decided while building: a run is registered first
+    [inc.apply(e) for e in store.log.iter_events("r1")]
     full = Index(tmp_path / "b.sqlite"); full.reindex(store.log)
     assert dump(inc) == dump(full)
 
@@ -415,10 +417,10 @@ def test_review_queue_tracks_last_event_kind(store_with_events, tmp_path):
     assert [d.doc_id for d in idx.documents("r1") if d.in_review] == ["d1"]
 ```
 
-- [ ] **Step 2:** Run; expect import failure.
-- [ ] **Step 3:** Implement with stdlib `sqlite3`.
-- [ ] **Step 4:** Run; expect 4 passed.
-- [ ] **Step 5:** Commit: `feat(record): rebuildable SQLite index`.
+- [x] **Step 2:** Run; expect import failure.
+- [x] **Step 3:** Implement with stdlib `sqlite3`.
+- [x] **Step 4:** Run; expect 4 passed.
+- [x] **Step 5:** Commit: `feat(record): rebuildable SQLite index`.
 
 ### Task 9: Version chain, trace and the CLI
 

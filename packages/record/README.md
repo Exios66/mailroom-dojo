@@ -24,3 +24,36 @@ Problem kinds: `bad_hash`, `broken_link`, `seq_gap`, `forked_chain`, `corrupt_li
 `seal_corrupt`, `seal_missing`, `document_missing_from_log`, `truncated_after_seal`,
 `columns_missing`, `columns_mismatch`, `corrupt_run_header`, `torn_tail`. The module
 docstring of `verify.py` states exactly when each is reported.
+
+## Reading the log
+
+Every reader streams: a segment is read one line at a time, never past its size when the
+reader opened it, so memory is bounded by the longest line (plus a few machine words per
+event for the ordered readers), never by the run. `iter_events` yields grouped by `doc_id`,
+each document by `seq`, in two passes: `EventLog.scan` records where each event lives, then
+`RunScan.events()` reads them in order. `scan(strict=False)` records corrupt and invalid
+lines as `BadLine` (no content) instead of raising. The module docstring of `log.py` states
+the ordering contract.
+
+## Index
+
+`Index(path)` (`mailroom_record.index`) is the derived SQLite index (WAL,
+`synchronous=NORMAL`): runs, documents, chain heads, the runs a document appears in, and the
+review queue. No table holds document text, payloads, decisions or causes.
+
+- `reindex(log)` is the authority: it rebuilds everything in one transaction, so readers see
+  the old index or the new one, and a crash leaves the old one (or none). It never aborts on
+  a damaged log: corrupt or invalid lines, gaps, forks, broken links, unreadable seals and run
+  headers become `problems`, and a document stops at its last good event.
+- `apply(event)` (only after the `LogWriter.flush()` that made the event durable),
+  `add_run(run)` and `apply_seal(seal)` are the incremental path. They take exactly the next
+  link: a repeat is a no-op, anything out of order raises `ApplyRefused` and changes nothing.
+- A missing, damaged, old-version or unfinished index file is never trusted: queries raise
+  `IndexUnavailable(status)`, and `ensure(log)` rebuilds it. `drift(log)` names the tables
+  that differ from a fresh rebuild.
+- A document is in review when its head event has kind `review`; its next event takes it out.
+- `iter_events(log, run_id, doc_id)` reads one document through the byte ranges the rebuild
+  recorded, plus anything written since, and falls back to a full scan when they no longer
+  match.
+
+The module docstring of `index.py` states every rule.
