@@ -34,7 +34,6 @@ __all__ = [
     "known_warnings_for",
     "loads_source",
     "parse_jsonl_lenient",
-    "read_jsonl_lenient",
     "read_source",
     "refuse_dropped",
 ]
@@ -145,11 +144,6 @@ def loads_source(text: str) -> Any:
     ``ValueError`` (a repeated key would otherwise collapse silently, last one winning);
     nesting too deep to parse raises ``RecursionError``."""
     return json.loads(text, object_pairs_hook=_unique_keys, parse_constant=_no_constant)
-
-
-def read_jsonl_lenient(path: Path, name: str) -> tuple[list[SourceLine], list[dict[str, Any]]]:
-    """``parse_jsonl_lenient`` of the bytes of ``path``."""
-    return parse_jsonl_lenient(Path(path).read_bytes(), name)
 
 
 def parse_jsonl_lenient(data: bytes, name: str) -> tuple[list[SourceLine], list[dict[str, Any]]]:
