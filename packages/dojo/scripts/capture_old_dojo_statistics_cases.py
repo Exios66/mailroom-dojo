@@ -29,8 +29,10 @@ Run it only with an interpreter that can import the old Dojo, never in CI::
         --old-dojo <llm-dojo-scoring checkout at 23f8234c> \\
         --output packages/dojo/tests/fixtures/differential/statistics_cases.jsonl
 
-It refuses to run unless the checkout is at the pinned commit and ``llm_dojo_scoring``
-imports from inside it (not from another install). It reads the old checkout and writes
+It refuses to run unless the checkout is at the pinned commit, its old
+``analysis/bootstrap.py`` and ``analysis/calibration.py`` have the pinned SHA-256
+(``EXPECTED_OLD_SOURCE_SHA256``, so an edited checkout is refused), and
+``llm_dojo_scoring`` imports from inside it (not from another install). It reads the old checkout and writes
 nothing inside it (pytest runs from a temporary
 directory with its cache plugin off, and no bytecode is written). The old commit is read
 from the checkout's ``.git`` files, without running git.
@@ -39,7 +41,9 @@ from the checkout's ``.git`` files, without running git.
 appended to the generator) without re-running the old tests or golden run: it loads the
 old ``analysis/bootstrap.py`` and ``analysis/calibration.py`` by file path (they need
 only the standard library, NumPy and SciPy), computes each missing case's old outcome,
-appends it, and records the run in the header's ``supplements`` list::
+appends it, and records the run in the header's ``supplements`` list. It refuses the
+same wrong commit or edited modules, and a corpus whose header names another seed or
+old commit::
 
     PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \\
         packages/dojo/scripts/capture_old_dojo_statistics_cases.py --supplement \\
@@ -67,6 +71,12 @@ from types import ModuleType
 from typing import Any
 
 EXPECTED_OLD_COMMIT = "23f8234c3c548bdc203033388bb316e52e588a2c"
+#: SHA-256 of each old module at EXPECTED_OLD_COMMIT (``git show <commit>:<path> | sha256sum``),
+#: so a checkout at the right commit with an edited file is refused.
+EXPECTED_OLD_SOURCE_SHA256 = {
+    "analysis/bootstrap.py": "1955b94a713c050b256b955d53ffc9998332a4bf2b21c8ed48c01b29ee176263",
+    "analysis/calibration.py": "c1f7176391c8e8b9d7b185a5da01b4049745071181f11d064e67c5e322a55d6e",
+}
 DEFAULT_SEED = 20261118
 SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 
@@ -171,6 +181,18 @@ def import_old_dojo(old_dojo: Path) -> ModuleType:
             f"llm_dojo_scoring was imported from {location}, not from {old_dojo}; refusing to capture"
         )
     return module
+
+
+def old_source_problems(old_dojo: Path) -> list[str]:
+    """Each old module that is missing or whose bytes do not have the pinned SHA-256."""
+    problems = []
+    for relative, expected in EXPECTED_OLD_SOURCE_SHA256.items():
+        path = old_dojo / "llm_dojo_scoring" / relative
+        if not path.is_file():
+            problems.append(f"llm_dojo_scoring/{relative} is missing")
+        elif (digest := hashlib.sha256(path.read_bytes()).hexdigest()) != expected:
+            problems.append(f"llm_dojo_scoring/{relative} does not have the pinned SHA-256 ({digest})")
+    return problems
 
 
 # ---------------------------------------------------------------------------
@@ -487,7 +509,11 @@ def old_functions_from_files(old_dojo: Path) -> dict[str, Any]:
 
     The modules are loaded under a private package name, so ``calibration``'s relative
     import of ``bootstrap`` resolves, without importing the rest of the old package.
+    Refuses (``SystemExit``) a module that is missing or whose bytes are not the pinned ones.
     """
+    problems = old_source_problems(old_dojo)
+    if problems:
+        raise SystemExit("; ".join(problems) + "; refusing to load the old modules")
     package_name = "_old_dojo_analysis"
     directory = old_dojo / "llm_dojo_scoring" / "analysis"
     package = ModuleType(package_name)
@@ -535,6 +561,9 @@ def supplement(old_dojo: Path, output: Path, seed: int) -> int:
     commit = read_commit(old_dojo)
     if commit != EXPECTED_OLD_COMMIT:
         print(f"old Dojo is at {commit}, expected {EXPECTED_OLD_COMMIT}; refusing to write", file=sys.stderr)
+        return 1
+    if problems := old_source_problems(old_dojo):
+        print("; ".join(problems) + "; refusing to write", file=sys.stderr)
         return 1
     lines = output.read_text(encoding="utf-8").splitlines()
     header = json.loads(lines[0])["header"]
@@ -639,6 +668,9 @@ def main() -> int:
     commit = read_commit(old_dojo)
     if commit != EXPECTED_OLD_COMMIT:
         print(f"old Dojo is at {commit}, expected {EXPECTED_OLD_COMMIT}; refusing to freeze", file=sys.stderr)
+        return 1
+    if problems := old_source_problems(old_dojo):
+        print("; ".join(problems) + "; refusing to freeze", file=sys.stderr)
         return 1
     os.environ.pop("LLM_DOJO_SCORING_CONFIG", None)
     try:

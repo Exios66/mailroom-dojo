@@ -116,4 +116,7 @@ Python 3.12, the version in the corpus header (the header's `supplements` record
 `--supplement` run that added 21 generated cases, is not rewritten by a full run). On
 Python 3.13 the old code sorts NaN differently, so three `bootstrap_ci` cases with a NaN
 score come out otherwise; all three are listed refusals in the new code. The script refuses
-an old checkout at another commit, or an `llm_dojo_scoring` imported from outside it.
+an old checkout at another commit or with an edited `analysis/bootstrap.py` or
+`analysis/calibration.py` (their SHA-256 is pinned with the commit), or an
+`llm_dojo_scoring` imported from outside it; `--supplement` also refuses a corpus whose
+header names another seed or old commit.
