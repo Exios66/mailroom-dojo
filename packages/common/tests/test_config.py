@@ -13,11 +13,53 @@ from typing import Any
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
-from pydantic import ValidationError
+from pydantic import ValidationError, field_validator
 
 from mailroom_common.config import ConfigModel, config_hash, deep_merge, load_config, load_layered
 from mailroom_common.errors import ConfigError
-from mailroom_common.logging import configure_logging
+from mailroom_common.logging import REDACTED, configure_logging
+
+
+class Keyed(ConfigModel):
+    name: str
+    api: str
+
+    @field_validator("api")
+    @classmethod
+    def _shape(cls, value: str) -> str:
+        if not value.startswith("ok-"):
+            raise ValueError(f"bad key {value}")
+        return value
+
+
+def test_a_validator_message_never_echoes_an_interpolated_value(tmp_path: Path) -> None:
+    secret = "zq-interp-7c1d0e9b"  # no credential shape: only the env scrub can hide it
+    path = tmp_path / "k.yaml"
+    path.write_text("name: '${NAME}'\napi: 'pre-${API_KEY}'\n", encoding="utf-8")
+    with pytest.raises(ConfigError) as info:
+        load_config(path, Keyed, env={"API_KEY": secret, "NAME": "x"})
+    assert secret not in str(info.value)
+    assert f"api: Value error, bad key pre-{REDACTED}" in str(info.value)
+
+
+def test_a_validator_message_is_run_through_redaction(tmp_path: Path) -> None:
+    path = tmp_path / "k.yaml"
+    path.write_text("name: x\napi: 'token=abc123'\n", encoding="utf-8")
+    with pytest.raises(ConfigError) as info:
+        load_config(path, Keyed)
+    assert "abc123" not in str(info.value)
+    assert f"bad key token={REDACTED}" in str(info.value)
+
+
+def test_layered_validation_scrubs_values_interpolated_in_any_layer(tmp_path: Path) -> None:
+    secret = "zq-layer-55aa0c"
+    base = tmp_path / "a.yaml"
+    base.write_text("name: x\napi: ok-1\n", encoding="utf-8")
+    overlay = tmp_path / "b.yaml"
+    overlay.write_text("api: '${API_KEY}'\n", encoding="utf-8")
+    with pytest.raises(ConfigError) as info:
+        load_layered([base, overlay], Keyed, env={"API_KEY": secret})
+    assert secret not in str(info.value)
 
 
 class Mode(StrEnum):
