@@ -541,5 +541,6 @@ def test_a_text_unverified_warning_is_accepted_only_by_the_hub_snapshot_that_hol
         known_warnings=accept,
     )
     report, _ = check_dirs([a2, b], profile())
-    assert [(f.location, f.known) for f in report.findings if f.kind == "text_unverified"] == [("hub-a", True)]
+    got = [(f.location, f.known) for f in report.findings if f.kind == "text_unverified"]
+    assert got == [("hub-a", True)]
     assert verify(report, strict=True) == 0
