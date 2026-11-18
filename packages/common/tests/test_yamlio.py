@@ -1,11 +1,60 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from mailroom_common.errors import ConfigError
 from mailroom_common.yamlio import load_yaml, loads_yaml
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("010", 10),
+        ("-007", -7),
+        ("+1", 1),
+        ("0", 0),
+        ("0o17", 15),
+        ("0x1F", 31),
+        ("1e3", 1000.0),
+        ("1.0e+3", 1000.0),
+        ("-2E-2", -0.02),
+        (".5", 0.5),
+        ("1.", 1.0),
+        ("1.10", 1.1),
+        ("1:30", "1:30"),
+        ("1_000", "1_000"),
+        ("0b101", "0b101"),
+        ("=", "="),
+        ("1e", "1e"),
+        ("0x", "0x"),
+    ],
+)
+def test_numbers_follow_the_yaml_1_2_core_schema(text: str, expected: Any) -> None:
+    value = loads_yaml(f"n: {text}\n")["n"]
+    assert value == expected
+    assert type(value) is type(expected)
+
+
+@pytest.mark.parametrize("text", [".inf", "-.Inf", "+.INF"])
+def test_infinities_are_floats(text: str) -> None:
+    value = loads_yaml(f"n: {text}\n")["n"]
+    assert isinstance(value, float)
+    assert math.isinf(value)
+
+
+def test_nan_is_a_float() -> None:
+    assert math.isnan(loads_yaml("n: .nan\n")["n"])
+
+
+@pytest.mark.parametrize(("text", "tag"), [("k: !!binary aGk=\n", "binary"), ("s: !!set {a}\n", "set")])
+def test_binary_and_set_tags_are_refused(text: str, tag: str) -> None:
+    with pytest.raises(ConfigError, match=f"!!{tag} is not allowed") as info:
+        loads_yaml(text, source="vocab.yaml")
+    assert info.value.context == {"source": "vocab.yaml", "line": 1}
 
 
 def test_plain_mapping_and_lists_load() -> None:

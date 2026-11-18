@@ -210,18 +210,28 @@ def test_invalid_yaml_is_a_config_error_with_line(tmp_path: Path) -> None:
     [
         ("name: x\nlimits: {max_pages: 1, threshold: .nan}\n", "NaN and infinity", "limits.threshold"),
         ("name: x\nlimits: {max_pages: 1, threshold: -.inf}\n", "NaN and infinity", "limits.threshold"),
-        ("name: !!binary aGk=\nlimits: {max_pages: 1}\n", "type bytes cannot be represented", "name"),
-        (
-            "name: x\ntags: !!set {a: null}\nlimits: {max_pages: 1}\n",
-            "type set cannot be represented",
-            "tags",
-        ),
     ],
 )
 def test_yaml_values_json_cannot_hold_are_refused(tmp_path: Path, text: str, match: str, key: str) -> None:
     with pytest.raises(ConfigError, match=match) as info:
         load_config(_file(tmp_path, "p.yaml", text), Profile)
     assert info.value.context["key"] == key
+
+
+@pytest.mark.parametrize(
+    ("text", "tag", "line"),
+    [
+        ("name: !!binary aGk=\nlimits: {max_pages: 1}\n", "binary", 1),
+        ("name: x\ntags: !!set {a: null}\nlimits: {max_pages: 1}\n", "set", 2),
+    ],
+)
+def test_yaml_binary_and_set_are_refused_by_the_loader(
+    tmp_path: Path, text: str, tag: str, line: int
+) -> None:
+    path = _file(tmp_path, "p.yaml", text)
+    with pytest.raises(ConfigError, match=f"!!{tag} is not allowed") as info:
+        load_config(path, Profile)
+    assert info.value.context == {"source": str(path), "line": line}
 
 
 def test_yaml_dates_become_iso_strings(tmp_path: Path) -> None:
