@@ -520,3 +520,74 @@ def test_a_document_lost_to_an_unreadable_line_is_damage_not_unknown(review_stor
     assert ([r.run_id for r in t.runs], t.unread_lines) == (["r2"], {"r1": 1})
     res = run_cli("trace", "doc", "d3", root=review_store.root)
     assert res.exit_code == 0 and "unreadable lines in runs not shown: r1 (1)" in res.stdout
+
+
+# --- tests that kill surviving mutations (review minor 5) --------------------------------
+
+
+def test_trace_doc_orders_runs_by_created_at_not_run_id(tmp_path: Path) -> None:
+    from mailroom_record.blobs import BlobStore
+
+    blobs = BlobStore(tmp_path)
+    log = EventLog(tmp_path, blobs)
+    for run_id, created in (("a-late", "2026-11-19T00:00:00Z"), ("m-broken", "2026-11-01T00:00:00Z"), ("z-early", "2026-11-17T00:00:00Z")):
+        log.create_run(Run(**run_fields(run_id=run_id, created_at=created)))
+        with log.open_writer(run_id, "w0") as w:
+            w.append(doc_id="d1", node="intake", kind="handoff")
+    (log.run_dir("m-broken") / "run.json").write_bytes(b"not json")  # an unreadable header sorts last
+    for idx in (None, Index(tmp_path / "i.sqlite")):
+        assert [r.run_id for r in trace_doc(log, idx, "d1").runs] == ["z-early", "a-late", "m-broken"]
+
+
+def test_a_torn_tail_alone_does_not_make_a_document_damaged(review_store: SimpleNamespace) -> None:
+    append_torn_tail(review_store)
+    dt = trace_doc(review_store.log, None, "d1")
+    assert _kinds(dt.runs[0].damage) == {"torn_tail"}
+    assert dt.damaged is False
+
+
+def test_trace_doc_reads_the_log_when_the_index_cannot_list_runs(two_run_store: SimpleNamespace, tmp_path: Path, monkeypatch) -> None:
+    from mailroom_record.index import IndexUnavailable
+
+    idx = built_index(two_run_store, tmp_path)
+
+    def broken(self, doc_id):
+        raise IndexUnavailable(self.path, "corrupt")
+
+    monkeypatch.setattr(Index, "runs_for_document", broken)
+    t = trace_doc(two_run_store.log, idx, "d1")
+    assert t.index == "unavailable (IndexUnavailable), read from the log"
+    assert [(r.run_id, r.source) for r in t.runs] == [("r1", "log"), ("r2", "log")]
+
+
+def test_index_note_counts_indexed_documents_gone_from_the_log(review_store: SimpleNamespace, tmp_path: Path) -> None:
+    from record_testkit import delete_line
+
+    idx = built_index(review_store, tmp_path)
+    delete_line(review_store, "d3", 0)  # d3's only line
+    t = trace_run(review_store.log, idx, "r1")
+    assert [d.doc_id for d in t.documents] == ["d1", "d2"]
+    assert t.index == "ready; behind the log: 1 indexed document(s) not in the log (run reindex)"
+
+
+def test_a_gap_faked_by_a_handoff_during_the_scan_is_read_again(store: SimpleNamespace, monkeypatch) -> None:
+    """d1's seq 1 lands in a segment already read and seq 2 in one not yet read, while the
+    first scan runs: that scan sees a gap the log does not have, so it must read again."""
+    from record_testkit import chain, write_lines
+
+    e0, e1, e2 = chain("d1", 3)
+    write_lines(store.root, "a.jsonl", [e0])
+    write_lines(store.root, "b.jsonl", chain("d2", 1))
+    real = RunScan._scan_span
+    fired: list[bool] = []
+
+    def span(self, seg_idx, path, start, end):
+        real(self, seg_idx, path, start, end)
+        if path.name == "a.jsonl" and not fired:
+            fired.append(True)
+            write_lines(store.root, "a.jsonl", [e1])
+            write_lines(store.root, "b.jsonl", [e2])
+
+    monkeypatch.setattr(RunScan, "_scan_span", span)
+    t = trace_run(store.log, None, "r1")
+    assert fired and [(d.doc_id, d.events, d.damage) for d in t.documents] == [("d1", 3, ()), ("d2", 1, ())]
