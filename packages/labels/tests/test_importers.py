@@ -570,6 +570,26 @@ def test_known_warnings_need_a_reason(tmp_path: Path) -> None:
         known_warnings_for(path, "snap-a")
 
 
+def test_a_known_warning_with_a_file_keeps_it(tmp_path: Path) -> None:
+    path = tmp_path / "kw.yaml"
+    path.write_text(
+        "snap-a:\n- {kind: orphan_decision, doc: D1, field: sender, reason: r, file: decisions.jsonl}\n"
+    )
+    assert known_warnings_for(path, "snap-a") == [
+        {"kind": "orphan_decision", "doc": "D1", "field": "sender", "reason": "r", "file": "decisions.jsonl"}
+    ]
+
+
+def test_an_overlay_manifest_with_a_utf8_bom_is_read(tmp_path: Path) -> None:
+    good = interim_row("D1", {"sender": ("gap_fill", "Ann")})
+    src = write_overlay(tmp_path / "src", {"letter.jsonl": jsonl(good)})
+    man = src / "MANIFEST.json"
+    man.write_bytes(b"\xef\xbb\xbf" + man.read_bytes())
+    manifest = overlay(tmp_path / "interim-x", src)
+    assert [r.data for r in load_snapshot(tmp_path / "interim-x").rows()] == [good]
+    assert manifest.source["source_manifest"]["sha256"] == sha(man.read_bytes())  # the BOM is hashed
+
+
 @pytest.mark.parametrize(
     "entry",
     [
@@ -1491,3 +1511,81 @@ def test_a_refused_rebuild_leaves_the_earlier_build_intact(tmp_path: Path, fault
     assert _tree_bytes(out) == before
     assert sorted(p.name for p in tmp_path.iterdir() if p.name.startswith(".")) == []
     assert load_snapshot(out).manifest.files[0].rows == 1
+
+
+# --- the bytes an importer hashes are the bytes it parses --------------------------------------
+
+
+@pytest.fixture
+def swap_after_first_read(monkeypatch: pytest.MonkeyPatch):
+    """Arm: the first binary open of ``target`` returns its bytes and then replaces the file
+    with ``other``, as a writer racing the import would. A second read sees ``other``."""
+
+    def arm(target: Path, other: bytes) -> None:
+        real_open = Path.open
+        done: list[bool] = []
+
+        def racing_open(self: Path, mode: str = "r", *args: Any, **kwargs: Any):
+            if not done and "b" in mode and "r" in mode and self.resolve() == target.resolve():
+                done.append(True)
+                original = _raw_read(real_open, self)
+                target.write_bytes(other)
+                import io
+
+                return io.BytesIO(original)
+            return real_open(self, mode, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "open", racing_open)
+
+    return arm
+
+
+def _raw_read(real_open: Any, path: Path) -> bytes:
+    with real_open(path, "rb") as fh:
+        data: bytes = fh.read()
+    return data
+
+
+def test_an_overlay_file_is_parsed_from_the_bytes_that_were_hashed(
+    tmp_path: Path, swap_after_first_read
+) -> None:
+    good = interim_row("D1", {"sender": ("gap_fill", "Ann")})
+    src = write_overlay(tmp_path / "src", {"letter.jsonl": jsonl(good)})
+    original = (src / "letter.jsonl").read_bytes()
+    swap_after_first_read(src / "letter.jsonl", jsonl(interim_row("D9", {"sender": ("gap_fill", "Eve")})))
+    manifest = overlay(tmp_path / "interim-x", src)
+    assert [r.data for r in load_snapshot(tmp_path / "interim-x").rows()] == [good]
+    assert manifest.source["files"][0]["sha256"] == sha(original)
+
+
+def test_a_desk_file_is_parsed_from_the_bytes_that_were_hashed(tmp_path: Path, swap_after_first_read) -> None:
+    kpath = tmp_path / "desk.jsonl"
+    kpath.write_bytes(jsonl(desk("D1", "sender", "Ann")))
+    original = kpath.read_bytes()
+    swap_after_first_read(kpath, jsonl(desk("D9", "sender", "Eve")))
+    manifest = build_review(tmp_path / "gold-review-x", desk=[(kpath, "sandbox/human_reviews.jsonl")])
+    assert [r.data["doc_id"] for r in load_snapshot(tmp_path / "gold-review-x").rows()] == ["D1"]
+    assert manifest.source["files"][0]["sha256"] == sha(original)
+
+
+def test_a_hub_shard_is_parsed_from_the_bytes_that_were_hashed(tmp_path: Path, swap_after_first_read) -> None:
+    data = write_dataset(tmp_path / "data")
+    train = data / "parquet/ground_truth/train/train-00000-of-00001.parquet"
+    original, pins = train.read_bytes(), pins_for(data)
+    swap_after_first_read(
+        train, (data / "parquet/ground_truth/test/test-00000-of-00001.parquet").read_bytes()
+    )
+    manifest = build_hub(  # not hub_build: its setdefault reads every file to pin it
+        tmp_path / "hub-x",
+        dataset_dir=data,
+        profile=profile(),
+        profile_sha256=sha(PROFILE_PATH.read_bytes()),
+        repository="example/synthetic",
+        revision="0" * 40,
+        default_dir=data,
+        pins=pins,
+    )
+    assert sorted(hub_rows(tmp_path / "hub-x")) == ["D1", "D2", "D3", "F1"]
+    assert {f["path"]: f["sha256"] for f in manifest.source["files"]}[
+        "parquet/ground_truth/train/train-00000-of-00001.parquet"
+    ] == sha(original)

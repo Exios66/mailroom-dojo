@@ -46,7 +46,15 @@ def test_manifest_hash_changes_with_any_member(tmp_path: Path) -> None:
     dirs = standard_set(tmp_path)
     before = load_label_set(dirs, profile()).manifest_hash
     shutil.rmtree(dirs[2])
-    make_snapshot(tmp_path, "near_gold", [near_gold_row("D4", {"sender": "Dee!"})])
+    make_snapshot(  # the standard near_gold rows with one value changed: still strict-clean
+        tmp_path,
+        "near_gold",
+        [
+            near_gold_row("D1", {"sent_on": "2020-01-02", "sender": "Ann C."}),
+            near_gold_row("D2", {"action_items": ["call back"], "sender": "Cyrus"}),
+            near_gold_row("D4", {"sender": "Dee!"}),
+        ],
+    )
     assert load_label_set(dirs, profile()).manifest_hash != before
 
 
@@ -76,10 +84,12 @@ def test_strict_label_set_refuses_a_warning_its_snapshot_does_not_accept(tmp_pat
 
     stray = make_snapshot(tmp_path, "review", [review_row("D3", "filing_id", "F1")], snapshot_id="rv-extra")
     dirs = [*standard_set(tmp_path), stray]
-    assert load_label_set(dirs, profile()).report.unknown_warnings  # lenient: loads, warning visible
-    with pytest.raises(QualityGateFailed, match="1 unknown warning") as info:
-        load_label_set(dirs, profile(), strict=True)
-    assert [f.kind for f in info.value.report.unknown_warnings] == ["orphan_decision"]
+    # lenient only when asked: loads, the warning stays visible
+    assert load_label_set(dirs, profile(), strict=False).report.unknown_warnings
+    for kwargs in ({}, {"strict": True}):  # strict is the default
+        with pytest.raises(QualityGateFailed, match="1 unknown warning") as info:
+            load_label_set(dirs, profile(), **kwargs)
+        assert [f.kind for f in info.value.report.unknown_warnings] == ["orphan_decision"]
     accepted = ({"kind": "orphan_decision", "doc": "D3", "field": "filing_id", "reason": "added by review"},)
     ok = make_snapshot(
         tmp_path / "ok",
@@ -128,3 +138,17 @@ def test_resolved_labels_cannot_be_changed_after_the_gate(tmp_path: Path) -> Non
         doc.fields["sender"].value = "Mallory"  # type: ignore[misc]
     assert isinstance(doc.model_dump()["fields"], dict) and doc == doc.model_copy()
     assert DocumentLabels.model_validate_json(doc.model_dump_json()) == doc
+
+
+def test_the_default_refuses_a_hub_snapshot_whose_text_was_not_checked(tmp_path: Path) -> None:
+    # A Hub import without --default-dir only warns text_unchecked; the Dojo's loader must
+    # not score against it unless that warning is accepted in the snapshot's manifest.
+    from labels_testkit import hub_row
+
+    dirs = standard_set(tmp_path)
+    shutil.rmtree(dirs[0])
+    rows = [hub_row("D1", fields={"sender": "Ann", "recipient": None, "urgency": "routine"})]
+    make_snapshot(tmp_path, "hub", rows, source={"repository": "synthetic", "text_check": {"run": False}})
+    with pytest.raises(QualityGateFailed, match="text_unchecked"):
+        load_label_set([dirs[0]], profile())
+    assert load_label_set([dirs[0]], profile(), strict=False).report.unknown_warnings

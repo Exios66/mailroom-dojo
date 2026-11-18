@@ -91,12 +91,14 @@ ignore_missing_imports = true
 [tool.codespell]
 # Committed data is never edited to satisfy a spelling check: the Dojo's golden and differential
 # fixtures hold deliberately misspelled and garbled strings (scoring must handle them as given),
-# and the label snapshots under labels/ hold real document text, committed once and immutable.
+# and the label snapshots under labels/ are committed once and immutable.
 skip = "./.venv,./.git,*.egg-info,./build,./dist,*.parquet,*.zst,*.lock,./packages/dojo/tests/fixtures,./labels/*/*.jsonl"
 check-filenames = true
 # `caf` is the start of the byte escape in b"caf\xe9" (a non-UTF-8 test input).
 # `unparseable`, `nd` (the "2nd" ordinal suffix) and `thur` (a weekday abbreviation) are real
 # words and tokens the Dojo's date and value parsers match; `nmae`, `lable`, `nam` and `aproved`
 # are deliberate typos in tests that check misspelled field names and values are reported.
+# labels/*/*.jsonl is skipped: committed, immutable snapshots of label values and evidence
+# excerpts quoted from the documents (full document text only by hash).
 # Add a word here only with the reason in the commit message.
 ignore-words-list = "caf,unparseable,nd,thur,nmae,lable,nam,aproved"

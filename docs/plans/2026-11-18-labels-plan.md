@@ -5,9 +5,9 @@ Serves requirements R4, R6, R8 and R9 of `docs/specs/2026-11-18-lean-rewrite-des
 labels). Package: `packages/labels/` (`mailroom_labels`). Committed data: `labels/<snapshot>/`
 and `config/clients/<client>/profile.yaml`.
 
-JJB, 2026-11-18: "ALL SCORING NEEDS TO STILL BE BUILT FROM THE MAILROOM DATASET, AND THE INTERIM
-GOLD CLAUDE LABELS THAT SHOULD BE SAVED TO THE NEW REPO AS WELL PLEASE, ENSURING THE HIGHEST DATA
-QUALITY FOR EXPERIMENTAL RUNS AND TESTING + calibration".
+The owner's request (2026-11-18), in summary: every score is still built from the Mailroom
+dataset and the interim gold labels, which move into this repository too, at the highest data
+quality, for experimental runs, testing and calibration.
 
 ## Goal
 
@@ -43,10 +43,10 @@ exact dataset documents they describe.
    data this moves 171 labels (filing_number 136, signatories 21, jurisdiction 14) from a Hub
    absence to the interim fill, matching the sandbox merge.
 2. **Status words.** `hub`, `interim`, `near_gold`, `gold`. A review decision by a human desk owner is
-   `gold`; the Claude Opus audit decisions (1,039 corrections under JJB's top-reply rule) are
+   `gold`; the Claude Opus audit decisions (1,039 corrections under the owner's top-reply rule) are
    `near_gold` with source `review:claude-opus-audit`. No reviewer initials are invented: the reviewer
    field holds what the decision file states (a role), and the manifest says initials are not recorded.
-   Open question for JJB: should the human desk decisions carry initials before they count as `gold`?
+   Open question for the owner: should the human desk decisions carry initials before they count as `gold`?
 3. **A snapshot is a directory with `manifest.json`.** The manifest lists every file with sha256 and row
    count, the source (repository, revision or commit, path), the schema version, and the builder's name.
    `manifest_hash` is the canonical hash (from `mailroom_record.hashing`) of the manifest without that
@@ -63,7 +63,7 @@ exact dataset documents they describe.
    values, which the sandbox still scores. The alternative is to drop only the stale interim
    labels and keep scoring the Hub values; it was not taken because the document's subclass
    choice is itself in doubt until the interim overlay is rebuilt on ccd040f6 (open question
-   for JJB).
+   for the owner).
 5. **Data quality is a gate.** `quality.check(snapshot set)` returns typed findings (error or warning)
    for: unknown document, class or subclass disagreeing with the Hub index, stale content hash,
    duplicate (document, field) within a layer, field not in the client profile, value not matching its

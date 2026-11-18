@@ -15,9 +15,10 @@ document once. The result is immutable:
   ``label_snapshot_ids`` (``<snapshot_id>@<manifest_hash>``);
 - ``report``: the quality report (warnings stay visible; known ones are marked).
 
-``load_label_set(..., strict=True)`` also refuses a set with a warning that the snapshot
-raising it does not accept, the same rule as ``mailroom-labels verify --strict``; a scorer
-that must not run on unreviewed warnings asks for it.
+``load_label_set`` is strict by default: it also refuses a set with a warning that the
+snapshot raising it does not accept, the same rule as ``mailroom-labels verify --strict``,
+so a scorer never runs on an unreviewed warning (a Hub import without the text check only
+warns ``text_unchecked``). ``strict=False`` loads such a set for inspection only.
 """
 
 from __future__ import annotations
@@ -89,13 +90,14 @@ class LabelSet:
 
 
 def load_label_set(
-    directories: Iterable[Path | str], profile: ClientProfile, *, strict: bool = False
+    directories: Iterable[Path | str], profile: ClientProfile, *, strict: bool = True
 ) -> LabelSet:
     """Load, check and resolve snapshot directories; raise ``QualityGateFailed`` on any error
     (a snapshot that fails to load, or whose files change between the gate and resolving,
-    is an error too: the ``ManifestMismatch`` is the cause). With ``strict`` (what ``mailroom-labels
-    verify --strict`` checks) a warning that the snapshot raising it does not list in its
-    ``known_warnings`` fails the gate too."""
+    is an error too: the ``ManifestMismatch`` is the cause). With ``strict`` (the default,
+    what ``mailroom-labels verify --strict`` checks) a warning that the snapshot raising it
+    does not list in its ``known_warnings`` fails the gate too; ``strict=False`` is for
+    inspection, never for scoring."""
     report, loaded = check_dirs(list(directories), profile)
     if verify(report, strict=strict) != 0:
         raise QualityGateFailed(report, strict=strict)

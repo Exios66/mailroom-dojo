@@ -12,9 +12,10 @@
              byte with the committed snapshot instead of writing: exit 0 identical,
              1 different. A source that fails an integrity check exits 1, and so does
              a source with data the importer has to leave out (rejected lines,
-             unparseable rows, undecided decisions) unless ``--allow-rejected`` is
-             given; then it is listed in the manifest and ``verify`` reports it as an
-             error.
+             unparseable rows, desk decision words it does not know, ``unsure`` marks
+             it cannot order against a decision) unless ``--allow-rejected`` is given;
+             then it is listed in the manifest and ``verify`` reports it as an error.
+             An ``unsure`` desk mark on its own is a normal outcome, never refused.
 
 Usage errors (a missing option, a profile that does not validate) exit 2.
 """
