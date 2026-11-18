@@ -54,6 +54,24 @@ the unknown-key check, the number range check, the band order check, unsorted ha
 an order-sensitive `FrozenMapping` hash, a money name word and the NDC padding. All 17
 were caught.
 
+## Task B: entity lists, audits, presence, trace capture, `score_extraction`
+
+- **Parity.** `test_differential_extraction_parity.py` replays 6,414 recorded old-Dojo cases (the old golden
+  run's `score_extraction` calls, the old direct tests' inputs and seeded generated inputs: role words,
+  duplicates, empty lists, partial-GT and containment fields, CMS identifiers, grounded and ungrounded dates
+  with `doc_text`, confidence and reasoning in many shapes) and requires canonical-JSON equality. The golden
+  cases are tied to `scores.json` paths and hashes in the fixture header.
+- **Behaviour under fault.** A scipy import failure reports the greedy matcher and why; any other matcher error
+  propagates. A failing, NaN or out-of-range similarity backend inside lists and presence is reported, never
+  swallowed. An unknown field type raises unless the caller opts into scoring it as `name`, and the fallback is
+  listed on the result. Non-mapping arguments raise `TypeError` at once. Hostile shapes (None, dicts for lists,
+  10k-item lists, huge strings) finish inside a time budget.
+- **Properties.** Precision, recall and F1 stay in [0, 1] and obey their identities; matched counts are
+  invariant under shuffles except where the old scorer's ties make them order-dependent (that case is pinned by a
+  test and recorded as "found, not changed").
+- **Mutation check.** 22 single-line mutations over the six modules: 15 caught first, one targeted test added per
+  survivor, 22 of 22 on the second run.
+
 ## Task C: classification, label interface, golden parity, new types, boundaries
 
 | Claim | Test |
