@@ -123,8 +123,8 @@
 # agent_roster has an entry, and no legacy or retired agent has one; the metric and the
 # guard are kept rows that apply to the agent and have a direction (never none); the
 # guard is not the metric; label_layers names the layers the gold comes from
-# (table.LABEL_LAYERS: hub, interim, near_gold, gold_review, or derived alone), empty
-# only for a metric that needs no labels; metric null needs a reason and has no guard
+# (table.LABEL_LAYERS: the labels package's layer kinds hub, interim, near_gold and
+# review, or derived_gold alone), empty only for a metric that needs no labels; metric null needs a reason and has no guard
 # and no layers. confirmed is true only where the owner decided; every other entry is
 # a proposal. The entries are part of the content hash and frozen in
 # tests/fixtures/measures/default_views.json.
@@ -191,67 +191,67 @@ default_views:
     metric: "f1_macro"
     confirmed: true
     guard: "accuracy"
-    label_layers: ["hub", "interim", "near_gold", "gold_review"]
+    label_layers: ["hub", "interim", "near_gold", "review"]
     source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 308: f1_macro is 'the universal classifier headline'; line 13: tier 0 is ONE number per agent on the default view."
   sorter_reviewer:
     metric: "reviewer_class_accuracy"
     confirmed: false
     guard: "reviewer_wrong_accept_upper_95"
-    label_layers: ["derived"]
+    label_layers: ["derived_gold"]
     source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 352-353 and 370: reviewer_class_accuracy, tier 0, with reviewer_wrong_accept_upper_95 as its guard. Gold derived from the class labels (rule in each row's status_reason)."
   judge:
     metric: "judge_verdict_accuracy"
     confirmed: false
     guard: "judge_escalation_recall"
-    label_layers: ["derived"]
+    label_layers: ["derived_gold"]
     source: "Review of the provisional defaults: f1_macro has no gold for the judge in the new system; the verdict is graded against a verdict derived from the field labels (rule in the row's status_reason)."
   arbiter:
     metric: "arbiter_decision_accuracy"
     confirmed: false
     guard: "arbiter_wrongful_accept_rate"
-    label_layers: ["derived"]
+    label_layers: ["derived_gold"]
     source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 526-534: the arbiter's quality metric (tier 1); the arbiter has no tier-0 metric. Gold derived (rule in the row's status_reason)."
   boss:
     metric: "boss_wrongful_approve_rate"
     confirmed: true
     guard: "boss_needless_review_rate"
     guard_confirmed: false
-    label_layers: ["derived"]
+    label_layers: ["derived_gold"]
     source: "Owner decision, 2026-11-18: the boss is judged on wrong approvals. Not extraction_overall_score, which grades the specialist. Gold derived (rule in the row's status_reason)."
   intake:
     metric: "accuracy"
     confirmed: true
-    label_layers: ["hub", "interim", "near_gold", "gold_review"]
+    label_layers: ["hub", "interim", "near_gold", "review"]
     source: "Owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class against the gold class, with no guard; the clerk diagnostics are not needed to judge intake."
   contracts_specialist:
     metric: "extraction_overall_score"
     confirmed: false
     guard: "per_field_scores"
-    label_layers: ["hub", "interim", "near_gold", "gold_review"]
+    label_layers: ["hub", "interim", "near_gold", "review"]
     source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
   merger_agreement_specialist:
     metric: "extraction_overall_score"
     confirmed: false
     guard: "per_field_scores"
-    label_layers: ["hub", "interim", "near_gold", "gold_review"]
+    label_layers: ["hub", "interim", "near_gold", "review"]
     source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
   corporate_records_specialist:
     metric: "extraction_overall_score"
     confirmed: false
     guard: "per_field_scores"
-    label_layers: ["hub", "interim", "near_gold", "gold_review"]
+    label_layers: ["hub", "interim", "near_gold", "review"]
     source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
   insurance_claims_specialist:
     metric: "extraction_f2"
     confirmed: false
     guard: "per_field_scores"
-    label_layers: ["hub", "interim", "near_gold", "gold_review"]
+    label_layers: ["hub", "interim", "near_gold", "review"]
     source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 344: extraction_f2 is the 'insurance claims board number'; line 13."
   correspondence_specialist:
     metric: "extraction_overall_score"
     confirmed: false
     guard: "per_field_scores"
-    label_layers: ["hub", "interim", "near_gold", "gold_review"]
+    label_layers: ["hub", "interim", "near_gold", "review"]
     source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326 (the specialist headline). Not content_topic_f1_macro (line 997): the live correspondence schema has no content_topic field, so a perfect extraction would score 0.0; that row stays for eval-lineage runs."
   local_vs_api:
     metric: "tokens_per_second"

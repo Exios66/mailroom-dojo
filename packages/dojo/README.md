@@ -111,9 +111,10 @@ meaning. Duplicates point at their canonical row (`alias_of`, `same_as`).
 `agent_roster` lists every agent with a status: the 16 `live` agents of llm-mailroom, the
 `legacy` auditors and `retired` specialists (rows kept for golden parity, no default view),
 and the entries that are not model agents. `default_views` gives every live agent one
-default number and a guard, with the label layers its gold comes from (`hub`, `interim`,
-`near_gold`, `gold_review`, or `derived` from them for the decision agents), or `null`
-with a reason; `confirmed` marks the owner's decisions, the rest are proposals.
+default number and a guard, with the label layers its gold comes from (the labels
+package's layer kinds `hub`, `interim`, `near_gold` and `review`, or `derived_gold`,
+computed from them for the decision agents), or `null` with a reason; `confirmed` marks
+the owner's decisions, the rest are proposals.
 `direction` is stated per row (the source of truth), frozen in
 `tests/fixtures/measures/metric_directions.json`, and a test lints it against the id's
 words. `noise_floor` is unset (D7 measures it). The header of the file documents every

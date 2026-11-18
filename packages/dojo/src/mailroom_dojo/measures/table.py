@@ -109,11 +109,16 @@ AGENT_STATUSES: tuple[str, ...] = (
     "comparison",
     "graph_node",
 )
-#: The label layers a default view reads its gold from: the dataset ground truth (``hub``),
-#: the generated interim labels (``interim``, ``near_gold``), reviewed gold
-#: (``gold_review``), and ``derived`` gold, computed deterministically from those layers'
-#: class and field labels (for decision agents; the row's ``status_reason`` gives the rule).
-LABEL_LAYERS: tuple[str, ...] = ("hub", "interim", "near_gold", "gold_review", "derived")
+#: The label layers a default view reads its gold from: the labels package's layer kinds
+#: (``mailroom_labels.models.LAYERS``: the dataset ground truth ``hub``, the generated
+#: ``interim`` and ``near_gold`` labels, and the review desk's ``review`` gold), then
+#: ``derived_gold``, computed deterministically from those layers' class and field labels
+#: for the decision agents (the row's ``status_reason`` gives the rule). A copy, so the
+#: table loads without the labels package; a test pins it to the source. Not ``derived``:
+#: the labels package uses that word for an interim truth status.
+LABEL_LAYERS: tuple[str, ...] = ("hub", "interim", "near_gold", "review", "derived_gold")
+#: The layer computed from the others, listed alone.
+_DERIVED_LAYER = "derived_gold"
 #: Where a row comes from: the old registry, the old golden baseline, or a need the master
 #: design names that no old metric meets (``design``, metric id ``dojo:<id>``).
 ORIGINS: tuple[str, ...] = ("registry", "golden", "design")
@@ -867,7 +872,7 @@ def _default_views(
             raise _fail(f"{path}.label_layers", f"{metric!r} needs labels; name the layers they come from")
         if not needs_labels and layers_raw:
             raise _fail(f"{path}.label_layers", f"{metric!r} needs no labels, so it reads no label layer")
-        if "derived" in layers_raw and len(layers_raw) > 1:
+        if _DERIVED_LAYER in layers_raw and len(layers_raw) > 1:
             raise _fail(
                 f"{path}.label_layers", "derived gold is computed from the other layers; list it alone"
             )

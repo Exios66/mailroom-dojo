@@ -424,7 +424,7 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
         "label_layers[0]: 'human' is not one of",
     ),
     ("layer twice", _view(LABELLED_AGENT, label_layers=["hub", "hub"]), "lists a layer twice"),
-    ("derived with others", _view(LABELLED_AGENT, label_layers=["derived", "hub"]), "list it alone"),
+    ("derived with others", _view(LABELLED_AGENT, label_layers=["derived_gold", "hub"]), "list it alone"),
     ("layers for no labels", _view(UNLABELLED_AGENT, label_layers=["hub"]), "needs no labels"),
     ("null without reason", _view(NO_METRIC_AGENT, reason=None), f"default_views.{NO_METRIC_AGENT}.reason"),
     (
@@ -571,6 +571,30 @@ def test_queries_replace_tiers() -> None:
     assert set(READERS) == {reader for row in table.rows for reader in row.readers}
     with pytest.raises(UnknownMetricError, match="unknown metric 'tier0'"):
         table.get("tier0")
+
+
+def test_label_layers_are_the_labels_package_layers_and_derived_gold() -> None:
+    """The view layers are the labels package's layer kinds, plus gold derived from them.
+
+    The Dojo keeps its own copy (the table loads without the labels package); this pins the
+    copy to the source. ``derived_gold`` is no labels-package word: there ``derived`` is an
+    interim truth status, which a decision agent's derived gold is not.
+    """
+    from mailroom_dojo.measures import LABEL_LAYERS
+
+    labels_models = pytest.importorskip("mailroom_labels.models")
+    labels_layers = pytest.importorskip("mailroom_labels.layers")
+    assert (*labels_models.LAYERS, "derived_gold") == LABEL_LAYERS
+    assert tuple(labels_layers.CURRENT_LAYER_SCHEMA) == labels_models.LAYERS
+    vocabulary = {
+        *labels_models.LAYERS,
+        *labels_models.STATUS_WORDS,
+        *labels_models.RANKS,
+        *labels_layers.INTERIM_STATUSES,
+    }
+    assert "derived_gold" not in vocabulary
+    used = {layer for view in load_metric_table().default_views.values() for layer in view.label_layers}
+    assert used <= set(LABEL_LAYERS) and "derived_gold" in used
 
 
 def test_dashboard_queries_leave_out_dropped_rows_unless_asked() -> None:

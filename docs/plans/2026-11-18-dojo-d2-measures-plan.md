@@ -47,8 +47,10 @@ behind the spend gate).
 4. **Gold sources (owner decision, 2026-11-18).** Gold for evaluation is the generated interim
    labels (`interim`, `near_gold`), the dataset ground truth (`hub`) and additional gold
    generated to support the evaluations; it no longer waits for human resolutions. Each view
-   names its layers (`hub`, `interim`, `near_gold`, `gold_review`, or `derived` alone). The
-   decision agents (sorter reviewer, judge, arbiter, boss) read `derived` gold, computed
+   names its layers (the labels package's layer kinds `hub`, `interim`, `near_gold` and `review`,
+   or `derived_gold` alone; `derived` is not used, because the labels package already uses it
+   for an interim truth status). The decision agents (sorter reviewer, judge, arbiter, boss)
+   read `derived_gold`, computed
    deterministically from the class and field labels in those layers; each of their rows states
    the rule in `status_reason`, with the score bands taken from the scoring profile in
    `config/`. No scoring code for it in D2. The planned row `fields_without_gold` is what the
@@ -84,17 +86,17 @@ behind the spend gate).
 
 | Agent | Status | Default view | Guard | Gold from | Confirmed |
 |:---|:---|:---|:---|:---|:---|
-| `sorter` | live | `f1_macro` | `accuracy` | hub, interim, near_gold, gold_review | yes |
-| `sorter_reviewer` | live | `reviewer_class_accuracy` | `reviewer_wrong_accept_upper_95` | derived | proposal |
-| `judge` | live | `judge_verdict_accuracy` | `judge_escalation_recall` | derived | proposal |
-| `arbiter` | live | `arbiter_decision_accuracy` | `arbiter_wrongful_accept_rate` | derived | proposal |
-| `boss` | live | `boss_wrongful_approve_rate` | `boss_needless_review_rate` | derived | yes |
-| `intake` | live | `accuracy` | none | hub, interim, near_gold, gold_review | yes |
-| `contracts_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, gold_review | proposal |
-| `merger_agreement_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, gold_review | proposal |
-| `corporate_records_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, gold_review | proposal |
-| `insurance_claims_specialist` | live | `extraction_f2` | `per_field_scores` | hub, interim, near_gold, gold_review | proposal |
-| `correspondence_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, gold_review | proposal |
+| `sorter` | live | `f1_macro` | `accuracy` | hub, interim, near_gold, review | yes |
+| `sorter_reviewer` | live | `reviewer_class_accuracy` | `reviewer_wrong_accept_upper_95` | derived_gold | proposal |
+| `judge` | live | `judge_verdict_accuracy` | `judge_escalation_recall` | derived_gold | proposal |
+| `arbiter` | live | `arbiter_decision_accuracy` | `arbiter_wrongful_accept_rate` | derived_gold | proposal |
+| `boss` | live | `boss_wrongful_approve_rate` | `boss_needless_review_rate` | derived_gold | yes |
+| `intake` | live | `accuracy` | none | hub, interim, near_gold, review | yes |
+| `contracts_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, review | proposal |
+| `merger_agreement_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, review | proposal |
+| `corporate_records_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, review | proposal |
+| `insurance_claims_specialist` | live | `extraction_f2` | `per_field_scores` | hub, interim, near_gold, review | proposal |
+| `correspondence_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, review | proposal |
 | `local_vs_api` | comparison | `tokens_per_second` | `cost_per_document` | no labels | proposal |
 | `pdf_transcriber` | live | none: deferred by owner decision | | | yes (owner) |
 | `image_extractor` | live | none: deferred by owner decision | | | yes (owner) |

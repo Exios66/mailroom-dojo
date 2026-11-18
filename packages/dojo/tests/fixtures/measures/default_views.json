@@ -136,7 +136,7 @@
    "guard": "arbiter_wrongful_accept_rate",
    "guard_confirmed": false,
    "label_layers": [
-    "derived"
+    "derived_gold"
    ]
   },
   "archivist": {
@@ -156,7 +156,7 @@
    "guard": "boss_needless_review_rate",
    "guard_confirmed": false,
    "label_layers": [
-    "derived"
+    "derived_gold"
    ]
   },
   "classification_arbiter": {
@@ -179,7 +179,7 @@
     "hub",
     "interim",
     "near_gold",
-    "gold_review"
+    "review"
    ]
   },
   "corporate_records_specialist": {
@@ -193,7 +193,7 @@
     "hub",
     "interim",
     "near_gold",
-    "gold_review"
+    "review"
    ]
   },
   "correspondence_specialist": {
@@ -207,7 +207,7 @@
     "hub",
     "interim",
     "near_gold",
-    "gold_review"
+    "review"
    ]
   },
   "gmail_triage": {
@@ -248,7 +248,7 @@
     "hub",
     "interim",
     "near_gold",
-    "gold_review"
+    "review"
    ]
   },
   "intake": {
@@ -262,7 +262,7 @@
     "hub",
     "interim",
     "near_gold",
-    "gold_review"
+    "review"
    ]
   },
   "judge": {
@@ -273,7 +273,7 @@
    "guard": "judge_escalation_recall",
    "guard_confirmed": false,
    "label_layers": [
-    "derived"
+    "derived_gold"
    ]
   },
   "local_vs_api": {
@@ -296,7 +296,7 @@
     "hub",
     "interim",
     "near_gold",
-    "gold_review"
+    "review"
    ]
   },
   "pdf_transcriber": {
@@ -337,7 +337,7 @@
     "hub",
     "interim",
     "near_gold",
-    "gold_review"
+    "review"
    ]
   },
   "sorter_reviewer": {
@@ -348,7 +348,7 @@
    "guard": "reviewer_wrong_accept_upper_95",
    "guard_confirmed": false,
    "label_layers": [
-    "derived"
+    "derived_gold"
    ]
   }
  }
