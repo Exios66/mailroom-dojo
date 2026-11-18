@@ -8,8 +8,11 @@ Two native shapes come in:
 - **desk logs** (the sandbox ``human_reviews.jsonl``): ``{catalog, doc_id, filename, field,
   decision, value, label_before_review, claude_verdict, note, reviewed_at, source}``, the
   owner's own marks. ``decision`` maps to a verdict: ``keep`` -> ``accept``,
-  ``use_suggestion`` and ``correct`` -> ``correct``; ``unsure`` decides nothing (the label stays
-  open), so it is listed under ``source.not_imported``. The reviewer is ``{model: human,
+  ``use_suggestion`` and ``correct`` -> ``correct``. ``unsure`` is a normal desk outcome that
+  decides nothing: it never becomes a label and is listed under ``source.undecided`` (with
+  ``replaced``: whether a later decision on the same label settled it), never refused. Any
+  other decision word cannot be imported and is listed under ``source.not_imported`` (which
+  refuses the import, see ``common.refuse_dropped``). The reviewer is ``{model: human,
   role: <source>}``: a human desk decision is ``gold``. No initials are invented.
 
 Rules, applied per (document, field):
@@ -55,11 +58,13 @@ from mailroom_labels.models import SnapshotManifest
 from mailroom_labels.snapshot import write_snapshot
 from mailroom_record.hashing import canonical_json
 
-__all__ = ["DESK_VERDICTS", "HUMAN_MODEL", "SUPERSEDED_REASONS", "build_review"]
+__all__ = ["DESK_UNDECIDED", "DESK_VERDICTS", "HUMAN_MODEL", "SUPERSEDED_REASONS", "build_review"]
 
 HUMAN_MODEL = "human"
-#: Desk ``decision`` -> review verdict. A decision not listed here (``unsure``) decides nothing.
+#: Desk ``decision`` -> review verdict.
 DESK_VERDICTS: dict[str, str] = {"keep": "accept", "use_suggestion": "correct", "correct": "correct"}
+#: Desk decisions that record "no decision yet": listed under ``source.undecided``, never a label.
+DESK_UNDECIDED = ("unsure",)
 _EPOCH = datetime.min.replace(tzinfo=timezone.utc)
 
 
@@ -122,7 +127,7 @@ def _from_decision(line: SourceLine, rejected: list) -> dict[str, Any] | None:
     return row
 
 
-def _from_desk(line: SourceLine, rejected: list, not_imported: list) -> dict[str, Any] | None:
+def _from_desk(line: SourceLine, rejected: list, not_imported: list, undecided: list) -> dict[str, Any] | None:
     d = line.data
     missing = _missing(d, _DESK_REQUIRED)
     if missing:
@@ -134,6 +139,10 @@ def _from_desk(line: SourceLine, rejected: list, not_imported: list) -> dict[str
         rejected.append({"file": line.file, "line": line.line, "reason": str(exc)})
         return None
     decision = d["decision"]
+    if decision in DESK_UNDECIDED:
+        undecided.append({"doc_id": d["doc_id"], "field": d["field"], "decision": decision,
+                          "reviewed_at": d["reviewed_at"], "note": d.get("note"), "origin": [line.origin]})
+        return None
     if decision not in DESK_VERDICTS:
         not_imported.append({"file": line.file, "line": line.line, "doc_id": d["doc_id"], "field": d["field"],
                              "decision": decision, "reason": "the decision does not settle the label"})
@@ -151,6 +160,21 @@ def _from_desk(line: SourceLine, rejected: list, not_imported: list) -> dict[str
         "origin": [line.origin],
         "reviewed_at": d["reviewed_at"],
     }
+
+
+def _undecided(undecided: list[dict[str, Any]], rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each ``unsure`` mark with ``replaced``: true when a dated human decision on the same
+    label is later (an undated mark is replaced by any dated decision)."""
+    out = []
+    for u in sorted(undecided, key=lambda u: (str(u["doc_id"]), str(u["field"]), u["origin"])):
+        mark = reviewed_instant(u["reviewed_at"])
+        later = [
+            r for r in rows
+            if (r["doc_id"], r["field"]) == (u["doc_id"], u["field"]) and _is_human(r)
+            and (at := reviewed_instant(r["reviewed_at"])) is not None and (mark is None or at > mark)
+        ]
+        out.append({**u, "replaced": bool(later)})
+    return out
 
 
 def _is_human(row: Mapping[str, Any]) -> bool:
@@ -219,6 +243,7 @@ def build_review(
     out_dir = Path(out_dir)
     rejected: list[dict[str, Any]] = []
     not_imported: list[dict[str, Any]] = []
+    undecided: list[dict[str, Any]] = []
     rows: list[dict[str, Any]] = []
     files = []
     for kind, items in (("decisions", decisions), ("desk", desk)):
@@ -227,7 +252,7 @@ def build_review(
             rejected.extend(bad)
             files.append({"path": name, "shape": kind, "sha256": file_sha256(path), "rows": len(lines)})
             for line in lines:
-                row = _from_decision(line, rejected) if kind == "decisions" else _from_desk(line, rejected, not_imported)
+                row = _from_decision(line, rejected) if kind == "decisions" else _from_desk(line, rejected, not_imported, undecided)
                 if row is not None:
                     rows.append(row)
 
@@ -259,6 +284,7 @@ def build_review(
         "not_imported": not_imported,
         "rejected_lines": rejected,
         **({"unexplained_superseded": unexplained} if unexplained else {}),
+        **({"undecided": _undecided(undecided, rows)} if undecided else {}),
         "reviewer_initials": "not recorded: the reviewer field holds the role the source states",
     }
     return write_snapshot(

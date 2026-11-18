@@ -304,12 +304,13 @@ def review(tmp_path: Path, decisions: list, desks: list, name: str = "gold-revie
 
 def test_desk_decisions_are_gold_and_map_their_verdicts(tmp_path: Path) -> None:
     manifest, rows = review(tmp_path, [], [desk("D1", "sender", "Ann", "keep"), desk("D2", "sender", "Bo", "use_suggestion"),
-                                           desk("D3", "sender", "Cy", "unsure")], allow_rejected=True)
+                                           desk("D3", "sender", "Cy", "unsure")])
     assert [(r["doc_id"], r["verdict"], r["reviewer"]) for r in rows] == [
         ("D1", "accept", {"model": "human", "role": "review_desk"}),
         ("D2", "correct", {"model": "human", "role": "review_desk"})]
     assert rows[0]["origin"] == ["sandbox/human_reviews.jsonl:1"] and rows[0]["reviewed_at"] == "2026-11-17T18:00:00Z"
-    assert [(n["doc_id"], n["decision"]) for n in manifest.source["not_imported"]] == [("D3", "unsure")]
+    assert [(n["doc_id"], n["decision"]) for n in manifest.source["undecided"]] == [("D3", "unsure")]
+    assert manifest.source["not_imported"] == []
     recs = read_layer(load_snapshot(tmp_path / "gold-review-x")).records
     assert {r.rank for r in recs} == {"review:gold"}
 
@@ -500,10 +501,10 @@ def test_a_desk_file_with_a_bom_imports_every_decision(tmp_path: Path) -> None:
     assert [r["doc_id"] for r in rows] == ["D1", "D2"] and manifest.source["rejected_lines"] == []
 
 
-def test_an_undecided_desk_verdict_refuses_the_review_import(tmp_path: Path) -> None:
+def test_an_unknown_desk_verdict_refuses_the_review_import(tmp_path: Path) -> None:
     with pytest.raises(ImportRefused, match="not_imported 1"):
-        review(tmp_path, [], [desk("D1", "sender", "Ann", "unsure")])
-    review(tmp_path, [], [desk("D1", "sender", "Ann", "unsure"), desk("D2", "sender", "Bo")], allow_rejected=True)
+        review(tmp_path, [], [desk("D1", "sender", "Ann", "maybe")])
+    review(tmp_path, [], [desk("D1", "sender", "Ann", "maybe"), desk("D2", "sender", "Bo")], allow_rejected=True)
     assert "dropped_source_data" in _gate_kinds(tmp_path, tmp_path / "gold-review-x")
 
 
@@ -718,3 +719,25 @@ def test_hub_not_applicable_list_placeholders_are_nulled(tmp_path: Path, placeho
         assert value is None and counted.get(f"action_items={placeholder!r}") == 1
     else:
         assert value is not None and not any(k.startswith("action_items=") for k in counted)
+
+
+# --- unsure is a recorded "no decision", never dropped data --------------------------------------
+
+
+def test_an_unsure_mark_followed_by_a_decision_imports_the_decision(tmp_path: Path) -> None:
+    manifest, rows = review(tmp_path, [], [desk("D1", "sender", "Ann", "unsure", at="2026-11-17T10:00:00Z"),
+                                           desk("D1", "sender", "Ann", "keep", at="2026-11-17T11:00:00Z")])
+    assert [(r["doc_id"], r["verdict"]) for r in rows] == [("D1", "accept")]
+    (u,) = manifest.source["undecided"]
+    assert (u["doc_id"], u["field"], u["reviewed_at"], u["replaced"]) == ("D1", "sender", "2026-11-17T10:00:00Z", True)
+    assert manifest.source["not_imported"] == [] and manifest.source["rejected_lines"] == []
+
+
+def test_an_unsure_mark_alone_imports_no_label_and_passes_the_gate(tmp_path: Path) -> None:
+    manifest, rows = review(tmp_path, [], [desk("D1", "sender", "Ann", "unsure"), desk("D2", "sender", "Bo")])
+    assert [r["doc_id"] for r in rows] == ["D2"]
+    (u,) = manifest.source["undecided"]
+    assert (u["doc_id"], u["decision"], u["replaced"], u["note"]) == ("D1", "unsure", False, None)
+    assert "dropped_source_data" not in _gate_kinds(tmp_path, tmp_path / "gold-review-x")
+    recs = read_layer(load_snapshot(tmp_path / "gold-review-x")).records
+    assert {(r.document_id, r.field) for r in recs} == {("D2", "sender")}
