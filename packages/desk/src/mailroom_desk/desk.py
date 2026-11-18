@@ -10,31 +10,35 @@ Enqueue
 ``enqueue(request, policy)``:
 
 1. Refuses an outage cause (``OutageNotReviewable``) and a cause the policy's catalog does
-   not list (``UnknownCause``) before touching the record.
+   not list (``UnknownCause``), an unknown run (``UnknownRun``), a closed run
+   (``RunClosed``) and a shown blob that is not in the store (``BlobNotPresent``), before
+   touching the record.
 2. Decides the sample: ``policy.sample.selects(doc_id)``. A request with no causes enters
    only if sampled, with the cause ``spot_check``; otherwise ``enqueue`` returns ``None``
    and appends nothing. A request with causes enters with them, and ``sampled`` records
    whether the document is also in the sample (membership depends on the document only,
    so the sample stays an unbiased draw).
 3. Routes the causes through the rules (first match wins).
-4. Under the desk lock: refuses an unknown run (``UnknownRun``) and a closed run
-   (``RunClosed``: an experiment run with a seal file, the rule ``verify`` uses), re-reads
-   the document's events and refuses if its head is already a ``review`` event
-   (``AlreadyInReview``), then opens the writer ``desk``, appends one event (node
+4. Under the desk lock, and for an experiment run also under the record's seal lock (so
+   ``seal_run`` cannot seal between the check and the append): checks again that the run
+   exists and is not closed (an experiment run with a seal file, the rule ``verify``
+   uses), re-reads the document's events and refuses if its head is already a ``review``
+   event (``AlreadyInReview``), then opens the writer ``desk``, appends one event (node
    ``human_review``, kind ``review``, ``cause`` = the first cause, ``inputs`` = the blobs
-   shown, the ``EnqueuePayload``), and closes the writer (flush and fsync) before the lock
-   is released. With an index, the event is applied to it under the lock too, after the
-   flush (write order: blob, event, index).
+   shown, the ``EnqueuePayload``), and closes the writer (flush and fsync) before the
+   locks are released. With an index, the event is applied to it under the lock too,
+   after the flush (write order: blob, event, index).
 
 A record the desk cannot read safely (a corrupt line, a forked chain, an unreadable
-header) raises ``RecordDamaged`` and nothing is appended. An index that refuses the apply
-does not undo the durable event: the result's ``index_error`` says why, and a
+header) raises ``RecordDamaged`` and nothing is appended. A torn tail is not damage: it is
+skipped (it was never an event) and the writer continues in a new segment. Another writer
+of this process holding the document raises ``RecordBusy``. An index that refuses the
+apply does not undo the durable event: the result's ``index_error`` says why, and a
 ``reindex`` repairs the index.
 
-The sealed-run check and the append are not atomic with ``seal_run`` (the record has no
-"run closed" marker or lock the desk could hold): a seal made between the check and the
-append is not seen. Experiment runs are sealed once, when they end, after their nodes
-stop, so the desk refuses every action that starts after that.
+The closed-run rule and the seal lock are read from the record's documented layout
+(``runs/<run_id>/seals/<n>.json`` and ``seals/.lock``): the record has no public "is this
+run closed" call or closing lock yet (plan follow-up 2). A test pins both.
 
 Reading
 -------
@@ -48,31 +52,34 @@ SLA breach are judged against ``now``, which defaults to the desk's clock (injec
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import re
 import sqlite3
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 from mailroom_desk.errors import (
     AlreadyInReview,
+    BlobNotPresent,
     NoCase,
     OutageNotReviewable,
+    RecordBusy,
     RecordDamaged,
     RunClosed,
     UnknownCause,
     UnknownRun,
 )
 from mailroom_desk.fold import fold_case
-from mailroom_desk.lock import DEFAULT_LOCK_TIMEOUT, desk_lock
+from mailroom_desk.lock import DEFAULT_LOCK_TIMEOUT, check_timeout, desk_lock, seal_guard
 from mailroom_desk.models import NODE, CaseState, EnqueuePayload, ReviewRequest, format_ts
 from mailroom_desk.policy import SPOT_CHECK, Policy, is_outage
 from mailroom_record.blobs import BlobStore
 from mailroom_record.index import ApplyRefused, Index, IndexUnavailable
-from mailroom_record.log import CorruptLine, EventLog, ForkedChain
-from mailroom_record.models import Event, Run
+from mailroom_record.log import BlobNotStored, CorruptLine, DocumentInUse, EventLog, ForkedChain, WriterInUse
+from mailroom_record.models import BlobRef, Event, Run
 
 __all__ = ["WRITER_ID", "Desk", "Enqueued"]
 
@@ -113,7 +120,7 @@ class Desk:
         self.log = EventLog(self.root, self.blobs)
         self.index = index
         self._clock = clock or _utc_now
-        self.lock_timeout = lock_timeout
+        self.lock_timeout = check_timeout(lock_timeout)
 
     # --- time -----------------------------------------------------------------------
 
@@ -174,14 +181,21 @@ class Desk:
         Returns ``None`` (and appends nothing) only for a request without causes whose
         document the sample does not select.
         """
+        if not isinstance(request, ReviewRequest):
+            raise TypeError(f"request must be a ReviewRequest, got {type(request).__name__}")
+        if not isinstance(policy, Policy):
+            raise TypeError(f"policy must be a Policy, got {type(policy).__name__}")
         for cause in request.causes:
             if is_outage(cause):
                 raise OutageNotReviewable(cause)
         for cause in request.causes:
             if policy.cause_spec(cause) is None:
                 raise UnknownCause(cause, policy.name)
-        self.run(request.run_id)  # an unknown run is refused even when nothing is sampled
-        sampled = policy.sample.selects(request.doc_id)
+        run_id, doc_id = request.run_id, request.doc_id
+        # Refused whether or not the sample selects the document.
+        self._check_open(run_id)
+        self._check_shown(request.shown)
+        sampled = policy.sample.selects(doc_id)
         causes: tuple[str, ...] = request.causes or ((SPOT_CHECK,) if sampled else ())
         if not causes:
             return None
@@ -202,11 +216,8 @@ class Desk:
             class_hint=request.class_hint,
             confidence_hint=request.confidence_hint,
         )
-        run_id, doc_id = request.run_id, request.doc_id
-        with desk_lock(self.root, run_id, self.lock_timeout):
-            run = self.run(run_id)
-            if self.is_closed(run_id):
-                raise RunClosed(run_id, run.kind)
+        with self._locked(run_id):
+            self._check_open(run_id)
             events = self._events(run_id, doc_id, via_index=False)
             if events and events[-1].kind == "review":
                 raise AlreadyInReview(run_id, doc_id, events[-1].seq)
@@ -215,22 +226,53 @@ class Desk:
                 run_id,
                 doc_id,
                 cause=causes[0],
-                payload=payload.model_dump(mode="json", exclude_none=False),
+                payload=payload.model_dump(mode="json"),
                 inputs=request.shown,
                 ts=format_ts(now),
             )
             index_error = self._apply(event)
         case = fold_case(run_id, doc_id, [*events, event], now)
-        assert case is not None  # the event just appended is a review event
+        if case is None:  # pragma: no cover - the event just appended is a review event
+            raise RuntimeError("the fold lost the event just appended")
         return Enqueued(event=event, case=case, index_error=index_error)
+
+    def _check_open(self, run_id: str) -> Run:
+        """The run header, unless the run is unknown (``UnknownRun``) or closed (``RunClosed``)."""
+        run = self.run(run_id)
+        if self.is_closed(run_id):
+            raise RunClosed(run_id, run.kind)
+        return run
+
+    def _check_shown(self, shown: Sequence[BlobRef]) -> None:
+        for ref in shown:
+            state = self.blobs.exists(ref.sha256)
+            if state != "present":
+                raise BlobNotPresent(ref.sha256, ref.role, state)
+
+    @contextlib.contextmanager
+    def _locked(self, run_id: str) -> Iterator[None]:
+        """The desk lock of ``run_id``, plus the record's seal lock for an experiment run
+        (a service-period run is never closed, so its timer seals are not held up). The
+        run header is immutable, so its kind may be read before the locks."""
+        kind = self.run(run_id).kind
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(desk_lock(self.root, run_id, self.lock_timeout))
+            if kind != "service_period":
+                try:
+                    stack.enter_context(seal_guard(self.root, run_id, self.lock_timeout))
+                except OSError as exc:
+                    raise RecordDamaged(run_id, exc) from exc
+            yield
 
     def _append(self, run_id: str, doc_id: str, *, cause: str, payload: dict, inputs: Sequence, ts: str) -> Event:
         """Open the desk writer, append one review event, flush and close (under the lock)."""
         try:
             writer = self.log.open_writer(run_id, WRITER_ID)
+        except FileNotFoundError:
+            raise UnknownRun(run_id) from None
+        except WriterInUse as exc:
+            raise RecordBusy(run_id, doc_id, exc) from exc
         except (CorruptLine, OSError) as exc:
-            if isinstance(exc, FileNotFoundError):
-                raise UnknownRun(run_id) from None
             raise RecordDamaged(run_id, exc) from exc
         try:
             event = writer.append(
@@ -239,6 +281,13 @@ class Desk:
             writer.flush()
         except (CorruptLine, ForkedChain) as exc:
             raise RecordDamaged(run_id, exc) from exc
+        except DocumentInUse as exc:
+            raise RecordBusy(run_id, doc_id, exc) from exc
+        except BlobNotStored as exc:  # tombstoned between the check and the append
+            ref = next((r for r in inputs if self.blobs.exists(r.sha256) != "present"), None)
+            if ref is None:
+                raise
+            raise BlobNotPresent(ref.sha256, ref.role, self.blobs.exists(ref.sha256)) from exc
         finally:
             writer.close()
         return event

@@ -13,12 +13,14 @@ from pathlib import Path
 
 __all__ = [
     "AlreadyInReview",
+    "BlobNotPresent",
     "ConfigError",
     "DeskError",
     "DeskLockTimeout",
     "NoCase",
     "OutageNotReviewable",
     "PolicyError",
+    "RecordBusy",
     "RecordDamaged",
     "RegistryError",
     "RoleNotHeld",
@@ -71,7 +73,7 @@ class RunClosed(DeskError):
     """The run is a sealed experiment run: it is finished and the desk never appends to it.
 
     Same rule as ``mailroom_record.verify``: a run is closed when its header's ``kind`` is
-    not ``service_period`` and it has at least one seal file.
+    not ``service_period`` and it has at least one seal file (``seals/<n>.json``).
     """
 
     def __init__(self, run_id: str, kind: str) -> None:
@@ -117,12 +119,37 @@ class NoCase(DeskError):
 
 
 class DeskLockTimeout(DeskError):
-    """The run's desk lock was not acquired in time (another desk action holds it)."""
+    """A lock the desk needs was not acquired in time: the run's desk lock (another desk
+    action holds it), or the run's seal lock (``seal_run`` is sealing it). ``lock`` names it."""
 
-    def __init__(self, run_id: str, timeout: float) -> None:
-        super().__init__(f"the desk lock of run {run_id!r} was not acquired within {timeout:g} s")
+    def __init__(self, run_id: str, timeout: float, lock: str = "desk") -> None:
+        super().__init__(f"the {lock} lock of run {run_id!r} was not acquired within {timeout:g} s")
         self.run_id = run_id
         self.timeout = timeout
+        self.lock = lock
+
+
+class BlobNotPresent(DeskError):
+    """A blob the request shows the reviewer is not in the blob store (never stored, or
+    tombstoned). Blob before event: the desk never records a reference to absent content."""
+
+    def __init__(self, sha256: str, role: str, state: str) -> None:
+        super().__init__(f"{role} blob {sha256} is {state}, not present; store it before enqueueing")
+        self.sha256 = sha256
+        self.role = role
+        self.state = state
+
+
+class RecordBusy(DeskError):
+    """Another live writer in this process holds the document's chain (``DocumentInUse``)
+    or the desk's writer id (``WriterInUse``). The desk does not append; the holder must
+    close its writer first (the engine never writes to a document it hands to review)."""
+
+    def __init__(self, run_id: str, doc_id: str, cause: BaseException) -> None:
+        super().__init__(f"document {doc_id!r} of run {run_id!r} is held by another writer ({type(cause).__name__})")
+        self.run_id = run_id
+        self.doc_id = doc_id
+        self.cause = cause
 
 
 class RecordDamaged(DeskError):

@@ -15,8 +15,11 @@ jobs:
           name: Install mailroom_labels
           command: .venv/bin/pip install -e "packages/labels[dev]"
       - run:
+          name: Install mailroom_desk
+          command: .venv/bin/pip install -e "packages/desk[dev]"
+      - run:
           name: Run tests
-          command: .venv/bin/python -m pytest packages/record/tests packages/labels/tests -q
+          command: .venv/bin/python -m pytest packages/record/tests packages/labels/tests packages/desk/tests -q
 
   no-session-links:
     docker:

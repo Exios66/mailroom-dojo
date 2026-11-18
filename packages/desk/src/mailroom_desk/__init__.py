@@ -11,12 +11,14 @@ from __future__ import annotations
 from mailroom_desk.desk import WRITER_ID, Desk, Enqueued
 from mailroom_desk.errors import (
     AlreadyInReview,
+    BlobNotPresent,
     ConfigError,
     DeskError,
     DeskLockTimeout,
     NoCase,
     OutageNotReviewable,
     PolicyError,
+    RecordBusy,
     RecordDamaged,
     RegistryError,
     RoleNotHeld,
@@ -27,7 +29,7 @@ from mailroom_desk.errors import (
     UnknownRun,
 )
 from mailroom_desk.fold import fold_case
-from mailroom_desk.lock import desk_lock
+from mailroom_desk.lock import desk_lock, seal_guard
 from mailroom_desk.models import (
     ACTIONS,
     AssignPayload,
@@ -54,6 +56,7 @@ __all__ = [
     "WRITER_ID",
     "AlreadyInReview",
     "AssignPayload",
+    "BlobNotPresent",
     "CaseState",
     "ClaimPayload",
     "ConfigError",
@@ -68,6 +71,7 @@ __all__ = [
     "OutageNotReviewable",
     "Policy",
     "PolicyError",
+    "RecordBusy",
     "RecordDamaged",
     "RegistryError",
     "ReleasePayload",
@@ -88,4 +92,5 @@ __all__ = [
     "parse_payload",
     "parse_policy",
     "parse_registry",
+    "seal_guard",
 ]

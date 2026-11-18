@@ -6,8 +6,8 @@ blob store) and `packages/labels/` (`mailroom_labels`: label snapshots, preceden
 quality gate and coverage). Design and build plan: `docs/specs/` and `docs/plans/`.
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]" -e "packages/labels[dev]"
-.venv/bin/python -m pytest packages/record/tests packages/labels/tests -q
+python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]" -e "packages/labels[dev]" -e "packages/desk[dev]"
+.venv/bin/python -m pytest packages/record/tests packages/labels/tests packages/desk/tests -q
 ```
 
 ## Layout

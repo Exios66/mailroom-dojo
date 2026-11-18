@@ -6,12 +6,17 @@ action that appends takes this lock for its whole read-decide-append cycle: it r
 the case under the lock, opens the writer ``desk``, appends, closes (which flushes and
 fsyncs), applies the event to the index if there is one, and only then releases the lock.
 
-``flock`` locks belong to an open file description, so two threads of one process
-exclude each other as two processes do, and the kernel drops the lock when its holder
-dies (a killed desk process never leaves the run locked). The lock file itself is never
-deleted (deleting it would let two holders lock two different inodes). Acquisition polls
-with a non-blocking ``flock`` until ``timeout`` seconds pass, then raises
-``DeskLockTimeout``.
+``flock`` locks belong to an open file description, and every acquisition opens the file
+anew, so two threads of one process exclude each other as two processes do, and the kernel
+drops the lock when its holder dies (a killed desk process never leaves the run locked).
+The lock file itself is never deleted (deleting it would let two holders lock two
+different inodes). Acquisition polls with a non-blocking ``flock`` until ``timeout``
+seconds pass, then raises ``DeskLockTimeout``.
+
+``seal_guard`` takes the record's own seal lock (``runs/<run_id>/seals/.lock``, the file
+``mailroom_record.seal.seal_run`` holds for a whole seal, documented in that module's
+layout) the same way, so a seal cannot land between the desk's "is this run closed?" check
+and its append (see ``desk.py``).
 """
 
 from __future__ import annotations
@@ -25,7 +30,7 @@ from pathlib import Path
 
 from mailroom_desk.errors import DeskLockTimeout
 
-__all__ = ["DEFAULT_LOCK_TIMEOUT", "desk_lock", "lock_path"]
+__all__ = ["DEFAULT_LOCK_TIMEOUT", "check_timeout", "desk_lock", "lock_path", "seal_guard", "seal_lock_path"]
 
 DEFAULT_LOCK_TIMEOUT = 30.0
 _POLL_START = 0.002
@@ -37,14 +42,21 @@ def lock_path(root: Path, run_id: str) -> Path:
     return Path(root) / "desk" / f"{run_id}.lock"
 
 
+def seal_lock_path(root: Path, run_id: str) -> Path:
+    """The record's seal lock of ``run_id`` (``runs/<run_id>/seals/.lock``)."""
+    return Path(root) / "runs" / run_id / "seals" / ".lock"
+
+
+def check_timeout(timeout: object) -> float:
+    """``timeout`` as a float, or ``ValueError`` unless it is a finite number >= 0."""
+    if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not 0 <= timeout < float("inf"):
+        raise ValueError(f"timeout must be a finite number >= 0, got {timeout!r}")
+    return float(timeout)
+
+
 @contextlib.contextmanager
-def desk_lock(root: Path, run_id: str, timeout: float = DEFAULT_LOCK_TIMEOUT) -> Iterator[None]:
-    """Hold the exclusive desk lock of ``run_id`` for the ``with`` block."""
-    if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout < 0:
-        raise ValueError(f"timeout must be a number >= 0, got {timeout!r}")
-    path = lock_path(root, run_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+def _flock(path: Path, run_id: str, timeout: float, what: str, mode: int) -> Iterator[None]:
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, mode)
     try:
         deadline = time.monotonic() + timeout
         pause = _POLL_START
@@ -55,9 +67,33 @@ def desk_lock(root: Path, run_id: str, timeout: float = DEFAULT_LOCK_TIMEOUT) ->
             except BlockingIOError:
                 left = deadline - time.monotonic()
                 if left <= 0:
-                    raise DeskLockTimeout(run_id, timeout) from None
+                    raise DeskLockTimeout(run_id, timeout, what) from None
                 time.sleep(min(pause, left))
                 pause = min(pause * 2, _POLL_MAX)
         yield
     finally:
         os.close(fd)  # closing the only descriptor releases the flock
+
+
+@contextlib.contextmanager
+def desk_lock(root: Path, run_id: str, timeout: float = DEFAULT_LOCK_TIMEOUT) -> Iterator[None]:
+    """Hold the exclusive desk lock of ``run_id`` for the ``with`` block."""
+    timeout = check_timeout(timeout)
+    path = lock_path(root, run_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _flock(path, run_id, timeout, "desk", 0o600):
+        yield
+
+
+@contextlib.contextmanager
+def seal_guard(root: Path, run_id: str, timeout: float = DEFAULT_LOCK_TIMEOUT) -> Iterator[None]:
+    """Hold the record's seal lock of ``run_id`` (``seal_run`` waits while it is held).
+
+    Creates ``seals/`` if it is missing, as ``seal_run`` itself does; the run directory
+    must exist.
+    """
+    timeout = check_timeout(timeout)
+    path = seal_lock_path(root, run_id)
+    path.parent.mkdir(exist_ok=True)
+    with _flock(path, run_id, timeout, "seal", 0o644):
+        yield

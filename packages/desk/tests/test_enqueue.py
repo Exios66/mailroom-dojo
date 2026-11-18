@@ -1,0 +1,526 @@
+"""Desk.enqueue on real record roots: routing, sampling, idempotency and every refusal."""
+
+from __future__ import annotations
+
+import json
+import threading
+import time
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from desk_testkit import (
+    T0,
+    doc_events,
+    engine_append,
+    log_of,
+    make_run,
+    policy,
+    request,
+    review_events,
+    segment_files,
+)
+
+from mailroom_desk import (
+    WRITER_ID,
+    AlreadyInReview,
+    BlobNotPresent,
+    Desk,
+    DeskLockTimeout,
+    EnqueuePayload,
+    NoCase,
+    OutageNotReviewable,
+    RecordBusy,
+    RecordDamaged,
+    ReviewRequest,
+    RunClosed,
+    UnknownCause,
+    UnknownRun,
+    desk_lock,
+    parse_payload,
+    seal_guard,
+)
+from mailroom_desk.models import NODE, format_ts
+from mailroom_record.index import Index
+from mailroom_record.seal import seal_run
+from mailroom_record.verify import verify_run
+
+
+def verify_ok(env: SimpleNamespace, run_id: str = "r1") -> None:
+    report = verify_run(env.log, env.blobs, run_id)
+    failing = [p for p in report.problems if p.fails]
+    assert report.ok and failing == [], failing
+
+
+# --- the enqueue event --------------------------------------------------------------
+
+
+def test_enqueue_appends_one_review_event_with_the_routing(env: SimpleNamespace) -> None:
+    shown = env.blobs.put(b"synthetic text shown to the reviewer", "transcript")
+    engine_append(env.root, "r1", "d1", "decision")
+    req = request("d1", "flag_high", "flag_low", shown=[shown], class_hint="kind_c", confidence_hint=0.9)
+    done = env.desk.enqueue(req, env.policy)
+    assert done is not None and done.index_error is None
+    e = done.event
+    assert (e.kind, e.node, e.cause, e.seq, e.ts) == ("review", NODE, "flag_high", 1, format_ts(T0))
+    assert e.inputs == [shown]
+    p = parse_payload(e.payload)
+    assert isinstance(p, EnqueuePayload)
+    assert (p.causes, p.rule, p.priority, p.sla_hours, p.queue, p.required_role) == (
+        ("flag_high", "flag_low"), "high_to_senior", "high", 4.0, "senior", "senior"
+    )
+    assert (p.sampled, p.policy_name, p.policy_hash) == (False, "synthetic", env.policy.hash)
+    assert (p.requested_by, p.class_hint, p.confidence_hint) == ("tester", "kind_c", 0.9)
+    # The event is durable and in the desk's own segment.
+    assert doc_events(env.root, "r1", "d1")[-1] == e
+    assert any(name.startswith(WRITER_ID) for name in segment_files(env.root))
+    case = done.case
+    assert (case.status, case.priority, case.queue, case.enqueued_at, case.opened_seq) == ("open", "high", "senior", T0, 1)
+    assert env.desk.case("r1", "d1") == case
+    verify_ok(env)
+
+
+def test_enqueue_of_a_document_with_no_events_starts_its_chain(env: SimpleNamespace) -> None:
+    done = env.desk.enqueue(request("fresh", "flag_normal"), env.policy)
+    assert done.event.seq == 0
+    verify_ok(env)
+
+
+def test_payload_holds_no_free_text(env: SimpleNamespace) -> None:
+    sentinel = "SECRET-DOCUMENT-TEXT"
+    shown = env.blobs.put(sentinel.encode(), "original")
+    env.desk.enqueue(request("d1", "flag_low", shown=[shown]), env.policy)
+    raw = b"".join(segment_files(env.root).values())
+    assert sentinel.encode() not in raw
+    assert shown.sha256.encode() in raw  # positive control: the reference is recorded
+
+
+# --- refusals before the record is touched -------------------------------------------
+
+
+@pytest.mark.parametrize("cause", ["transient_exhausted", "provider_unavailable", "slot:x:provider_unavailable"])
+def test_outage_causes_are_refused(env: SimpleNamespace, cause: str) -> None:
+    before = segment_files(env.root)
+    with pytest.raises(OutageNotReviewable) as info:
+        env.desk.enqueue(request("d1", "flag_low", cause), env.policy)
+    assert info.value.cause == cause
+    assert segment_files(env.root) == before
+
+
+def test_unknown_cause_is_refused(env: SimpleNamespace) -> None:
+    with pytest.raises(UnknownCause) as info:
+        env.desk.enqueue(request("d1", "flag_low", "never_listed"), env.policy)
+    assert (info.value.cause, info.value.policy_name) == ("never_listed", "synthetic")
+    assert review_events(env.root) == []
+
+
+def test_unknown_run_is_refused(env: SimpleNamespace) -> None:
+    with pytest.raises(UnknownRun):
+        env.desk.enqueue(request("d1", "flag_low", run_id="r2"), env.policy)
+    for bad in ("../r1", "", ".", "r1/x", "a" * 201, None):
+        with pytest.raises(UnknownRun):
+            env.desk.run(bad)  # type: ignore[arg-type]
+    with pytest.raises(UnknownRun):
+        env.desk.queue("r2")
+    with pytest.raises(UnknownRun):
+        env.desk.case("r2", "d1")
+    assert not (env.root / "runs" / "r2").exists()
+    assert not (env.root / "desk" / "r2.lock").exists()
+
+
+def test_unknown_run_is_refused_even_when_nothing_is_sampled(env: SimpleNamespace) -> None:
+    with pytest.raises(UnknownRun):
+        env.desk.enqueue(request("d1", run_id="r2"), env.policy)
+
+
+def test_missing_or_tombstoned_shown_blob_is_refused(env: SimpleNamespace) -> None:
+    ghost = env.blobs.put(b"x", "transcript").model_copy(update={"sha256": "e" * 64})
+    with pytest.raises(BlobNotPresent) as info:
+        env.desk.enqueue(request("d1", "flag_low", shown=[ghost]), env.policy)
+    assert (info.value.sha256, info.value.state) == ("e" * 64, "missing")
+    gone = env.blobs.put(b"to be erased", "original")
+    env.blobs.tombstone(gone.sha256, "erasure request")
+    with pytest.raises(BlobNotPresent) as info:
+        env.desk.enqueue(request("d1", "flag_low", shown=[gone]), env.policy)
+    assert info.value.state == "tombstoned"
+    assert review_events(env.root) == []
+    # Nothing is held: the next valid enqueue proceeds at once.
+    assert Desk(env.root, clock=env.clock, lock_timeout=0).enqueue(request("d1", "flag_low"), env.policy)
+    verify_ok(env)
+
+
+def test_blob_tombstoned_between_check_and_append_is_refused(env: SimpleNamespace) -> None:
+    shown = env.blobs.put(b"erased while waiting", "original")
+
+    def clock():  # read under the lock, after the check and before the append
+        if env.blobs.exists(shown.sha256) == "present":
+            env.blobs.tombstone(shown.sha256, "erasure request")
+        return T0
+
+    with pytest.raises(BlobNotPresent):
+        Desk(env.root, clock=clock).enqueue(request("d1", "flag_low", shown=[shown]), env.policy)
+    assert review_events(env.root) == []
+    verify_ok(env)
+
+
+def test_bad_arguments_are_type_errors(env: SimpleNamespace) -> None:
+    with pytest.raises(TypeError):
+        env.desk.enqueue({"run_id": "r1"}, env.policy)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        env.desk.enqueue(request("d1", "flag_low"), {"name": "x"})  # type: ignore[arg-type]
+
+
+# --- sampling through enqueue -------------------------------------------------------
+
+
+def test_sample_only_request_enters_only_when_sampled(env: SimpleNamespace) -> None:
+    pol = policy(sample={"rate": 0.5, "seed": "s"})
+    docs = [f"doc{i}" for i in range(40)]
+    picked = [d for d in docs if pol.sample.selects(d)]
+    assert 0 < len(picked) < len(docs)  # positive control: both outcomes occur
+    for d in docs:
+        out = env.desk.enqueue(request(d), pol)
+        if d in picked:
+            p = parse_payload(out.event.payload)
+            assert (out.event.cause, p.causes, p.sampled, p.rule, p.queue) == (
+                "spot_check", ("spot_check",), True, "sampled", "qa"
+            )
+        else:
+            assert out is None
+    assert sorted(c.doc_id for c in env.desk.queue("r1")) == sorted(picked)
+    verify_ok(env)
+
+
+def test_flagged_request_records_sample_membership_without_adding_spot_check(env: SimpleNamespace) -> None:
+    pol = policy(sample={"rate": 0.5, "seed": "s"})
+    inside = next(f"doc{i}" for i in range(100) if pol.sample.selects(f"doc{i}"))
+    outside = next(f"doc{i}" for i in range(100) if not pol.sample.selects(f"doc{i}"))
+    a = parse_payload(env.desk.enqueue(request(inside, "flag_low"), pol).event.payload)
+    b = parse_payload(env.desk.enqueue(request(outside, "flag_low"), pol).event.payload)
+    assert (a.causes, a.sampled, b.sampled) == (("flag_low",), True, False)
+
+
+def test_sampling_off_puts_nothing_in_review(env: SimpleNamespace) -> None:
+    assert all(env.desk.enqueue(request(f"d{i}"), env.policy) is None for i in range(50))
+    assert review_events(env.root) == []
+
+
+# --- idempotency --------------------------------------------------------------------
+
+
+def test_second_enqueue_of_a_document_in_review_is_refused(env: SimpleNamespace) -> None:
+    first = env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    before = segment_files(env.root)
+    with pytest.raises(AlreadyInReview) as info:
+        env.desk.enqueue(request("d1", "flag_high"), env.policy)
+    assert (info.value.doc_id, info.value.seq) == ("d1", first.event.seq)
+    assert segment_files(env.root) == before
+    assert env.desk.case("r1", "d1").causes == ("flag_low",)
+
+
+def test_a_document_reenters_review_after_a_non_review_event(env: SimpleNamespace) -> None:
+    env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    engine_append(env.root, "r1", "d1", "output")  # a resolution: the head is no longer a review
+    assert env.desk.case("r1", "d1").status == "resolved"
+    again = env.desk.enqueue(request("d1", "flag_high"), env.policy)
+    assert again.case.status == "open" and again.case.causes == ("flag_high",)
+    assert again.case.opened_seq == 2
+    verify_ok(env)
+
+
+def test_engine_review_event_counts_as_in_review(env: SimpleNamespace) -> None:
+    # A review event the desk did not write (any payload) still makes the head a review.
+    engine_append(env.root, "r1", "d1", "review", payload={"note": "parked elsewhere"})
+    with pytest.raises(AlreadyInReview):
+        env.desk.enqueue(request("d1", "flag_low"), env.policy)
+
+
+# --- sealed runs ----------------------------------------------------------------------
+
+
+def test_sealed_experiment_run_is_refused(env: SimpleNamespace) -> None:
+    engine_append(env.root, "r1", "d1", "decision")
+    seal_run(env.log, "r1")
+    before = segment_files(env.root)
+    with pytest.raises(RunClosed) as info:
+        env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    assert (info.value.run_id, info.value.kind) == ("r1", "specialist_only")
+    with pytest.raises(RunClosed):  # refused even when the sample would not select it
+        env.desk.enqueue(request("d1"), env.policy)
+    assert segment_files(env.root) == before
+    assert env.desk.is_closed("r1")
+    verify_ok(env)
+
+
+def test_unsealed_experiment_and_sealed_service_runs_stay_open(tmp_path: Path) -> None:
+    make_run(tmp_path, "svc", "service_period")
+    make_run(tmp_path, "exp", "full_pipeline")
+    log = log_of(tmp_path)
+    engine_append(tmp_path, "svc", "d1")
+    seal_run(log, "svc")
+    desk = Desk(tmp_path)
+    pol = policy(sample={"rate": 0.0, "seed": ""})
+    assert not desk.is_closed("svc") and not desk.is_closed("exp")
+    # A service-period run is never closed, so the desk does not take its seal lock: a
+    # timer seal in progress does not hold the desk up (and the desk never holds it up).
+    with seal_guard(tmp_path, "svc", timeout=1):
+        assert Desk(tmp_path, lock_timeout=0.1).enqueue(request("d1", "flag_low", run_id="svc"), pol)
+    assert desk.enqueue(request("d1", "flag_low", run_id="exp"), pol)
+    seal_run(log, "svc")
+    assert verify_run(log, log.blobs, "svc").ok
+
+
+def test_seal_cannot_land_between_the_closed_check_and_the_append(env: SimpleNamespace) -> None:
+    """The desk holds the record's seal lock while it checks and appends: a seal_run started
+    meanwhile waits, then seals the review event, and the next enqueue is refused."""
+    engine_append(env.root, "r1", "d0")
+    entered = threading.Event()
+    sealed: list[object] = []
+
+    def clock():
+        entered.set()
+        time.sleep(0.4)  # seal_run starts now and must wait for the desk
+        return T0
+
+    def sealer() -> None:
+        entered.wait(5)
+        sealed.append(seal_run(env.log, "r1"))
+
+    t = threading.Thread(target=sealer)
+    t.start()
+    done = Desk(env.root, clock=clock).enqueue(request("d1", "flag_low"), env.policy)
+    t.join(10)
+    assert sealed and done is not None
+    seal = sealed[0]
+    assert seal.doc_heads["d1"] == done.event.hash  # the seal came after the append
+    with pytest.raises(RunClosed):
+        env.desk.enqueue(request("d2", "flag_low"), env.policy)
+    verify_ok(env)
+
+
+def test_seal_guard_is_the_lock_seal_run_takes(env: SimpleNamespace) -> None:
+    """Pins the record layout the desk relies on: holding ``seals/.lock`` blocks seal_run."""
+    engine_append(env.root, "r1", "d1")
+    done = threading.Event()
+    with seal_guard(env.root, "r1", timeout=1):
+        t = threading.Thread(target=lambda: (seal_run(env.log, "r1"), done.set()))
+        t.start()
+        time.sleep(0.3)
+        assert not done.is_set()
+    t.join(10)
+    assert done.is_set()
+
+
+def test_seal_lock_held_too_long_times_out(env: SimpleNamespace) -> None:
+    with seal_guard(env.root, "r1", timeout=1):
+        with pytest.raises(DeskLockTimeout) as info:
+            Desk(env.root, lock_timeout=0.1).enqueue(request("d1", "flag_low"), env.policy)
+    assert info.value.lock == "seal"
+    assert review_events(env.root) == []
+
+
+# --- damaged and busy records ---------------------------------------------------------
+
+
+def test_torn_tail_in_the_desk_segment_is_skipped_and_writing_continues(env: SimpleNamespace) -> None:
+    env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    seg = env.root / "runs" / "r1" / "segments" / "desk.jsonl"
+    whole = seg.read_bytes()
+    # A crash mid-append of d2's enqueue: half a line, no newline.
+    torn = json.dumps({"run_id": "r1", "doc_id": "d2", "seq": 0, "kind": "review"}).encode()[:30]
+    with seg.open("ab") as f:
+        f.write(torn)
+    assert env.log.torn_tails("r1")
+    assert [c.doc_id for c in env.desk.queue("r1")] == ["d1"]  # the torn line is not an event
+    done = env.desk.enqueue(request("d2", "flag_low"), env.policy)
+    assert done.event.seq == 0
+    assert seg.read_bytes() == whole + torn  # the torn bytes stay where they are
+    assert (seg.parent / "desk.1.jsonl").is_file()
+    assert sorted(c.doc_id for c in env.desk.queue("r1")) == ["d1", "d2"]
+    report = verify_run(env.log, env.blobs, "r1")
+    assert report.ok
+    assert [p.kind for p in report.problems] == ["torn_tail"]
+
+
+def test_torn_tail_in_another_writers_segment_does_not_block_the_desk(env: SimpleNamespace) -> None:
+    engine_append(env.root, "r1", "d1")
+    with (env.root / "runs" / "r1" / "segments" / "w0.jsonl").open("ab") as f:
+        f.write(b'{"run_id": "r1", "doc_id": "d1", "se')
+    done = env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    assert done.event.seq == 1
+    assert verify_run(env.log, env.blobs, "r1").ok
+
+
+def test_corrupt_line_is_refused_as_damage(env: SimpleNamespace) -> None:
+    engine_append(env.root, "r1", "d1")
+    with (env.root / "runs" / "r1" / "segments" / "w0.jsonl").open("ab") as f:
+        f.write(b"this is not json\n")
+    before = segment_files(env.root)
+    with pytest.raises(RecordDamaged) as info:
+        env.desk.enqueue(request("d2", "flag_low"), env.policy)
+    assert info.value.run_id == "r1"
+    with pytest.raises(RecordDamaged):
+        env.desk.queue("r1")
+    with pytest.raises(RecordDamaged):
+        env.desk.case("r1", "d1")
+    assert segment_files(env.root) == before
+    # The lock was released: taking it now does not wait.
+    with desk_lock(env.root, "r1", timeout=0):
+        pass
+
+
+def test_unreadable_run_header_is_damage(env: SimpleNamespace) -> None:
+    (env.root / "runs" / "r1" / "run.json").write_text("{not json", encoding="utf-8")
+    with pytest.raises(RecordDamaged):
+        env.desk.enqueue(request("d1", "flag_low"), env.policy)
+
+
+def test_forked_chain_is_refused_as_damage(env: SimpleNamespace) -> None:
+    engine_append(env.root, "r1", "d1")
+    seg = env.root / "runs" / "r1" / "segments"
+    line = (seg / "w0.jsonl").read_bytes()
+    (seg / "w9.jsonl").write_bytes(line)  # a second owner wrote seq 0 of d1
+    with pytest.raises(RecordDamaged) as info:
+        env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    assert type(info.value.cause).__name__ == "ForkedChain"
+
+
+def test_document_held_by_a_live_writer_in_this_process_is_busy(env: SimpleNamespace) -> None:
+    with env.log.open_writer("r1", "engine") as w:
+        w.append(doc_id="d1", node="step", kind="decision")
+        w.flush()
+        with pytest.raises(RecordBusy) as info:
+            env.desk.enqueue(request("d1", "flag_low"), env.policy)
+        assert info.value.doc_id == "d1"
+    assert env.desk.enqueue(request("d1", "flag_low"), env.policy)  # after the engine closed
+    verify_ok(env)
+
+
+def test_desk_writer_id_held_elsewhere_is_busy(env: SimpleNamespace) -> None:
+    with env.log.open_writer("r1", WRITER_ID):
+        with pytest.raises(RecordBusy):
+            env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    assert review_events(env.root) == []
+
+
+# --- the lock ---------------------------------------------------------------------------
+
+
+def test_lock_timeout_refuses_and_appends_nothing(env: SimpleNamespace) -> None:
+    with desk_lock(env.root, "r1", timeout=1):
+        started = time.monotonic()
+        with pytest.raises(DeskLockTimeout) as info:
+            Desk(env.root, lock_timeout=0.2).enqueue(request("d1", "flag_low"), env.policy)
+        assert time.monotonic() - started >= 0.2
+    assert (info.value.run_id, info.value.timeout, info.value.lock) == ("r1", 0.2, "desk")
+    assert review_events(env.root) == []
+    assert env.desk.enqueue(request("d1", "flag_low"), env.policy)  # released: proceeds
+
+
+@pytest.mark.parametrize("bad", [-1, float("inf"), float("nan"), "1", True, None])
+def test_bad_lock_timeouts_are_refused(env: SimpleNamespace, bad: object) -> None:
+    with pytest.raises(ValueError):
+        with desk_lock(env.root, "r1", timeout=bad):  # type: ignore[arg-type]
+            pass
+    with pytest.raises(ValueError):
+        Desk(env.root, lock_timeout=bad)  # type: ignore[arg-type]
+
+
+def test_lock_is_released_after_every_outcome(env: SimpleNamespace) -> None:
+    quick = Desk(env.root, clock=env.clock, lock_timeout=0)
+    quick.enqueue(request("d1", "flag_low"), env.policy)
+    with pytest.raises(AlreadyInReview):
+        quick.enqueue(request("d1", "flag_low"), env.policy)
+    engine_append(env.root, "r1", "d2", "review")
+    with pytest.raises(AlreadyInReview):
+        quick.enqueue(request("d2", "flag_low"), env.policy)
+    assert quick.enqueue(request("d3", "flag_low"), env.policy)
+
+
+def test_threads_of_one_process_are_serialised(env: SimpleNamespace) -> None:
+    outcomes: list[str] = []
+    lock = threading.Lock()
+    barrier = threading.Barrier(6)
+
+    def worker() -> None:
+        barrier.wait()
+        try:
+            Desk(env.root, lock_timeout=30).enqueue(request("same", "flag_low"), env.policy)
+            result = "enqueued"
+        except AlreadyInReview:
+            result = "already"
+        with lock:
+            outcomes.append(result)
+
+    threads = [threading.Thread(target=worker) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    assert sorted(outcomes) == ["already"] * 5 + ["enqueued"]
+    assert len(review_events(env.root)) == 1
+    verify_ok(env)
+
+
+# --- index ------------------------------------------------------------------------------
+
+
+def test_enqueue_applies_to_the_index(env: SimpleNamespace) -> None:
+    index = Index(env.root / "index.sqlite")
+    index.reindex(env.log)
+    desk = Desk(env.root, index=index, clock=env.clock)
+    done = desk.enqueue(request("d1", "flag_low"), env.policy)
+    assert done.index_error is None
+    assert [r.doc_id for r in index.review_queue("r1")] == ["d1"]
+    assert index.drift(env.log) == []
+    assert [c.doc_id for c in desk.queue()] == ["d1"]
+
+
+def test_index_refusal_is_reported_not_raised(env: SimpleNamespace) -> None:
+    index = Index(env.root / "index.sqlite")
+    index.reindex(env.log)
+    make_run(env.root, "r2")  # created after the rebuild and never add_run'd
+    desk = Desk(env.root, index=index, clock=env.clock)
+    done = desk.enqueue(request("d1", "flag_low", run_id="r2"), env.policy)
+    assert done.index_error is not None and "unknown_run" in done.index_error
+    assert doc_events(env.root, "r2", "d1")[-1] == done.event  # the event is durable anyway
+    index.reindex(env.log)
+    assert [r.doc_id for r in index.review_queue("r2")] == ["d1"]
+
+
+def test_unavailable_index_falls_back_to_the_log(env: SimpleNamespace) -> None:
+    env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    desk = Desk(env.root, index=Index(env.root / "never-built.sqlite"), clock=env.clock)
+    assert [c.doc_id for c in desk.queue("r1")] == ["d1"]
+
+
+# --- reading --------------------------------------------------------------------------
+
+
+def test_case_of_a_document_never_in_review(env: SimpleNamespace) -> None:
+    engine_append(env.root, "r1", "d1")
+    with pytest.raises(NoCase):
+        env.desk.case("r1", "d1")
+    with pytest.raises(NoCase):
+        env.desk.case("r1", "never-seen")
+
+
+def test_request_validation() -> None:
+    good = {"run_id": "r1", "doc_id": "d1", "causes": ["flag_low"], "requested_by": "node:x"}
+    ReviewRequest(**good)
+    for bad in (
+        {"causes": ["flag_low", "flag_low"]},
+        {"causes": ["Flag"]},
+        {"causes": "flag_low"},
+        {"run_id": "../x"},
+        {"doc_id": ""},
+        {"requested_by": ""},
+        {"requested_by": " padded"},
+        {"confidence_hint": 1.5},
+        {"confidence_hint": "0.5"},
+        {"class_hint": "line\nbreak"},
+        {"shown": [{"sha256": "x", "role": "original", "size": 1}]},
+        {"extra": 1},
+    ):
+        with pytest.raises(ValueError):
+            ReviewRequest(**(good | bad))

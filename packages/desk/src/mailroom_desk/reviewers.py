@@ -26,6 +26,9 @@ Every desk event records a ``ReviewerRef`` ``{id, role, identity}``:
 Token hashes are compared in constant time. The registry never holds a token itself. Ids,
 initials and token hashes are unique. ``load_registry`` collects every problem before
 raising ``RegistryError``.
+
+``ReviewerRegistry.hash`` is ``hash_obj`` of the validated content (mode and reviewers in
+file order), so comments and key order do not change it and any change of meaning does.
 """
 
 from __future__ import annotations
@@ -42,8 +45,11 @@ from pydantic import BaseModel, ConfigDict
 from mailroom_desk._yaml import load_yaml_file
 from mailroom_desk.errors import RegistryError, RoleNotHeld, TokenRejected, UnknownReviewer
 from mailroom_desk.models import ReviewerRef, is_token
+from mailroom_record.hashing import hash_obj
 
-__all__ = ["Reviewer", "ReviewerRegistry", "load_registry", "parse_registry", "token_sha256"]
+__all__ = ["REGISTRY_SCHEMA", "Reviewer", "ReviewerRegistry", "load_registry", "parse_registry", "token_sha256"]
+
+REGISTRY_SCHEMA = "mailroom-desk/reviewer-registry/v1"
 
 _TOP_KEYS = {"mode", "reviewers"}
 _REVIEWER_KEYS = {"id", "initials", "roles", "token_sha256"}
@@ -76,6 +82,7 @@ class ReviewerRegistry(BaseModel):
 
     mode: Literal["strict", "open"]
     reviewers: tuple[Reviewer, ...]
+    hash: str
 
     def get(self, reviewer_id: str) -> Reviewer | None:
         for r in self.reviewers:
@@ -184,7 +191,8 @@ def parse_registry(raw: object, path: Path | None = None) -> ReviewerRegistry:
         problems.append("a strict registry must list at least one reviewer")
     if problems:
         raise RegistryError(path, problems)
-    return ReviewerRegistry(mode=mode, reviewers=tuple(good))
+    content = {"schema": REGISTRY_SCHEMA, "mode": mode, "reviewers": [r.model_dump(mode="json") for r in good]}
+    return ReviewerRegistry(mode=mode, reviewers=tuple(good), hash=hash_obj(content))
 
 
 def load_registry(path: Path | str) -> ReviewerRegistry:
