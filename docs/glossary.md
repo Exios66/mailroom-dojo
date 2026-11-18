@@ -155,7 +155,7 @@ Source: docs/specs/2026-11-18-lean-rewrite-design.md ("Prompt optimization")
 
 ## Review bin
 
-Where the pipeline parks a document for a person to review, with at least one review cause attached. A document must never be parked because of a provider outage: documents wait in the queue instead.
+Where the pipeline parks a document for a person to review, with at least one review cause attached. Today the pipeline also parks a document whose provider errors outlast the transient retry budget (cause transient_exhausted). The new engine must not: no document is parked because of a provider outage (spec R1); documents wait in the queue instead.
 
 Also called: parked, review queue.
 

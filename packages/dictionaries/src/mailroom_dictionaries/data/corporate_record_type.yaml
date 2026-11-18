@@ -1,0 +1,31 @@
+name: corporate_record_type
+version: 1
+description: >-
+  Closed vocabulary of the corporate_record `record_type` field: the five-token extraction enum
+  (the Hub's record_type). The field is scored as a `name`, not a `label`, but only these values
+  can be gold: the Dojo's label policy refuses any other overlay value (llm-dojo-scoring
+  llm_dojo_scoring/schemas/label_policy.py _vocabulary), and its JSON schema restricts the
+  field to them. Values: llm-dojo-scoring llm_dojo_scoring/schemas/corporate_record_schema.py
+  (RECORD_TYPES); the subclasses each value covers: the same module's SUBCLASS_SCHEMAS.
+  llm-mailroom src/config/taxonomy.yaml types the field `name` and lists no vocabulary for it.
+ordered: false
+entries:
+  - key: articles_of_incorporation
+    label: Articles of incorporation
+    description: >-
+      Articles or a certificate of incorporation or formation, or a charter amendment
+      (subclasses articles_of_incorporation, certificate_of_formation, charter_amendment).
+  - key: bylaws
+    label: Bylaws
+    description: Bylaws (subclass bylaws).
+  - key: powers_of_attorney
+    label: Powers of attorney
+    description: A power of attorney (subclass powers_of_attorney).
+  - key: rights_instrument
+    label: Rights instrument
+    description: A stockholder rights instrument (subclass rights_instrument).
+  - key: other
+    label: Other
+    description: >-
+      Any other corporate record (subclasses subsidiary_list, indenture, board_resolution,
+      officer_certificate, other).

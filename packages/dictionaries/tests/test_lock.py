@@ -102,7 +102,7 @@ def test_update_lock_is_a_no_op_on_current_data(data_dir: Path) -> None:
     before = (data_dir / LOCK_NAME).read_bytes()
     result = run_update(data_dir)
     assert result.returncode == 0, result.stderr
-    assert "lock is current (17 dictionaries)" in result.stdout
+    assert "lock is current (19 dictionaries)" in result.stdout
     assert (data_dir / LOCK_NAME).read_bytes() == before
 
 

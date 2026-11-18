@@ -1,12 +1,16 @@
 name: decision_slots
-version: 1
+version: 2
 description: >-
   The eight decision slots of mailroom #309, carried over by R10 of
   docs/specs/2026-11-18-lean-rewrite-design.md. Each slot is off by default, has its own caps,
   and is switched on and tuned in a policy file or run spec; every slot call is recorded as a
-  decision event with the slot as its node. Only `sorter_reviewer` exists as an identifier in
-  the current source (the agent and prompt name in llm-mailroom); the other keys are the
-  snake_case of the names R10 gives, because the source has no identifiers for them.
+  decision event with the slot as its node. Of these keys only `sorter_reviewer` is a real
+  identifier today (the agent and prompt name in llm-mailroom); the others are the snake_case
+  of the names R10 gives. llm-mailroom's own decision-point slot names are free-form strings
+  of the form `<node>.post` (src/graph/decision_points.py; `extract.post` in its tests), not
+  these keys. The nearest real implementations of the extraction-side slots are llm-mailroom
+  src/agents/extraction_gate.py and the sandbox's ExtractionGateSpec
+  (local-mailroom-sandbox src/mailroom_sandbox/job/spec.py).
 ordered: false
 entries:
   - key: sorter_reviewer

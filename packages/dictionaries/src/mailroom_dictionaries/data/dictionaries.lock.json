@@ -3,12 +3,20 @@
     "hash": "783dcb25661c9942f77d8e07ae348e8df7de09c2df048b0e49efb0fdddcce9a5",
     "version": 1
   },
+  "cms_source_table": {
+    "hash": "ca9d5e75f88ba9b5f148175c6fb02dc8d12684187523e9a7a187a3cec53273c0",
+    "version": 1
+  },
   "communication_type": {
     "hash": "1f54383549b6cda435ead021932cc17ba5800c4d7a55542e78a156809df65f2d",
     "version": 1
   },
   "corporate_record_intent": {
     "hash": "dcc28097b7ee135358cc8f1694dc590d1e32a97658e0b333aa4176e6a520aad2",
+    "version": 1
+  },
+  "corporate_record_type": {
+    "hash": "7619d6b9ce2948b5fbc9a52b2dc81587eef0857043cdc15c29fa1291bf0e9948",
     "version": 1
   },
   "correspondence_intent": {
@@ -24,36 +32,36 @@
     "version": 1
   },
   "decision_slots": {
-    "hash": "2779235876c8fb3e9ad776bb59f65a9bbfbae182752f63e01bda260083f05f36",
-    "version": 1
+    "hash": "5ab3a28e54ac0e067835d949bbc51f1daf1cd8abb07cb56b1d0d8328689e12d0",
+    "version": 2
   },
   "doc_classes": {
-    "hash": "4a7bd6cbc27b5f2e1124912763dc2d0b3bc8ca9a3dbb6b226e54348dfd404b0a",
-    "version": 1
+    "hash": "f8b6781ad66dc9438eb717776d7266859f30a740c6c5ec1391bb36c86830f9d9",
+    "version": 2
   },
   "entity_element_types": {
     "hash": "da052db4dad9fc6260cf7dcbaba8feb335d3dff80deb517a3d4ed59a5181c52b",
     "version": 1
   },
   "field_types": {
-    "hash": "29fff3e7871cdc9afa9fa51ac7ce8f3b26b8bca2d4d1a5a04b7519794b2092e6",
-    "version": 1
+    "hash": "d6d040b2e6f0e3808cafda7443fa38f8ed05ab02c7096743423bc375354b1a36",
+    "version": 2
   },
   "insurance_claim_intent": {
     "hash": "529ce3185a347b4482ca9477b245189b5cf8cfadc3876a817c2caae37e2e3246",
     "version": 1
   },
   "label_statuses": {
-    "hash": "50ce6b628b22bedf30fc4eb8ae62fcc49cab86432d9e6b76c3d482abd17b3458",
-    "version": 1
+    "hash": "a98baf42fbd508d5cb24baf8013f1ca8c182bf093b697a96435c367d456b635e",
+    "version": 2
   },
   "merger_agreement_intent": {
     "hash": "ea27b29e684fa4408befc6916ba651038de7c0f65969279e7f42017c28ee4526",
     "version": 1
   },
   "merger_consideration": {
-    "hash": "e3bd61bf36dc5a54d573038a6075798ae1d5b7759047966ca91e66788915b956",
-    "version": 1
+    "hash": "9151a13e06ccb58fd160ad85f2161194ab3ddf1d5e83d3ad19a64f566441f6a6",
+    "version": 2
   },
   "outcomes": {
     "hash": "e6e6e43af76be893eb98cea38ca945e85b47fca3f945286fff295796b30937cd",
