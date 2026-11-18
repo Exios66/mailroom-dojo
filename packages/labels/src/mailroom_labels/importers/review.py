@@ -66,7 +66,14 @@ from mailroom_labels.models import SnapshotManifest
 from mailroom_labels.snapshot import write_snapshot
 from mailroom_record.hashing import canonical_json
 
-__all__ = ["DESK_UNDECIDED", "DESK_VERDICTS", "HUMAN_MODEL", "SUPERSEDED_REASONS", "build_review"]
+__all__ = [
+    "DESK_UNDECIDED",
+    "DESK_VERDICTS",
+    "HUMAN_MODEL",
+    "SUPERSEDED_REASONS",
+    "build_review",
+    "review_row_order",
+]
 
 HUMAN_MODEL = "human"
 #: Desk ``decision`` -> review verdict.
@@ -343,6 +350,11 @@ def _collapse(
     return list(kept.values())
 
 
+def review_row_order(row: Mapping[str, Any]) -> tuple[Any, ...]:
+    """The order of rows in a review snapshot file: document, field, reviewer, origin."""
+    return (str(row["doc_id"]), str(row["field"]), canonical_json(row["reviewer"]), row["origin"])
+
+
 def build_review(
     out_dir: Path | str,
     *,
@@ -430,7 +442,7 @@ def build_review(
     return write_snapshot(
         out_dir,
         {"decisions.jsonl": out},
-        sort_key=lambda r: (str(r["doc_id"]), str(r["field"]), canonical_json(r["reviewer"]), r["origin"]),
+        sort_key=review_row_order,
         snapshot_id=snapshot_id or out_dir.name,
         kind="review",
         layer_schema=CURRENT_LAYER_SCHEMA["review"],
