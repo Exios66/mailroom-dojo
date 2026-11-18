@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import pytest
@@ -252,6 +253,14 @@ def test_interpolation_replaces_defaults_and_escapes(tmp_path: Path) -> None:
     assert profile.tags == ("cost $5", "acme-acme", "plain $HOME", "lone $")
 
 
+def test_interpolation_yields_strings_only_and_never_coerces(tmp_path: Path) -> None:
+    path = _file(tmp_path, "p.yaml", "name: '${PAGES}'\nlimits: {max_pages: '${PAGES}'}\n")
+    with pytest.raises(ConfigError, match="limits.max_pages: Input should be a valid integer"):
+        load_config(path, Profile, env={"PAGES": "12"})
+    path = _file(tmp_path, "q.yaml", "name: '${PAGES}'\nlimits: {max_pages: 12}\n")
+    assert load_config(path, Profile, env={"PAGES": "12"}).name == "12"
+
+
 def test_default_applies_to_empty_variables_but_plain_reference_keeps_empty(tmp_path: Path) -> None:
     path = _file(tmp_path, "p.yaml", ENV_YAML)
     profile = load_config(path, Profile, env={"CLIENT": "", "HOST": ""})
@@ -307,6 +316,17 @@ def test_deep_merge_rules() -> None:
         "c": None,
         "d": 4,
     }
+
+
+def test_deep_merge_accepts_read_only_mappings_at_any_depth() -> None:
+    base = MappingProxyType({"a": MappingProxyType({"x": 1, "l": [MappingProxyType({"k": 1})]}), "b": 2})
+    overlay = MappingProxyType({"a": MappingProxyType({"y": 2}), "c": MappingProxyType({"z": 3})})
+    merged = deep_merge(base, overlay)
+    assert merged == {"a": {"x": 1, "l": [{"k": 1}], "y": 2}, "b": 2, "c": {"z": 3}}
+    assert type(merged["a"]) is dict
+    assert type(merged["a"]["l"][0]) is dict
+    assert type(merged["c"]) is dict
+    assert deep_merge({"only": MappingProxyType({"x": 1})}, {}) == {"only": {"x": 1}}
 
 
 def test_deep_merge_never_mutates_or_aliases_its_inputs() -> None:

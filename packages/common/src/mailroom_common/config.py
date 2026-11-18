@@ -56,15 +56,29 @@ def deep_merge(base: Mapping[str, Any], overlay: Mapping[str, Any]) -> dict[str,
     Associative only when each key path holds the same kind (mapping or not) in every
     layer: if a middle layer replaces a mapping with a scalar and a later layer puts a
     mapping back, grouping the later two first loses the reset.
+
+    Any :class:`~collections.abc.Mapping` is accepted at any depth (a ``MappingProxyType``
+    or a frozen view included) and comes back as a plain ``dict``.
     """
-    merged: dict[str, Any] = {key: copy.deepcopy(value) for key, value in base.items()}
+    merged: dict[str, Any] = {key: _plain_copy(value) for key, value in base.items()}
     for key, value in overlay.items():
         current = merged.get(key)
         if isinstance(current, Mapping) and isinstance(value, Mapping):
             merged[key] = deep_merge(current, value)
         else:
-            merged[key] = copy.deepcopy(value)
+            merged[key] = _plain_copy(value)
     return merged
+
+
+def _plain_copy(value: Any) -> Any:
+    """A deep copy in which every mapping is a ``dict`` and every list a new list."""
+    if isinstance(value, Mapping):
+        return {key: _plain_copy(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_plain_copy(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_plain_copy(item) for item in value)
+    return copy.deepcopy(value)
 
 
 def _dotted(location: Sequence[int | str]) -> str:
@@ -181,7 +195,9 @@ def load_config(path: str | Path, model: type[ModelT], *, env: Mapping[str, str]
     ``default`` when the variable is unset or empty, and ``$$`` is a literal ``$``; a
     ``$`` followed by anything else is left alone. An undefined variable without a
     default, or a malformed ``${``, raises ConfigError naming the variable and key, never
-    any value. Without ``env`` strings are taken literally.
+    any value. Without ``env`` strings are taken literally. Interpolation yields strings
+    only: there is no coercion, so ``port: ${PORT}`` with ``PORT=8080`` is the string
+    ``"8080"`` and fails strict validation of an ``int`` field; keys are never interpolated.
 
     Raises ConfigError for an unknown extension, an unreadable, empty or non-mapping
     file, invalid YAML/JSON (duplicate keys and NaN included), and validation failure
