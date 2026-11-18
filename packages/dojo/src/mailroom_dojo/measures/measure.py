@@ -280,7 +280,7 @@ class Measure:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """A plain dict for JSON output; every key is always present (``ci``, ``reason``, ``provenance`` maybe null)."""
+        """A plain dict for JSON output; all keys present (``ci``, ``reason``, ``provenance`` may be null)."""
         return {
             "value": self.value,
             "n": self.n,

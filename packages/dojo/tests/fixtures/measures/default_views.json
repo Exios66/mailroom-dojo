@@ -1,0 +1,206 @@
+{
+ "description": "The metric table's default_views, frozen for review (tests/test_metric_table.py). Regenerate from the table after a reviewed YAML edit: the value is metric_table_canonical_form(table)['default_views'].",
+ "status": "confirmed only where the old registry names the number; the rest are proposals",
+ "default_views": {
+  "arbiter": {
+   "metric": "arbiter_decision_accuracy",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 526-534: arbiter_decision_accuracy (tier 1), the arbiter's labelled quality metric; the arbiter has no tier-0 metric. Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": []
+  },
+  "archivist": {
+   "metric": null,
+   "confirmed": false,
+   "source": "tests/fixtures/golden/scores.json at 23f8234c: suites.archivist is a cost suite with an empty score; no registry metric names the archivist.",
+   "reason": "procedural; judged by archive-gate checks, not a metric",
+   "secondary": []
+  },
+  "audit_agent": {
+   "metric": "audit_resolution_rate",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": []
+  },
+  "boss": {
+   "metric": "extraction_overall_score",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 327: extraction_overall_score, tier 0, is the only headline that names reporter and boss. Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": []
+  },
+  "compliance_auditor": {
+   "metric": "audit_resolution_rate",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": []
+  },
+  "compliance_specialist": {
+   "metric": "extraction_overall_score",
+   "confirmed": true,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13.",
+   "reason": null,
+   "secondary": []
+  },
+  "contract_auditor": {
+   "metric": "audit_resolution_rate",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": []
+  },
+  "contracts_specialist": {
+   "metric": "extraction_overall_score",
+   "confirmed": true,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13.",
+   "reason": null,
+   "secondary": []
+  },
+  "corporate_records_auditor": {
+   "metric": "audit_resolution_rate",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": []
+  },
+  "corporate_records_specialist": {
+   "metric": "extraction_overall_score",
+   "confirmed": true,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13.",
+   "reason": null,
+   "secondary": []
+  },
+  "correspondence_auditor": {
+   "metric": "audit_resolution_rate",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": []
+  },
+  "correspondence_specialist": {
+   "metric": "content_topic_f1_macro",
+   "confirmed": true,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 997: content_topic_f1_macro, 'promoted to T0', is 'the correspondence board number'; line 13.",
+   "reason": null,
+   "secondary": []
+  },
+  "court_opinions_auditor": {
+   "metric": "audit_resolution_rate",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": []
+  },
+  "court_opinions_specialist": {
+   "metric": "extraction_overall_score",
+   "confirmed": true,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13.",
+   "reason": null,
+   "secondary": []
+  },
+  "due_diligence_auditor": {
+   "metric": "audit_resolution_rate",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": []
+  },
+  "due_diligence_specialist": {
+   "metric": "extraction_overall_score",
+   "confirmed": true,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13.",
+   "reason": null,
+   "secondary": []
+  },
+  "human_review": {
+   "metric": "review_tray_wasted_review_rate",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 580-588 (tier 1): review_tray_wasted_review_rate, the review tray's one kept metric. Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": []
+  },
+  "image_extractor": {
+   "metric": "word_accuracy",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 1051: word_accuracy is the 'complementary transcription headline' (tier 1). Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": []
+  },
+  "insurance_claims_auditor": {
+   "metric": "audit_resolution_rate",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": []
+  },
+  "insurance_claims_specialist": {
+   "metric": "extraction_f2",
+   "confirmed": true,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 344: extraction_f2 is the 'insurance claims board number'; line 13.",
+   "reason": null,
+   "secondary": []
+  },
+  "intake": {
+   "metric": "intake_prep_completeness",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 1059-1064 (tier 1, INTAKE), emitted by the golden intake suite (tests/fixtures/golden/scores.json at 23f8234c); bert_elapsed_ms, intake's tier-0 metric, is not ported. Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": []
+  },
+  "judge": {
+   "metric": "f1_macro",
+   "confirmed": true,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 308: f1_macro is 'the universal classifier headline'; line 13: tier 0 is ONE number per agent on the default view. sorter and judge are classifiers (CLASSIFIERS family).",
+   "reason": null,
+   "secondary": []
+  },
+  "local_vs_api": {
+   "metric": "tokens_per_second",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 1097-1098: tokens_per_second, tier 0, with ttft_seconds (line 1091, tier 0) as the secondary. Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": [
+    "ttft_seconds"
+   ]
+  },
+  "merger_agreement_specialist": {
+   "metric": "extraction_overall_score",
+   "confirmed": true,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13.",
+   "reason": null,
+   "secondary": []
+  },
+  "pdf_transcriber": {
+   "metric": "word_accuracy",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 1051: word_accuracy is the 'complementary transcription headline' (tier 1). Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": []
+  },
+  "reporter": {
+   "metric": "extraction_overall_score",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 327: extraction_overall_score, tier 0, is the only headline that names reporter and boss. Proposal, owner to confirm.",
+   "reason": null,
+   "secondary": []
+  },
+  "sorter": {
+   "metric": "f1_macro",
+   "confirmed": true,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 308: f1_macro is 'the universal classifier headline'; line 13: tier 0 is ONE number per agent on the default view. sorter and judge are classifiers (CLASSIFIERS family).",
+   "reason": null,
+   "secondary": []
+  },
+  "sorter_reviewer": {
+   "metric": "reviewer_class_accuracy",
+   "confirmed": false,
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 352-353: reviewer_class_accuracy, the first of the five tier-0 reviewer metrics, with reviewer_wrong_accept_upper_95 (line 370) as its guard. Open owner question.",
+   "reason": null,
+   "secondary": [
+    "reviewer_wrong_accept_upper_95"
+   ]
+  }
+ }
+}
