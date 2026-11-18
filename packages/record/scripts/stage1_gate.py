@@ -164,27 +164,37 @@ def _shape(timeline: list[tuple[float, dict[str, Any]]]) -> list[tuple[float, tu
     for at, event in timeline:
         ((kind, body),) = event.items()
         if kind == "node":
-            what: tuple[Any, ...] = ("node", body["doc"], body["node"], body["status"])
+            what: tuple[Any, ...] = ("node", body.get("doc"), body.get("node"), body.get("status"))
         elif kind == "item":
-            what = ("item", body["item_id"])
+            what = ("item", body.get("item_id"))
         else:
-            what = ("checkpoint", body["state"], body["cursor"], body["total"])
+            what = ("checkpoint", body.get("state"), body.get("cursor"), body.get("total"))
         out.append((float(at), what))
     return out
 
 
 def _parity(log: EventLog, run_id: str, folder: Path, sandbox: ModuleType) -> str:
+    """Compare the two timelines. A row without a field (the sandbox's rows are the source's
+    dicts) compares as ``None``; any error other than a refusal (``ValueError``) on either
+    side is a FAILED row, so one odd run never stops the gate."""
     try:
         want = sandbox.build_timeline(folder)[0]
     except ValueError:
         want = None
+    except Exception as exc:  # noqa: BLE001 - reported as the run's parity, the gate goes on
+        return f"FAILED (sandbox error: {type(exc).__name__})"
     try:
         got = replay_timeline(log, run_id)[0]
     except ValueError:
         got = None
+    except Exception as exc:  # noqa: BLE001 - reported as the run's parity, the gate goes on
+        return f"FAILED (record error: {type(exc).__name__})"
     if want is None or got is None:
         return "ok (both refuse)" if want is None and got is None else "FAILED (one side refuses)"
-    a, b = _shape(got), _shape(want)
+    try:
+        a, b = _shape(got), _shape(want)
+    except Exception as exc:  # noqa: BLE001 - a timeline of an unexpected shape
+        return f"FAILED (timeline shape: {type(exc).__name__})"
     if [w for _, w in a] != [w for _, w in b]:
         return "FAILED (sequence differs)"
     worst = max((abs(x - y) for (x, _), (y, _) in zip(a, b, strict=True)), default=0.0)

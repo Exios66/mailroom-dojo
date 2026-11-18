@@ -19,7 +19,8 @@ What each event becomes is read from ``payload.floor``, the role the writer gave
   event's ``ts``. When the event carries ``started_ts`` (or ``started_order``), a
   ``running`` row ``{doc, node, status, agent, model, step}`` comes first at that time. An
   event whose ``status`` is ``running`` (in flight when the run stopped) is one ``running``
-  row. A native event's status is ``error`` for ``kind="error"``, else ``done``.
+  row. A native event's status is ``error`` for ``kind="error"``, else ``done``; an imported
+  event keeps its row's status, ``None`` when the row had none (as the sandbox shows it).
 - ``item``: an item row with the document's outcome (``ok``, ``error`` as the cause token,
   ``latency_ms``, token totals and the decision's outcome fields: ``doc_type``, ``stage``,
   both confidences, ``review_causes``, ``review_verdict``, ``escalation_reason``). A
@@ -126,8 +127,11 @@ class _Rows:
     def _node(self, e: Event) -> None:
         p = e.payload
         status = p.get("status")
-        if not isinstance(status, str) or not status:
-            status = "error" if e.kind == "error" else "done"
+        if p.get("floor") != "node":  # a native event: its status, else its kind says how it ended
+            if not isinstance(status, str) or not status:
+                status = "error" if e.kind == "error" else "done"
+        elif status is not None and not isinstance(status, str):
+            status = None  # an imported row's status that was not a token: the sandbox's value is lost
         base = {"doc": e.doc_id, "node": e.node, "agent": e.agent, "model": e.model, "step": p.get("step")}
         if status == "running":
             t = self._time(e)

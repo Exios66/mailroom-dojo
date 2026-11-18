@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -109,3 +110,37 @@ def test_import_warnings_reach_the_report(gate: ModuleType, runs_dir: Path, tmp_
     assert f"nodes.jsonl: skipped a torn last line ({torn} bytes, no newline)" in rows["ar-gate-crashed"]
     assert rows["ar-gate-r00"].endswith("| none |")  # the warnings column: nothing skipped
     assert "Runs with import warnings: 1." in report.read_text()
+
+
+def test_parity_survives_rows_without_status_and_a_failing_side(
+    gate: ModuleType, runs_dir: Path, tmp_path: Path
+) -> None:
+    """A sandbox node row without ``status`` (no such key in its dict) compares as ``None``;
+    an error on either side is a FAILED parity row, never an exception that kills the gate."""
+    import copy
+    from types import SimpleNamespace
+
+    from mailroom_record import BlobStore, EventLog, import_sandbox_run, replay_timeline
+
+    folder = runs_dir / "ar-gate-r00"
+    rows = [json.loads(line) for line in (folder / "nodes.jsonl").read_text().splitlines()]
+    del rows[1]["status"]
+    (folder / "nodes.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    blobs = BlobStore(tmp_path / "store")
+    log = EventLog(tmp_path / "store", blobs)
+    run_id = import_sandbox_run(folder, log, blobs).run_id
+
+    def like_the_sandbox(_folder: Path) -> tuple:  # the record's timeline, rows shaped as the sandbox's
+        timeline, meta = replay_timeline(log, run_id)
+        timeline = copy.deepcopy(timeline)
+        for _, event in timeline:
+            if "node" in event and event["node"]["status"] is None:
+                del event["node"]["status"]
+        return timeline, meta
+
+    assert gate._parity(log, run_id, folder, SimpleNamespace(build_timeline=like_the_sandbox)).startswith("ok (")
+
+    def broken(_folder: Path) -> tuple:
+        raise KeyError("status")
+
+    assert gate._parity(log, run_id, folder, SimpleNamespace(build_timeline=broken)) == "FAILED (sandbox error: KeyError)"

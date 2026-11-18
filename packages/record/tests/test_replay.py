@@ -468,3 +468,31 @@ def test_untimed_parity_with_the_sandbox_build_timeline(tmp_path: Path, variant:
     _same(normalise(got), normalise(want))
     _same_meta(got_meta, want_meta)
     assert got_meta["synthetic_timing"] is (variant == "untimed-run")
+
+
+def test_a_node_row_without_status_replays_without_one(tmp_path: Path) -> None:
+    """The sandbox replays a node row that has no ``status`` with status ``None`` (and as a
+    finish); the record does the same rather than calling it ``done`` (finding 5)."""
+    nodes = [_node(D0, "intake", "running", T0, step=1), _node(D0, "intake", "done", T0 + 0.05, ms=50.0)]
+    del nodes[1]["status"]
+    folder = _folder_with(tmp_path, 1, nodes, [_item(D0, T0 + 0.1)])
+    store = _store(tmp_path / "store")
+    r = import_sandbox_run(folder, store.log, store.blobs)
+    timeline, _ = replay_timeline(store.log, r.run_id)
+    assert [e["node"]["status"] for _, e in timeline if "node" in e] == ["running", None]
+    sandbox = _sandbox_floor_replay()
+    if sandbox is not None:
+        want, _ = sandbox.build_timeline(folder)
+        assert [e["node"].get("status") for _, e in want if "node" in e] == ["running", None]
+        _same(normalise(timeline), _normalise_lenient(want))
+
+
+def _normalise_lenient(timeline: list[tuple[float, dict]]) -> list[tuple]:
+    """``normalise`` for a sandbox timeline whose rows may lack ``status``."""
+    out = []
+    for at, event in timeline:
+        ((kind, body),) = event.items()
+        if kind == "node":
+            body = {"status": None} | body
+        out.append(normalise([(at, {kind: body})])[0])
+    return out

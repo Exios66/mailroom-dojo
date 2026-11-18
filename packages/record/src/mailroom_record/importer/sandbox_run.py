@@ -409,7 +409,8 @@ def _node_events(rows: list[tuple[int, dict[str, Any]]], doc_for: Any) -> None:
             kind = "decision"
         else:
             kind = "handoff"
-        payload: dict[str, Any] = {"floor": "node", "status": status, "order": order}
+        # The row's own status (None when it has none, as the sandbox's replay shows it).
+        payload: dict[str, Any] = {"floor": "node", "status": scrub(row.get("status")), "order": order}
         step = row.get("step") if row.get("step") is not None else (start[2].get("step") if start else None)
         _put_if(payload, "step", scrub(step))
         if row.get("step") is not None:  # the finish named its step: the replay pairs by it, as the sandbox does
