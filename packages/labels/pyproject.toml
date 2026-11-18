@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "mailroom-record",
-    "pydantic>=2",
+    "pydantic>=2.5",  # JsonValue first ships in 2.5.0
     "pyyaml",
     "typer",
 ]
