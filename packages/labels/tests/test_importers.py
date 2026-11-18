@@ -741,3 +741,35 @@ def test_an_unsure_mark_alone_imports_no_label_and_passes_the_gate(tmp_path: Pat
     assert "dropped_source_data" not in _gate_kinds(tmp_path, tmp_path / "gold-review-x")
     recs = read_layer(load_snapshot(tmp_path / "gold-review-x")).records
     assert {(r.document_id, r.field) for r in recs} == {("D2", "sender")}
+
+
+# --- review lines whose shape the review reader would refuse are rejected at import ------------
+
+
+@pytest.mark.parametrize(("bad", "reason"), [
+    ({"reviewer": {"model": "claude-opus"}}, "wrong shape"),  # no role (C1)
+    ({"reviewer": {"model": "claude-opus", "role": ""}}, "wrong shape"),
+    ({"reviewer": {"model": "claude-opus", "role": "audit", "extra": 1}}, "wrong shape"),
+])
+def test_a_decision_with_a_reviewer_the_reader_refuses_is_a_rejected_line(tmp_path: Path, bad: dict, reason: str) -> None:
+    manifest, rows = review(tmp_path, [{**decision("D1", "sender", "A"), **bad}, decision("D2", "sender", "B")], [],
+                            allow_rejected=True)
+    assert [r["doc_id"] for r in rows] == ["D2"]
+    (rej,) = manifest.source["rejected_lines"]
+    assert rej["line"] == 1 and reason in rej["reason"]
+    assert read_layer(load_snapshot(tmp_path / "gold-review-x")).findings == []
+
+
+@pytest.mark.parametrize(("key", "value", "reason"), [
+    ("decision", ["keep"], "decision must be a string"),  # C4: unhashable, used to raise TypeError
+    ("decision", {"k": 1}, "decision must be a string"),
+    ("source", 7, "source (the reviewer role) must be a name"),  # C5
+    ("source", None, "source (the reviewer role) must be a name"),
+])
+def test_a_desk_line_with_a_malformed_decision_or_source_is_a_rejected_line(tmp_path: Path, key: str, value: Any,
+                                                                            reason: str) -> None:
+    manifest, rows = review(tmp_path, [], [{**desk("D1", "sender", "A"), key: value}, desk("D2", "sender", "B")],
+                            allow_rejected=True)
+    assert [r["doc_id"] for r in rows] == ["D2"]
+    (rej,) = manifest.source["rejected_lines"]
+    assert rej["line"] == 1 and reason in rej["reason"]

@@ -104,6 +104,11 @@ def _missing(data: Mapping[str, Any], keys: Sequence[str]) -> list[str]:
     return [k for k in keys if k not in data]
 
 
+def _is_name(value: object) -> bool:
+    """A non-empty string without surrounding blanks (what the review reader calls a name)."""
+    return isinstance(value, str) and value != "" and value.strip() == value
+
+
 def _from_decision(line: SourceLine, rejected: list) -> dict[str, Any] | None:
     d = line.data
     missing = _missing(d, _DECISION_REQUIRED)
@@ -111,7 +116,10 @@ def _from_decision(line: SourceLine, rejected: list) -> dict[str, Any] | None:
         rejected.append({"file": line.file, "line": line.line, "reason": f"missing key(s) {missing}"})
         return None
     reviewer, entry = d["reviewer"], d["entry"]
-    if not (isinstance(reviewer, dict) and isinstance(reviewer.get("model"), str)) or not (
+    # the same reviewer shape the review layer reader requires, so nothing imported here
+    # can fail to load later
+    if not (isinstance(reviewer, dict) and set(reviewer) == {"model", "role"}
+            and _is_name(reviewer["model"]) and _is_name(reviewer["role"])) or not (
         isinstance(entry, dict) and "value" in entry
     ):
         rejected.append({"file": line.file, "line": line.line, "reason": "reviewer or entry has the wrong shape"})
@@ -139,6 +147,13 @@ def _from_desk(line: SourceLine, rejected: list, not_imported: list, undecided: 
         rejected.append({"file": line.file, "line": line.line, "reason": str(exc)})
         return None
     decision = d["decision"]
+    if not isinstance(decision, str):
+        rejected.append({"file": line.file, "line": line.line,
+                         "reason": f"decision must be a string, not {type(decision).__name__}"})
+        return None
+    if not _is_name(d["source"]):
+        rejected.append({"file": line.file, "line": line.line, "reason": "source (the reviewer role) must be a name"})
+        return None
     if decision in DESK_UNDECIDED:
         undecided.append({"doc_id": d["doc_id"], "field": d["field"], "decision": decision,
                           "reviewed_at": d["reviewed_at"], "note": d.get("note"), "origin": [line.origin]})
