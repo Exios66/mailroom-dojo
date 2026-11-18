@@ -3,8 +3,10 @@
 The `mailroom_dojo` package: the pure scoring layers of the Mailroom Dojo, driven by a
 per-client **scoring profile**. It decides what "correct" means for one extracted field,
 one label or one document class. It holds no global state, reads no environment
-variable or clock, and opens no network connection. It imports `mailroom_record` (and,
-once it lands, `mailroom_labels`) and nothing from any engine or from `llm_dojo_scoring`.
+variable or clock, and opens no network connection. It depends on no other workspace
+package today (it may import `mailroom_record` and, once it lands, `mailroom_labels`; the
+label interface is structural, so no import is needed) and nothing from any engine or
+from `llm_dojo_scoring`.
 
 ```bash
 .venv/bin/pip install -e "packages/dojo[dev]"
@@ -29,7 +31,9 @@ once it lands, `mailroom_labels`) and nothing from any engine or from `llm_dojo_
 | `field_scoring/category_presence.py` | `score_category_presence`: the share of labelled clause categories a predicted span covers, with reasoning-trace routing and an optional `PresenceSimilarity` whose backend failures are reported. |
 | `field_scoring/row_variants.py` | the rules of a profile's row variants (documented-absent fields, type overrides, an unstated marker, a marker read from a fallback field). |
 | `field_scoring/trace_capture.py` | `capture_trace`: model-emitted `confidence` and `reasoning`, captured for the run log under the profile's `TraceCaptureOptions`, never scored. |
-| `field_scoring/extraction.py` | `score_extraction(profile, class_key, predicted, expected, ...)` → `ExtractionScoreResult` (field scores, overall score, judge-review fields, list scores, audits, trace). |
+| `field_scoring/extraction.py` | `score_extraction(profile, class_key, predicted, expected, ...)` → `ExtractionScoreResult` (field scores, overall score, judge-review fields, list scores, audits, trace). A plug-in scorer that returns anything but a finite number in `[0, 1]` raises `ScorerResultError`. |
+| `classification/` | `ClassLabelSet.from_profile(profile)` and the classification metrics: `normalize_label`, `exact_match`, `accuracy`, `fbeta`, `per_class_stats`, `macro_accuracy`, `macro_prf`, `confusion_matrix`, `top_confusions`, `binary_metrics`, `class_distribution`. The class set, its match order and retired classes come from the profile. |
+| `labels_interface/` | structural Protocols (`LabelSource`, `ExpectedDocument`, `PresenceExpectation`) that the labels package satisfies, `expected_values(...)` (keeps scorable fields only; refuses or flags unverified documents), and `hub_rows.py`, a reference adapter for Hub rows that is meant to move to `mailroom_labels`. |
 
 ## The scoring profile
 

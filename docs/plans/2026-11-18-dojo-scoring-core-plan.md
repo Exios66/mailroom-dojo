@@ -52,7 +52,7 @@ that re-scores the imported v1 and slice-100 r2 runs (it waits for the run recor
    in `packages/dojo/docs/score-changelog.md` and a machine-read `intended_differences.json`; the
    parity test fails on an unlisted difference and on a listed one that no longer occurs.
 6. **Golden cases.** No old golden case calls the in-scope layers directly (they go through suites
-   and tasks). So parity uses (a) the 704 recorded calls that cross into the in-scope modules during
+   and tasks). So parity uses (a) the 674 recorded calls (704 minus 30 dateutil callbacks that are not data) that cross into the in-scope modules during
    the old golden run, whose `field_scores` are tied back to `scores.json`, and (b) a differential
    corpus from the old direct tests plus seeded generated inputs (the audits, presence and dates that
    no golden reaches). Both are committed as data with the old commit SHA, the old Dojo version and
