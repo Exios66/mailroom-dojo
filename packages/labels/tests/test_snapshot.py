@@ -651,3 +651,194 @@ def test_a_non_regular_entry_beside_a_build_is_refused_untouched(tmp_path: Path)
     with pytest.raises(FileExistsError):
         write_snapshot(d, {"a.jsonl": ROWS_A}, **args)
     assert (d / "pipe").exists() and (d / "a.jsonl").is_file()
+
+
+# --- review follow-ups: numbers JSON cannot hold, paths outside, read failures ---------------
+
+
+@pytest.mark.parametrize("number", [b"1e400", b"-1e400", b"9" * 5000], ids=["inf", "-inf", "huge_int"])
+def test_a_number_python_cannot_hold_is_a_corrupt_line_when_building_and_streaming(
+    tmp_path: Path, number: bytes
+) -> None:
+    d = tmp_path / "s"
+    d.mkdir()
+    (d / "a.jsonl").write_bytes(b'{"x": ' + number + b"}\n")
+    with pytest.raises(CorruptLine, match="not JSON"):
+        build_manifest(d, snapshot_id="s", kind="hub", layer_schema="x", source={}, builder="t")
+    # the same line in a snapshot whose manifest matches it: streaming reports it, then goes on
+    (d / "a.jsonl").write_bytes(b'{"x": 1}\n')
+    build_manifest(d, snapshot_id="s", kind="hub", layer_schema="x", source={}, builder="t")
+    (d / "a.jsonl").write_bytes(b'{"x": ' + number + b'}\n{"x": 2}\n')
+    rehash_manifest(d)
+    seen: list[CorruptLine] = []
+    rows = [r.data for r in load_snapshot(d).rows(on_corrupt=seen.append)]
+    assert rows == [{"x": 2}] and [e.line for e in seen] == [1]
+
+
+@pytest.mark.parametrize("number", ["1e400", "9" * 5000], ids=["inf", "huge_int"])
+def test_a_number_python_cannot_hold_in_the_manifest_is_manifest_invalid(snap: Path, number: str) -> None:
+    path = snap / MANIFEST_NAME
+    path.write_text(path.read_text(encoding="utf-8").replace('"r1"', number), encoding="utf-8")
+    with pytest.raises(ManifestMismatch) as info:
+        load_snapshot(snap)
+    assert info.value.kind == "manifest_invalid"
+
+
+def test_a_listed_file_linked_outside_the_snapshot_is_refused(snap: Path, tmp_path: Path) -> None:
+    outside = tmp_path / "outside.jsonl"
+    outside.write_bytes((snap / "a.jsonl").read_bytes())  # the very bytes the manifest pins
+    (snap / "a.jsonl").unlink()
+    (snap / "a.jsonl").symlink_to(outside)
+    with pytest.raises(ManifestMismatch) as info:
+        load_snapshot(snap)
+    assert info.value.kind == "unsafe_path"
+
+
+def test_a_manifest_linked_outside_the_snapshot_is_refused(snap: Path, tmp_path: Path) -> None:
+    outside = tmp_path / "outside-manifest.json"
+    outside.write_bytes((snap / MANIFEST_NAME).read_bytes())
+    (snap / MANIFEST_NAME).unlink()
+    (snap / MANIFEST_NAME).symlink_to(outside)
+    with pytest.raises(ManifestMismatch) as info:
+        load_snapshot(snap)
+    assert info.value.kind == "unsafe_path"
+
+
+def test_streaming_refuses_a_file_relinked_outside_after_load(snap: Path, tmp_path: Path) -> None:
+    loaded = load_snapshot(snap)
+    outside = tmp_path / "outside.jsonl"
+    outside.write_bytes((snap / "a.jsonl").read_bytes())
+    (snap / "a.jsonl").unlink()
+    (snap / "a.jsonl").symlink_to(outside)
+    with pytest.raises(ManifestMismatch) as info:
+        list(loaded.rows())
+    assert info.value.kind == "unsafe_path"
+
+
+def test_a_link_between_files_inside_the_snapshot_still_loads(tmp_path: Path) -> None:
+    d = tmp_path / "s"
+    (d / "part").mkdir(parents=True)
+    (d / "part" / "a.jsonl").write_bytes(b'{"x": 1}\n')
+    (d / "b.jsonl").symlink_to(d / "part" / "a.jsonl")
+    build_manifest(d, snapshot_id="s", kind="hub", layer_schema="x", source={}, builder="t")
+    assert [r.data for r in load_snapshot(d).rows()] == [{"x": 1}, {"x": 1}]
+
+
+def test_build_refuses_a_stray_directory_that_load_would_refuse(tmp_path: Path) -> None:
+    d = tmp_path / "s"
+    (d / "part").mkdir(parents=True)
+    (d / "part" / "a.jsonl").write_bytes(b'{"x": 1}\n')
+    (d / "empty").mkdir()
+    with pytest.raises(ManifestMismatch) as info:
+        build_manifest(d, snapshot_id="s", kind="hub", layer_schema="x", source={}, builder="t")
+    assert info.value.kind == "extra"
+    assert not (d / MANIFEST_NAME).exists()
+    (d / "empty").rmdir()  # a directory holding a listed file is fine
+    build_manifest(d, snapshot_id="s", kind="hub", layer_schema="x", source={}, builder="t")
+    assert len(list(load_snapshot(d).rows())) == 1
+
+
+@pytest.mark.parametrize(
+    "keys",
+    [
+        ["/abs/escape.jsonl"],
+        ["../escape.jsonl"],
+        ["part/../../escape.jsonl"],
+        ["a.jsonl", "./a.jsonl"],
+        ["a.txt"],
+        ["part//a.jsonl"],
+    ],
+    ids=["absolute", "parent", "nested_parent", "same_file_twice", "not_jsonl", "double_slash"],
+)
+def test_write_snapshot_refuses_an_output_path_before_touching_anything(
+    tmp_path: Path, keys: list[str]
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    before = sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*"))
+    files = {k.replace("/abs", str(tmp_path / "abs")) if k.startswith("/abs") else k: ROWS_A for k in keys}
+    with pytest.raises(ValueError, match="output path"):
+        write_snapshot(
+            root / "snap", files, snapshot_id="s", kind="hub", layer_schema="x", source={}, builder="t"
+        )
+    assert sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*")) == before
+
+
+def test_rows_with_the_same_custom_sort_key_are_written_in_a_fixed_order(tmp_path: Path) -> None:
+    rows = [hub_row("D1", fields={"sender": "Ann"}), hub_row("D1", fields={"sender": "Bob"})]
+    outs = []
+    for i, order in enumerate((rows, rows[::-1])):
+        m = write_snapshot(
+            tmp_path / f"s{i}",
+            {"a.jsonl": order},
+            sort_key=lambda r: r["document_id"],
+            snapshot_id="s",
+            kind="hub",
+            layer_schema="x",
+            source={},
+            builder="t",
+        )
+        outs.append(((tmp_path / f"s{i}" / "a.jsonl").read_bytes(), m.manifest_hash))
+    assert outs[0] == outs[1]
+
+
+def test_a_data_file_that_cannot_be_read_is_a_mismatch_not_a_crash(
+    snap: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import mailroom_labels.snapshot as snapshot_module
+
+    def refuse(path: Path, *, parse: bool):
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(snapshot_module, "_file_facts", refuse)
+    with pytest.raises(ManifestMismatch) as info:
+        load_snapshot(snap)
+    assert info.value.kind == "missing" and "cannot read" in info.value.detail
+
+
+def test_a_manifest_that_cannot_be_read_is_manifest_invalid(
+    snap: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_bytes, real_text = Path.read_bytes, Path.read_text
+
+    def refuse(self: Path) -> None:
+        if self.name == MANIFEST_NAME:
+            raise PermissionError(13, "Permission denied", str(self))
+
+    def read_bytes(self: Path) -> bytes:
+        refuse(self)
+        return real_bytes(self)
+
+    def read_text(self: Path, *args, **kwargs) -> str:
+        refuse(self)
+        return real_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    monkeypatch.setattr(Path, "read_text", read_text)
+    with pytest.raises(ManifestMismatch) as info:
+        load_snapshot(snap)
+    assert info.value.kind == "manifest_invalid" and "cannot read" in info.value.detail
+
+
+def test_check_dirs_reports_an_unreadable_snapshot_and_checks_the_next(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import mailroom_labels.snapshot as snapshot_module
+    from labels_testkit import PROFILE_PATH
+    from mailroom_labels.profile import load_profile
+    from mailroom_labels.quality import check_dirs
+
+    bad = build(tmp_path / "bad")
+    good = make_snapshot(tmp_path, "near_gold", [near_gold_row("D1", {"sender": "Ann"})], snapshot_id="ng-a")
+    assert bad.snapshot_id == "hub-t"
+    real = snapshot_module._file_facts
+
+    def refuse(path: Path, *, parse: bool):
+        if "bad" in path.parts:
+            raise PermissionError(13, "Permission denied", str(path))
+        return real(path, parse=parse)
+
+    monkeypatch.setattr(snapshot_module, "_file_facts", refuse)
+    report, loaded = check_dirs([tmp_path / "bad", good], load_profile(PROFILE_PATH))
+    assert [s.snapshot_id for s in loaded] == ["ng-a"]
+    assert [f.kind for f in report.errors if f.kind == "manifest_mismatch"] == ["manifest_mismatch"]
