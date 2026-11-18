@@ -28,11 +28,13 @@ from mailroom_record.log import (
     BlobNotStored,
     DocumentInUse,
     EventLog,
+    ForkedChain,
     RunExists,
     TornTail,
     WriterInUse,
 )
-from mailroom_record.models import GENESIS, BlobRef, Run, event_hash
+from mailroom_record import log as log_module
+from mailroom_record.models import GENESIS, BlobRef, Event, Run, event_hash
 
 TS_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 
@@ -455,3 +457,58 @@ def test_concurrent_create_run_has_one_winner(tmp_path: Path) -> None:
     assert log.read_run("race") == run
     assert not list(tmp_path.rglob("*.tmp"))
 
+
+
+# --- review fixes (forked chains, durability) ---------------------------------------
+
+
+def write_fork(store: SimpleNamespace, doc_id: str = "d1") -> tuple[str, str]:
+    """Make two segments that both hold seq 1 of ``doc_id``: a chain forked by two owners.
+
+    Returns the hashes of the two seq-1 events. The second segment is written by hand,
+    as a second process owning the same document would have written it.
+    """
+    with store.log.open_writer("r1", "w0") as w:
+        a = w.append(doc_id=doc_id, node="n", kind="decision")
+        b = w.append(doc_id=doc_id, node="left", kind="decision")
+    forked = Event.build(
+        run_id="r1", doc_id=doc_id, seq=1, ts="2026-11-18T12:00:00Z", node="right", agent=None,
+        attempt=0, kind="decision", model=None, prompt_id=None, tokens_in=None, tokens_out=None,
+        tokens_cached=None, price_basis=None, latency_ms=None, decision=None, cause=None,
+        inputs=[], outputs=[], payload={}, prev_hash=a.hash,
+    )
+    (seg_dir(store) / "w9.jsonl").write_bytes(canonical_json(forked.model_dump(mode="json")) + b"\n")
+    return b.hash, forked.hash
+
+
+def test_writer_refuses_to_extend_a_forked_chain(store: SimpleNamespace) -> None:
+    write_fork(store)
+    with store.log.open_writer("r1", "w1") as w:
+        with pytest.raises(ForkedChain, match=r"'d1'.*seq 1"):
+            w.append(doc_id="d1", node="n2", kind="decision")
+        # Other documents are unaffected, and the refused document is not held.
+        assert w.append(doc_id="d2", node="n", kind="decision").seq == 0
+    assert not any(json.loads(line)["node"] == "n2" for line in segment_lines(store.root))
+
+
+def test_doc_heads_refuses_a_forked_chain_but_readers_return_every_line(store: SimpleNamespace) -> None:
+    left, right = write_fork(store)
+    with pytest.raises(ForkedChain, match="d1"):
+        store.log.doc_heads("r1")
+    events = list(store.log.iter_events("r1", "d1"))
+    assert [e.seq for e in events] == [0, 1, 1]
+    assert {e.hash for e in events if e.seq == 1} == {left, right}
+    assert len(list(store.log.iter_stored("r1"))) == 3
+
+
+def test_open_writer_fsyncs_the_segment_dir_even_when_the_segment_exists(
+    store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A crash before the creating process fsynced the directory would leave the segment's
+    # entry undurable; every open must fsync it again.
+    store.log.open_writer("r1", "w0").close()
+    calls: list[Path] = []
+    real = log_module._fsync_dir
+    monkeypatch.setattr(log_module, "_fsync_dir", lambda p: (calls.append(Path(p)), real(p))[1])
+    store.log.open_writer("r1", "w0").close()
+    assert seg_dir(store) in calls

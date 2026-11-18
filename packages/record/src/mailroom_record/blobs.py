@@ -146,6 +146,10 @@ class BlobStore:
             return "tombstoned"
         if self.content_path(sha256).exists():
             return "present"
+        # A concurrent tombstone() may have written its record and unlinked the content
+        # between the two checks above; look again so that is not reported as "missing".
+        if self.tombstone_path(sha256).exists():
+            return "tombstoned"
         return "missing"
 
     def size_on_disk(self) -> int:

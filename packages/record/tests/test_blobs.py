@@ -354,3 +354,23 @@ def test_blob_and_tombstone_files_are_owner_only(tmp_path: Path) -> None:
     s.tombstone(gone.sha256, "deletion request")
     assert s.content_path(keep.sha256).stat().st_mode & 0o777 == 0o600
     assert s.tombstone_path(gone.sha256).stat().st_mode & 0o777 == 0o600
+
+
+def test_exists_sees_a_tombstone_written_between_its_two_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression: exists() checked the tombstone, then the content. A tombstone written in
+    # between (content already unlinked) made it answer "missing", so tombstone() raised.
+    s = BlobStore(tmp_path)
+    ref = s.put(b"secret", "original")
+    real = s.content_path
+    armed = [True]
+
+    def racing(sha: str) -> Path:
+        if armed[0]:
+            armed[0] = False
+            BlobStore(tmp_path).tombstone(sha, "other caller")  # lands between the checks
+        return real(sha)
+
+    monkeypatch.setattr(s, "content_path", racing)
+    assert s.exists(ref.sha256) == "tombstoned"

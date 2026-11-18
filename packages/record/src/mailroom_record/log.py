@@ -15,7 +15,9 @@ Writing
   another). Segments are opened in append mode and never rewritten. If the writer's latest
   segment ends in a torn line (a crash mid-write), the writer starts a new segment
   ``<writer_id>.<k+1>.jsonl`` instead of appending after the torn bytes, which stay where
-  they are and stay reported by ``torn_tails``. Creating a segment fsyncs its directory.
+  they are and stay reported by ``torn_tails``. Every open fsyncs the segment directory
+  (not only on create), so a segment whose creator crashed before its directory fsync
+  becomes durable on the next open.
 - ``LogWriter.append`` validates the event, sets ``seq``, ``prev_hash`` and ``hash`` itself,
   and serializes the line at once: canonical JSON of the validated model's JSON-mode dump,
   plus ``\\n``. So every stored line satisfies ``event_hash(json.loads(line)) == hash``.
@@ -26,9 +28,16 @@ Writing
 - Lines are buffered and written with fsync every ``flush_every`` appends, on ``flush()``
   and on ``close()``. Readers (``iter_events``, ``doc_heads``, ``torn_tails``) read disk
   only, so buffered events are invisible to them until flushed. A crash loses at most the
-  buffered events, plus possibly one torn line.
+  buffered events, plus possibly one torn line. The Event that ``append`` returns is not
+  durable until the next flush (``flush()``, ``close()`` or an automatic one); anything
+  derived from events, such as the index (Task 8), must be written only after the flush
+  that made them durable (write order: blob, event, index).
 - If a write or fsync fails the writer is marked failed and refuses further use: its
-  in-memory heads may be ahead of disk, so a new writer must take over.
+  in-memory heads may be ahead of disk, so a new writer must take over. A failed fsync
+  does not mean the bytes are absent: they may sit in the page cache, visible to readers.
+  A later writer may then chain onto those events, and if power is lost before the kernel
+  writes them back, the later events survive while the earlier ones do not: a ``seq``
+  gap that verification (Task 7) reports.
 
 One owner per document
 ----------------------
@@ -38,8 +47,11 @@ from disk (all segments, incrementally), so a writer opened earlier still contin
 events another writer flushed and closed meanwhile, and a writer opened after a crash
 never reuses a ``seq`` that is on disk. Inside one process the rule is enforced: appending
 to a document held by another live writer raises ``DocumentInUse``. Across processes it is
-not enforced (no per-document lock files); callers partition documents between processes,
-and verification (Task 7) catches a forked chain.
+not enforced (no per-document lock files); callers partition documents between processes.
+If two processes do write one document, its chain forks (two stored events with one
+``seq``). Head computation detects that: ``doc_heads`` and a writer taking the document
+raise ``ForkedChain`` naming the document and ``seq``, so nothing extends or seals a forked
+chain. The line readers still return every line, and verification (Task 7) reports it.
 
 Reading
 -------
@@ -74,6 +86,7 @@ __all__ = [
     "CorruptLine",
     "DocumentInUse",
     "EventLog",
+    "ForkedChain",
     "LogWriter",
     "RunExists",
     "StoredLine",
@@ -105,6 +118,21 @@ class DocumentInUse(RuntimeError):
 
 class CorruptLine(ValueError):
     """A whole segment line is not a JSON object."""
+
+
+class ForkedChain(RuntimeError):
+    """Two stored events share one ``(doc_id, seq)``: two owners wrote the same document.
+
+    Raised by head computation (``doc_heads``, a writer taking the document), never by the
+    line readers: ``iter_stored`` and ``iter_events`` still return every line, so
+    verification (Task 7) can report the fork.
+    """
+
+    def __init__(self, run_id: str, doc_id: str, seq: int) -> None:
+        super().__init__(f"document {doc_id!r} of run {run_id!r} is forked: seq {seq} is stored twice")
+        self.run_id = run_id
+        self.doc_id = doc_id
+        self.seq = seq
 
 
 @dataclass(frozen=True)
@@ -235,20 +263,48 @@ class EventLog:
         yield from events
 
     def doc_heads(self, run_id: str) -> dict[str, str]:
-        """``doc_id -> hash`` of the highest-``seq`` flushed event of each document."""
-        heads: dict[str, tuple[int, str]] = {}
+        """``doc_id -> hash`` of the highest-``seq`` flushed event of each document.
+
+        Raises ``ForkedChain`` if any document has two stored events with one ``seq``.
+        """
+        return {d: h for d, (_, h) in self.doc_head_seqs(run_id).items()}
+
+    def doc_head_seqs(self, run_id: str) -> dict[str, tuple[int, str]]:
+        """``doc_id -> (seq, hash)`` of each document's head, sorted by doc id.
+
+        Raises ``ForkedChain`` like ``doc_heads``.
+        """
+        heads = _Heads()
         for s in self.iter_stored(run_id):
-            _update_head(heads, s.raw, s)
-        return {d: h for d, (_, h) in sorted(heads.items())}
+            heads.add(s.raw, s)
+        heads.check_forks(run_id)
+        return dict(sorted(heads.heads.items()))
 
 
-def _update_head(heads: dict[str, tuple[int, str]], raw: Mapping[str, Any], where: StoredLine) -> None:
-    doc, seq, h = raw.get("doc_id"), raw.get("seq"), raw.get("hash")
-    if not isinstance(doc, str) or not isinstance(seq, int) or isinstance(seq, bool) or not isinstance(h, str):
-        raise CorruptLine(f"{where.segment} at byte {where.byte_offset}: missing doc_id, seq or hash")
-    cur = heads.get(doc)
-    if cur is None or seq >= cur[0]:
-        heads[doc] = (seq, h)
+class _Heads:
+    """Each document's highest ``(seq, hash)``, plus any ``(doc_id, seq)`` stored twice."""
+
+    def __init__(self) -> None:
+        self.heads: dict[str, tuple[int, str]] = {}
+        self._seqs: dict[str, set[int]] = {}
+        self.forks: dict[str, int] = {}  # doc_id -> the lowest seq seen twice
+
+    def add(self, raw: Mapping[str, Any], where: StoredLine) -> None:
+        doc, seq, h = raw.get("doc_id"), raw.get("seq"), raw.get("hash")
+        if not isinstance(doc, str) or not isinstance(seq, int) or isinstance(seq, bool) or not isinstance(h, str):
+            raise CorruptLine(f"{where.segment} at byte {where.byte_offset}: missing doc_id, seq or hash")
+        seqs = self._seqs.setdefault(doc, set())
+        if seq in seqs:
+            self.forks[doc] = min(seq, self.forks.get(doc, seq))
+        seqs.add(seq)
+        cur = self.heads.get(doc)
+        if cur is None or seq > cur[0]:
+            self.heads[doc] = (seq, h)
+
+    def check_forks(self, run_id: str, doc_id: str | None = None) -> None:
+        docs = sorted(self.forks) if doc_id is None else [doc_id] if doc_id in self.forks else []
+        if docs:
+            raise ForkedChain(run_id, docs[0], self.forks[docs[0]])
 
 
 class _DiskHeads:
@@ -258,7 +314,7 @@ class _DiskHeads:
         self._log = log
         self._run_id = run_id
         self._offsets: dict[str, int] = {}
-        self.heads: dict[str, tuple[int, str]] = {}
+        self.heads = _Heads()
 
     def refresh(self) -> None:
         for seg in self._log._segments(self._run_id):
@@ -268,7 +324,7 @@ class _DiskHeads:
                 data = f.read()
             lines, used = _parse_lines(seg.name, data, start)
             for s in lines:
-                _update_head(self.heads, s.raw, s)
+                self.heads.add(s.raw, s)
             self._offsets[seg.name] = start + used
 
 
@@ -302,7 +358,6 @@ class LogWriter:
         k = max(ks)
         while True:
             path = seg_dir / (f"{self.writer_id}.jsonl" if k == 0 else f"{self.writer_id}.{k}.jsonl")
-            existed = path.exists()
             fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
             f = os.fdopen(fd, "ab", buffering=0)  # closing (or GC) releases the flock
             try:
@@ -310,8 +365,9 @@ class LogWriter:
             except BlockingIOError:
                 f.close()
                 raise WriterInUse(f"writer {self.writer_id!r} of run {self.run_id!r} is live") from None
-            if not existed:
-                _fsync_dir(seg_dir)
+            # Every open, not only on create: the process that created the segment may
+            # have crashed before its directory fsync, leaving the entry undurable.
+            _fsync_dir(seg_dir)
             size = os.fstat(fd).st_size
             if size == 0 or _last_byte(path) == b"\n":
                 return f, path
@@ -328,10 +384,11 @@ class LogWriter:
             _CLAIMS[key] = weakref.ref(self)
         try:
             self._disk.refresh()
+            self._disk.heads.check_forks(self.run_id, doc_id)
         except BaseException:
             self._release(doc_id)
             raise
-        self._heads[doc_id] = self._disk.heads.get(doc_id, (-1, GENESIS))
+        self._heads[doc_id] = self._disk.heads.heads.get(doc_id, (-1, GENESIS))
 
     def _release(self, doc_id: str) -> None:
         key = (self._root_key, self.run_id, doc_id)
@@ -370,7 +427,13 @@ class LogWriter:
         payload: Mapping[str, Any] | None = None,
         ts: str | None = None,
     ) -> Event:
-        """Append one event to ``doc_id``'s chain and return it as stored."""
+        """Append one event to ``doc_id``'s chain and return it as stored.
+
+        The event is buffered, not yet durable: it reaches disk (and readers) on the next
+        flush, which ``flush()``, ``close()`` or every ``flush_every``-th append performs.
+        Index or export callers must act on it only after that flush. Raises
+        ``ForkedChain`` if this writer takes ``doc_id`` and its stored chain is forked.
+        """
         fields: dict[str, Any] = copy.deepcopy(
             {
                 "run_id": self.run_id,
@@ -429,7 +492,11 @@ class LogWriter:
         self._buffer.clear()
 
     def flush(self) -> None:
-        """Write every buffered event and fsync the segment."""
+        """Write every buffered event and fsync the segment.
+
+        On return, every event this writer's ``append`` has returned is durable. If the
+        write or fsync raises, the writer is failed (see the module doc).
+        """
         with self._lock:
             self._check_usable()
             self._flush_locked()
