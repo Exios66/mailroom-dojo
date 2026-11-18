@@ -1,0 +1,527 @@
+# Scoring profile for the mailroom dataset (Lucius-Morningstar/mailroom-dataset).
+#
+# The Dojo's scoring rules for this client: classes and their fields with types,
+# label vocabularies and how written labels fold onto them, row variants, field
+# rules and thresholds. Loaded by mailroom_dojo.profile.load_scoring_profile, which
+# rejects unknown keys, unregistered field types and malformed values, and hashes
+# the content into profile.content_hash for the run record.
+#
+# Every value here reproduces llm-dojo-scoring 0.30.1 (commit 23f8234c) exactly:
+# the defaults of its Settings, its DOC_CLASSES registry, its scored enum
+# vocabularies (intents, scored_enums, corpus) and its CUAD catalog. Changing a
+# value here changes scores.
+
+profile_format: 1
+client: mailroom-dataset
+version: "2026-11-18"
+
+# The residual label: what a subclass that folds onto nothing becomes.
+unknown_label: other
+
+# An expected key the class does not declare is typed from its name (dates, money
+# words, id words, else name), as the old Dojo did. New clients should use skip or error.
+unmapped_fields: heuristic
+
+# Dataset annotation and provenance keys: never an extraction target on either side.
+never_scored_fields:
+  - gt_presence
+  - cuad_clause_labels
+  - intent_status
+  - intent_source
+  - intent_confidence
+  - label_evidence
+  - topic_evidence
+  - sentiment_evidence
+  - sentiment_score
+  - context_window_band
+  - token_estimate
+  - clause_count
+  - maud_label_count
+  - related_document_ids
+  - relationships
+  - evidence
+  - provenance
+  - expected_subclass
+
+# Prompt keys retired from live models: scored only when a caller's own field-type
+# map names them (rescoring old runs).
+retired_fields:
+  - key_obligations
+  - termination_clauses
+  - key_provisions
+  - key_points
+  - referenced_communications
+
+# Element scorers beyond the built-in types: CMS supporting-document identifiers
+# (NPI, NDC, facility provider id), bundled with mailroom_dojo.
+scorer_plugins: [cms_doc_ref]
+
+# Rules by field name. They apply to every class that has the field and does not
+# set its own rule, and to keys a class does not declare.
+field_name_defaults:
+  # Scored by the share of the expected text's tokens found in the prediction.
+  containment: [governing_law, term_length, renewal_terms, subject_matter]
+  # The labels sample the document (CUAD answer snippets), so the list is scored
+  # by ground-truth coverage (recall), not F1.
+  recall_coverage: [parties, keywords, cuad_clauses, maud_clauses, claim_checklist, action_items]
+
+thresholds:
+  ambiguous_band: [0.5, 0.85]   # half-open: low <= score < high goes to the judge
+  type_bands: {}                # per-type overrides: always, never or [low, high]
+  list_match_threshold: 0.6     # minimum similarity for two list items to pair
+
+audit:
+  enabled: true
+  token_coverage: 0.7
+
+presence:
+  route_by_reasoning: true
+  embedding_threshold: 0.7
+
+embedding:
+  enabled: false
+  rescue_below: 0.7
+
+list_matching:
+  # Party-role words CUAD labels use instead of a party's name.
+  role_words: [shipper, sponsor, seller, buyer, company, producer, reseller, licensee,
+               licensor, party, parties, transporter, customer, client, vendor, purchaser,
+               lender, borrower, guarantor, manufacturer, distributor, owner, operator]
+
+trace_capture:
+  capture_confidence: true
+  capture_reasoning: true
+  confidence_min: null
+  confidence_band: null
+  compute_calibration_error: true
+  missing_confidence: absent
+
+classification:
+  # Patterns are tried most specific first, so "merger agreement" is not read as
+  # "contract" and "correspondence about an insurance claim" is correspondence.
+  # Classes not named follow in profile order.
+  match_order: [merger_agreement, corporate_record, correspondence, compliance_filing,
+                insurance_claim, contract]
+
+class_aliases: {}
+
+# Classes in the old registry order. Retired classes stay scoreable for old runs
+# and leave the classifier's label set.
+classes:
+  - key: contract
+    status: live
+    subclasses:
+      # CUAD's 25 contract families, folded from folder names and labels.
+      tokens: &cuad_families [affiliate, agency, collaboration, co_branding, consulting,
+                              development, distributor, endorsement, franchise, hosting, ip,
+                              joint_venture, license, maintenance, manufacturing, marketing,
+                              non_compete_no_solicit, outsourcing, promotion, reseller, service,
+                              sponsorship, strategic_alliance, supply, transportation]
+      fold: catalog
+      catalog: &cuad_catalog
+        - {key: affiliate, label: "Affiliate Agreement"}
+        - {key: agency, label: "Agency Agreement"}
+        - {key: collaboration, label: "Collaboration / Cooperation Agreement"}
+        - {key: co_branding, label: "Co-Branding Agreement"}
+        - {key: consulting, label: "Consulting Agreement"}
+        - {key: development, label: "Development Agreement"}
+        - {key: distributor, label: "Distributor Agreement"}
+        - {key: endorsement, label: "Endorsement Agreement"}
+        - {key: franchise, label: "Franchise Agreement"}
+        - {key: hosting, label: "Hosting Agreement"}
+        - {key: ip, label: "IP Agreement"}
+        - {key: joint_venture, label: "Joint Venture Agreement"}
+        - {key: license, label: "License Agreement"}
+        - {key: maintenance, label: "Maintenance Agreement"}
+        - {key: manufacturing, label: "Manufacturing Agreement"}
+        - {key: marketing, label: "Marketing Agreement"}
+        - {key: non_compete_no_solicit, label: "Non-Compete / No-Solicit / Non-Disparagement Agreement"}
+        - {key: outsourcing, label: "Outsourcing Agreement"}
+        - {key: promotion, label: "Promotion Agreement"}
+        - {key: reseller, label: "Reseller Agreement"}
+        - {key: service, label: "Service Agreement"}
+        - {key: sponsorship, label: "Sponsorship Agreement"}
+        - {key: strategic_alliance, label: "Strategic Alliance Agreement"}
+        - {key: supply, label: "Supply Agreement"}
+        - {key: transportation, label: "Transportation Agreement"}
+      aliases: &cuad_aliases
+        affiliate_agreements: affiliate
+        affiliate_agreement: affiliate
+        agency_agreements: agency
+        co_branding: co_branding
+        collaboration: collaboration
+        consulting_agreements: consulting
+        development: development
+        distributor: distributor
+        endorsement: endorsement
+        endorsement_agreement: endorsement
+        franchise: franchise
+        hosting: hosting
+        ip: ip
+        joint_venture: joint_venture
+        joint_venture_filing: joint_venture
+        license_agreements: license
+        maintenance: maintenance
+        manufacturing: manufacturing
+        marketing: marketing
+        non_compete_non_solicit: non_compete_no_solicit
+        outsourcing: outsourcing
+        promotion: promotion
+        reseller: reseller
+        service: service
+        sponsorship: sponsorship
+        strategic_alliance: strategic_alliance
+        supply: supply
+        transportation: transportation
+    # ContractExtraction v1 keys a prediction may still carry: accepted, never scored.
+    accepted_unscored_fields: [merger_consideration, maud_clauses]
+    fields:
+      document_name: name
+      parties: entity_list:name
+      party_roles: entity_list:free_text
+      signatories: entity_list:name
+      agreement_date: date
+      effective_date: date
+      expiration_date: date
+      term_length: free_text
+      renewal_terms: free_text
+      termination_notice_period: free_text
+      governing_law: name
+      dispute_forum: name
+      contract_value: money
+      payment_terms: free_text
+      territory: free_text
+      cuad_family:
+        type: label
+        vocabulary:
+          tokens: [affiliate, agency, collaboration, co_branding, consulting, development,
+                   distributor, endorsement, franchise, hosting, ip, joint_venture, license,
+                   maintenance, manufacturing, marketing, non_compete_no_solicit, outsourcing,
+                   promotion, reseller, service, sponsorship, strategic_alliance, supply,
+                   transportation, other]
+          fold: catalog
+          catalog: *cuad_catalog
+          aliases: *cuad_aliases
+      cuad_clauses: entity_list:free_text
+
+  - key: corporate_record
+    status: live
+    subclasses:
+      tokens: [bylaws, articles_of_incorporation, certificate_of_formation, charter_amendment,
+               powers_of_attorney, subsidiary_list, rights_instrument, indenture,
+               board_resolution, officer_certificate, other]
+      fold: allowed_set
+    # The nine core fields, then every subclass's key-entity fields. The old
+    # specialist suite scored corporate records with this 40-field map (registry
+    # core plus corporate_record_schema entities), so the profile holds the same map.
+    fields:
+      entity_name: name
+      record_type: name
+      effective_date: date
+      signatories: entity_list:name
+      jurisdiction: name
+      filing_number: id
+      intent:
+        type: label
+        vocabulary:
+          tokens: [governance_rules, corporate_action_approval, entity_formation,
+                   authority_delegation, investor_rights, other]
+          fold: inventory
+          # One alias table for every intent vocabulary: an alias that names another
+          # class's intent marks the value as foreign, and it folds to nothing.
+          aliases: &intent_aliases
+            record_governance: governance_rules
+            recordgovernance: governance_rules
+            governance: governance_rules
+            governancerules: governance_rules
+            governingrules: governance_rules
+            bylaws: governance_rules
+            boardresolution: corporate_action_approval
+            corporateaction: corporate_action_approval
+            corporateactionapproval: corporate_action_approval
+            approval: corporate_action_approval
+            entityformation: entity_formation
+            formation: entity_formation
+            incorporation: entity_formation
+            articlesofincorporation: entity_formation
+            powerofattorney: authority_delegation
+            authoritydelegation: authority_delegation
+            investorrights: investor_rights
+            rightsinstrument: investor_rights
+            demand: payment_demand
+            paymentdemand: payment_demand
+            demandpayment: payment_demand
+            demandforpayment: payment_demand
+            demandletter: payment_demand
+            attorneydemand: payment_demand
+            noticedefault: notice
+            noticeofbreach: notice
+            noticeofnoncompliance: notice
+            noticeofintent: notice
+            analysis: analysis
+            remediesanalysis: analysis
+            recommendation: analysis
+            request: request
+            requestinformation: request
+            update: update
+            statusupdate: update
+            meetinginvite: meeting_invite
+            meetingrequest: meeting_invite
+            schedulemeeting: meeting_invite
+            pressrelease: press_communication
+            presscommunication: press_communication
+            publicstatement: press_communication
+            claimfiling: claim_filing
+            filing: claim_filing
+            firstnoticeofloss: claim_filing
+            noticeofloss: claim_filing
+            fnol: claim_filing
+            initialfnol: claim_filing
+            coveragedetermination: coverage_determination
+            determination: coverage_determination
+            denial: coverage_determination
+            denialletter: coverage_determination
+            denialnotice: coverage_determination
+            denied: coverage_determination
+            approved: coverage_determination
+            partial: coverage_determination
+            claimdenied: coverage_determination
+            claimapproved: coverage_determination
+            claimpartiallyapproved: coverage_determination
+            partialapproval: coverage_determination
+            coverage_approval: coverage_determination
+            coverage_denial: coverage_determination
+            coverage_partial: coverage_determination
+            lossreport: loss_report
+            adjusterreport: loss_report
+            claimdatarecord: claim_data_record
+            "data record": claim_data_record
+            planofmerger: effect_merger
+            agreementandplanofmerger: effect_merger
+            mergeragreement: effect_merger
+            effectmerger: effect_merger
+            amendmerger: amend_merger
+            amendmenttomergeragreement: amend_merger
+            mergeramendment: amend_merger
+      subject_matter: free_text
+      keywords: entity_list:name
+      certifying_officer: {type: name, subclasses: [bylaws, officer_certificate]}
+      last_amended_date: {type: date, subclasses: [bylaws]}
+      incorporators: {type: "entity_list:name", subclasses: [articles_of_incorporation]}
+      registered_agent: {type: name, subclasses: [articles_of_incorporation, certificate_of_formation]}
+      authorized_capital: {type: free_text, subclasses: [articles_of_incorporation]}
+      organizers: {type: "entity_list:name", subclasses: [certificate_of_formation]}
+      amended_provisions: {type: "entity_list:free_text", subclasses: [charter_amendment]}
+      approval_date: {type: date, subclasses: [charter_amendment]}
+      prior_entity_name: {type: name, subclasses: [charter_amendment]}
+      principal: {type: name, subclasses: [powers_of_attorney]}
+      attorneys_in_fact: {type: "entity_list:name", subclasses: [powers_of_attorney]}
+      authority_scope: {type: free_text, subclasses: [powers_of_attorney]}
+      expiration_date: {type: date, subclasses: [powers_of_attorney]}
+      subsidiaries: {type: "entity_list:name", subclasses: [subsidiary_list]}
+      subsidiary_jurisdictions: {type: "entity_list:name", subclasses: [subsidiary_list]}
+      instrument_kind: {type: name, subclasses: [rights_instrument]}
+      holder: {type: name, subclasses: [rights_instrument]}
+      rights_agent: {type: name, subclasses: [rights_instrument]}
+      securities_covered: {type: free_text, subclasses: [rights_instrument]}
+      exercise_price: {type: money, subclasses: [rights_instrument]}
+      trustee: {type: name, subclasses: [indenture]}
+      guarantors: {type: "entity_list:name", subclasses: [indenture]}
+      securities_series: {type: name, subclasses: [indenture]}
+      principal_amount: {type: money, subclasses: [indenture]}
+      maturity_date: {type: date, subclasses: [indenture]}
+      acting_body: {type: name, subclasses: [board_resolution]}
+      action_approved: {type: free_text, subclasses: [board_resolution]}
+      resolutions: {type: "entity_list:free_text", subclasses: [board_resolution]}
+      officer_title: {type: name, subclasses: [officer_certificate]}
+      certified_matter: {type: free_text, subclasses: [officer_certificate]}
+      addressee: {type: name, subclasses: [officer_certificate]}
+
+  - key: due_diligence
+    status: retired
+    fields:
+      target_entity: name
+      diligence_type: name
+      material_findings: entity_list:free_text
+      risk_flags: entity_list:free_text
+      outstanding_items: entity_list:free_text
+      document_date: date
+      prepared_by: name
+
+  - key: correspondence
+    status: live
+    subclasses:
+      tokens: &communication_types [email, memo, letter, notice, demand, attorney_demand,
+                                    press_release, meeting_request, other]
+      fold: allowed_set
+    fields:
+      sender: name
+      recipient: name
+      additional_recipients: entity_list
+      communication_type:
+        type: label
+        vocabulary: {tokens: *communication_types, fold: allowed_set}
+      communication_date: date
+      demand_amount: money
+      action_items: entity_list
+      urgency:
+        type: label
+        vocabulary: {tokens: [routine, time-sensitive, urgent, critical], fold: exact}
+      intent:
+        type: label
+        vocabulary:
+          tokens: [payment_demand, notice, analysis, request, update, meeting_invite,
+                   press_communication, other]
+          fold: inventory
+          aliases: *intent_aliases
+      subject_matter: free_text
+      keywords: entity_list:name
+
+  - key: compliance_filing
+    status: retired
+    subclasses:
+      tokens: [10-K, 10-Q, 8-K, S-1, DEF 14A, 13D, 13G, Form 4, 20-F, 6-K, other]
+      fold: allowed_set
+    fields:
+      filing_type: name
+      regulatory_body: name
+      filing_date: date
+      due_date: date
+      entity_name: name
+      key_requirements: entity_list:free_text
+      status: name
+      reference_number: id
+
+  - key: court_opinion
+    status: retired
+    fields:
+      case_name: name
+      court: name
+      date_decided: date
+      docket_number: id
+      opinion_type: name
+      parties: entity_list:name
+      holding: free_text
+      legal_issues: entity_list:free_text
+      outcome: free_text
+      citations: entity_list:id
+      authored_by: name
+
+  - key: insurance_claim
+    status: live
+    subclasses:
+      # CMS DE-SynPUF source tables, then the product lines of the synthetic claims.
+      tokens: [carrier, inpatient, outpatient, pde, property, auto]
+      fold: allowed_set
+    fields:
+      claim_number: id
+      policy_number: id
+      insurer: name
+      insured_party: name
+      claim_type:
+        type: label
+        vocabulary: {tokens: [auto, property, liability, health, life, workers_comp, other], fold: exact}
+        # A CMS table token is never a product line: it scores as an exact label,
+        # with no fuzzy credit, even on a row not recognised as CMS.
+        predicted_value_type_override: {tokens: &cms_tables [carrier, inpatient, outpatient, pde], type: label}
+      date_of_loss: date
+      date_filed: date
+      claimed_amount: money
+      adjuster: name
+      damages_description: free_text
+      coverage_determination:
+        type: label
+        vocabulary:
+          tokens: [approved, denied, partial, pending]
+          fold: aliases
+          aliases:
+            approve: approved
+            covered: approved
+            accepted: approved
+            paid: approved
+            deny: denied
+            declined: denied
+            rejected: denied
+            not covered: denied
+            uncovered: denied
+            partially approved: partial
+            partially denied: partial
+            partial approval: partial
+            partial denial: partial
+            partly approved: partial
+            partly denied: partial
+            under review: pending
+            in review: pending
+            open: pending
+            undetermined: pending
+      denial_reasons: entity_list:free_text
+      supporting_documents: entity_list
+      intent:
+        type: label
+        vocabulary:
+          tokens: [claim_filing, coverage_determination, loss_report, claim_data_record, other]
+          fold: inventory
+          aliases: *intent_aliases
+      subject_matter: free_text
+      keywords: entity_list:name
+      # Emitted by the pipeline but not yet labelled (pending annotation).
+      claim_checklist: entity_list:free_text
+    variants:
+      # A CMS DE-SynPUF row: its expected cms_source_table (derived from the
+      # subclass) names a table, and its claim_type is health or empty.
+      - name: cms_desynpuf
+        marker:
+          field: cms_source_table
+          values: *cms_tables
+          fallback_fields: [claim_type]   # the frozen prompt reports the table on claim_type
+          skip_when_unstated: true
+          derive_from: subclass
+        guard: {field: claim_type, allowed: [health], allow_empty: true}
+        documented_absent_fields: [adjuster, denial_reasons]
+        field_type_overrides:
+          claim_type: label
+          cms_source_table: label
+          supporting_documents: entity_list:cms_doc_ref
+        added_fields:
+          cms_source_table:
+            type: label
+            vocabulary: {tokens: *cms_tables, fold: exact}
+
+  - key: merger_agreement
+    status: live
+    subclasses:
+      # MAUD type of consideration.
+      tokens: &maud_considerations [all_cash, all_stock, mixed_cash_stock,
+                                    mixed_cash_stock_election, other]
+      fold: allowed_set
+    fields:
+      document_name: name
+      parties: entity_list:name
+      acquirer: name
+      target: name
+      merger_sub: entity_list:name
+      signatories: entity_list:name
+      effective_date: date
+      effective_time: free_text
+      governing_law: name
+      per_share_cash_amount: money
+      exchange_ratio: free_text
+      target_termination_fee: money
+      parent_termination_fee: money
+      outside_date: date
+      financial_advisors: entity_list:name
+      legal_counsel: entity_list:name
+      merger_consideration:
+        type: label
+        vocabulary: {tokens: *maud_considerations, fold: allowed_set}
+      maud_clauses: entity_list:free_text
+      intent:
+        type: label
+        vocabulary:
+          tokens: [effect_merger, amend_merger, other]
+          fold: inventory
+          # "Amendment No. 1 to Agreement and Plan of Merger" is an amendment.
+          prefix_aliases: {amend: amend_merger}
+          aliases: *intent_aliases
+      subject_matter: free_text
+      keywords: entity_list:name
