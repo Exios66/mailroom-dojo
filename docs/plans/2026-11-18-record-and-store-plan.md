@@ -154,12 +154,13 @@ def test_nan_is_rejected():
   - `EventKind = Literal["handoff", "model_call", "decision", "output", "review", "error", "serving"]`
   - `Run(schema_version: int = 1, run_id: str, kind: RunKind, backend: str, origin: Literal["native", "imported_sandbox"], policy_name: str | None, policy_hash: str | None, prompt_set: str | None, prompt_hashes: dict[str, str], agent_models: dict[str, str], code_version: str | None, label_snapshot_ids: list[str], document_ids: list[str], caps: dict[str, float], signed_by: str | None, created_at: str, source: dict[str, str])`
   - `BlobRef(sha256: str, role: str, size: int)` where role is one of `original`, `transcript`, `window`, `extraction`, `verdict`, `archived_record`, `human_correction`, `report`.
-  - `Event(schema_version: int = 1, run_id: str, doc_id: str, seq: int, ts: str, node: str, agent: str | None, attempt: int, kind: EventKind, model: str | None, prompt_id: str | None, tokens_in: int | None, tokens_out: int | None, tokens_cached: int | None, price_basis: str | None, latency_ms: float | None, decision: dict | None, cause: str | None, inputs: list[BlobRef], outputs: list[BlobRef], payload: dict, prev_hash: str, hash: str)`
+  - `Event(schema_version: int = 1, run_id: str, doc_id: str, seq: int, ts: str, node: str, agent: str | None, attempt: int, kind: EventKind, model: str | None, prompt_id: str | None, tokens_in: int | None, tokens_out: int | None, tokens_cached: int | None, price_basis: str | None, latency_ms: float | None, decision: dict | list | None, cause: str | None, inputs: list[BlobRef], outputs: list[BlobRef], payload: dict, prev_hash: str, hash: str)`
   - `Seal(schema_version: int = 1, run_id: str, n: int, sealed_at: str, doc_heads: dict[str, str], document_ids: list[str], event_count: int, prev_seal_hash: str, hash: str)`
   - `GENESIS = "0" * 64`
   - `event_hash(fields_without_hash: dict) -> str` = `hash_obj` of every field except `hash`.
   - `upgrade_event(raw: dict) -> dict` and `upgrade_run(raw: dict) -> dict` in `upgrade.py`: return a dict at the current version; raise `UnknownSchemaVersion` for a version newer than the code.
 - `doc_id` is the document's content SHA-256. The run-level pseudo-document for run events is the literal `"_run"`.
+- `decision` is a JSON object or a JSON list (Task 10 stores a node row's `decisions` list as given); both are normalised and canonical-checked like `payload`.
 - `payload` may hold only JSON scalars, lists and dicts of our own tokens. It must never hold document text or a model's free text (those go in blobs).
 
 - [ ] **Step 1: Failing tests**

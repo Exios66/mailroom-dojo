@@ -111,7 +111,9 @@ def test_idempotent_put_does_not_rewrite(tmp_path: Path) -> None:
     assert (before.st_ino, before.st_mtime_ns) == (after.st_ino, after.st_mtime_ns)
 
 
-@pytest.mark.parametrize("bad", ["A" * 64, "a" * 63, "../" + "a" * 61, "", "g" * 64])
+@pytest.mark.parametrize(
+    "bad", ["A" * 64, "a" * 63, "../" + "a" * 61, "", "g" * 64, "a" * 64 + "\n", "a" * 64 + "\r"]
+)
 def test_malformed_hash_is_refused_everywhere(tmp_path: Path, bad: str) -> None:
     s = BlobStore(tmp_path)
     for call in (s.get, s.exists, s.content_path, lambda h: s.tombstone(h, "r")):
@@ -303,3 +305,52 @@ def test_processes_putting_the_same_bytes(tmp_path: Path) -> None:
     assert len(list(tmp_path.rglob("*.zst"))) == 1
     assert _leftovers(tmp_path) == []
     assert BlobStore(tmp_path).get(sha256_hex(data)) == data
+
+
+def test_tombstone_after_a_stale_check_keeps_the_first_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Two callers both saw "present" before either wrote: the first record must win.
+    s = BlobStore(tmp_path)
+    ref = s.put(b"secret", "original")
+    s.tombstone(ref.sha256, "first")
+    monkeypatch.setattr(s, "exists", lambda sha: "present")
+    s.tombstone(ref.sha256, "second")
+    assert s.tombstone_info(ref.sha256)["reason"] == "first"
+    assert not list(tmp_path.rglob("*.tmp"))
+
+
+def test_concurrent_tombstones_never_replace_the_record(tmp_path: Path) -> None:
+    s = BlobStore(tmp_path)
+    ref = s.put(b"secret", "original")
+    n = 16
+    barrier = threading.Barrier(n)
+    seen: list[str] = []
+    errors: list[BaseException] = []
+
+    def go(i: int) -> None:
+        try:
+            barrier.wait()
+            s.tombstone(ref.sha256, f"reason-{i}")
+            seen.append(s.tombstone_info(ref.sha256)["reason"])
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=go, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    final = s.tombstone_info(ref.sha256)["reason"]
+    assert set(seen) == {final}  # every caller saw the one record that stayed
+    assert s.exists(ref.sha256) == "tombstoned"
+    assert not list(tmp_path.rglob("*.tmp"))
+
+
+def test_blob_and_tombstone_files_are_owner_only(tmp_path: Path) -> None:
+    s = BlobStore(tmp_path)
+    keep, gone = s.put(b"keep", "original"), s.put(b"gone", "original")
+    s.tombstone(gone.sha256, "deletion request")
+    assert s.content_path(keep.sha256).stat().st_mode & 0o777 == 0o600
+    assert s.tombstone_path(gone.sha256).stat().st_mode & 0o777 == 0o600

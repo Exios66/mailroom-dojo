@@ -351,3 +351,41 @@ def test_blob_ref_is_hashable_and_frozen() -> None:
     assert isinstance(ref, BlobRef) and hash(ref) == hash(blob_ref())
     with pytest.raises(ValidationError):
         ref.size = 9  # type: ignore[misc]
+
+
+# --- review fixes (Tasks 3-4 review) -----------------------------------------------
+
+
+def test_decision_may_be_a_list_of_decisions() -> None:
+    # Task 10 stores a node row's ``decisions`` list as given.
+    decisions = [
+        {"question": "extraction_verdict", "type": "choice", "answer": "partial", "p": 0.7},
+        {"question": "route", "type": "choice", "answer": ("extract", "review"), "p": None},
+    ]
+    e = make_event(decision=decisions)
+    assert e.decision[0]["question"] == "extraction_verdict"
+    assert e.decision[1]["answer"] == ["extract", "review"]  # normalised like payload
+    stored = json.loads(canonical_json(e.model_dump(mode="json")))
+    assert event_hash(stored) == e.hash
+    assert Event.from_stored(stored) == e
+    assert make_event(decision=decisions[:1]).hash != e.hash
+
+
+@pytest.mark.parametrize("bad", ["text", 3, [{"x": float("nan")}], [object()], [{1: "k"}]])
+def test_decision_rejects_non_json_or_scalars(bad: Any) -> None:
+    with pytest.raises((ValidationError, TypeError)):
+        make_event(decision=bad)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"ts": "2026-11-18T12:00:00Z\n"},
+        {"prev_hash": "0" * 64 + "\n"},
+        {"run_id": "r1\n"},
+        {"inputs": [{"sha256": "b" * 64 + "\n", "role": "transcript", "size": 1}]},
+    ],
+)
+def test_trailing_newline_is_rejected(overrides: dict[str, Any]) -> None:
+    with pytest.raises((ValidationError, TypeError)):
+        make_event(**overrides)

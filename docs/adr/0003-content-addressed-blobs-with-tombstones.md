@@ -17,6 +17,8 @@ text must never reach an exported analysis file.
   human correction, report) is a blob stored once under its SHA-256, compressed with zstd
   (level 9), at `blobs/<aa>/<bb>/<sha256>.zst`. Writes go to a temp file, are fsynced, then
   renamed, so a blob is either whole or absent. `put` is idempotent.
+  Blob and tombstone files are created with mode 0600 (owner only), because they hold
+  private document content.
 - Events hold only `BlobRef(sha256, role, size)`. `payload` holds our own tokens only, never
   document text or model free text.
 - Deleting content writes `<sha256>.tombstone` (reason and time) and removes the content. The

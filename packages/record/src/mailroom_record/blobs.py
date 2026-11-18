@@ -14,6 +14,9 @@ Rules:
 - A tombstone wins over content. Once ``<sha>.tombstone`` exists the blob is
   ``tombstoned``: ``get`` raises ``BlobTombstoned`` and ``put`` of the same bytes raises
   ``BlobTombstoned`` too, so a deletion request is never silently undone.
+- Tombstones are created exclusively (temp file, fsync, ``os.link``): under concurrent
+  ``tombstone`` calls the first record written is kept and never replaced.
+- Files are created 0600 (owner only), because blobs hold private document content.
 - ``tombstone`` of a blob that was never stored (or was lost) raises ``BlobMissing``: a
   tombstone passes verification, so it must not be used to paper over a lost blob.
 - ``get`` re-hashes the decompressed bytes and raises ``BlobCorrupt`` on any mismatch or
@@ -42,7 +45,7 @@ __all__ = ["BlobCorrupt", "BlobMissing", "BlobStore", "BlobTombstoned"]
 
 ZSTD_LEVEL = 9
 _CHUNK = 4 * 1024 * 1024
-_SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+_SHA_RE = re.compile(r"[0-9a-f]{64}")  # used with fullmatch: no trailing newline
 
 
 class BlobMissing(LookupError):
@@ -58,7 +61,7 @@ class BlobCorrupt(ValueError):
 
 
 def _check_sha(sha256: str) -> str:
-    if not isinstance(sha256, str) or not _SHA_RE.match(sha256):
+    if not isinstance(sha256, str) or not _SHA_RE.fullmatch(sha256):
         raise ValueError(f"not a lowercase hex SHA-256: {sha256!r}")
     return sha256
 
@@ -85,7 +88,11 @@ def _makedirs_durable(path: Path) -> None:
 
 
 class BlobStore:
-    """Blobs under ``<root>/blobs``. Safe to share between threads and processes."""
+    """Blobs under ``<root>/blobs``. Safe to share between threads and processes.
+
+    Content and tombstone files are created with mode 0600 (``mkstemp``) on purpose:
+    blobs hold private document content, so only the owning user can read them.
+    """
 
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
@@ -144,6 +151,33 @@ class BlobStore:
             raise
         _fsync_dir(directory)
 
+    def _write_exclusive(self, final: Path, body: bytes) -> bool:
+        """Write ``body`` to ``final`` only if ``final`` does not exist yet; first writer wins.
+
+        The bytes go to a fsynced temp file that is hard-linked to ``final``. ``os.link``
+        fails if ``final`` exists, so a concurrent second writer never replaces the first
+        record, and a reader never sees a half-written file. Returns whether we created it.
+        """
+        directory = final.parent
+        _makedirs_durable(directory)
+        fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{final.name}.", suffix=".tmp")
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(body)
+                f.flush()
+                os.fsync(f.fileno())
+            try:
+                os.link(tmp, final)
+                created = True
+            except FileExistsError:
+                created = False
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                tmp.unlink()
+        _fsync_dir(directory)
+        return created
+
     def put(self, data: bytes, role: str) -> BlobRef:
         """Store ``data`` once under its SHA-256 and return a ref with the given role.
 
@@ -178,7 +212,9 @@ class BlobStore:
         """Delete the content, keeping ``<sha>.tombstone`` with the reason and UTC time.
 
         Idempotent: a second call keeps the first record and finishes any half-done
-        deletion. Raises ``BlobMissing`` if the blob was never stored.
+        deletion. Concurrent calls (threads or processes) are safe: the tombstone file is
+        created exclusively, so the first record written is the one kept. Raises
+        ``BlobMissing`` if the blob was never stored.
         """
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("a tombstone needs a non-empty reason")
@@ -188,7 +224,7 @@ class BlobStore:
         if state == "present":
             record = {"sha256": sha256, "reason": reason, "tombstoned_at": utc_now()}
             body = canonical_json(record)
-            self._write_atomic(self.tombstone_path(sha256), lambda f: f.write(body))
+            self._write_exclusive(self.tombstone_path(sha256), body)
         content = self.content_path(sha256)
         if content.exists():
             with contextlib.suppress(FileNotFoundError):

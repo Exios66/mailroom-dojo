@@ -11,9 +11,9 @@ hash never covered (``tokens_cached``), so its hash can only be checked on the s
 dict. Verification (Task 7) must therefore run ``event_hash(raw) == raw["hash"]`` on the
 parsed line *before* ``upgrade_event`` / ``Event.from_stored``, never on the model.
 
-``payload`` and ``decision`` must be JSON-safe (``canonical_json`` accepts them); they are
-normalised to plain JSON on validation (tuples become lists), so the model holds what the
-log will store. They must never hold document text or model free text: those are blobs.
+``payload`` (an object) and ``decision`` (an object, or a list such as a node's decisions)
+must be JSON-safe (``canonical_json`` accepts them); they are normalised to plain JSON on
+validation (tuples become lists), so the model holds what the log will store. They must never hold document text or model free text: those are blobs.
 Frozen models still hold plain dicts and lists; treat them as read-only.
 
 Validation is strict (no ``"3"`` -> ``3`` or ``True`` -> ``1`` coercion; an int is still
@@ -73,6 +73,8 @@ BlobRole = Literal[
 BLOB_ROLES: tuple[str, ...] = BlobRole.__args__  # type: ignore[attr-defined]
 
 # --- field types ------------------------------------------------------------------
+# Pattern constraints are checked by pydantic-core's Rust regex engine, where ``$`` matches
+# only at the very end of the string, so a trailing newline is rejected (tested).
 
 Sha256 = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 NonEmpty = Annotated[str, StringConstraints(min_length=1)]
@@ -81,11 +83,12 @@ RunId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,
 Count = Annotated[int, Field(ge=0)]
 FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
 
-_TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$")
+# Used with fullmatch: ``$`` with ``match`` would accept a trailing newline.
+_TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z")
 
 
 def _check_ts(value: str) -> str:
-    if not _TS_RE.match(value):
+    if not _TS_RE.fullmatch(value):
         raise ValueError(f"timestamp must be UTC ISO-8601 ending in Z, got {value!r}")
     fmt = "%Y-%m-%dT%H:%M:%S.%fZ" if "." in value else "%Y-%m-%dT%H:%M:%SZ"
     datetime.strptime(value, fmt)  # rejects impossible dates such as month 13
@@ -107,6 +110,25 @@ def _json_dict(value: Any) -> Any:
 
 
 JsonDict = Annotated[dict[str, Any], BeforeValidator(_json_dict)]
+
+
+def _json_dict_or_list(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, Mapping):
+        value = dict(value)
+    elif isinstance(value, (list, tuple)):
+        value = list(value)
+    else:
+        raise ValueError(f"expected a JSON object or list, got {type(value).__name__}")
+    try:
+        return json.loads(canonical_json(value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"not JSON-safe: {exc}") from exc
+
+
+# ``decision`` holds one decision object, or a node's list of decisions (Task 10).
+JsonDecision = Annotated[dict[str, Any] | list[Any], BeforeValidator(_json_dict_or_list)]
 
 
 def _version(current: int) -> Any:
@@ -196,7 +218,7 @@ class Event(_Frozen):
     tokens_cached: Count | None
     price_basis: str | None
     latency_ms: Annotated[float, Field(ge=0, allow_inf_nan=False)] | None
-    decision: JsonDict | None
+    decision: JsonDecision | None
     cause: str | None
     inputs: list[BlobRef]
     outputs: list[BlobRef]
