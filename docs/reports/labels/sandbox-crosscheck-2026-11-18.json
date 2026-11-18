@@ -1,0 +1,211 @@
+{
+  "audit_vs_sandbox_gold_catalog": {
+    "audit_decisions": 1039,
+    "catalog_status_of_audited_labels": {
+      "near_gold": 1039
+    },
+    "different": [
+      {
+        "audit": [
+          "please continue to spread the word",
+          "Check it out!"
+        ],
+        "catalog": [],
+        "catalog_status": "near_gold",
+        "doc": "DOC-672cec2c85c83c39",
+        "field": "action_items",
+        "near_gold_overlay": []
+      }
+    ],
+    "equal": 1038,
+    "not_in_catalog": []
+  },
+  "comparison": {
+    "agree": 32976,
+    "sandbox scores hub, ours does not: document unverified (stale_label)": 24,
+    "sandbox scores interim, ours does not: document unverified (stale_label)": 29
+  },
+  "documents_compared": 3302,
+  "examples": {
+    "sandbox scores hub, ours does not: document unverified (stale_label)": [
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "intent",
+        "ours": [
+          "hub",
+          "populated",
+          null
+        ],
+        "sandbox": [
+          "hub",
+          "populated",
+          "governance_rules"
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "keywords",
+        "ours": [
+          "hub",
+          "populated",
+          null
+        ],
+        "sandbox": [
+          "hub",
+          "populated",
+          [
+            "Bylaws",
+            "stockholders",
+            "Board of Directors",
+            "officers",
+            "annual meeting",
+            "quorum",
+            "voting",
+            "indemnification"
+          ]
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "record_type",
+        "ours": [
+          "hub",
+          "populated",
+          null
+        ],
+        "sandbox": [
+          "hub",
+          "populated",
+          "bylaws"
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "subject_matter",
+        "ours": [
+          "hub",
+          "populated",
+          null
+        ],
+        "sandbox": [
+          "hub",
+          "populated",
+          "Bylaws of Revenue.com Corporation, a Nevada corporation, governing stockholder meetings, board of directors, officers, indemnification, and amendments."
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-4a8f1db0546e42be",
+        "field": "intent",
+        "ours": [
+          "hub",
+          "populated",
+          null
+        ],
+        "sandbox": [
+          "hub",
+          "populated",
+          "governance_rules"
+        ]
+      }
+    ],
+    "sandbox scores interim, ours does not: document unverified (stale_label)": [
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "effective_date",
+        "ours": [
+          null,
+          null,
+          null
+        ],
+        "sandbox": [
+          "interim",
+          "populated",
+          "2014-03-14"
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "entity_name",
+        "ours": [
+          null,
+          null,
+          null
+        ],
+        "sandbox": [
+          "interim",
+          "populated",
+          "Revenue.com Corporation"
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "filing_number",
+        "ours": [
+          "hub:absent",
+          "not_applicable",
+          null
+        ],
+        "sandbox": [
+          "interim",
+          "schema_documented_absence",
+          null
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "jurisdiction",
+        "ours": [
+          null,
+          null,
+          null
+        ],
+        "sandbox": [
+          "interim",
+          "populated",
+          "Nevada"
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "signatories",
+        "ours": [
+          null,
+          null,
+          null
+        ],
+        "sandbox": [
+          "interim",
+          "populated",
+          [
+            "Paul Dillman"
+          ]
+        ]
+      }
+    ]
+  },
+  "method": "every Hub document; sandbox rows built as corpus.prepare_subset does (gt_fields parsed, doc_text from the default config); interim_labels.apply_overlay then gold_labels.apply_near_gold from local-mailroom-sandbox@93f298c2; compared with mailroom_labels resolved scorable fields (hub + interim + near_gold, no review) per profile field; values compared after decoding JSON list strings and treating '' as null",
+  "review_layer_effect": {
+    "review:gold wins over near_gold (same value)": 4,
+    "review:gold wins over nothing (different value)": 4,
+    "review:near_gold wins over interim:gap_fill (different value)": 47,
+    "review:near_gold wins over interim:gap_fill (same value)": 22,
+    "review:near_gold wins over near_gold (different value)": 1,
+    "review:near_gold wins over near_gold (same value)": 969,
+    "review:near_gold wins over nothing (different value)": 3
+  },
+  "sandbox_commit": "93f298c2c03c58d36c5ef15874736c6ea211d9ab",
+  "sandbox_fields_applied": {
+    "interim": 2322,
+    "near_gold": 5234
+  }
+}
