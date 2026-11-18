@@ -158,7 +158,7 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
 
 `mailroom_dojo.statistics` gives the old `analysis/bootstrap.py` and
 `analysis/calibration.py` numbers on every valid input of the statistics corpus (2,000
-cases, among them every call of the old golden run and of eleven old test files). The 197
+cases, among them every call of the old golden run and of eleven old test files). The 195
 cases that differ are all invalid inputs; each is listed with its new outcome in
 `tests/fixtures/differential/statistics_intended_differences.json`. No golden score moves:
 the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
@@ -184,12 +184,16 @@ the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
   `TypeError` comparing a complex number for `p = 3.0`, and read `"0.5"` with `float()`.
   A `decimal.Decimal` rate is read by `wilson_ci` as before; `wilson_bounds` still refuses
   it with a `TypeError` (the old one raised from `Decimal + float`), with another message.
-- **A Wilson support must be a whole number.** `n = 2.5` or `True` is a `TypeError`, also
-  when `p` is `None` (the old Dojo returned `None` there before looking at `n`, computed
-  with 2.5 trials and reported `n = 2`, and read `True` as one trial). An integer-valued
-  float (`10.0`, NumPy's `float64(10.0)`, as workbook rows arrive) is ten trials, as
-  before. `wilson_bounds(p, 0)` is a `ValueError` (it was `ZeroDivisionError`);
-  `wilson_ci` still returns `None` for `n < 1`.
+- **A Wilson support must be a whole number.** With a rate, `n = 2.5` or `True` is a
+  `TypeError` (the old Dojo computed with 2.5 trials and reported `n = 2`, and read `True`
+  as one trial). An integer-valued float (`10.0`, NumPy's `float64(10.0)`, as workbook
+  rows arrive) is ten trials, as before. `wilson_bounds(p, 0)` is a `ValueError` (it was
+  `ZeroDivisionError`). Unchanged from the old Dojo, `wilson_ci` returns `None` before any
+  check for any real `n < 1` (`0.5`, `-2.5`, `-inf`, `False`) and, when `p` is `None`, for
+  any real `n` (`2.5`, `True`, NaN, `inf`). A NaN or infinite `n` with a rate is a
+  `TypeError` (`n must be an integer; got nan`); the old Dojo raised too, a `ValueError`
+  or `OverflowError` from `int()`. The corpus holds no NaN or infinite support, so the
+  ledger has no entry for it; `tests/test_statistics_faults.py` pins both behaviours.
 - **An infinite `z` is refused** (it gave the interval `[0, 1]`).
 - **Results are frozen dataclasses** (`BootstrapInterval`, `DeltaInterval`,
   `WilsonInterval`, `CrossFitResult`, `ReliabilityBin`, `PrecisionCutoff`); `to_dict()` is

@@ -255,7 +255,49 @@ def test_integer_valued_float_supports_are_counts():
     assert wilson_ci(None, 10.0) is None
     assert wilson_ci(0.5, 0.0) is None
     with raises_exactly(TypeError, "n must be an integer; got 2.5"):
-        wilson_ci(None, 2.5)
+        wilson_ci(0.5, 2.5)
+
+
+@pytest.mark.parametrize(
+    ("p", "n"),
+    [
+        # Each answer is the old Dojo's (commit 23f8234c): it checked ``n < 1``, then ``p is None``.
+        (0.5, 0.5),
+        (0.5, -0.5),
+        (0.5, -2.5),
+        (0.5, -INF),
+        (0.5, numpy.float64(0.5)),
+        (0.5, False),
+        ("abc", 0),
+        (3.0, -1),
+        (None, NAN),
+        (None, 2.5),
+        (None, True),
+        (None, INF),
+        (None, -INF),
+        (None, 0.5),
+    ],
+)
+def test_wilson_ci_is_none_below_one_trial_or_without_a_rate(p, n):
+    """Any real support under 1, or no rate with any real support, is no interval, as before."""
+    assert wilson_ci(p, n) is None
+
+
+@pytest.mark.parametrize(
+    ("p", "n", "message"),
+    [
+        # The old Dojo raised here too (ValueError, OverflowError, TypeError from its own arithmetic).
+        (0.5, NAN, "n must be an integer; got nan"),
+        (0.5, INF, "n must be an integer; got inf"),
+        (0.5, "10", "n must be an integer; got '10'"),
+        (None, "10", "n must be an integer; got '10'"),
+        (None, None, "n must be an integer; got None"),
+    ],
+)
+def test_wilson_ci_refuses_a_support_that_is_not_a_count(p, n, message):
+    """With a rate, a NaN, infinite or text support is refused; without one, a non-number still is."""
+    with raises_exactly(TypeError, message):
+        wilson_ci(p, n)
 
 
 def test_a_decimal_rate_is_read_as_a_number_by_wilson_ci():

@@ -302,16 +302,20 @@ def wilson_ci(p: float | None, n: int, z: float = 1.96) -> WilsonInterval | None
     """Wilson score interval for an aggregate rate ``p`` over ``n`` trials.
 
     Used when only the rate and its support are known, not per-document scores. Returns
-    ``None`` when ``p`` is None or ``n < 1``. ``n`` may be an integer-valued float
-    (``10.0``) and ``p`` a ``decimal.Decimal``, both read as the old Dojo read them; a
-    text rate is refused. The bounds are rounded outward (``lo`` down,
-    ``hi`` up) to 4 places, so the reported interval always contains the exact one and a
-    bound compared with a budget never passes where the exact bound fails. Gates that
-    need the exact value use :func:`wilson_bounds`.
+    ``None``, as the old Dojo did, when ``n`` is a real number below 1 (``0.5``, ``-inf``
+    and ``False`` included) or when ``p`` is None and ``n`` is any real number (``2.5``,
+    NaN and ``True`` included); these checks come before any argument check. Otherwise
+    ``n`` must be a whole number: an integer or an integer-valued float (``10.0``); a
+    fractional, NaN, infinite, bool or non-numeric support is a ``TypeError``. ``p`` may
+    be a ``decimal.Decimal``, read as the old Dojo read it; a text rate is refused. The
+    bounds are rounded outward (``lo`` down, ``hi`` up) to 4 places, so the reported
+    interval always contains the exact one and a bound compared with a budget never
+    passes where the exact bound fails. Gates that need the exact value use
+    :func:`wilson_bounds`.
     """
-    support = _validate_support(n)
-    if support < 1 or p is None:
+    if isinstance(n, numbers.Real) and (n < 1 or p is None):  # the old order: n < 1, then p
         return None
+    support = _validate_support(n)  # a non-number: refused here, with or without a rate
     rate = _validate_rate(float(p) if isinstance(p, decimal.Decimal) else p)
     exact_lo, exact_hi = wilson_bounds(rate, support, z)
     lo, hi = round_down(exact_lo, 4), round_up(exact_hi, 4)

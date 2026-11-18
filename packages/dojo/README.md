@@ -109,7 +109,7 @@ generated inputs, many under non-default settings that the replay builds into a 
 The statistics corpus (`tests/fixtures/differential/statistics_cases.jsonl`, 2,000 cases)
 holds every call the old golden run and eleven old test files made into the old bootstrap
 and calibration modules, plus seeded inputs. Every valid input gives the old number; the
-197 invalid inputs that now raise are listed with reasons in
+195 invalid inputs that now raise are listed with reasons in
 `statistics_intended_differences.json` and in `docs/score-changelog.md`.
 `scripts/capture_old_dojo_statistics_cases.py` regenerates its case lines byte for byte on
 Python 3.12, the version in the corpus header (the header's `supplements` record, from the
