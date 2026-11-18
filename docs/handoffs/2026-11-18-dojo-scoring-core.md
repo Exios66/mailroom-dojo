@@ -60,3 +60,29 @@ differences), `packages/dojo/docs/golden-parity.md` (how fixtures are captured a
 - Old Dojo can be run read-only for regeneration: see `packages/dojo/docs/golden-parity.md`. Never edit it, and
   never work its open issues (another agent owns them).
 - The human review desk node requested by JJB is a separate engine/launcher-level project; it has not been started here.
+
+## Open bot findings (CodeAnt, round on 58581af), not yet verified or fixed
+
+Fixed already: money and confidence overflow, frozen-mapping view, falsy supplied scorer, backend huge integers,
+deeply nested JSON. Verify each below against the code and the old Dojo (parity first: if the old Dojo behaves the
+same, keep it and add a "found, not changed" line to `packages/dojo/docs/score-changelog.md`):
+
+1. `field_scoring/plugins/cms_identifiers.py:53`: a 9 to 11 digit claim number before "NDC" may be read as the NDC.
+2. `field_scoring/category_presence.py:171`: a matching reasoning entry with blank evidence and section_ref makes
+   presence false and ignores valid field candidates.
+3. `field_scoring/entity_lists.py:280`: an empty predicted item counts as a party, so role-word expectations get
+   recall credit.
+4. `profile/loading.py:76`: an unhashable YAML key (a sequence) raises `TypeError` instead of `ProfileError`. New
+   code, likely real.
+5. `profile/loading.py:182`: an integer too large for a float raises `OverflowError` instead of `ProfileError`.
+   New code, likely real.
+6. `tests/test_entity_lists.py:231`: for the "value" case `expected_reason` is None, so the assertion compares the
+   reasons with themselves. Strengthen it. Likely real.
+7. `tests/test_extraction_scoring.py:296`: exceptions in worker threads are not re-raised by `join()`, so the
+   threaded test can pass despite failures. Collect and assert them. Likely real.
+8. `field_scoring/audits.py:45`: `date_grounded_in_document` extracts only full dates, so "August 2014" is
+   ungrounded. Probably the old behaviour.
+9. `field_scoring/trace_capture.py:134` and `:216`: a reasoning entry with the `span` key is discarded; with
+   `missing_confidence` assume_1 or assume_0 calibration still gets None. Probably the old behaviour.
+10. `scripts/capture_old_dojo_scalar_cases.py:150`: `$`-prefixed keys are unencodable, so some generated cases may
+    be silently left out of the corpora. Check how many.
