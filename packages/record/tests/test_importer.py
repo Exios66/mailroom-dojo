@@ -117,6 +117,38 @@ def test_audit_reports_routing_inputs(fixture_folder: Path) -> None:
     assert "extraction_confidence" in a.present and "decision slot outputs" in a.absent
 
 
+# --- golden chain heads (adversarial round 2, finding 5) ----------------------------------
+
+# The head hash of every chain the importer writes for the two hand-made fixtures. Every
+# event is a pure function of the folder, so these change only when the mapping does: a
+# change here is a change to every imported run's hashes, and needs saying so.
+GOLDEN_HEADS = {
+    "complete": {
+        "208c48fdd3483bcd67fb1ae4a4d0bb10044098384880637ed2ed7ed00a86cb11": "f86a5b51a62ef3d5c52ae50a131a8f59770e0ecb8553f00a66622f5a5240176b",
+        "5cbfa2aef45c2d20b2ea708b63ba2f637cb99e91c5ba4affaacb4b07c298a817": "f3f9c329e6be8f463b0353fc8fdce63bb36d3ddbd6db7d7a411321bbd303b18b",
+        "_run": "a479183c8ee0ab4b082f16774d5da9780c91a726308cd651d03cf88e71ba3a40",
+        "cb8e137929e9b9f91f9259751259adf51128ea3dfaceeb9f22d80a971e86437c": "4fd2ca0f9cf0d2b15e2bd1b7f97746adb3a128e5516750e9b70da3e6de31fee0",
+    },
+    "crashed": {
+        "208c48fdd3483bcd67fb1ae4a4d0bb10044098384880637ed2ed7ed00a86cb11": "cadea6939e8c373d24c963d6c52aa471690f324d2698d25c8e272362247be565",
+        "5cbfa2aef45c2d20b2ea708b63ba2f637cb99e91c5ba4affaacb4b07c298a817": "bf2b2c7d30d19d09b2cf9d4cd473e2994756f514bfca193820a516958588e6e5",
+        "_run": "75dcd15d8cf74a12d26eb02af177bfd65384561a71cf3ffa9ff6986797ad849b",
+        "cb8e137929e9b9f91f9259751259adf51128ea3dfaceeb9f22d80a971e86437c": "a5e562a4467220677843a7790f26a82381cb70212ea0ef656f0fe3d65f48363b",
+    },
+}
+
+
+@pytest.mark.parametrize(("variant", "events"), [("complete", 28), ("crashed", 26)])
+def test_the_imported_chain_heads_are_pinned(
+    tmp_store: SimpleNamespace, fixture_folder: Path, fixture_folder_crashed: Path, variant: str, events: int
+) -> None:
+    folder = fixture_folder if variant == "complete" else fixture_folder_crashed
+    r = import_sandbox_run(folder, tmp_store.log, tmp_store.blobs)
+    assert r.events == events
+    assert tmp_store.log.doc_heads(r.run_id) == GOLDEN_HEADS[variant]
+    assert list_seals(tmp_store.log, r.run_id)[-1].doc_heads == GOLDEN_HEADS[variant]
+
+
 # --- mapping rules ------------------------------------------------------------------------
 
 
