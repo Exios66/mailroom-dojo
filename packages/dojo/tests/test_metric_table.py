@@ -736,3 +736,10 @@ def test_a_broken_same_as_is_refused(edit: Callable[[dict[str, Any]], None], exp
     edit(raw)
     with pytest.raises(MetricTableError, match=re.escape(expected)):
         load_metric_table(raw)
+
+
+def test_the_archive_gate_reads_judge_error_rate() -> None:
+    """The sandbox gate fails a slice with any judge_error document, so the row has a reader."""
+    row = load_metric_table().get("judge_error_rate")
+    assert row.status == "planned" and row.layer == "D6"
+    assert "archive_gate" in row.readers and row.direction == "lower"

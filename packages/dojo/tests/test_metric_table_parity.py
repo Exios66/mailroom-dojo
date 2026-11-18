@@ -355,6 +355,6 @@ def test_counts(table: MetricTable) -> None:
     assert len(table.headline_rows()) == 14
     assert {status: statuses.count(status) for status in set(statuses)} == {
         "implemented": 19,
-        "planned": 88,
-        "not_ported": 87,
+        "planned": 89,
+        "not_ported": 86,
     }

@@ -49,6 +49,10 @@
 #                   golden_parity_gate   the D3b gate: the old golden scores.json is
 #                                        reproduced (port design, section 6; master
 #                                        design, stage 2 gate "golden cases unchanged")
+#                   archive_gate         the sandbox's production slice gate, ported in
+#                                        D6 (local-mailroom-sandbox job/gate.py: pass
+#                                        rule, wrong-archive and review rates with
+#                                        Wilson 95% upper bounds, no judge_error)
 #                   headline_view        the headline dashboard query (port design 4.2)
 #                   keep_rule            the autoresearch keep rule: paired gain over the
 #                                        noise floor, no class worse (master design,
@@ -683,9 +687,10 @@ metrics:
     ground_truth: "structural"
     headline: false
     metric_id: "decision.judge.error_rate"
-    layer: null
-    status: "not_ported"
-    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    layer: "D6"
+    status: "planned"
+    readers: ["archive_gate"]
+    status_reason: "Read by the archive gate: its pass rule requires no judge_error document in the slice (local-mailroom-sandbox src/mailroom_sandbox/job/gate.py at 93f298c, lines 20 and 397-398). D6 ports the gate."
     origin: "registry"
     old_source: "decision_lanes.score_judge_lane"
     citation: "judge_error verdicts over every row the judge ran on; needs no gold."

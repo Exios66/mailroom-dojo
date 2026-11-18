@@ -126,6 +126,7 @@ PAIRINGS: tuple[str, ...] = tuple(PAIRING_METHODS)
 #: design name them (``metrics.yaml`` says where). A kept metric names at least one.
 READERS: tuple[str, ...] = (
     "golden_parity_gate",
+    "archive_gate",
     "headline_view",
     "keep_rule",
     "specialist_report",
