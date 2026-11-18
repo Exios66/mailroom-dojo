@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -33,6 +34,7 @@ from mailroom_desk import (
     OutageNotReviewable,
     RecordBusy,
     RecordDamaged,
+    RecordWriteFailed,
     ReviewRequest,
     RunClosed,
     UnknownCause,
@@ -564,3 +566,70 @@ def test_request_validation() -> None:
     ):
         with pytest.raises(ValueError):
             ReviewRequest(**(good | bad))
+
+
+# --- the edges of time and a full disk ------------------------------------------------
+
+END = datetime(9999, 12, 31, 23, 0, tzinfo=timezone.utc)
+
+
+def test_enqueue_at_the_end_of_time_returns_its_event(env: SimpleNamespace) -> None:
+    """A clock near datetime.max: the SLA due time saturates, and enqueue (which has
+    appended durably by then) returns instead of raising."""
+    env.clock.moment = END
+    done = env.desk.enqueue(request("d1", "flag_low"), env.policy)  # 72 h past the end
+    assert done.event.ts == "9999-12-31T23:00:00.000000Z"
+    assert doc_events(env.root, "r1", "d1") == [done.event]
+    assert done.case.sla_due == datetime.max.replace(tzinfo=timezone.utc)
+    assert any("saturated" in a for a in done.case.anomalies)
+    assert not done.case.breached(END)
+    verify_ok(env)
+
+
+def test_one_far_future_event_does_not_take_down_the_queue(env: SimpleNamespace) -> None:
+    env.desk.enqueue(request("d1", "flag_high"), env.policy)
+    far = EnqueuePayload(
+        action="enqueue", causes=("flag_low",), rule="default", priority="low", sla_hours=72, queue="main",
+        sampled=False, policy_name="synthetic", policy_hash=env.policy.hash, requested_by="node:x",
+    )
+    with env.log.open_writer("r1", "other") as w:  # a record-valid event from another writer
+        w.append(doc_id="d2", node=NODE, kind="review", payload=far.model_dump(mode="json"), ts=format_ts(END))
+    cases = env.desk.queue("r1")
+    assert [c.doc_id for c in cases] == ["d1", "d2"]
+    assert cases[1].sla_due == datetime.max.replace(tzinfo=timezone.utc) and cases[1].anomalies
+
+
+def test_enqueue_at_the_start_of_time_writes_a_valid_timestamp(env: SimpleNamespace) -> None:
+    env.clock.moment = datetime(5, 1, 1, tzinfo=timezone.utc)
+    done = env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    assert done.event.ts == "0005-01-01T00:00:00.000000Z"
+    verify_ok(env)
+
+
+def test_full_disk_on_flush_is_a_typed_error_and_leaves_the_record_usable(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import errno
+    import os
+
+    real_write = os.write
+    fired: list[int] = []
+
+    def full_disk(fd: int, data):  # only the record's segment files fail
+        if os.readlink(f"/proc/self/fd/{fd}").endswith(".jsonl"):
+            fired.append(fd)
+            raise OSError(errno.ENOSPC, "injected ENOSPC in os.write")
+        return real_write(fd, data)
+
+    monkeypatch.setattr(os, "write", full_disk)
+    with pytest.raises(RecordWriteFailed) as info:
+        env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    assert fired
+    assert isinstance(info.value.__cause__, OSError) and info.value.__cause__.errno == errno.ENOSPC
+    assert (info.value.run_id, info.value.doc_id) == ("r1", "d1")
+    monkeypatch.setattr(os, "write", real_write)
+    assert review_events(env.root) == []  # nothing reached the segment
+    with desk_lock(env.root, "r1", timeout=0):  # the lock was released
+        pass
+    assert env.desk.enqueue(request("d1", "flag_low"), env.policy).event.seq == 0
+    verify_ok(env)

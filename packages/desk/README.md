@@ -51,6 +51,10 @@ desk.case("r1", "<doc sha256>")           # one document's case (its last episod
 - A sealed experiment run is refused (`RunClosed`); a `service_period` run is never closed.
 - Outage tokens (`transient_exhausted`, `provider_unavailable`) are refused in policies and
   requests: an outage makes a document wait, never park (R1).
+- `enqueue` never raises after its event is durable. A failed write or fsync raises
+  `RecordWriteFailed` (the cause is the `OSError`; the event may be on disk, so read the case
+  again before retrying). An SLA due time past 9999-12-31 saturates and is listed as an
+  anomaly instead of raising.
 - Leases, deferrals and SLA breach are judged when read, against the desk clock
   (injectable). A lease holds while `now < lease_expires_at`; an SLA is breached when
   `now > sla_due`.

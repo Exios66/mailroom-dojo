@@ -32,9 +32,13 @@ Enqueue
 A record the desk cannot read safely (a corrupt line, a forked chain, an unreadable
 header) raises ``RecordDamaged`` and nothing is appended. A torn tail is not damage: it is
 skipped (it was never an event) and the writer continues in a new segment. Another writer
-of this process holding the document raises ``RecordBusy``. An index that refuses the
-apply does not undo the durable event: the result's ``index_error`` says why, and a
-``reindex`` repairs the index.
+of this process holding the document raises ``RecordBusy``. A write or fsync that fails
+(a full disk) raises ``RecordWriteFailed`` with the ``OSError`` as its cause: the record
+may then hold the event (or a torn line), so read the case again before retrying. Once the
+flush has succeeded ``enqueue`` returns the event and never raises: an index that refuses
+the apply does not undo the durable event (the result's ``index_error`` says why, and a
+``reindex`` repairs the index), and the case is folded from events already validated, with
+an SLA due time past 9999-12-31 saturated, not overflowing.
 
 The closed-run rule and the seal lock are read from the record's documented layout
 (``runs/<run_id>/seals/<n>.json`` and ``seals/.lock``): the record has no public "is this
@@ -55,7 +59,6 @@ from __future__ import annotations
 import contextlib
 import itertools
 import re
-import sqlite3
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -68,6 +71,7 @@ from mailroom_desk.errors import (
     OutageNotReviewable,
     RecordBusy,
     RecordDamaged,
+    RecordWriteFailed,
     RunClosed,
     UnknownCause,
     UnknownRun,
@@ -77,7 +81,7 @@ from mailroom_desk.lock import DEFAULT_LOCK_TIMEOUT, check_timeout, desk_lock, s
 from mailroom_desk.models import NODE, CaseState, EnqueuePayload, ReviewRequest, format_ts
 from mailroom_desk.policy import SPOT_CHECK, Policy, is_outage
 from mailroom_record.blobs import BlobStore
-from mailroom_record.index import ApplyRefused, Index, IndexUnavailable
+from mailroom_record.index import Index, IndexUnavailable
 from mailroom_record.log import BlobNotStored, CorruptLine, DocumentInUse, EventLog, ForkedChain, WriterInUse
 from mailroom_record.models import BlobRef, Event, Run
 
@@ -275,21 +279,26 @@ class Desk:
         except (CorruptLine, OSError) as exc:
             raise RecordDamaged(run_id, exc) from exc
         try:
-            event = writer.append(
-                doc_id=doc_id, node=NODE, kind="review", cause=cause, inputs=inputs, payload=payload, ts=ts
-            )
-            writer.flush()
-        except (CorruptLine, ForkedChain) as exc:
-            raise RecordDamaged(run_id, exc) from exc
-        except DocumentInUse as exc:
-            raise RecordBusy(run_id, doc_id, exc) from exc
-        except BlobNotStored as exc:  # tombstoned between the check and the append
-            ref = next((r for r in inputs if self.blobs.exists(r.sha256) != "present"), None)
-            if ref is None:
-                raise
-            raise BlobNotPresent(ref.sha256, ref.role, self.blobs.exists(ref.sha256)) from exc
+            try:  # buffers the event (nothing written yet) after reading the chain's head
+                event = writer.append(
+                    doc_id=doc_id, node=NODE, kind="review", cause=cause, inputs=inputs, payload=payload, ts=ts
+                )
+            except (CorruptLine, ForkedChain, OSError) as exc:
+                raise RecordDamaged(run_id, exc) from exc
+            except DocumentInUse as exc:
+                raise RecordBusy(run_id, doc_id, exc) from exc
+            except BlobNotStored as exc:  # tombstoned between the check and the append
+                ref = next((r for r in inputs if self.blobs.exists(r.sha256) != "present"), None)
+                if ref is None:
+                    raise
+                raise BlobNotPresent(ref.sha256, ref.role, self.blobs.exists(ref.sha256)) from exc
+            try:  # writes and fsyncs it
+                writer.flush()
+            except OSError as exc:
+                raise RecordWriteFailed(run_id, doc_id, exc) from exc
         finally:
-            writer.close()
+            with contextlib.suppress(OSError):  # after a good flush a close loses nothing
+                writer.close()
         return event
 
     def _apply(self, event: Event) -> str | None:
@@ -297,7 +306,7 @@ class Desk:
             return None
         try:
             self.index.apply(event)
-        except (ApplyRefused, IndexUnavailable, sqlite3.Error) as exc:
+        except Exception as exc:  # noqa: BLE001 - the event is durable; the index is derived
             return f"{type(exc).__name__}: {exc}"
         return None
 

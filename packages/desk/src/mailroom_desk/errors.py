@@ -3,7 +3,8 @@
 Every refusal has its own exception, so a caller (the node, the CLI, the HTTP API) can say
 exactly what happened, and a test can assert it. A refused action never appends: an error
 raised here means the record did not change. Messages name runs, documents, tokens and
-file positions only, never document text.
+file positions only, never document text. The one exception is ``RecordWriteFailed``: a
+write failed part way, so the record may have changed (its doc says how to find out).
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ __all__ = [
     "PolicyError",
     "RecordBusy",
     "RecordDamaged",
+    "RecordWriteFailed",
     "RegistryError",
     "RoleNotHeld",
     "RunClosed",
@@ -159,6 +161,20 @@ class RecordDamaged(DeskError):
     def __init__(self, run_id: str, cause: BaseException) -> None:
         super().__init__(f"run {run_id!r} cannot be read safely ({type(cause).__name__}); run verify")
         self.run_id = run_id
+        self.cause = cause
+
+
+class RecordWriteFailed(DeskError):
+    """Writing the event to disk failed (a full disk, an I/O error): the original
+    ``OSError`` is the ``__cause__``. The event may be absent, torn or (if only the fsync
+    failed) present but not durable, so the record may have changed: read the case again
+    (``Desk.case``) before retrying. A torn line is skipped by readers and reported by
+    ``verify_run``; the next desk writer continues in a new segment."""
+
+    def __init__(self, run_id: str, doc_id: str, cause: BaseException) -> None:
+        super().__init__(f"writing the review event of document {doc_id!r} of run {run_id!r} failed ({type(cause).__name__})")
+        self.run_id = run_id
+        self.doc_id = doc_id
         self.cause = cause
 
 

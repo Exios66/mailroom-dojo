@@ -24,6 +24,8 @@ injectable clock): a lease holds while ``now < lease_expires_at``, a deferral wh
 ``now < until``. A payload the desk cannot read, an ``enqueue`` inside an open episode, or
 an action before any opening event is listed in ``anomalies`` (``seq`` and reason only,
 never content) and the fold carries on: an unreadable case is never dropped from the queue.
+An SLA due time past 9999-12-31 saturates at ``models.END_OF_TIME`` (never breached) and is
+listed as an anomaly too, so one far-future event never raises out of the queue.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from datetime import datetime
 from pydantic import ValidationError
 
 from mailroom_desk.models import (
+    END_OF_TIME,
     OPENING_ACTIONS,
     AssignPayload,
     CaseState,
@@ -74,6 +77,13 @@ def _why(exc: ValidationError) -> str:
     return "; ".join(".".join(str(x) for x in e.get("loc", ())) + ": " + str(e.get("type")) for e in exc.errors())
 
 
+def _due(seq: int, at: datetime, hours: float, anomalies: list[str]) -> datetime:
+    moment = due(at, hours)
+    if moment == END_OF_TIME:
+        anomalies.append(f"seq {seq}: SLA due time is past the last representable time; saturated")
+    return moment
+
+
 def fold_case(run_id: str, doc_id: str, events: Sequence[Event], now: datetime) -> CaseState | None:
     """Fold one document's events (in ``seq`` order) into its case as of ``now``.
 
@@ -112,7 +122,7 @@ def fold_case(run_id: str, doc_id: str, events: Sequence[Event], now: datetime) 
             requested_by = p.actor.id if isinstance(p, ReopenPayload) else p.requested_by
             priority, sla_hours, queue, required_role = p.priority, p.sla_hours, p.queue, p.required_role
             opened_at = at
-            sla_due = due(at, p.sla_hours)
+            sla_due = _due(e.seq, at, p.sla_hours, anomalies)
             assignee = claimed_by = None
             lease = deferred = None
             continue
@@ -127,7 +137,7 @@ def fold_case(run_id: str, doc_id: str, events: Sequence[Event], now: datetime) 
         elif isinstance(p, EscalatePayload):
             priority = p.priority
             if p.sla_hours is not None:
-                sla_hours, sla_due = p.sla_hours, due(at, p.sla_hours)
+                sla_hours, sla_due = p.sla_hours, _due(e.seq, at, p.sla_hours, anomalies)
             if p.queue is not None:
                 queue = p.queue
             if p.required_role is not None:

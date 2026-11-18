@@ -80,6 +80,9 @@ __all__ = [
     "priority_rank",
 ]
 
+#: The last representable moment; an SLA due time past it saturates here (``due``).
+END_OF_TIME = datetime.max.replace(tzinfo=timezone.utc)
+
 #: The node every desk event is recorded under.
 NODE = "human_review"
 
@@ -142,10 +145,12 @@ def parse_ts(value: str) -> datetime:
 
 
 def format_ts(moment: datetime) -> str:
-    """Format an aware datetime the way the record stores timestamps (microseconds, ``Z``)."""
+    """Format an aware datetime the way the record stores timestamps (microseconds, ``Z``;
+    the year always has four digits, so year 5 is ``0005``)."""
     if moment.tzinfo is None or moment.utcoffset() is None:
         raise ValueError("a desk time must be timezone-aware")
-    return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    m = moment.astimezone(timezone.utc)
+    return f"{m.year:04d}-{m.month:02d}-{m.day:02d}T{m.hour:02d}:{m.minute:02d}:{m.second:02d}.{m.microsecond:06d}Z"
 
 
 def _check_ts(value: str) -> str:
@@ -372,7 +377,7 @@ class CaseState(BaseModel):
     def sort_key(self) -> tuple[Any, ...]:
         """Queue order: priority (unknown first, then high, normal, low), earliest SLA due,
         earliest opened, then run and document id (a total order)."""
-        far = datetime.max.replace(tzinfo=timezone.utc)
+        far = END_OF_TIME
         return (
             priority_rank(self.priority),
             self.sla_due or far,
@@ -383,7 +388,12 @@ class CaseState(BaseModel):
 
 
 def due(start: datetime, hours: float) -> datetime:
-    """``start`` plus ``hours`` (finite, positive)."""
+    """``start`` plus ``hours`` (finite, positive), saturating at ``END_OF_TIME``: a start
+    near 9999-12-31 never raises ``OverflowError`` (the fold lists such a case as an
+    anomaly)."""
     if not math.isfinite(hours):
         raise ValueError("hours must be finite")
-    return start + timedelta(hours=hours)
+    try:
+        return start + timedelta(hours=hours)
+    except OverflowError:
+        return END_OF_TIME
