@@ -40,6 +40,7 @@ not verify (or have no text row) are listed in ``source.text_unverified_document
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
@@ -52,7 +53,7 @@ from mailroom_labels.models import SnapshotManifest
 from mailroom_labels.profile import ClientProfile
 from mailroom_labels.snapshot import write_snapshot
 
-__all__ = ["DEFAULT_SHARDS", "SPLITS", "build_hub", "parse_dataset_manifest", "shard_path"]
+__all__ = ["DEFAULT_SHARDS", "SPLITS", "build_hub", "load_hub_pins", "parse_dataset_manifest", "shard_path"]
 
 SPLITS: tuple[str, ...] = ("train", "test")
 PRESENCE_KEY = "gt_presence"
@@ -85,6 +86,33 @@ def parse_dataset_manifest(text: str) -> dict[str, str]:
         elif line.strip():
             in_block = False
     return out
+
+
+_HEX40 = re.compile(r"^[0-9a-f]{40}$")
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def load_hub_pins(path: Path | str) -> dict[str, dict[str, str]]:
+    """The pinned file hashes of each dataset revision from a YAML file
+    (``{<40-hex revision>: {manifest.txt: <sha256>, <shard path>: <sha256>, ...}}``)."""
+    import yaml
+
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or not raw:
+        raise ImportRefused(f"{path}: expected {{revision: {{path: sha256}}}}")
+    out: dict[str, dict[str, str]] = {}
+    for revision, files in raw.items():
+        if not (isinstance(revision, str) and _HEX40.match(revision) and isinstance(files, dict) and files
+                and all(isinstance(k, str) and isinstance(v, str) and _HEX64.match(v) for k, v in files.items())):
+            raise ImportRefused(f"{path}: {revision!r} must be a 40-hex revision mapping paths to 64-hex sha256")
+        out[revision] = dict(files)
+    return out
+
+
+def _pinned(pinned: Mapping[str, str], rel: str, actual: str, revision: str) -> None:
+    if pinned.get(rel) != actual:
+        raise ImportRefused(f"{rel}: sha256 {actual} is not the one pinned for revision {revision} "
+                            f"({pinned.get(rel, 'not pinned')})")
 
 
 def _verified_shard(root: Path, rel: str, listed: dict[str, str]) -> dict[str, str]:
@@ -243,16 +271,27 @@ def build_hub(
     snapshot_id: str | None = None,
     known_warnings: Sequence[Mapping[str, str | None]] = (),
     allow_rejected: bool = False,
+    pins: Mapping[str, Mapping[str, str]],
 ) -> SnapshotManifest:
-    """Write the Hub snapshot to ``out_dir`` (see the module docstring); return its manifest."""
+    """Write the Hub snapshot to ``out_dir`` (see the module docstring); return its manifest.
+
+    ``pins`` (``load_hub_pins``) records the sha256 of ``manifest.txt`` and of every shard at
+    each known revision: an import whose files are not exactly those pinned for ``revision``
+    is refused, so files from another revision can never be recorded under this one."""
     out_dir, dataset_dir = Path(out_dir), Path(dataset_dir)
+    pinned = pins.get(revision)
+    if not pinned:
+        raise ImportRefused(f"revision {revision} has no pinned file hashes")
     manifest_txt = dataset_dir / "manifest.txt"
     if not manifest_txt.is_file():
         raise ImportRefused(f"no manifest.txt in {dataset_dir}")
+    _pinned(pinned, "manifest.txt", file_sha256(manifest_txt), revision)
     listed = parse_dataset_manifest(manifest_txt.read_text(encoding="utf-8"))
     if not listed:
         raise ImportRefused("manifest.txt has no sha256 block")
     gt_files = [_verified_shard(dataset_dir, shard_path("ground_truth", s), listed) for s in SPLITS]
+    for f in gt_files:
+        _pinned(pinned, f["path"], f["sha256"], revision)
 
     tally = _Tally()
     rows: list[dict[str, Any]] = []
@@ -278,6 +317,8 @@ def build_hub(
     text_summary: dict[str, Any] = {"run": False}
     if default_dir is not None:
         text_files, unverified, summary = _text_check(Path(default_dir), listed, rows)
+        for f in text_files:
+            _pinned(pinned, f["path"], f["sha256"], revision)
         text_summary = {"run": True, **summary}
 
     sid = snapshot_id or out_dir.name

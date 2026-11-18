@@ -40,6 +40,7 @@ from mailroom_labels.importers import (
     check_snapshot,
 )
 from mailroom_labels.importers.common import file_sha256, known_warnings_for
+from mailroom_labels.importers.hub import load_hub_pins
 from mailroom_labels.layers import corpus_index, read_layers
 from mailroom_labels.profile import ClientProfile, load_profile
 from mailroom_labels.quality import QualityReport, check_dirs
@@ -143,6 +144,8 @@ def import_hub(
     profile: ProfileOpt,
     dataset_dir: Annotated[Path, typer.Option("--dataset-dir", help="manifest.txt and parquet/ground_truth shards.")],
     revision: Annotated[str, typer.Option("--revision", help="Dataset revision (40-hex commit).")],
+    pins: Annotated[Path, typer.Option(
+        "--pins", help="YAML {revision: {path: sha256}}: the files must be exactly those pinned for --revision.")],
     repository: Annotated[str, typer.Option("--repository")] = "Lucius-Morningstar/mailroom-dataset",
     default_dir: Annotated[Path | None, typer.Option("--default-dir", help="parquet/default shards: run the text check.")] = None,
     snapshot_id: IdOpt = None,
@@ -153,10 +156,15 @@ def import_hub(
     """Import the Hub ground_truth config (verified against manifest.txt)."""
     prof = _profile(profile)
     sid = snapshot_id or out.name
+    try:
+        pinned = load_hub_pins(pins)
+    except ImportRefused as exc:
+        typer.echo(f"import refused: {exc}", err=True)
+        raise typer.Exit(1) from exc
     _run_import(out, check, lambda d: build_hub(
         d, dataset_dir=dataset_dir, profile=prof, profile_sha256=file_sha256(profile), repository=repository,
         revision=revision, default_dir=default_dir, snapshot_id=sid,
-        known_warnings=known_warnings_for(known_warnings, sid), allow_rejected=allow_rejected))
+        known_warnings=known_warnings_for(known_warnings, sid), allow_rejected=allow_rejected, pins=pinned))
 
 
 def _overlay_command(name: str, build: Callable[..., Any], what: str) -> None:

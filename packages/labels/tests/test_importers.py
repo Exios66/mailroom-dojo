@@ -93,7 +93,13 @@ def write_dataset(root: Path, *, tamper: str | None = None, unlisted: bool = Fal
     return root
 
 
+def pins_for(data: Path, revision: str = "0" * 40) -> dict[str, dict[str, str]]:
+    """Pin every file of a synthetic dataset directory, as hub-revisions.yaml does."""
+    return {revision: {p.relative_to(data).as_posix(): sha(p.read_bytes()) for p in data.rglob("*") if p.is_file()}}
+
+
 def hub_build(out: Path, data: Path, *, default: bool = True, **kw):
+    kw.setdefault("pins", pins_for(data))
     return build_hub(out, dataset_dir=data, profile=profile(), profile_sha256=sha(PROFILE_PATH.read_bytes()),
                      repository="example/synthetic", revision="0" * 40, default_dir=data if default else None, **kw)
 
@@ -391,8 +397,11 @@ def test_cli_import_and_check_exit_codes(tmp_path: Path) -> None:
 def test_cli_import_hub_and_review(tmp_path: Path) -> None:
     data = write_dataset(tmp_path / "data")
     out = tmp_path / "hub-x"
+    import yaml
+
+    (tmp_path / "pins.yaml").write_text(yaml.safe_dump(pins_for(data)))
     hub_args = ["import-hub", "--out", str(out), "--profile", str(PROFILE_PATH), "--dataset-dir", str(data),
-                "--default-dir", str(data), "--revision", "0" * 40]
+                "--default-dir", str(data), "--revision", "0" * 40, "--pins", str(tmp_path / "pins.yaml")]
     assert runner.invoke(app, hub_args).exit_code == 0
     assert runner.invoke(app, [*hub_args, "--check"]).exit_code == 0
     (tmp_path / "d.jsonl").write_bytes(jsonl(decision("D1", "sender", "Ann")))
@@ -558,3 +567,87 @@ def test_an_undated_human_decision_that_agrees_with_a_dated_one_is_merged(tmp_pa
     assert (row["entry"]["value"], row["reviewed_at"]) == ("Same", "2026-11-17T10:00:00Z")
     assert row["origin"] == ["review/decisions.jsonl:1", "sandbox/human_reviews.jsonl:1"]
     assert [s["value"] for s in manifest.source["superseded"]] == ["Older"]
+
+
+# --- Hub revision pins and fetch_hub safety ---------------------------------------------------
+
+
+def test_hub_refuses_a_revision_without_pins(tmp_path: Path) -> None:
+    data = write_dataset(tmp_path / "data")
+    with pytest.raises(ImportRefused, match="no pinned file hashes"):
+        hub_build(tmp_path / "hub-x", data, pins=pins_for(data, revision="1" * 40))
+    assert not (tmp_path / "hub-x").exists()
+
+
+@pytest.mark.parametrize("rel", ["manifest.txt", "parquet/ground_truth/test/test-00000-of-00001.parquet",
+                                 "parquet/default/train/train-00000-of-00001.parquet"])
+def test_hub_refuses_files_that_are_not_the_ones_pinned_for_the_revision(tmp_path: Path, rel: str) -> None:
+    # a self-consistent download (manifest.txt agrees with its shards) of another revision
+    data = write_dataset(tmp_path / "data")
+    pins = pins_for(data)
+    pins["0" * 40][rel] = "e" * 64
+    with pytest.raises(ImportRefused, match=f"{rel}: sha256 .* is not the one pinned for revision"):
+        hub_build(tmp_path / "hub-x", data, pins=pins)
+
+
+def test_the_committed_pins_match_the_hub_snapshot_sources() -> None:
+    from mailroom_labels.importers.hub import load_hub_pins
+
+    root = Path(__file__).resolve().parents[3]
+    pins = load_hub_pins(root / "config/clients/mailroom-dataset/hub-revisions.yaml")
+    src = load_snapshot(root / "labels/hub-ccd040f6").manifest.source
+    recorded = {f["path"]: f["sha256"] for f in src["files"]} | {"manifest.txt": src["dataset_manifest"]["sha256"]}
+    assert pins == {src["revision"]: recorded}
+
+
+@pytest.mark.parametrize(("path", "ok"), [
+    ("parquet/ground_truth/train/train-00000-of-00001.parquet", True),
+    ("../escape.parquet", False), ("parquet/../../escape", False), ("/etc/passwd", False),
+    ("parquet\\..\\x", False), ("", False),
+])
+def test_fetch_hub_refuses_paths_outside_the_download_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                         path: str, ok: bool) -> None:
+    fetch = _load_fetch()
+    assert fetch._safe(path) is ok
+    if not ok:
+        data = write_dataset(tmp_path / "data")
+        calls: list[str] = []
+
+        def fake_download(url: str, target: Path) -> str:
+            calls.append(url)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((data / "manifest.txt").read_bytes())
+            return sha(target.read_bytes())
+
+        monkeypatch.setattr(fetch, "_download", fake_download)
+        assert fetch.fetch(tmp_path / "out", [path], revision="0" * 40) == 1
+        assert len(calls) == 1  # only manifest.txt was fetched
+        assert sorted(p.name for p in (tmp_path / "out").rglob("*")) == ["manifest.txt"]
+
+
+def test_fetch_hub_deletes_a_download_that_fails_part_way(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fetch = _load_fetch()
+
+    class Broken:
+        def __init__(self) -> None:
+            self.sent = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+        def read(self, n: int) -> bytes:
+            if self.sent:
+                raise ConnectionResetError("cut off")
+            self.sent = True
+            return b"partial bytes"
+
+    monkeypatch.setattr(fetch.urllib.request, "urlopen", lambda url, timeout: Broken())
+    target = tmp_path / "out" / "parquet" / "x.parquet"
+    with pytest.raises(ConnectionResetError):
+        fetch._download("https://example.invalid/x", target)
+    assert not target.exists()
+    assert fetch.fetch(tmp_path / "out2", ["parquet/x.parquet"], revision="0" * 40) == 1
+    assert not (tmp_path / "out2" / "manifest.txt").exists()

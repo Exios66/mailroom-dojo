@@ -43,7 +43,8 @@ profile errors exit 2. The importers read parquet, so they need the `import` ext
 | `cli.py` | `mailroom-labels verify`, `coverage` and the four `import-*` commands |
 
 Scripts (`scripts/`): `fetch_hub.py` downloads pinned Hub files and verifies each against
-the dataset's `manifest.txt` (the only code here that touches the network);
+the dataset's `manifest.txt`, deleting any download that fails or does not match (the only
+code here that touches the network);
 `build_profile.py` writes the client profile from the dataset's EDA schemas and the Hub
 (`--check` compares); `labels_report.py` writes the data-quality and coverage reports in
 `docs/reports/labels/`.
@@ -91,7 +92,7 @@ the manifest's `source` (for example `presence_mapped` for `pending_annotation` 
 
 | Command | Reads | Refuses |
 | --- | --- | --- |
-| `import-hub` | `manifest.txt` and the `ground_truth` parquet shards from `fetch_hub.py`; with `--default-dir`, the `default` shards for the text check | a missing shard, or one not listed in or whose sha256 differs from `manifest.txt`. Documents whose text does not hash to the Hub's `content_sha256` (all of them without `--default-dir`) are listed in `source.text_unverified_documents` |
+| `import-hub` | `manifest.txt` and the `ground_truth` parquet shards from `fetch_hub.py`; with `--default-dir`, the `default` shards for the text check | a revision with no entry in `--pins` (`hub-revisions.yaml`), a `manifest.txt` or shard whose sha256 is not the one pinned for `--revision`, a missing shard, or one not listed in or whose sha256 differs from `manifest.txt`. Documents whose text does not hash to the Hub's `content_sha256` (all of them without `--default-dir`) are listed in `source.text_unverified_documents` |
 | `import-interim`, `import-near-gold` | a sandbox overlay directory (`MANIFEST.json` + `.jsonl`) at a named commit | a listed file that is missing or whose sha256 differs from the overlay's `MANIFEST.json` (the overlay manifest records no row counts; the rows read are recorded in the snapshot's `source.files`), or a `.jsonl` file it does not list |
 | `import-review` | review decision files and the review desk log | a source with a malformed line or an undecided (`unsure`) desk verdict (see below). A decision replaced by a later or a human one is listed under `superseded` with its reason |
 
@@ -125,7 +126,8 @@ python packages/labels/scripts/fetch_hub.py --out <new empty download dir> \
     parquet/ground_truth/train/train-00000-of-00001.parquet parquet/ground_truth/test/test-00000-of-00001.parquet \
     parquet/default/train/train-00000-of-00001.parquet parquet/default/test/test-00000-of-00001.parquet
 mailroom-labels import-hub --out labels/hub-ccd040f6 --profile config/clients/mailroom-dataset/profile.yaml \
-    --dataset-dir <download dir> --default-dir <download dir> --revision ccd040f6a1b6b414bdefd161cdc622b68f6dacf8 --check
+    --dataset-dir <download dir> --default-dir <download dir> --revision ccd040f6a1b6b414bdefd161cdc622b68f6dacf8 \
+    --pins config/clients/mailroom-dataset/hub-revisions.yaml --check
 mailroom-labels import-interim --out labels/interim-2026-11-01 --source-dir <sandbox>/data/labels/interim \
     --source-path data/labels/interim --repository Exios66/local-mailroom-sandbox \
     --commit 93f298c2c03c58d36c5ef15874736c6ea211d9ab \

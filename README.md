@@ -24,7 +24,7 @@ mailroom-dojo/
 │       (each package: pyproject.toml, README.md, src/<module>/, tests/, scripts/)
 ├── config/                    everything tuned without code (from project 2 on)
 │   ├── clients/<client>/      a client profile: document classes, schemas, thresholds, label snapshot
-│   │   └── mailroom-dataset/  profile.yaml (from build_profile.py) and known-warnings.yaml
+│   │   └── mailroom-dataset/  profile.yaml (from build_profile.py), known-warnings.yaml, hub-revisions.yaml
 │   ├── policies/              routing policies (one file each; its hash is stored on every run)
 │   └── prompts/<prompt_set>/  prompt sets; variants are overlays on the default set
 ├── labels/                    README.md, and one committed label snapshot per <snapshot>/ with its manifest (project 2)

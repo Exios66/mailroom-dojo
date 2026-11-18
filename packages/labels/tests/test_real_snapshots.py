@@ -274,4 +274,4 @@ def test_layout_map_names_the_label_folders() -> None:
     assert entries == sorted([*SNAPSHOTS, "README.md"])
     assert all((ROOT / "labels" / name / MANIFEST_NAME).is_file() for name in SNAPSHOTS)
     assert sorted(p.name for p in (ROOT / "config/clients/mailroom-dataset").iterdir()) == [
-        "known-warnings.yaml", "profile.yaml"]
+        "hub-revisions.yaml", "known-warnings.yaml", "profile.yaml"]
