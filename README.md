@@ -41,6 +41,7 @@ mailroom-dojo/
 │   └── reports/               gate reports, written by scripts (created on first use)
 ├── scripts/                   workspace checks: dependency boundaries, this layout map, session links
 ├── tests/                     workspace-level tests (the dependency rule, the checks in scripts/)
+├── tools/                     governance: the session-link guard and agent-hook tests (`tools/governance/`)
 └── .circleci/                 CI (CircleCI only)
 ```
 

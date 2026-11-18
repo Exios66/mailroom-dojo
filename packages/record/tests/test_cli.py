@@ -352,8 +352,8 @@ def test_installed_console_script(review_store: SimpleNamespace) -> None:
 
 import unicodedata  # noqa: E402
 
-_HOSTILE = ["\n", "\r", "\x1b", "\x1b[31m", "\x1b]8;;x\x07", "\x00", "\x07", "\x85", "\x9b", "‮", "⁦",
-            "​", " ", " ", "﻿", "\t", "run r1: ok"]
+_HOSTILE = ["\n", "\r", "\x1b", "\x1b[31m", "\x1b]8;;x\x07", "\x00", "\x07", "\x85", "\x9b", "\u202E", "\u2066",
+            "\u200B", "\u2028", "\u2029", "\uFEFF", "\t", "run r1: ok"]
 _hostile_text = st.lists(st.sampled_from(["a", "b"] + _HOSTILE), min_size=1, max_size=6).map("".join)
 _UNSAFE = {"Cc", "Cf", "Zl", "Zp", "Cs"}
 

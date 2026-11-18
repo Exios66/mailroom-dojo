@@ -21,7 +21,7 @@ extend-exclude = [".venv"]
 # record is older than this config and was written to its own style; reformatting it is a
 # follow-up of its own (one mechanical commit), kept out of the threads now editing it.
 # Markdown is excluded: ruff would reformat the illustrative Python in docs/plans.
-format.exclude = ["packages/record/**", "*.md"]
+format.exclude = ["packages/record/**", "tools/governance/**", "*.md"]
 # record's test_record_machine.py uses a 3.12 f-string (a backslash inside the braces), which
 # is a SyntaxError on 3.11 although record declares requires-python >= 3.11. This only lets
 # ruff parse it; the follow-up is to fix that line in record and delete this entry.
@@ -46,6 +46,7 @@ select = [
 # imports, zip() without strict, loop variables captured in lambdas, `l` as a name, two
 # auto-fixable simplifications). Follow-up: fix them in record in one commit and delete this
 # entry; until then ruff still enforces every other selected rule there.
+"tools/governance/**" = ["E501"]  # long lines in the guard tests; shortening them is a follow-up
 "packages/record/**" = ["E501", "E741", "I001", "B023", "B905", "UP017", "SIM300", "SIM905"]
 
 [tool.ruff.lint.isort]

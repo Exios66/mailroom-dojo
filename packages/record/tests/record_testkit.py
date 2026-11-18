@@ -795,7 +795,6 @@ def reindex_in_child(root: str, index_path: str, marker: str, after: int) -> Non
 
     from mailroom_record.blobs import BlobStore
     from mailroom_record.index import Index
-    from mailroom_record.log import EventLog
 
     log = slow_log(Path(root), BlobStore(Path(root)), marker=marker, after=after, pause=3600.0)
     Index(Path(index_path)).reindex(log)
@@ -1005,7 +1004,6 @@ def join_all(procs: Any, timeout: float = 120.0) -> list[int | None]:
     ``-SIGKILL``) and one never started reports ``None``, so a test asserting ``0`` fails
     without leaving a live child behind. Call it from a ``finally`` block.
     """
-    import signal
     import time
 
     deadline = time.monotonic() + timeout

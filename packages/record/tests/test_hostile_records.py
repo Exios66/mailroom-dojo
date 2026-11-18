@@ -20,7 +20,6 @@ from record_testkit import (
     SENTINEL,
     chain,
     deep_payload_line,
-    forge_event,
     hand_line,
     verify,
     write_lines,
