@@ -45,6 +45,7 @@ from mailroom_desk import (
     parse_payload,
     seal_guard,
 )
+from mailroom_desk.lock import seal_lock_path
 from mailroom_desk.models import NODE, format_ts
 from mailroom_record.index import Index
 from mailroom_record.seal import seal_run
@@ -357,14 +358,45 @@ def test_seal_landing_while_waiting_for_the_desk_lock_is_seen_under_the_lock(
     verify_ok(env)
 
 
-def test_seal_guard_is_the_lock_seal_run_takes(env: SimpleNamespace) -> None:
-    """Pins the record layout the desk relies on: holding ``seals/.lock`` blocks seal_run."""
+def test_seal_guard_is_the_lock_seal_run_takes(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pins the record layout the desk relies on: ``seal_run`` flocks the very file
+    ``seal_guard`` holds, so it waits while the guard is held. No sleep: the test waits
+    (with a deadline) until ``seal_run`` reaches its ``flock`` and compares the inode it
+    locks with the guard's, and a non-blocking ``flock`` from a fresh descriptor proves
+    the guard holds an exclusive lock on that inode."""
+    import fcntl
+
+    import mailroom_record.seal as seal_module
+
     engine_append(env.root, "r1", "d1")
+    reached = threading.Event()
+    locked_inodes: list[tuple[int, int]] = []
+
+    class Spy:
+        def __getattr__(self, name: str):
+            return getattr(fcntl, name)
+
+        def flock(self, fd: int, op: int) -> None:
+            st = os.fstat(fd)
+            locked_inodes.append((st.st_dev, st.st_ino))
+            reached.set()
+            fcntl.flock(fd, op)
+
+    monkeypatch.setattr(seal_module, "fcntl", Spy())
     done = threading.Event()
     with seal_guard(env.root, "r1", timeout=1):
+        guard_file = seal_lock_path(env.root, "r1")
+        probe = os.open(guard_file, os.O_RDWR)
+        try:
+            with pytest.raises(BlockingIOError):  # the guard holds it exclusively
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            st = os.fstat(probe)
+        finally:
+            os.close(probe)
         t = threading.Thread(target=lambda: (seal_run(env.log, "r1"), done.set()), daemon=True)
         t.start()
-        time.sleep(0.3)
+        assert reached.wait(10), "seal_run never reached its flock"
+        assert locked_inodes == [(st.st_dev, st.st_ino)]  # the same file: seal_run is blocked on the guard
         assert not done.is_set()
     t.join(10)
     assert done.is_set()

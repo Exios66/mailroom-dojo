@@ -3,6 +3,7 @@ breach, queue order, and agreement with ``Index.review_queue()`` on random histo
 
 from __future__ import annotations
 
+import itertools
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,7 +14,7 @@ from desk_testkit import T0, engine_append, log_of, make_run, policy, request
 from hypothesis import example, given
 from hypothesis import strategies as st
 
-from mailroom_desk import AlreadyInReview, Desk, fold_case
+from mailroom_desk import AlreadyInReview, Desk, RunChainNotReviewable, fold_case
 from mailroom_desk.fold import episode
 from mailroom_desk.models import (
     NODE,
@@ -244,22 +245,71 @@ def test_queue_spans_every_run_when_none_is_named(env: SimpleNamespace) -> None:
 # --- agreement with Index.review_queue() ------------------------------------------------
 
 DOCS = ("d0", "d1", "d2", "d3")
+RUN_CHAIN = "_run"  # the run-level chain: run events only, never put in review
 RUNS = ("r1", "r2")
 NON_REVIEW = ("handoff", "model_call", "decision", "output", "error", "serving")
+FOREIGN = ("garbage", "empty", "assign", "claim_lapsed", "claim_live", "defer", "release")
+HOUR = timedelta(hours=1)
 
 _op = st.one_of(
-    st.tuples(st.just("engine"), st.sampled_from(RUNS), st.sampled_from(DOCS), st.sampled_from(NON_REVIEW)),
-    st.tuples(st.just("foreign_review"), st.sampled_from(RUNS), st.sampled_from(DOCS), st.sampled_from(("garbage", "claim", "empty"))),
-    st.tuples(st.just("desk"), st.sampled_from(RUNS), st.sampled_from(DOCS), st.sampled_from(("flag_low", "flag_high", "slot:a:b"))),
+    st.tuples(st.just("engine"), st.sampled_from(RUNS), st.sampled_from((*DOCS, RUN_CHAIN)), st.sampled_from(NON_REVIEW)),
+    st.tuples(st.just("foreign_review"), st.sampled_from(RUNS), st.sampled_from(DOCS), st.sampled_from(FOREIGN)),
+    st.tuples(
+        st.just("desk"), st.sampled_from(RUNS), st.sampled_from((*DOCS, RUN_CHAIN)), st.sampled_from(("flag_low", "flag_high", "slot:a:b"))
+    ),
 )
 
 
 def _payload(kind: str) -> dict[str, Any]:
-    if kind == "garbage":
-        return {"action": "teleport", "where": "elsewhere"}
-    if kind == "claim":
-        return ClaimPayload(action="claim", actor=ACTOR, lease_expires_at=format_ts(T0)).model_dump(mode="json")
-    return {}
+    """A review payload another writer appends (D1 has no API for these actions yet)."""
+    payloads: dict[str, Any] = {
+        "garbage": {"action": "teleport", "where": "elsewhere"},
+        "empty": {},
+        "assign": AssignPayload(action="assign", actor=ACTOR, assignee="rv-b"),
+        "claim_lapsed": ClaimPayload(action="claim", actor=ACTOR, lease_expires_at=format_ts(T0)),  # lapsed at T0
+        "claim_live": ClaimPayload(action="claim", actor=ACTOR, lease_expires_at=format_ts(T0 + HOUR)),
+        "defer": DeferPayload(action="defer", actor=ACTOR, until=format_ts(T0 + HOUR)),
+        "release": ReleasePayload(action="release", actor=ACTOR),
+    }
+    raw = payloads[kind]
+    return raw.model_dump(mode="json") if hasattr(raw, "model_dump") else raw
+
+
+class _Model:
+    """The expected case of one document, kept by the test from the operations alone (an
+    oracle independent of ``fold_case``): ``None`` when not in review."""
+
+    def __init__(self) -> None:
+        self.cases: dict[tuple[str, str], dict[str, Any] | None] = {}
+
+    def in_review(self, key: tuple[str, str]) -> bool:
+        return self.cases.get(key) is not None
+
+    def open(self, key: tuple[str, str]) -> dict[str, Any]:
+        case = self.cases.get(key)
+        if case is None:
+            case = self.cases[key] = {"assignee": False, "claimed": False, "deferred": False}
+        return case
+
+    def foreign(self, key: tuple[str, str], kind: str) -> None:
+        case = self.open(key)  # any review event on a resolved document opens an episode
+        if kind == "assign":
+            case.update(assignee=True, claimed=False)
+        elif kind in ("claim_lapsed", "claim_live"):
+            case.update(claimed=kind == "claim_live", deferred=False)
+        elif kind == "defer":
+            case.update(deferred=True, claimed=False)
+        elif kind == "release":
+            case.update(assignee=False, claimed=False)
+
+    def status(self, key: tuple[str, str]) -> str:
+        case = self.cases[key]
+        assert case is not None
+        if case["deferred"]:
+            return "deferred"
+        if case["claimed"]:
+            return "claimed"
+        return "assigned" if case["assignee"] else "open"
 
 
 @given(ops=st.lists(_op, max_size=24))
@@ -270,13 +320,24 @@ def _payload(kind: str) -> dict[str, Any]:
         ("engine", "r1", "d0", "output"),  # resolved
         ("desk", "r1", "d0", "flag_high"),  # a second episode
         ("foreign_review", "r1", "d0", "garbage"),  # unreadable action, still in review
-        ("foreign_review", "r2", "d1", "claim"),  # a claim with no opening event
+        ("foreign_review", "r2", "d1", "claim_lapsed"),  # a claim with no opening event
         ("engine", "r2", "d2", "decision"),  # never reviewed
         ("desk", "r2", "d2", "slot:a:b"),
+        ("foreign_review", "r2", "d2", "assign"),
+        ("foreign_review", "r2", "d2", "claim_live"),
+        ("desk", "r2", "d3", "flag_high"),
+        ("foreign_review", "r2", "d3", "defer"),
+        ("engine", "r1", "_run", "handoff"),  # the run-level chain
+        ("desk", "r1", "_run", "flag_low"),  # refused: not a document
         ("engine", "r2", "d2", "handoff"),
     ]
 )
 def test_fold_agrees_with_the_index_on_random_histories(tmp_path_factory: pytest.TempPathFactory, ops: list) -> None:
+    """After every step: the plain (log) queue and the index-backed queue are the same list
+    (same cases, statuses and order); their membership is ``Index.review_queue()`` of an
+    applied and of a rebuilt index; each status is the one the test's own model expects;
+    the queue is in ``sort_key`` order; the desk refuses exactly when the model says the
+    document is in review (or is ``_run``), and never writes a review event on a review head."""
     root = tmp_path_factory.mktemp("history")
     for run_id in RUNS:
         make_run(root, run_id)
@@ -286,30 +347,46 @@ def test_fold_agrees_with_the_index_on_random_histories(tmp_path_factory: pytest
     plain = Desk(root, clock=lambda: T0)
     indexed = Desk(root, index=applied, clock=lambda: T0)
     pol = policy(sample={"rate": 0.0, "seed": ""})
+    model = _Model()
 
     for step, (op, run_id, doc_id, arg) in enumerate(ops):
+        key = (run_id, doc_id)
         if op == "engine":
             applied.apply(engine_append(root, run_id, doc_id, arg))
+            model.cases[key] = None
         elif op == "foreign_review":
             applied.apply(engine_append(root, run_id, doc_id, "review", payload=_payload(arg)))
+            model.foreign(key, arg)
         else:
-            try:
+            before = len(list(log.iter_events(run_id, doc_id)))
+            refusal = RunChainNotReviewable if doc_id == RUN_CHAIN else AlreadyInReview if model.in_review(key) else None
+            if refusal is not None:
+                with pytest.raises(refusal):
+                    indexed.enqueue(request(doc_id, arg, run_id=run_id), pol)
+            else:
                 done = indexed.enqueue(request(doc_id, arg, run_id=run_id), pol)
-                assert done.index_error is None
-            except AlreadyInReview:
-                pass
+                assert done is not None and done.index_error is None
+                model.open(key)
+            assert len(list(log.iter_events(run_id, doc_id))) - before == (0 if refusal else 1)
 
         rebuilt = Index(root / f"rebuilt-{step}.sqlite")
         rebuilt.reindex(log)
         want = {(r.run_id, r.doc_id) for r in rebuilt.review_queue()}
         assert {(r.run_id, r.doc_id) for r in applied.review_queue()} == want
-        assert {(c.run_id, c.doc_id) for c in plain.queue()} == want
-        assert {(c.run_id, c.doc_id) for c in indexed.queue()} == want
+        assert want == {k for k, case in model.cases.items() if case is not None}
+        from_log = plain.queue()
+        assert indexed.queue() == from_log  # same cases, statuses and order on both paths
+        assert {(c.run_id, c.doc_id) for c in from_log} == want
+        assert [c.status for c in from_log] == [model.status((c.run_id, c.doc_id)) for c in from_log]
+        keys = [c.sort_key() for c in from_log]
+        assert keys == sorted(keys) and len(set(keys)) == len(keys)
         for run_id in RUNS:
-            assert {c.doc_id for c in plain.queue(run_id)} == {d for r, d in want if r == run_id}
+            assert plain.queue(run_id) == [c for c in from_log if c.run_id == run_id]
             for row in rebuilt.documents(run_id):
                 events = list(log.iter_events(run_id, row.doc_id))
                 case = fold_case(run_id, row.doc_id, events, T0)
                 in_review = case is not None and case.in_review
                 assert in_review == row.in_review == (events[-1].kind == "review")
+                for prev, ev in itertools.pairwise(events):  # the desk never stacks on a review head
+                    assert not (ev.node == NODE and prev.kind == "review"), (run_id, row.doc_id, ev.seq)
         assert applied.drift(log) == []
