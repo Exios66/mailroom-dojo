@@ -26,7 +26,7 @@ from record_testkit import (
 )
 
 from mailroom_record.blobs import BlobStore
-from mailroom_record.importer._folder import scrub, token
+from mailroom_record.importer._folder import scrub, shown, token
 from mailroom_record.importer.audit import ROUTING_INPUTS, audit_sandbox_run
 from mailroom_record.importer.sandbox_run import (
     ImportConflict,
@@ -386,6 +386,34 @@ def test_audit_sees_inputs_disappear(fixture_folder: Path) -> None:
     for gone in ("judge verdict per pass", "arbiter route per pass", "retry counts", "effective thresholds"):
         assert gone in a.absent
     assert "classification_confidence" in a.present  # the items still carry it
+
+
+def test_the_audit_names_no_free_text(fixture_folder: Path) -> None:
+    """Question, node and run names that are not tokens are counted under a short digest,
+    so neither the audit nor the command line (text or ``--json``) prints the text."""
+    question, node, run_id = "Did Jane Roe sign this?", "Jane Roe node", "run of Jane Roe"
+    rows = read_jsonl(fixture_folder / "nodes.jsonl")
+    for row in rows:
+        if row["node"] == "classify":
+            row["node"] = node
+        for d in row.get("decisions") or []:
+            if d.get("question") == "doc_type":
+                d["question"] = question
+    write_jsonl(fixture_folder / "nodes.jsonl", rows)
+    lock = json.loads((fixture_folder / "spec.lock.json").read_text())
+    (fixture_folder / "spec.lock.json").write_text(json.dumps(lock | {"run_id": run_id}))
+    a = audit_sandbox_run(fixture_folder)
+    assert a.decisions_seen[shown(question)] == 3 and shown(question).startswith("<")
+    assert a.nodes_seen[shown(node)] > 0 and a.run_id == fixture_folder.name
+    assert "classification_confidence" in a.present  # the items still carry it
+    texts = [repr(a)]
+    for extra in ((), ("--json",)):
+        res = run_cli("audit", "sandbox-run", str(fixture_folder), *extra)
+        assert res.exit_code == 0, res.stderr
+        texts.append(res.stdout + res.stderr)
+    for text in texts:
+        for value in (question, node, run_id):
+            assert value not in text
 
 
 # --- command line -------------------------------------------------------------------------

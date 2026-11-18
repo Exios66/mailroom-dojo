@@ -157,8 +157,10 @@ line: once the line is complete, the same folder conflicts (`ImportConflict`) in
 so import a run after it has stopped.
 
 `audit_sandbox_run(folder) -> RoutingAudit` (`mailroom_record.importer.audit`) reports which
-routing inputs the `legacy` router replay needs are present or absent in a folder. The module
-docstrings state every mapping rule.
+routing inputs the `legacy` router replay needs are present or absent in a folder, and counts
+finished rows per node and decisions per question; a node or question name that is not a
+short token is counted under a short digest of it, so the audit never prints free text. The
+module docstrings state every mapping rule.
 
 ## Floor replay
 

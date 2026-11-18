@@ -3,7 +3,11 @@
 ``audit_sandbox_run(folder)`` reads a folder (never writes) and reports, as ``present`` or
 ``absent``, each input the engine's ``legacy`` router replay will need (``ROUTING_INPUTS``),
 plus how many finished rows each node has (``nodes_seen``) and how many decisions each
-question has (``decisions_seen``). An input is present when at least one row carries it:
+question has (``decisions_seen``). Those are keyed by the node or question name when it is
+a short token, else by a short digest of it (``<`` twelve hex digits ``>``, ``_folder.shown``),
+and the run id is the lock's only when it is a valid run id, else the folder's name (a
+digest of it when that is not a valid run id either), so the
+audit (and ``mailroom-record audit sandbox-run``) never prints free text. An input is present when at least one row carries it:
 
 - ``classification_confidence`` / ``extraction_confidence``: a number in an item's ``pred``,
   or the ``p`` of a ``doc_type`` / ``extraction_confidence`` decision;
@@ -26,7 +30,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mailroom_record.importer._folder import SandboxFolderInvalid, read_json, read_jsonl
+from mailroom_record.importer._folder import SandboxFolderInvalid, read_json, read_jsonl, shown
+from mailroom_record.importer.sandbox_run import _RUN_ID_RE
 
 __all__ = ["ROUTING_INPUTS", "RoutingAudit", "audit_sandbox_run"]
 
@@ -75,7 +80,7 @@ def audit_sandbox_run(folder: Path) -> RoutingAudit:
         node = row.get("node")
         if row.get("status") == "running" or not isinstance(node, str):
             continue
-        nodes_seen[node] += 1
+        nodes_seen[shown(node)] += 1
         found.add("retry counts")
         decisions = row.get("decisions")
         for d in decisions if isinstance(decisions, list) else []:
@@ -83,7 +88,7 @@ def audit_sandbox_run(folder: Path) -> RoutingAudit:
                 continue
             q = d.get("question")
             if isinstance(q, str):
-                decisions_seen[q] += 1
+                decisions_seen[shown(q)] += 1
             if d.get("source") == "decisions":
                 found.add("decision slot outputs")
             if q == "doc_type" and _number(d.get("p")):
@@ -110,7 +115,9 @@ def audit_sandbox_run(folder: Path) -> RoutingAudit:
     if isinstance(thresholds, dict) and thresholds:
         found.add("effective thresholds")
 
-    run_id = lock.get("run_id") if isinstance(lock.get("run_id"), str) and lock.get("run_id") else folder.name
+    run_id = lock.get("run_id")
+    if not isinstance(run_id, str) or not _RUN_ID_RE.fullmatch(run_id):
+        run_id = folder.name if _RUN_ID_RE.fullmatch(folder.name) else shown(folder.name)  # as the importer does
     if dataset is not None:
         documents = len(dataset)
     else:
