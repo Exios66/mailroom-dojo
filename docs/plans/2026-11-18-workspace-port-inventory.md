@@ -116,7 +116,7 @@ Chunk ids refer to section 2. "done" = already in `packages/dojo` (see `docs/pla
 | `analysis/__init__.py` | 1 | Run analysis and reporting: statistics, diagnostics, interpretation, exports, grids, serving, cost. *empty package marker* | DROP | - | - | - | - |
 | `analysis/bootstrap.py` | 186 | Bootstrap confidence intervals and small-sample delta testing. *paired bootstrap intervals for run comparison* | PORT AS IS | D1 | `mailroom_dojo/statistics/bootstrap.py` | - | 4: test_bootstrap.py, test_ml_contract.py, test_root_surface.py … |
 | `analysis/calibration.py` | 396 | Calibration, risk-bound, and discrimination math shared by scoring lanes. *confidence layer: calibration error, risk bounds, ranking power* | PORT AS IS | D1 | `mailroom_dojo/statistics/calibration.py` | analysis/bootstrap | 5: test_calibration.py, test_ml_contract.py, test_pr104_review_fixes.py … |
-| `analysis/cost.py` | 178 | Per-model token pricing, cost estimation, and usage aggregation. *cost truth layer; token prices are hard-coded tables today* | PORT AND DE-HARDCODE | D5 | `mailroom_dojo/run_layer/cost.py`; prices -> `config/prices/` (price sheet, new folder needs a layout-map line) | metrics/scorecard_honesty (drop) | 5: test_codeant_cost_fnol.py, test_cost.py, test_serving.py … |
+| `analysis/cost.py` | 178 | Per-model token pricing, cost estimation, and usage aggregation. *cost truth layer; token prices are hard-coded tables today* | PORT AND DE-HARDCODE | D5 | `mailroom_dojo/run_layer/cost.py`; prices -> `config/prices/` (price sheet; D5 creates the folder with its layout-map line; launcher L6 and Dojo D7 cost truth read it) | metrics/scorecard_honesty (drop) | 5: test_codeant_cost_fnol.py, test_cost.py, test_serving.py … |
 | `analysis/diagnostics.py` | 326 | Run-level diagnostic metrics for the entity-extraction task. *run-level extraction diagnostics* | PORT AS IS | D5 | `mailroom_dojo/run_layer/diagnostics.py` | - | 3: test_comparability.py, test_diagnostics.py, test_v026_truth_fixes.py |
 | `analysis/experiment.py` | 110 | Experiment-log record helpers: JSONL append/load, dotted access, snapshots. *experiment-log JSONL helpers; the record is the experiment log* | REPLACED BY RECORD | - | - | - | 1: test_experiment.py |
 | `analysis/failure_modes.py` | 184 | Failure-mode taxonomy and classification for sorter / subtype evals. *failure taxonomy for sorter/subtype; cause tokens from `mailroom_dictionaries` `review_causes`/`outcomes`* | PORT AND DE-HARDCODE | D5 | `mailroom_dojo/reports/failure_modes.py` | metrics/scorecard_honesty (drop) | 2: test_failure_modes.py, test_v018_scorecard_honesty.py |
@@ -172,7 +172,7 @@ Chunk ids refer to section 2. "done" = already in `packages/dojo` (see `docs/pla
 | Module | Lines | What it does | Verdict | Chunk | Target | Depends on (not yet ported) | Old tests naming it |
 |---|---:|---|---|---|---|---|---|
 | `prompts/__init__.py` | 187 | Importable prompt catalog for llm-dojo-scoring. *design: prompt catalog moves to the engine* | BECOMES CONFIG | E (engine/config) | `config/prompts/` (catalog) read by the engine | prompts/lineage | - |
-| `prompts/alignment.py` | 84 | Do the specialist prompts ask for the fields the scoring schema scores? *"each prompt names every field and allowed value" check moves to the engine tests* | PORT AND DE-HARDCODE | E (engine/config) | engine tests: `packages/engine/tests/test_prompt_alignment.py` | - | 2: test_production_prompts.py, test_prompt_alignment.py |
+| `prompts/alignment.py` | 84 | Do the specialist prompts ask for the fields the scoring schema scores? *"each prompt names every field and allowed value" check moves to the engine tests* | PORT AND DE-HARDCODE | E (engine/config) | interim: the workspace `tests/` (P1, until the engine exists); then engine tests: `packages/engine/tests/test_prompt_alignment.py` (E2). Compares each prompt with its schema's `extracted` section; `legacy` gaps against the `scored` section are recorded as known gaps, never closed by editing a `legacy` prompt | - | 2: test_production_prompts.py, test_prompt_alignment.py |
 | `prompts/lineage.py` | 255 | eval-environment prompt lineage: every archived, frozen and mutated version. *eval-environment lineage; data, no code* | BECOMES CONFIG | E (engine/config) | `config/prompts/frozen_v1/lineage.json` (data only) | - | 0 |
 
 #### `llm_dojo_scoring/schemas` (18 modules, 7,624 lines)
@@ -559,7 +559,7 @@ Targets in `mailroom_engine` / `mailroom_launcher` are proposed paths; neither p
 | `run_limits` | 170 | 20 | run spec caps (launcher) read by engine caps |
 | `chunking` | 190 | 27 | engine window config |
 | `cost_models` | 217 | 32 | price sheet (launcher preflight + Dojo cost truth) |
-| `confidence` | 249 | 61 | `config/policies/legacy.*` thresholds (by class) |
+| `confidence` | 249 | 61 | each class's sorter thresholds (`by_class`) -> the client profile (`config/clients/<client>/`, spec line 58); run-level routing thresholds -> `config/policies/legacy.*` (spec line 400) |
 | `routing` | 310 | 14 | `config/policies/legacy.*` |
 | `prompt_source` | 324 | 8 | DROP (always repo prompts) |
 | `prompt_set` | 332 | 14 | run spec (`prompt_set` + overlays) |
@@ -736,7 +736,7 @@ Notes:
 
 | Old | New |
 |---|---|
-| `src/config/taxonomy.yaml` (885 lines, 27 sections) | split by section, see the table in 1b: `doc_classes` and `field_scoring` are already ported; `confidence`, `routing`, `reviewer`, `decision_points`, `relations`, `pipeline` -> `config/policies/legacy.*`; `agents` -> client profile / run spec agent-to-model map; model maps, gateway -> launcher backend config; `cost_models` -> price sheet; `run_limits` -> run spec caps; `prompt_set` -> run spec; `prompt_source`, `audit` drop |
+| `src/config/taxonomy.yaml` (885 lines, 27 sections) | split by section, see the table in 1b: `doc_classes` and `field_scoring` are already ported; `confidence` `by_class` thresholds -> client profile; the rest of `confidence`, `routing`, `reviewer`, `decision_points`, `relations`, `pipeline` -> `config/policies/legacy.*`; `agents` -> client profile / run spec agent-to-model map; model maps, gateway -> launcher backend config; `cost_models` -> price sheet; `run_limits` -> run spec caps; `prompt_set` -> run spec; `prompt_source`, `audit` drop |
 | `src/llm/prompt_sets/`, `langchain_agents/prompts.py`, `llm/prompt_doctrine.py`, `langchain_agents/skills/` | `config/prompts/deploy_v1/` (one file per agent, skills and doctrine included), `config/prompts/catalog.yaml` |
 | `src/llm/frozen_v1/` | `config/prompts/frozen_v1/` |
 | `langchain_agents/prompt_candidates/corporate_flat9.py` | an overlay under `config/prompts/` (offline candidate, not a default) |
@@ -835,8 +835,8 @@ gate" -> launcher, backends, cutover. The gate, quoted from the design ("The go 
 | 0 | Record Tasks 7 to 12 (verify, index, trace merged in; importer, floor replay, pack/prune, stage-1 gate) | 1 (other agent) | - | - | Stage-1 gate: v1 and slice-100 r2 import, chains verify, trace works, size reported |
 | 1 | D1 statistics | 3 | 582 | - | old tests + differential corpus |
 | 2 | D2 flat metric table, number provenance | 3 | 3,372 | - | metric names in `scores.json` all present; provenance tests |
-| 3 | D3a schemas as config (shared with engine) | 3 | 4,922 | D2 | YAML equals frozen dump of old tables; labels/Dojo profile agreement test |
-| 4 | D3b tasks, suites, doc scorers, golden harness | 3 | 5,966 | D1, D2, D3a, serving core | `scores.json` 21 suites + 22 task kinds identical; 89 doc-scorer goldens with departures overlay |
+| 3 | D3a schemas as config (shared with engine) | 3 | 4,922 | D2 | each schema section equals its own old table: `scored` = old Dojo `doc_classes` and per-class profile tables (`23f8234`), `legacy` `extracted` = llm-mailroom `EXTRACTION_SCHEMAS` (`070663f`); labels/Dojo profile agreement test |
+| 4 | D3b tasks, suites, doc scorers, golden harness | 3 | 5,966 | D1, D2, D3a, serving core | `scores.json` 21 suites + 22 task kinds identical; 89 doc-scorer goldens with the departures overlay (`tests/fixtures/doc_scorers/departures.json`, dojo 0.28.1) applied |
 | 5 | D4 label layer | 3 | 929 | D3a, labels | `test_label_policy` cases; Protocol check against `LabelSet` |
 | 6 | D5 run layer | 3 | 2,447 | record importer (0) | old tests; numbers on imported runs |
 | 7 | D6 outcome and behaviour | 3 | 2,982 | D3b, D5, decision events | old tests; v1 outcome counts |
@@ -851,7 +851,8 @@ gate" -> launcher, backends, cutover. The gate, quoted from the design ("The go 
 | 16 | E5 queue, workers, leases, breakers, caps | 5 | 4,195 | E3 | >= 249 documents a minute with the fake model and durable writes; killed-worker resume |
 | 17 | E6 API (upload, review-resolve with the review station) and exporters | 5 | 2,958 | E5, review station | API contract tests keep shape |
 | 18 | L1 run spec, draws, run CLIs; L2 backends | 6 | 8,493 + 1,404 (+ 1,693 deploy/) + sandbox | E6 | a mock run per backend with no spend; paid parity runs started by the owner |
-| 19 | L3 CLI and TUI, L4 floor server and web floor, L5 operator desk | 6 | The-Mailroom 4,302 port + 1,123 as is (+ front-ends) + sandbox + mailroom-reloaded | record Task 10b, E6 | floor replays an imported run through `build_timeline`-equivalent timeline |
+| 19 | L3 CLI and TUI, L4 floor server and web floor | 6 | The-Mailroom 4,302 port + 1,123 as is (+ front-ends) + sandbox + mailroom-reloaded (shared with 19b) | record Task 10b, E6 | floor replays an imported run through `build_timeline`-equivalent timeline |
+| 19b | L5 operator desk | 6 | The-Mailroom `operator_desk/` (in the 19 total) | L4, review station | its own gate (design section 8): JWT refusal paths tested (missing, expired, wrong-role token); no document text in desk logs (log-scan test); desk store kept apart from the record index (boundary test); archive file access read-only (`fitz`) |
 | 20 | Cutover: experiment policies B, D, E; Set F | 6 | - | all | Set F pass rule (design open question 5, approved) |
 
 Notes on order:
