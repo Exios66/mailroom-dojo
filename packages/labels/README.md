@@ -5,6 +5,10 @@ snapshots that load with no network; the precedence that turns label layers into
 effective label per document field; the data-quality gate; and the coverage report.
 Plan: `docs/plans/2026-11-18-labels-plan.md`. Requirements served: R4, R6, R8, R9.
 
+Install `packages/record` from this workspace first (editable). The labels package
+depends on the bare name `mailroom-record`, which pip would otherwise try to resolve on
+PyPI, where no such package of ours is published.
+
 ```bash
 .venv/bin/pip install -e packages/record -e "packages/labels[dev]"
 .venv/bin/python -m pytest packages/labels/tests -q
@@ -23,7 +27,8 @@ exit 2.
 | `models.py` | Frozen models: `LayerRecord`, `LayerFact`, `CorpusEntry`, `FieldLabel`, `DocumentLabels`, `Finding`, `SnapshotManifest`; the ranks and status words |
 | `errors.py` | Typed errors: `ManifestMissing`, `ManifestMismatch` (with `kind`), `UnknownSnapshotSchema`, `CorruptLine` (file and line), `DuplicateSnapshot`, `ProfileError` |
 | `profile.py` | `ClientProfile` and `load_profile`: classes, fields, Dojo field types, vocabularies, precedence |
-| `snapshot.py` | `write_snapshot`, `build_manifest`, `load_snapshot` (verifies before reading), `load_snapshot_set`, `snapshot_refs` |
+| `snapshot.py` | `write_snapshot`, `build_manifest`, `load_snapshot` (verifies before reading), `load_snapshot_set`, `snapshot_refs`, `label_snapshot_ids`; `LabelSnapshot.rows()` streams the raw native rows |
+| `labelset.py` | `load_label_set`, `LabelSet`, `QualityGateFailed`: the set-level surface a scorer uses |
 | `layers.py` | Readers for the four native snapshot kinds (`hub`, `interim`, `near_gold`, `review`) and read-time upgrades |
 | `resolve.py` | `resolve`: the precedence, staleness and scorability rules |
 | `quality.py` | `check`, `check_dirs`, `verify`: typed findings for every data-quality check |
@@ -65,3 +70,23 @@ reordered file, a wrong row count and a wrong manifest hash, each with its own
 
 `mailroom_labels` imports `mailroom_record` and no other workspace package
 (`tests/test_boundaries.py`). Library code names no class or field: they are profile data.
+
+## Using a label set (what the Dojo codes against)
+
+```python
+from mailroom_labels import load_label_set, load_profile
+
+labels = load_label_set(["labels/hub-ccd040f6", "labels/interim-2026-11-01",
+                         "labels/near-gold-2026-11-17", "labels/gold-review-2026-11-18"],
+                        load_profile("config/clients/mailroom-dataset/profile.yaml"))
+labels.snapshot_id          # member ids, sorted, joined with "+"
+labels.manifest_hash        # hash_obj of the sorted [snapshot_id, manifest_hash] pairs
+for doc in labels.documents():   # resolved DocumentLabels, sorted by document id
+    doc.scorable_fields, doc.fields
+labels.snapshot_refs()      # [{snapshot_id, kind, manifest_hash}, ...]
+labels.label_snapshot_ids() # Run.label_snapshot_ids: ["<snapshot_id>@<manifest_hash>", ...]
+```
+
+`load_label_set` verifies every manifest, runs the quality gate and raises
+`QualityGateFailed` (with the full report) when it finds an error, so a run can never be
+scored against a set that does not pass `mailroom-labels verify`.

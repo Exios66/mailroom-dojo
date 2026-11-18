@@ -42,6 +42,7 @@ __all__ = [
     "LabelSnapshot",
     "Row",
     "build_manifest",
+    "label_snapshot_ids",
     "load_snapshot",
     "load_snapshot_set",
     "manifest_hash_of",
@@ -330,6 +331,13 @@ def load_snapshot_set(directories: Iterable[Path | str]) -> tuple[LabelSnapshot,
             raise DuplicateSnapshot(snap.snapshot_id)
         seen.add(snap.snapshot_id)
     return tuple(sorted(snapshots, key=lambda s: s.snapshot_id))
+
+
+def label_snapshot_ids(snapshots: Iterable[LabelSnapshot]) -> list[str]:
+    """The value of a run header's ``label_snapshot_ids`` (``mailroom_record.models.Run``,
+    a list of strings): ``<snapshot_id>@<manifest_hash>`` per snapshot, sorted, so the run
+    names the exact manifest of every snapshot it was scored against."""
+    return [f"{s.snapshot_id}@{s.manifest_hash}" for s in sorted(snapshots, key=lambda s: s.snapshot_id)]
 
 
 def snapshot_refs(snapshots: Iterable[LabelSnapshot]) -> tuple[dict[str, str], ...]:
