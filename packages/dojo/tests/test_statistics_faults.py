@@ -311,6 +311,32 @@ def test_a_decimal_rate_is_read_as_a_number_by_wilson_ci():
         wilson_bounds(Decimal("0.5"), 10)
 
 
+def test_a_decimal_alpha_is_read_as_the_old_dojo_read_it():
+    """A finite Decimal alpha in (0, 1) gives the old Dojo's interval; others are refused.
+
+    The expected bounds are the old Dojo's (``llm_dojo_scoring`` at the pinned commit)
+    for ``alpha=Decimal("0.05")``, seed 42; they equal those for ``alpha=0.05``.
+    """
+    values = [0.1, 0.5, 0.9, 0.4, 0.7, 0.2, 0.8]
+    other = [0.3, 0.6, 0.8, 0.6, 0.9, 0.5, 0.95]
+    old = {  # n_boot: (bootstrap_ci lo, hi), (delta_significance ci_lo, ci_hi)
+        20: ((0.2857, 0.7), (-0.05, 0.3714)),
+        100: ((0.2857, 0.6571), (-0.1571, 0.3714)),
+        1000: ((0.3143, 0.7), (-0.1143, 0.4143)),
+    }
+    for n_boot, (interval, delta) in old.items():
+        got = bootstrap_ci(values, n_boot=n_boot, alpha=Decimal("0.05"), seed=42)
+        assert (got.lo, got.hi) == interval
+        assert got == bootstrap_ci(values, n_boot=n_boot, alpha=0.05, seed=42)
+        got_delta = delta_significance(values, other, n_boot=n_boot, alpha=Decimal("0.05"), seed=42)
+        assert (got_delta.ci_lo, got_delta.ci_hi) == delta
+        assert got_delta == delta_significance(values, other, n_boot=n_boot, alpha=0.05, seed=42)
+    for text in ("0", "1", "1.5", "NaN", "sNaN", "Infinity"):
+        bad = Decimal(text)
+        with raises_exactly(ValueError, f"alpha must be in (0, 1); got {bad!r}"):
+            bootstrap_ci(values, alpha=bad)
+
+
 def test_too_few_values_is_none_before_the_parameters_are_checked():
     """As in the old Dojo, under two usable values there is no interval, whatever the parameters."""
     assert bootstrap_ci([0.5], n_boot=0) is None

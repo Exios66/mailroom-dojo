@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import random
 import re
+from decimal import Decimal
 from fractions import Fraction
 
 import numpy
@@ -344,11 +345,11 @@ def test_numpy_integer_resampling_parameters_are_plain_integers(integer):
 
 @pytest.mark.parametrize(
     "alpha",
-    [numpy.float64(0.05), numpy.float32(0.05), Fraction(1, 20)],
-    ids=["float64", "float32", "Fraction"],
+    [numpy.float64(0.05), numpy.float32(0.05), Fraction(1, 20), Decimal("0.05")],
+    ids=["float64", "float32", "Fraction", "Decimal"],
 )
 def test_non_float_alphas_are_plain_floats_and_results_are_json(alpha):
-    """A NumPy or Fraction alpha is stored as a float, significant is a bool, to_dict() is JSON."""
+    """A NumPy, Fraction or Decimal alpha is stored as a float, significant is a bool, to_dict() is JSON."""
     a = by_document([0.1, 0.5, 0.9, 0.4, 0.7])
     b = by_document([0.3, 0.6, 0.8, 0.6, 0.9])
     delta = paired_bootstrap_delta(a, b, n_boot=50, seed=7, alpha=alpha)

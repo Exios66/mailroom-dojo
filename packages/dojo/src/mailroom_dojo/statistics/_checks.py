@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import decimal
 import math
 import numbers
 import operator
@@ -29,9 +30,14 @@ def validate_confidence(confidence: Any, name: str = "confidence") -> float:
 def validate_alpha(alpha: Any) -> float:
     """Require a real ``alpha`` (not a bool) strictly inside ``(0, 1)``; return it as a plain float.
 
-    A NumPy float or a ``Fraction`` becomes a ``float``, so a result that stores it, and a
+    A NumPy float, a ``Fraction`` or a finite ``decimal.Decimal`` (which the old Dojo's
+    bootstrap read) becomes a ``float``, so a result that stores it, and a
     ``significant`` flag compared with it, serialise to JSON.
     """
+    if isinstance(alpha, decimal.Decimal):
+        if not alpha.is_finite() or not 0 < alpha < 1:
+            raise ValueError(f"alpha must be in (0, 1); got {alpha!r}")
+        return float(alpha)
     if isinstance(alpha, bool) or not isinstance(alpha, numbers.Real) or not 0.0 < float(alpha) < 1.0:
         raise ValueError(f"alpha must be in (0, 1); got {alpha!r}")
     return float(alpha)

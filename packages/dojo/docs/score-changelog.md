@@ -180,7 +180,8 @@ the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
   old Dojo seeded `random.Random` with text such as `"abc"` and returned an interval). As in
   the old Dojo, fewer than two usable values give `None` first, so `bootstrap_ci([0.5],
   n_boot=0)` and `delta_significance([0.5], [0.1, 0.2], alpha=nan)` are still `None`; with
-  enough values a bad parameter raises. A NumPy integer `seed` or `n_boot` is read as a
+  enough values a bad parameter raises. A `decimal.Decimal` or `Fraction` `alpha` inside
+  `(0, 1)` gives the old interval, as before. A NumPy integer `seed` or `n_boot` is read as a
   plain int: the old Dojo raised `TypeError` from `random.Random` for a NumPy seed and
   reported a NumPy `n_boot` as given, which `json.dumps` refuses; the numbers are those
   of the same plain int. The corpus holds no NumPy parameter, so the ledger has no entry.
