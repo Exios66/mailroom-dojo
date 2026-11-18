@@ -6,9 +6,11 @@ parameters and wrong types. Where an error is raised, its type and message are a
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from decimal import Decimal
+from fractions import Fraction
 
 import numpy
 import pytest
@@ -276,11 +278,23 @@ def test_integer_valued_float_supports_are_counts():
         (None, INF),
         (None, -INF),
         (None, 0.5),
+        (None, Decimal(5)),
+        (0.5, Decimal(0)),
+        (None, Decimal(0)),
+        (0.5, Decimal(-1)),
+        (0.5, Decimal("0.5")),
+        (Decimal("0.5"), Decimal(0)),
+        (None, Decimal("2.5")),
+        (None, Decimal("Infinity")),
+        (0.5, Decimal("-Infinity")),
     ],
 )
 def test_wilson_ci_is_none_below_one_trial_or_without_a_rate(p, n):
     """Any real support under 1, or no rate with any real support, is no interval, as before."""
     assert wilson_ci(p, n) is None
+
+
+DECIMAL_SUPPORT = "n must be an int or an integer-valued float, not a Decimal; got "
 
 
 @pytest.mark.parametrize(
@@ -292,12 +306,47 @@ def test_wilson_ci_is_none_below_one_trial_or_without_a_rate(p, n):
         (0.5, "10", "n must be an integer; got '10'"),
         (None, "10", "n must be an integer; got '10'"),
         (None, None, "n must be an integer; got None"),
+        # A Decimal support from one trial up: the old Dojo raised TypeError (float / Decimal).
+        (0.5, Decimal(1), DECIMAL_SUPPORT + "Decimal('1')"),
+        (0.5, Decimal(10), DECIMAL_SUPPORT + "Decimal('10')"),
+        (0.5, Decimal("10.0"), DECIMAL_SUPPORT + "Decimal('10.0')"),
+        (0.5, Decimal("10.5"), DECIMAL_SUPPORT + "Decimal('10.5')"),
+        (Decimal("0.5"), Decimal(10), DECIMAL_SUPPORT + "Decimal('10')"),
+        (0.5, Decimal("Infinity"), DECIMAL_SUPPORT + "Decimal('Infinity')"),
+        # A NaN Decimal support: the old Dojo raised decimal.InvalidOperation comparing it with 1.
+        (0.5, Decimal("NaN"), DECIMAL_SUPPORT + "Decimal('NaN')"),
+        (None, Decimal("NaN"), DECIMAL_SUPPORT + "Decimal('NaN')"),
     ],
 )
 def test_wilson_ci_refuses_a_support_that_is_not_a_count(p, n, message):
     """With a rate, a NaN, infinite or text support is refused; without one, a non-number still is."""
     with raises_exactly(TypeError, message):
         wilson_ci(p, n)
+
+
+@pytest.mark.parametrize(
+    ("z", "plain"),
+    [
+        (numpy.float64(1.96), float),
+        (numpy.int64(2), int),
+        (Fraction(49, 25), float),
+        (2, int),
+        (1.645, float),
+    ],
+)
+def test_wilson_ci_to_dict_gives_z_as_a_plain_number(z, plain):
+    """The interval keeps z as given; to_dict() gives it as a plain int or float, so it is JSON.
+
+    A float32 z is left out: the old arithmetic makes the bounds float32 too, and those
+    are kept (``packages/dojo/docs/score-changelog.md``).
+    """
+    result = wilson_ci(0.3, 40, z=z)
+    assert result.z is z
+    as_dict = result.to_dict()
+    assert type(as_dict["z"]) is plain and as_dict["z"] == plain(z)
+    assert json.loads(json.dumps(as_dict)) == as_dict
+    fields = (result.lo, result.hi, result.half, result.n, result.p)
+    assert (as_dict["lo"], as_dict["hi"], as_dict["half"], as_dict["n"], as_dict["p"]) == fields
 
 
 def test_a_decimal_rate_is_read_as_a_number_by_wilson_ci():
@@ -309,6 +358,32 @@ def test_a_decimal_rate_is_read_as_a_number_by_wilson_ci():
     # wilson_bounds never converted its rate (the old one raised from Decimal + float).
     with raises_exactly(TypeError, "p must be a real number; got Decimal('0.5')"):
         wilson_bounds(Decimal("0.5"), 10)
+
+
+def test_a_decimal_alpha_is_read_as_the_old_dojo_read_it():
+    """A finite Decimal alpha in (0, 1) gives the old Dojo's interval; others are refused.
+
+    The expected bounds are the old Dojo's (``llm_dojo_scoring`` at the pinned commit)
+    for ``alpha=Decimal("0.05")``, seed 42; they equal those for ``alpha=0.05``.
+    """
+    values = [0.1, 0.5, 0.9, 0.4, 0.7, 0.2, 0.8]
+    other = [0.3, 0.6, 0.8, 0.6, 0.9, 0.5, 0.95]
+    old = {  # n_boot: (bootstrap_ci lo, hi), (delta_significance ci_lo, ci_hi)
+        20: ((0.2857, 0.7), (-0.05, 0.3714)),
+        100: ((0.2857, 0.6571), (-0.1571, 0.3714)),
+        1000: ((0.3143, 0.7), (-0.1143, 0.4143)),
+    }
+    for n_boot, (interval, delta) in old.items():
+        got = bootstrap_ci(values, n_boot=n_boot, alpha=Decimal("0.05"), seed=42)
+        assert (got.lo, got.hi) == interval
+        assert got == bootstrap_ci(values, n_boot=n_boot, alpha=0.05, seed=42)
+        got_delta = delta_significance(values, other, n_boot=n_boot, alpha=Decimal("0.05"), seed=42)
+        assert (got_delta.ci_lo, got_delta.ci_hi) == delta
+        assert got_delta == delta_significance(values, other, n_boot=n_boot, alpha=0.05, seed=42)
+    for text in ("0", "1", "1.5", "NaN", "sNaN", "Infinity"):
+        bad = Decimal(text)
+        with raises_exactly(ValueError, f"alpha must be in (0, 1); got {bad!r}"):
+            bootstrap_ci(values, alpha=bad)
 
 
 def test_too_few_values_is_none_before_the_parameters_are_checked():

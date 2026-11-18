@@ -181,7 +181,8 @@ the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
   old Dojo seeded `random.Random` with text such as `"abc"` and returned an interval). As in
   the old Dojo, fewer than two usable values give `None` first, so `bootstrap_ci([0.5],
   n_boot=0)` and `delta_significance([0.5], [0.1, 0.2], alpha=nan)` are still `None`; with
-  enough values a bad parameter raises. A NumPy integer `seed` or `n_boot` is read as a
+  enough values a bad parameter raises. A `decimal.Decimal` or `Fraction` `alpha` inside
+  `(0, 1)` gives the old interval, as before. A NumPy integer `seed` or `n_boot` is read as a
   plain int: the old Dojo raised `TypeError` from `random.Random` for a NumPy seed and
   reported a NumPy `n_boot` as given, which `json.dumps` refuses; the numbers are those
   of the same plain int. The corpus holds no NumPy parameter, so the ledger has no entry.
@@ -199,8 +200,13 @@ the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
   check for any real `n < 1` (`0.5`, `-2.5`, `-inf`, `False`) and, when `p` is `None`, for
   any real `n` (`2.5`, `True`, NaN, `inf`). A NaN or infinite `n` with a rate is a
   `TypeError` (`n must be an integer; got nan`); the old Dojo raised too, a `ValueError`
-  or `OverflowError` from `int()`. The corpus holds no NaN or infinite support, so the
-  ledger has no entry for it; `tests/test_statistics_faults.py` pins both behaviours.
+  or `OverflowError` from `int()`. A `decimal.Decimal` support takes part in the `None`
+  checks as before (`wilson_ci(None, Decimal(5))`, `wilson_ci(0.5, Decimal(0))` and
+  `wilson_ci(0.5, Decimal("-Infinity"))` are `None`); past them it is a `TypeError` naming
+  the Decimal, where the old Dojo raised `TypeError` from `float / Decimal` (from
+  `Decimal(1)` up, integral or not) or `decimal.InvalidOperation` for a NaN Decimal. The
+  corpus holds no NaN, infinite or Decimal support, so the ledger has no entry for them;
+  `tests/test_statistics_faults.py` pins these behaviours.
 - **An infinite `z` is refused** (it gave the interval `[0, 1]`).
 - **Results are frozen dataclasses** (`BootstrapInterval`, `DeltaInterval`,
   `WilsonInterval`, `CrossFitResult`, `ReliabilityBin`, `PrecisionCutoff`); `to_dict()` is
@@ -216,6 +222,10 @@ the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
 - **`required_samples` names "confidence" for a bad `risk`** (`confidence must be in (0, 1);
   got 1.0`), because the old code validated both with one helper. The message is kept.
 - **`wilson_ci` keeps `z` as given** (an integer `2` stays `2`) and rounds `p` to 4 places.
+  The interval is computed with that `z`; `to_dict()` alone gives a NumPy or `Fraction` `z`
+  as a plain `int` (an integer) or `float`, so the dictionary is JSON (the old one held the
+  NumPy value). A NumPy `float32` or `float16` `z` still makes `lo`, `hi` and `half` NumPy
+  values of that type, as in the old Dojo, so that dictionary is still not JSON.
 - **The cross-fit shuffle and the bootstrap resampler are `random.Random(seed)`**, as in the
   old Dojo, so the same seed gives the same numbers across Python 3.12 and 3.13 (the corpus
   was captured with 3.12 and is replayed with 3.13).

@@ -32,7 +32,7 @@ from typing import Any
 import numpy
 from scipy.special import bdtr
 
-from ._checks import validate_resampling
+from ._checks import validate_alpha, validate_resampling
 from .bootstrap import DEFAULT_ALPHA, DEFAULT_N_BOOT, DEFAULT_SEED, percentile_indices, resample_means
 
 __all__ = ["FlipTest", "PairedDelta", "outcome_flip_test", "paired_bootstrap_delta"]
@@ -178,7 +178,7 @@ def paired_bootstrap_delta(
     ``significant`` is True when the unrounded ``1 - alpha`` interval excludes zero.
     Returns ``None`` when fewer than two pairs remain.
     """
-    n_boot, seed = validate_resampling(n_boot, alpha, seed)
+    n_boot, level, seed = validate_resampling(n_boot, alpha, seed)
     paired, unpaired = _pair_by_document(
         values_a, values_b, "values_a and values_b", allow_unpaired=allow_unpaired
     )
@@ -195,13 +195,13 @@ def paired_bootstrap_delta(
         delta=round(sum(differences) / len(differences), 4),
         ci_lo=round(lo, 4),
         ci_hi=round(hi, 4),
-        significant=lo > 0 or hi < 0,
+        significant=bool(lo > 0 or hi < 0),
         n_pairs=len(differences),
         dropped_pairs=len(unpaired),
         unpaired_ids=unpaired,
         seed=seed,
         n_boot=n_boot,
-        alpha=alpha,
+        alpha=level,
     )
 
 
@@ -229,8 +229,7 @@ def outcome_flip_test(
     run raises ``ValueError`` unless ``allow_unpaired``, which leaves it out and names
     it in ``unpaired_ids``. Returns ``None`` when no pair remains.
     """
-    if isinstance(alpha, bool) or not isinstance(alpha, numbers.Real) or not 0.0 < float(alpha) < 1.0:
-        raise ValueError(f"alpha must be in (0, 1); got {alpha!r}")
+    alpha = validate_alpha(alpha)
     paired, unpaired = _pair_by_document(
         outcomes_a, outcomes_b, "outcomes_a and outcomes_b", allow_unpaired=allow_unpaired
     )
@@ -253,6 +252,6 @@ def outcome_flip_test(
         b_only=b_only,
         net=b_only - a_only,
         p_value=p_value,
-        significant=p_value < alpha,
+        significant=bool(p_value < alpha),
         alpha=alpha,
     )

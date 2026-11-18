@@ -111,8 +111,23 @@ class WilsonInterval:
     z: float
 
     def to_dict(self) -> dict[str, Any]:
-        """The old Dojo's dictionary (``lo``, ``hi``, ``half``, ``n``, ``p``, ``z``)."""
-        return {"lo": self.lo, "hi": self.hi, "half": self.half, "n": self.n, "p": self.p, "z": self.z}
+        """The old Dojo's dictionary (``lo``, ``hi``, ``half``, ``n``, ``p``, ``z``).
+
+        ``z`` is given as a plain number so the dictionary is JSON: an integer (a NumPy
+        one included, not a bool) as an ``int``, any other real number (a NumPy float, a
+        ``Fraction``) as a ``float``. The interval itself was computed with ``z`` as given.
+        """
+        z = _plain_z(self.z)
+        return {"lo": self.lo, "hi": self.hi, "half": self.half, "n": self.n, "p": self.p, "z": z}
+
+
+def _plain_z(z: Any) -> Any:
+    """``z`` as a built-in ``int`` or ``float`` when it is a real number; a bool as it is."""
+    if isinstance(z, bool) or not isinstance(z, numbers.Real):
+        return z
+    if isinstance(z, numbers.Integral):
+        return int(z)
+    return float(z)
 
 
 def scores_as_floats(values: Iterable[Any], name: str = "values") -> list[float]:
@@ -141,7 +156,12 @@ def scores_as_floats(values: Iterable[Any], name: str = "values") -> list[float]
 
 
 def percentile_indices(n_boot: int, alpha: float) -> tuple[int, int]:
-    """The sorted-resample positions of the lower and upper percentile bounds."""
+    """The sorted-resample positions of the lower and upper percentile bounds.
+
+    ``alpha`` is used as the caller gave it, not as a float: the old Dojo computed these
+    positions in the alpha's own arithmetic, and a NumPy ``float32(0.05)`` converted to a
+    float rounds to other positions at ties (``n_boot=20`` or ``100``).
+    """
     lo_index = max(0, int(round((alpha / 2) * n_boot)) - 1)
     hi_index = min(n_boot - 1, int(round((1 - alpha / 2) * n_boot)) - 1)
     return lo_index, hi_index
@@ -169,7 +189,7 @@ def bootstrap_ci(
     cleaned = scores_as_floats(values)
     if len(cleaned) < 2:
         return None
-    n_boot, seed = validate_resampling(n_boot, alpha, seed)
+    n_boot, _, seed = validate_resampling(n_boot, alpha, seed)
     means = resample_means(cleaned, n_boot, random.Random(seed))
     means.sort()
     lo_index, hi_index = percentile_indices(n_boot, alpha)
@@ -201,7 +221,7 @@ def delta_significance(
     b = scores_as_floats(values_b, "values_b")
     if len(a) < 2 or len(b) < 2:
         return None
-    n_boot, seed = validate_resampling(n_boot, alpha, seed)
+    n_boot, _, seed = validate_resampling(n_boot, alpha, seed)
     rng = random.Random(seed)
     mean_a = sum(a) / len(a)
     mean_b = sum(b) / len(b)
@@ -244,6 +264,8 @@ def _validate_support(n: Any) -> int | float:
     """
     if isinstance(n, bool):
         raise TypeError(f"n must be an integer; got {n!r}")
+    if isinstance(n, decimal.Decimal):  # the old arithmetic raised from float / Decimal
+        raise TypeError(f"n must be an int or an integer-valued float, not a Decimal; got {n!r}")
     if isinstance(n, numbers.Integral):
         return int(n)
     if isinstance(n, numbers.Real) and float(n).is_integer():
@@ -304,16 +326,19 @@ def wilson_ci(p: float | None, n: int, z: float = 1.96) -> WilsonInterval | None
     Used when only the rate and its support are known, not per-document scores. Returns
     ``None``, as the old Dojo did, when ``n`` is a real number below 1 (``0.5``, ``-inf``
     and ``False`` included) or when ``p`` is None and ``n`` is any real number (``2.5``,
-    NaN and ``True`` included); these checks come before any argument check. Otherwise
+    NaN and ``True`` included); these checks come before any argument check, and a
+    non-NaN ``decimal.Decimal`` support takes part in them as in the old Dojo. Otherwise
     ``n`` must be a whole number: an integer or an integer-valued float (``10.0``); a
-    fractional, NaN, infinite, bool or non-numeric support is a ``TypeError``. ``p`` may
+    fractional, NaN, infinite, bool, ``Decimal`` or non-numeric support is a
+    ``TypeError``. ``p`` may
     be a ``decimal.Decimal``, read as the old Dojo read it; a text rate is refused. The
     bounds are rounded outward (``lo`` down, ``hi`` up) to 4 places, so the reported
     interval always contains the exact one and a bound compared with a budget never
     passes where the exact bound fails. Gates that need the exact value use
     :func:`wilson_bounds`.
     """
-    if isinstance(n, numbers.Real) and (n < 1 or p is None):  # the old order: n < 1, then p
+    comparable = isinstance(n, numbers.Real) or (isinstance(n, decimal.Decimal) and not n.is_nan())
+    if comparable and (n < 1 or p is None):  # the old order: n < 1, then p
         return None
     support = _validate_support(n)  # a non-number: refused here, with or without a rate
     rate = _validate_rate(float(p) if isinstance(p, decimal.Decimal) else p)
