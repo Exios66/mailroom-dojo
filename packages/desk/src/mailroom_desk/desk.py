@@ -1,0 +1,316 @@
+"""The desk over one record root: enqueue documents for review and read the queue.
+
+``Desk(root)`` opens the record at ``root`` (``runs/`` and ``blobs/``, as
+``mailroom_record`` lays them out) and, optionally, its derived ``Index``. It keeps no
+state of its own: every answer is folded from the log (``fold.py``), and every action is
+one ``kind="review"`` event appended under the run's desk lock (``lock.py``).
+
+Enqueue
+-------
+``enqueue(request, policy)``:
+
+1. Refuses an outage cause (``OutageNotReviewable``) and a cause the policy's catalog does
+   not list (``UnknownCause``) before touching the record.
+2. Decides the sample: ``policy.sample.selects(doc_id)``. A request with no causes enters
+   only if sampled, with the cause ``spot_check``; otherwise ``enqueue`` returns ``None``
+   and appends nothing. A request with causes enters with them, and ``sampled`` records
+   whether the document is also in the sample (membership depends on the document only,
+   so the sample stays an unbiased draw).
+3. Routes the causes through the rules (first match wins).
+4. Under the desk lock: refuses an unknown run (``UnknownRun``) and a closed run
+   (``RunClosed``: an experiment run with a seal file, the rule ``verify`` uses), re-reads
+   the document's events and refuses if its head is already a ``review`` event
+   (``AlreadyInReview``), then opens the writer ``desk``, appends one event (node
+   ``human_review``, kind ``review``, ``cause`` = the first cause, ``inputs`` = the blobs
+   shown, the ``EnqueuePayload``), and closes the writer (flush and fsync) before the lock
+   is released. With an index, the event is applied to it under the lock too, after the
+   flush (write order: blob, event, index).
+
+A record the desk cannot read safely (a corrupt line, a forked chain, an unreadable
+header) raises ``RecordDamaged`` and nothing is appended. An index that refuses the apply
+does not undo the durable event: the result's ``index_error`` says why, and a
+``reindex`` repairs the index.
+
+The sealed-run check and the append are not atomic with ``seal_run`` (the record has no
+"run closed" marker or lock the desk could hold): a seal made between the check and the
+append is not seen. Experiment runs are sealed once, when they end, after their nodes
+stop, so the desk refuses every action that starts after that.
+
+Reading
+-------
+``case(run_id, doc_id)`` folds one document. ``queue(run_id=None)`` folds every document
+in review, of one run or of all, ordered by ``CaseState.sort_key`` (priority, SLA due,
+opened, ids). Without an index it scans the log; with one it takes the candidates from
+``Index.review_queue`` and folds each from the log through the index's per-document read
+(so it is as fresh as the index; the desk applies its own events). Leases, deferrals and
+SLA breach are judged against ``now``, which defaults to the desk's clock (injectable).
+"""
+
+from __future__ import annotations
+
+import itertools
+import re
+import sqlite3
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+from mailroom_desk.errors import (
+    AlreadyInReview,
+    NoCase,
+    OutageNotReviewable,
+    RecordDamaged,
+    RunClosed,
+    UnknownCause,
+    UnknownRun,
+)
+from mailroom_desk.fold import fold_case
+from mailroom_desk.lock import DEFAULT_LOCK_TIMEOUT, desk_lock
+from mailroom_desk.models import NODE, CaseState, EnqueuePayload, ReviewRequest, format_ts
+from mailroom_desk.policy import SPOT_CHECK, Policy, is_outage
+from mailroom_record.blobs import BlobStore
+from mailroom_record.index import ApplyRefused, Index, IndexUnavailable
+from mailroom_record.log import CorruptLine, EventLog, ForkedChain
+from mailroom_record.models import Event, Run
+
+__all__ = ["WRITER_ID", "Desk", "Enqueued"]
+
+#: The writer id of every desk append (one segment family, ``segments/desk*.jsonl``).
+WRITER_ID = "desk"
+
+_RUN_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
+_SEAL_NAME_RE = re.compile(r"(0|[1-9][0-9]*)\.json")
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+@dataclass(frozen=True)
+class Enqueued:
+    """What ``enqueue`` did: the stored event, the case right after it, and why the index
+    refused the event if it did (``None`` when there is no index or the apply succeeded)."""
+
+    event: Event
+    case: CaseState
+    index_error: str | None = None
+
+
+class Desk:
+    """The review desk over the record at ``root`` (see the module doc)."""
+
+    def __init__(
+        self,
+        root: Path | str,
+        *,
+        index: Index | None = None,
+        clock: Callable[[], datetime] | None = None,
+        lock_timeout: float = DEFAULT_LOCK_TIMEOUT,
+    ) -> None:
+        self.root = Path(root)
+        self.blobs = BlobStore(self.root)
+        self.log = EventLog(self.root, self.blobs)
+        self.index = index
+        self._clock = clock or _utc_now
+        self.lock_timeout = lock_timeout
+
+    # --- time -----------------------------------------------------------------------
+
+    def now(self) -> datetime:
+        """The desk clock's current time (timezone-aware)."""
+        moment = self._clock()
+        if not isinstance(moment, datetime) or moment.tzinfo is None or moment.utcoffset() is None:
+            raise ValueError("the desk clock must return a timezone-aware datetime")
+        return moment
+
+    # --- runs -----------------------------------------------------------------------
+
+    def run(self, run_id: str) -> Run:
+        """The run header. Raises ``UnknownRun`` or ``RecordDamaged``."""
+        if not isinstance(run_id, str) or not _RUN_ID_RE.fullmatch(run_id):
+            raise UnknownRun(run_id)
+        try:
+            return self.log.read_run(run_id)
+        except FileNotFoundError:
+            raise UnknownRun(run_id) from None
+        except (OSError, ValueError, TypeError) as exc:
+            raise RecordDamaged(run_id, exc) from exc
+
+    def is_closed(self, run_id: str) -> bool:
+        """True for a sealed experiment run: ``kind`` is not ``service_period`` and at least
+        one seal file exists (the rule ``mailroom_record.verify`` uses)."""
+        run = self.run(run_id)
+        if run.kind == "service_period":
+            return False
+        seals = self.log.run_dir(run_id) / "seals"
+        try:
+            return seals.is_dir() and any(_SEAL_NAME_RE.fullmatch(p.name) for p in seals.iterdir())
+        except OSError as exc:
+            raise RecordDamaged(run_id, exc) from exc
+
+    def run_ids(self) -> list[str]:
+        """Every run under the root that has a header, sorted."""
+        runs = self.root / "runs"
+        if not runs.is_dir():
+            return []
+        return sorted(p.name for p in runs.iterdir() if (p / "run.json").is_file())
+
+    # --- reading events -------------------------------------------------------------
+
+    def _events(self, run_id: str, doc_id: str, *, via_index: bool) -> list[Event]:
+        try:
+            if via_index and self.index is not None:
+                return list(self.index.iter_events(self.log, run_id, doc_id))
+            return list(self.log.iter_events(run_id, doc_id))
+        except (CorruptLine, ValueError, TypeError, OSError) as exc:
+            raise RecordDamaged(run_id, exc) from exc
+
+    # --- enqueue --------------------------------------------------------------------
+
+    def enqueue(self, request: ReviewRequest, policy: Policy) -> Enqueued | None:
+        """Put ``request``'s document in review under ``policy`` (see the module doc).
+
+        Returns ``None`` (and appends nothing) only for a request without causes whose
+        document the sample does not select.
+        """
+        for cause in request.causes:
+            if is_outage(cause):
+                raise OutageNotReviewable(cause)
+        for cause in request.causes:
+            if policy.cause_spec(cause) is None:
+                raise UnknownCause(cause, policy.name)
+        self.run(request.run_id)  # an unknown run is refused even when nothing is sampled
+        sampled = policy.sample.selects(request.doc_id)
+        causes: tuple[str, ...] = request.causes or ((SPOT_CHECK,) if sampled else ())
+        if not causes:
+            return None
+        route = policy.route(causes, request.class_hint, request.confidence_hint)
+        payload = EnqueuePayload(
+            action="enqueue",
+            causes=causes,
+            rule=route.rule,
+            priority=route.priority,
+            sla_hours=route.sla_hours,
+            queue=route.queue,
+            required_role=route.required_role,
+            prefill_ref=route.prefill_ref,
+            sampled=sampled,
+            policy_name=policy.name,
+            policy_hash=policy.hash,
+            requested_by=request.requested_by,
+            class_hint=request.class_hint,
+            confidence_hint=request.confidence_hint,
+        )
+        run_id, doc_id = request.run_id, request.doc_id
+        with desk_lock(self.root, run_id, self.lock_timeout):
+            run = self.run(run_id)
+            if self.is_closed(run_id):
+                raise RunClosed(run_id, run.kind)
+            events = self._events(run_id, doc_id, via_index=False)
+            if events and events[-1].kind == "review":
+                raise AlreadyInReview(run_id, doc_id, events[-1].seq)
+            now = self.now()
+            event = self._append(
+                run_id,
+                doc_id,
+                cause=causes[0],
+                payload=payload.model_dump(mode="json", exclude_none=False),
+                inputs=request.shown,
+                ts=format_ts(now),
+            )
+            index_error = self._apply(event)
+        case = fold_case(run_id, doc_id, [*events, event], now)
+        assert case is not None  # the event just appended is a review event
+        return Enqueued(event=event, case=case, index_error=index_error)
+
+    def _append(self, run_id: str, doc_id: str, *, cause: str, payload: dict, inputs: Sequence, ts: str) -> Event:
+        """Open the desk writer, append one review event, flush and close (under the lock)."""
+        try:
+            writer = self.log.open_writer(run_id, WRITER_ID)
+        except (CorruptLine, OSError) as exc:
+            if isinstance(exc, FileNotFoundError):
+                raise UnknownRun(run_id) from None
+            raise RecordDamaged(run_id, exc) from exc
+        try:
+            event = writer.append(
+                doc_id=doc_id, node=NODE, kind="review", cause=cause, inputs=inputs, payload=payload, ts=ts
+            )
+            writer.flush()
+        except (CorruptLine, ForkedChain) as exc:
+            raise RecordDamaged(run_id, exc) from exc
+        finally:
+            writer.close()
+        return event
+
+    def _apply(self, event: Event) -> str | None:
+        if self.index is None:
+            return None
+        try:
+            self.index.apply(event)
+        except (ApplyRefused, IndexUnavailable, sqlite3.Error) as exc:
+            return f"{type(exc).__name__}: {exc}"
+        return None
+
+    # --- reading the queue ----------------------------------------------------------
+
+    def case(self, run_id: str, doc_id: str, *, now: datetime | None = None) -> CaseState:
+        """The document's case (its last episode). Raises ``NoCase`` if it was never in review."""
+        self.run(run_id)
+        state = fold_case(run_id, doc_id, self._events(run_id, doc_id, via_index=True), now or self.now())
+        if state is None:
+            raise NoCase(run_id, doc_id)
+        return state
+
+    def queue(
+        self,
+        run_id: str | None = None,
+        *,
+        now: datetime | None = None,
+        queue: str | None = None,
+        statuses: Iterable[str] | None = None,
+    ) -> list[CaseState]:
+        """Every case in review (of ``run_id``, or of every run), in queue order.
+
+        ``queue`` keeps one named queue; ``statuses`` keeps those statuses only.
+        """
+        moment = now or self.now()
+        if run_id is not None:
+            self.run(run_id)
+        cases = self._cases_from_index(run_id, moment) if self.index is not None else None
+        if cases is None:
+            cases = []
+            for rid in [run_id] if run_id is not None else self.run_ids():
+                cases.extend(self._cases_from_log(rid, moment))
+        keep = None if statuses is None else set(statuses)
+        out = [
+            c
+            for c in cases
+            if c.in_review and (queue is None or c.queue == queue) and (keep is None or c.status in keep)
+        ]
+        return sorted(out, key=CaseState.sort_key)
+
+    def _cases_from_log(self, run_id: str, now: datetime) -> list[CaseState]:
+        out: list[CaseState] = []
+        try:
+            stream = self.log.iter_events(run_id)
+            for doc_id, group in itertools.groupby(stream, key=lambda e: e.doc_id):
+                state = fold_case(run_id, doc_id, list(group), now)
+                if state is not None:
+                    out.append(state)
+        except (CorruptLine, ValueError, TypeError, OSError) as exc:
+            raise RecordDamaged(run_id, exc) from exc
+        return out
+
+    def _cases_from_index(self, run_id: str | None, now: datetime) -> list[CaseState] | None:
+        assert self.index is not None
+        try:
+            rows = self.index.review_queue(run_id)
+        except IndexUnavailable:
+            return None  # the log is the truth: fall back to scanning it
+        out: list[CaseState] = []
+        for row in rows:
+            state = fold_case(row.run_id, row.doc_id, self._events(row.run_id, row.doc_id, via_index=True), now)
+            if state is not None:
+                out.append(state)
+        return out

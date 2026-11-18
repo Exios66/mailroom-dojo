@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mailroom-desk"
+version = "0.1.0"
+description = "The human review desk of the Mailroom: review rules, queue and audit, event-sourced on the run record."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mailroom-record",
+    "mailroom-labels",
+    "pydantic>=2",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-xdist", "hypothesis"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
