@@ -333,9 +333,10 @@ class _Model:
     ]
 )
 def test_fold_agrees_with_the_index_on_random_histories(tmp_path_factory: pytest.TempPathFactory, ops: list) -> None:
-    """After every step: the plain (log) queue and the index-backed queue are the same list
-    (same cases, statuses and order); their membership is ``Index.review_queue()`` of an
-    applied and of a rebuilt index; each status is the one the test's own model expects;
+    """After every step: the queue of a desk without an index and of one that applies its
+    events to an index are the same list (same cases, statuses and order; both read the
+    log); their membership is ``Index.review_queue()`` of an applied and of a rebuilt
+    index, which the record keeps independently of the desk's fold; each status is the one the test's own model expects;
     the queue is in ``sort_key`` order; the desk refuses exactly when the model says the
     document is in review (or is ``_run``), and never writes a review event on a review head."""
     root = tmp_path_factory.mktemp("history")
@@ -375,7 +376,7 @@ def test_fold_agrees_with_the_index_on_random_histories(tmp_path_factory: pytest
         assert {(r.run_id, r.doc_id) for r in applied.review_queue()} == want
         assert want == {k for k, case in model.cases.items() if case is not None}
         from_log = plain.queue()
-        assert indexed.queue() == from_log  # same cases, statuses and order on both paths
+        assert indexed.queue() == from_log  # same cases, statuses and order with or without an index
         assert {(c.run_id, c.doc_id) for c in from_log} == want
         assert [c.status for c in from_log] == [model.status((c.run_id, c.doc_id)) for c in from_log]
         keys = [c.sort_key() for c in from_log]

@@ -1,8 +1,9 @@
 """The desk over one record root: enqueue documents for review and read the queue.
 
 ``Desk(root)`` opens the record at ``root`` (``runs/`` and ``blobs/``, as
-``mailroom_record`` lays them out) and, optionally, its derived ``Index``. It keeps no
-state of its own: every answer is folded from the log (``fold.py``), and every action is
+``mailroom_record`` lays them out) and, optionally, its derived ``Index``, which it
+applies its events to and never reads to answer. It keeps no state of its own: every
+answer is folded from the log (``fold.py``), and every action is
 one ``kind="review"`` event appended under the run's desk lock (``lock.py``).
 
 Enqueue
@@ -47,25 +48,22 @@ run closed" call or closing lock yet (plan follow-up 2). A test pins both.
 
 Reading
 -------
-``case(run_id, doc_id)`` folds one document. ``queue(run_id=None)`` folds every document
-in review, of one run or of all, ordered by ``CaseState.sort_key`` (priority, SLA due,
-opened, ids). Without an index it scans the log. With one, it first checks, run by run,
-that the index's document heads equal the log's (``index_drift``); for a run where they do,
-it takes the candidates from ``Index.review_queue`` and folds each from the log through the
-index's per-document read; for a run where they do not (an event the index was never
-given, a run it does not know) or when the index is unavailable, it scans that run's log
-and logs a warning naming the run (logger ``mailroom_desk``). So a stale index can slow the
-queue down but never hide a case. The check reads the run's heads from the log, so the
-index saves folding documents that are not in review, not the read itself; ``reindex``
-brings it back in step. Leases, deferrals and SLA breach are judged against ``now``, which
-defaults to the desk's clock (injectable).
+The log is the truth, and reading never needs the index. ``case(run_id, doc_id)`` folds
+one document from its events in the log. ``queue(run_id=None)`` folds every document in
+review, of one run or of all, ordered by ``CaseState.sort_key`` (priority, SLA due,
+opened, ids): one ordered scan of each run's log, grouped by document and folded per
+document, so the work grows with the run, never with the number of cases. The index is
+only a target the desk applies its events to (for other readers of the record); a stale,
+locked or broken index changes no answer and slows nothing down. ``index_drift()`` is a
+diagnostic: it compares the index's document heads with the log's and returns the
+problems it finds, never raising. Leases, deferrals and SLA breach are judged against
+``now``, which defaults to the desk's clock (injectable).
 """
 
 from __future__ import annotations
 
 import contextlib
 import itertools
-import logging
 import re
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
@@ -90,7 +88,7 @@ from mailroom_desk.lock import DEFAULT_LOCK_TIMEOUT, check_timeout, desk_lock, s
 from mailroom_desk.models import NODE, RUN_CHAIN, CaseState, EnqueuePayload, ReviewRequest, format_ts
 from mailroom_desk.policy import SPOT_CHECK, Policy, is_outage
 from mailroom_record.blobs import BlobStore
-from mailroom_record.index import Index, IndexUnavailable
+from mailroom_record.index import Index
 from mailroom_record.log import BlobNotStored, CorruptLine, DocumentInUse, EventLog, ForkedChain, WriterInUse
 from mailroom_record.models import BlobRef, Event, Run
 
@@ -99,7 +97,6 @@ __all__ = ["WRITER_ID", "Desk", "Enqueued"]
 #: The writer id of every desk append (one segment family, ``segments/desk*.jsonl``).
 WRITER_ID = "desk"
 
-_LOG = logging.getLogger("mailroom_desk")
 _RUN_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
 _SEAL_NAME_RE = re.compile(r"(0|[1-9][0-9]*)\.json")
 
@@ -179,10 +176,9 @@ class Desk:
 
     # --- reading events -------------------------------------------------------------
 
-    def _events(self, run_id: str, doc_id: str, *, via_index: bool) -> list[Event]:
+    def _events(self, run_id: str, doc_id: str) -> list[Event]:
+        """One document's events, from the log (one scan of the run)."""
         try:
-            if via_index and self.index is not None:
-                return list(self.index.iter_events(self.log, run_id, doc_id))
             return list(self.log.iter_events(run_id, doc_id))
         except (CorruptLine, ValueError, TypeError, OSError) as exc:
             raise RecordDamaged(run_id, exc) from exc
@@ -234,7 +230,7 @@ class Desk:
         )
         with self._locked(run_id):
             self._check_open(run_id)
-            events = self._events(run_id, doc_id, via_index=False)
+            events = self._events(run_id, doc_id)
             if events and events[-1].kind == "review":
                 raise AlreadyInReview(run_id, doc_id, events[-1].seq)
             now = self.now()
@@ -325,9 +321,10 @@ class Desk:
     # --- reading the queue ----------------------------------------------------------
 
     def case(self, run_id: str, doc_id: str, *, now: datetime | None = None) -> CaseState:
-        """The document's case (its last episode). Raises ``NoCase`` if it was never in review."""
+        """The document's case (its last episode), from the log. Raises ``NoCase`` if it was
+        never in review."""
         self.run(run_id)
-        state = fold_case(run_id, doc_id, self._events(run_id, doc_id, via_index=True), now or self.now())
+        state = fold_case(run_id, doc_id, self._events(run_id, doc_id), now or self.now())
         if state is None:
             raise NoCase(run_id, doc_id)
         return state
@@ -340,7 +337,8 @@ class Desk:
         queue: str | None = None,
         statuses: Iterable[str] | None = None,
     ) -> list[CaseState]:
-        """Every case in review (of ``run_id``, or of every run), in queue order.
+        """Every case in review (of ``run_id``, or of every run), in queue order, from the
+        log: one scan per run.
 
         ``queue`` keeps one named queue; ``statuses`` keeps those statuses only.
         """
@@ -349,8 +347,7 @@ class Desk:
             self.run(run_id)
         cases: list[CaseState] = []
         for rid in [run_id] if run_id is not None else self.run_ids():
-            from_index = self._cases_from_index(rid, moment) if self.index is not None else None
-            cases.extend(self._cases_from_log(rid, moment) if from_index is None else from_index)
+            cases.extend(self._cases(rid, moment))
         keep = None if statuses is None else set(statuses)
         out = [
             c
@@ -359,7 +356,9 @@ class Desk:
         ]
         return sorted(out, key=CaseState.sort_key)
 
-    def _cases_from_log(self, run_id: str, now: datetime) -> list[CaseState]:
+    def _cases(self, run_id: str, now: datetime) -> list[CaseState]:
+        """Every case of the run (in review or resolved), from one ordered scan of its log
+        (``iter_events`` yields each document's events together, in ``seq`` order)."""
         out: list[CaseState] = []
         try:
             stream = self.log.iter_events(run_id)
@@ -371,42 +370,58 @@ class Desk:
             raise RecordDamaged(run_id, exc) from exc
         return out
 
+    # --- index diagnostics ----------------------------------------------------------
+
     def index_drift(self, run_id: str | None = None) -> list[str]:
-        """Runs (``run_id``, or every run) whose document heads in the index differ from the
-        log's, sorted; every run when the index is unavailable; ``[]`` without an index.
-        ``queue`` reads these runs from the log."""
+        """Problems with the index, as ``"<run_id>: <what>"`` lines, sorted; ``[]`` when its
+        document heads equal the log's for ``run_id`` (or every run), or without an index.
+
+        A diagnostic only: nothing the desk answers depends on it, and it never raises. It
+        reports an unknown run, an index it cannot read (the error's type and message), a
+        run whose document heads differ from the log's (how many documents) and a log it
+        cannot read (the error's type). ``Index.reindex`` repairs the index.
+        """
         if self.index is None:
             return []
         if run_id is not None:
-            self.run(run_id)
-        return [rid for rid in ([run_id] if run_id is not None else self.run_ids()) if not self._index_in_step(rid)]
+            try:
+                self.run(run_id)
+            except UnknownRun:
+                return [f"{_show_id(run_id)}: unknown run"]
+            except RecordDamaged as exc:
+                return [f"{run_id}: run header unreadable ({type(exc.cause).__name__})"]
+            run_ids = [run_id]
+        else:
+            try:
+                run_ids = self.run_ids()
+            except OSError as exc:
+                return [f"runs: unreadable ({type(exc).__name__})"]
+        problems: list[str] = []
+        for rid in run_ids:
+            problem = self._drift(rid)
+            if problem is not None:
+                problems.append(f"{rid}: {problem}")
+        return sorted(problems)
 
-    def _index_in_step(self, run_id: str) -> bool:
+    def _drift(self, run_id: str) -> str | None:
         assert self.index is not None
         try:
             indexed = {r.doc_id: r.head_hash for r in self.index.documents(run_id)}
-        except IndexUnavailable:
-            return False
+        except Exception as exc:  # noqa: BLE001 - a diagnostic reports, never raises
+            return f"index unavailable ({type(exc).__name__}: {exc})"
         try:
-            return indexed == self.log.doc_heads(run_id)
-        except (CorruptLine, ForkedChain, ValueError, TypeError, OSError) as exc:
-            raise RecordDamaged(run_id, exc) from exc
+            heads = self.log.doc_heads(run_id)
+        except Exception as exc:  # noqa: BLE001 - a diagnostic reports, never raises
+            return f"log unreadable ({type(exc).__name__})"
+        differ = {d for d in indexed.keys() | heads.keys() if indexed.get(d) != heads.get(d)}
+        if differ:
+            return f"{len(differ)} document head(s) differ from the log"
+        return None
 
-    def _cases_from_index(self, run_id: str, now: datetime) -> list[CaseState] | None:
-        """The run's cases through the index, or ``None`` when the index is not in step with
-        the log for this run (or unavailable): the log is the truth, so the caller scans it."""
-        assert self.index is not None
-        try:
-            in_step = self._index_in_step(run_id)
-            rows = self.index.review_queue(run_id) if in_step else None
-        except IndexUnavailable:
-            rows = None
-        if rows is None:
-            _LOG.warning("index not in step with the log for run %s; reading its queue from the log", run_id)
-            return None
-        out: list[CaseState] = []
-        for row in rows:
-            state = fold_case(row.run_id, row.doc_id, self._events(row.run_id, row.doc_id, via_index=True), now)
-            if state is not None:
-                out.append(state)
-        return out
+
+def _show_id(value: object) -> str:
+    """A run id for a problem line: the id itself, or its type and a short repr."""
+    if isinstance(value, str) and _RUN_ID_RE.fullmatch(value):
+        return value
+    text = repr(value)
+    return text if len(text) <= 40 else text[:37] + "..."

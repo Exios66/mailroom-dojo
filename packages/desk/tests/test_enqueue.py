@@ -618,11 +618,9 @@ def test_index_refusal_is_reported_not_raised(env: SimpleNamespace) -> None:
     assert [r.doc_id for r in index.review_queue("r2")] == ["d1"]
 
 
-def test_stale_index_never_hides_a_case(env: SimpleNamespace, caplog: pytest.LogCaptureFixture) -> None:
-    """An index behind the log (events it was never given) must not make the queue drop
-    a case: the desk reads that run from the log, logs why, and index_drift names it."""
-    import logging
-
+def test_stale_index_changes_no_answer(env: SimpleNamespace) -> None:
+    """An index behind the log (events it was never given) changes nothing the desk
+    answers: the queue and the case come from the log; ``index_drift`` names the run."""
     make_run(env.root, "r2")
     index = Index(env.root / "index.sqlite")
     index.reindex(env.log)
@@ -630,20 +628,17 @@ def test_stale_index_never_hides_a_case(env: SimpleNamespace, caplog: pytest.Log
     assert indexed.index_drift() == []
     env.desk.enqueue(request("d1", "flag_low"), env.policy)  # a desk without the index
     engine_append(env.root, "r1", "d2", "review", payload={"note": "parked elsewhere"})
-    indexed.enqueue(request("d3", "flag_high", run_id="r2"), env.policy)  # applied: r2 in sync
+    indexed.enqueue(request("d3", "flag_high", run_id="r2"), env.policy)  # applied: r2 in step
     assert index.review_queue("r1") == []  # the index really is behind
-    with caplog.at_level(logging.WARNING, logger="mailroom_desk"):
-        cases = indexed.queue()
+    cases = indexed.queue()
     assert [(c.run_id, c.doc_id) for c in cases] == [("r1", "d2"), ("r2", "d3"), ("r1", "d1")]
     assert [c.doc_id for c in indexed.queue("r1")] == ["d2", "d1"]
     assert indexed.queue() == Desk(env.root, clock=env.clock).queue()
-    assert indexed.index_drift() == ["r1"] and indexed.index_drift("r2") == []
-    assert "r1" in caplog.text and "r2" not in caplog.text
+    assert indexed.case("r1", "d1") == env.desk.case("r1", "d1")
+    assert indexed.index_drift() == ["r1: 2 document head(s) differ from the log"]
+    assert indexed.index_drift("r2") == []
     index.reindex(env.log)
-    caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="mailroom_desk"):
-        assert [c.doc_id for c in indexed.queue("r1")] == ["d2", "d1"]
-    assert indexed.index_drift() == [] and caplog.text == ""
+    assert indexed.index_drift() == [] and [c.doc_id for c in indexed.queue("r1")] == ["d2", "d1"]
     assert env.desk.index_drift() == []  # no index, nothing to drift
 
 
@@ -658,17 +653,146 @@ def test_index_behind_on_a_known_document_is_drift(env: SimpleNamespace) -> None
     assert indexed.index_drift() == [] and [r.doc_id for r in index.documents("r1")] == ["d1"]
     env.desk.enqueue(request("d1", "flag_low"), env.policy)  # a desk without the index
     assert [r.doc_id for r in index.documents("r1")] == ["d1"] and index.review_queue("r1") == []
-    assert indexed.index_drift() == ["r1"]
+    assert indexed.index_drift() == ["r1: 1 document head(s) differ from the log"]
     assert [c.doc_id for c in indexed.queue("r1")] == ["d1"]
 
 
-def test_unavailable_index_falls_back_to_the_log(env: SimpleNamespace) -> None:
-    env.desk.enqueue(request("d1", "flag_low"), env.policy)
-    desk = Desk(env.root, index=Index(env.root / "never-built.sqlite"), clock=env.clock)
+def _break_index(index_path: Path) -> None:
+    """Replace the index file by a directory: sqlite then fails with a raw
+    ``sqlite3.OperationalError`` that the record does not translate."""
+    for f in index_path.parent.glob(index_path.name + "*"):
+        f.unlink()
+    index_path.mkdir()
+
+
+def test_broken_index_changes_no_answer(env: SimpleNamespace) -> None:
+    """A directory where the index file should be: reading never touches the index, so the
+    queue and the case are the log's; enqueue still appends durably and reports why the
+    index refused; ``index_drift`` reports the index instead of raising."""
+    index = Index(env.root / "index.sqlite")
+    index.reindex(env.log)
+    desk = Desk(env.root, index=index, clock=env.clock)
+    desk.enqueue(request("d1", "flag_low"), env.policy)
+    _break_index(env.root / "index.sqlite")
+    assert index.status() == "corrupt"
     assert [c.doc_id for c in desk.queue("r1")] == ["d1"]
+    assert desk.case("r1", "d1") == env.desk.case("r1", "d1")
+    done = desk.enqueue(request("d2", "flag_high"), env.policy)
+    assert done.index_error == "OperationalError: unable to open database file"  # not an ApplyRefused
+    assert doc_events(env.root, "r1", "d2") == [done.event]
+    assert [c.doc_id for c in desk.queue()] == ["d2", "d1"] == [c.doc_id for c in env.desk.queue()]
+    assert desk.index_drift() == ["r1: index unavailable (OperationalError: unable to open database file)"]
+    verify_ok(env)
+
+
+def test_locked_index_changes_no_answer(env: SimpleNamespace) -> None:
+    """Another connection holds the index exclusively (no busy wait: ``busy_timeout=0``):
+    the queue and the case still answer from the log, and the apply's refusal is reported."""
+    import sqlite3
+
+    index = Index(env.root / "index.sqlite", busy_timeout=0)
+    index.reindex(env.log)
+    desk = Desk(env.root, index=index, clock=env.clock)
+    desk.enqueue(request("d1", "flag_low"), env.policy)
+    other = sqlite3.connect(env.root / "index.sqlite", isolation_level=None)
+    try:
+        other.execute("BEGIN EXCLUSIVE")
+        done = desk.enqueue(request("d2", "flag_high"), env.policy)
+        assert done.index_error == "OperationalError: database is locked"
+        assert [c.doc_id for c in desk.queue("r1")] == ["d2", "d1"]
+        assert desk.case("r1", "d2") == done.case
+    finally:
+        other.close()
+    assert desk.index_drift() == ["r1: 1 document head(s) differ from the log"]  # d2 was never applied
+
+
+def test_index_drift_reports_and_never_raises(env: SimpleNamespace) -> None:
+    """``index_drift`` is a diagnostic: an unknown or invalid run, an index never built and
+    a damaged log are problem lines, never exceptions."""
+    env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    missing = Desk(env.root, index=Index(env.root / "never-built.sqlite"), clock=env.clock)
+    assert missing.index_drift() == [f"r1: index unavailable (IndexUnavailable: index {env.root / 'never-built.sqlite'} is missing; run reindex)"]
+    assert [c.doc_id for c in missing.queue("r1")] == ["d1"]  # reading never needed it
+    index = Index(env.root / "index.sqlite")
+    index.reindex(env.log)
+    desk = Desk(env.root, index=index, clock=env.clock)
+    assert desk.index_drift("r9") == ["r9: unknown run"]
+    assert desk.index_drift("../r1") == ["'../r1': unknown run"]
+    assert desk.index_drift(7) == ["7: unknown run"]
+    assert desk.index_drift("x" * 500) == ["'" + "x" * 36 + "...: unknown run"]
+    with pytest.raises(UnknownRun):
+        desk.queue("r9")
+    seg = next((env.root / "runs" / "r1" / "segments").glob("*.jsonl"))
+    seg.write_bytes(seg.read_bytes() + b"not json\n")
+    assert desk.index_drift() == ["r1: log unreadable (CorruptLine)"]
+    (env.root / "runs" / "r1" / "run.json").write_text("{", encoding="utf-8")
+    assert desk.index_drift("r1") == ["r1: run header unreadable (JSONDecodeError)"]
 
 
 # --- reading --------------------------------------------------------------------------
+
+
+class _ReadCounter:
+    """Wraps a desk's ``EventLog`` reads: every ``scan`` (``iter_events`` goes through it)
+    and every head read is recorded with its arguments."""
+
+    def __init__(self, desk: Desk, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.calls: list[tuple] = []
+        for name in ("scan", "iter_stored", "doc_head_seqs", "iter_located"):
+            real = getattr(desk.log, name)
+            monkeypatch.setattr(desk.log, name, self._wrap(name, real))
+
+    def _wrap(self, name: str, real):
+        def counted(*args, **kwargs):
+            self.calls.append((name, *args, *sorted(kwargs.items())))
+            return real(*args, **kwargs)
+
+        return counted
+
+
+class _ApplyOnlyIndex:
+    """An index the desk may apply events to but must never read to answer."""
+
+    def __init__(self, index: Index) -> None:
+        self._index = index
+        self.applied = 0
+
+    def apply(self, event) -> None:
+        self.applied += 1
+        self._index.apply(event)
+
+    def __getattr__(self, name: str):
+        raise AssertionError(f"the desk read the index ({name}) to answer")
+
+
+def test_reading_scans_each_run_once_and_never_reads_the_index(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The work of a read is bounded by the runs, never by the cases: ``queue()`` scans each
+    run's log exactly once (however many documents are in review), ``case()`` scans once,
+    and neither touches the index. A per-case re-read or an index lookup fails here."""
+    make_run(env.root, "r2")
+    real = Index(env.root / "index.sqlite")
+    real.reindex(env.log)
+    index = _ApplyOnlyIndex(real)
+    desk = Desk(env.root, index=index, clock=env.clock)  # type: ignore[arg-type]
+    for i in range(12):
+        real.apply(engine_append(env.root, "r1", f"d{i:02d}", "decision"))
+        if i % 3:
+            desk.enqueue(request(f"d{i:02d}", "flag_low"), env.policy)
+    for i in range(5):
+        desk.enqueue(request(f"e{i}", "flag_high", run_id="r2"), env.policy)
+    assert index.applied == 13 and real.drift(env.log) == []
+    counter = _ReadCounter(desk, monkeypatch)
+    cases = desk.queue()
+    assert len(cases) == 13
+    assert counter.calls == [("scan", "r1", None), ("scan", "r2", None)]
+    counter.calls.clear()
+    assert len(desk.queue("r1", statuses=["open"])) == 8
+    assert counter.calls == [("scan", "r1", None)]
+    counter.calls.clear()
+    assert desk.case("r1", "d01").doc_id == "d01"
+    assert counter.calls == [("scan", "r1", "d01")]
 
 
 def test_case_of_a_document_never_in_review(env: SimpleNamespace) -> None:
