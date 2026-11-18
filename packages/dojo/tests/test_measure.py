@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import math
 
+import numpy
 import pytest
 from hypothesis import assume, given
 from hypothesis import strategies as st
@@ -18,10 +19,13 @@ from mailroom_dojo.measures import (
     COST_BASES,
     LABEL_STATUS_WORDS,
     LABEL_STATUSES,
+    PROVENANCE_KEYS,
     ConfidenceInterval,
     IncomparableMeasuresError,
     Measure,
     MeasureError,
+    Provenance,
+    Subject,
     assert_comparable,
     combined_label_status,
     comparability_problems,
@@ -46,6 +50,31 @@ def intervals(draw: st.DrawFn) -> ConfidenceInterval:
     )
 
 
+#: A full provenance stamp, as a run would carry it.
+RUN = Provenance(
+    dataset_revision="ccd040f6",
+    split="test",
+    draw_seed="7",
+    prompt_id="deploy_v1/sorter@abc123",
+    scorer_version="0.1.0",
+    serving_kind="api",
+    model_id="model-a",
+)
+words = st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=True)
+
+
+@st.composite
+def provenances(draw: st.DrawFn) -> Provenance:
+    return Provenance(**{key: draw(words) for key in PROVENANCE_KEYS})
+
+
+@st.composite
+def subjects(draw: st.DrawFn) -> Subject:
+    return Subject(
+        agent=draw(st.none() | words), doc_class=draw(st.none() | words), field=draw(st.none() | words)
+    )
+
+
 @st.composite
 def valid_measures(draw: st.DrawFn) -> Measure:
     return Measure(
@@ -55,6 +84,8 @@ def valid_measures(draw: st.DrawFn) -> Measure:
         label_status=draw(verified_statuses),
         method=draw(methods),
         ci=draw(st.none() | intervals()),
+        subject=draw(subjects()),
+        provenance=draw(provenances()),
     )
 
 
@@ -65,6 +96,7 @@ def _measure(**overrides: object) -> Measure:
         "cost_basis": "none",
         "label_status": "gold",
         "method": "accuracy",
+        "provenance": RUN,
     }
     fields.update(overrides)
     return Measure(**fields)  # type: ignore[arg-type]
@@ -73,10 +105,23 @@ def _measure(**overrides: object) -> Measure:
 @given(valid_measures())
 def test_a_measure_that_keeps_every_rule_builds_and_round_trips(measure: Measure) -> None:
     out = measure.to_dict()
-    assert set(out) == {"value", "n", "ci", "cost_basis", "label_status", "method", "reason"}
+    assert set(out) == {
+        "value",
+        "n",
+        "ci",
+        "cost_basis",
+        "label_status",
+        "method",
+        "reason",
+        "subject",
+        "provenance",
+    }
     assert out["value"] == measure.value and out["n"] == measure.n
     assert (out["ci"] is None) == (measure.ci is None)
-    assert Measure(**{**dataclasses.asdict(measure), "ci": measure.ci}) == measure
+    assert out["subject"] == measure.subject.to_dict()
+    assert out["provenance"] == (None if measure.provenance is None else measure.provenance.to_dict())
+    rebuilt = {field.name: getattr(measure, field.name) for field in dataclasses.fields(measure)}
+    assert Measure(**rebuilt) == measure
 
 
 @given(finite)
@@ -90,13 +135,30 @@ def test_n_zero_without_a_value_is_a_reported_gap() -> None:
     assert measure.value is None and measure.n == 0 and measure.reason == "no_rows"
 
 
+def test_a_missing_measure_fails_closed_by_default() -> None:
+    assert Measure.missing(method="accuracy", reason="gt_missing").label_status == "unverified"
+    assert (
+        Measure.missing(method="ttft_seconds", reason="no_requests", label_status="none").label_status
+        == "none"
+    )
+
+
+@pytest.mark.parametrize("n", [numpy.int64(5), numpy.int32(5), numpy.uint8(5)])
+def test_n_accepts_any_integral_type_and_stores_an_int(n: object) -> None:
+    measure = _measure(n=n)
+    assert measure.n == 5 and type(measure.n) is int
+    assert measure.to_dict()["n"] == 5 and type(measure.to_dict()["n"]) is int
+
+
 @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf, True, False, "0.5", [0.5]])
 def test_a_value_is_a_finite_real_number(value: object) -> None:
     with pytest.raises(MeasureError, match="value must be a finite number"):
         _measure(value=value)
 
 
-@pytest.mark.parametrize("n", [-1, 1.0, True, None, "3"])
+@pytest.mark.parametrize(
+    "n", [-1, 1.0, True, None, "3", numpy.float64(3.0), numpy.bool_(True), numpy.int64(-1)]
+)
 def test_n_is_a_non_negative_int(n: object) -> None:
     with pytest.raises(MeasureError, match="n must be a non-negative int"):
         _measure(n=n)
@@ -183,6 +245,26 @@ def test_an_interval_needs_a_value(interval: ConfidenceInterval) -> None:
         _measure(value=None, reason="no_rows", ci=interval)
 
 
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        ({"subject": ("sorter", None, None)}, "subject must be a Subject"),
+        ({"provenance": {"split": "test"}}, "provenance must be a Provenance"),
+    ],
+)
+def test_subject_and_provenance_are_typed(fields: dict[str, object], expected: str) -> None:
+    with pytest.raises(MeasureError, match=expected):
+        _measure(**fields)
+
+
+@pytest.mark.parametrize("value", ["", "  ", 3])
+def test_subject_and_provenance_words_are_non_empty_text(value: object) -> None:
+    with pytest.raises(MeasureError, match="subject.field must be None or a non-empty string"):
+        Subject(field=value)  # type: ignore[arg-type]
+    with pytest.raises(MeasureError, match="provenance.split must be None or a non-empty string"):
+        Provenance(split=value)  # type: ignore[arg-type]
+
+
 def test_ci_must_be_an_interval() -> None:
     with pytest.raises(MeasureError, match="ci must be a ConfidenceInterval"):
         _measure(ci=(0.1, 0.2))
@@ -227,6 +309,24 @@ def test_a_measure_is_comparable_with_itself(measure: Measure) -> None:
         ({"cost_basis": "token_price_estimate"}, "cost_basis_mismatch"),
         ({"label_status": "near_gold"}, "label_status_mismatch"),
         ({"value": None, "reason": "gt_missing"}, "right_unmeasured (gt_missing)"),
+        ({"subject": Subject(field="effective_date")}, "subject_mismatch"),
+        ({"subject": Subject(doc_class="contract")}, "subject_mismatch"),
+        ({"subject": Subject(agent="judge")}, "subject_mismatch"),
+        (
+            {"provenance": dataclasses.replace(RUN, dataset_revision="0f00ba11")},
+            "provenance_mismatch (dataset_revision)",
+        ),
+        (
+            {"provenance": dataclasses.replace(RUN, prompt_id="deploy_v1/sorter@def456")},
+            "provenance_mismatch (prompt_id)",
+        ),
+        (
+            {"provenance": dataclasses.replace(RUN, scorer_version="0.2.0")},
+            "provenance_mismatch (scorer_version)",
+        ),
+        ({"provenance": dataclasses.replace(RUN, model_id=None)}, "provenance_missing (model_id)"),
+        ({"provenance": dataclasses.replace(RUN, draw_seed=None)}, "provenance_missing (draw_seed)"),
+        ({"provenance": None}, "right_provenance_missing"),
     ],
 )
 def test_measures_that_differ_in_identity_are_not_compared(change: dict[str, object], problem: str) -> None:
@@ -237,3 +337,54 @@ def test_measures_that_differ_in_identity_are_not_compared(change: dict[str, obj
     with pytest.raises(IncomparableMeasuresError) as caught:
         assert_comparable(left, right)
     assert caught.value.problems == problems
+
+
+def test_two_fields_of_one_class_are_never_compared() -> None:
+    left = _measure(method="per_field_scores", subject=Subject(doc_class="contract", field="effective_date"))
+    right = _measure(method="per_field_scores", subject=Subject(doc_class="contract", field="governing_law"))
+    with pytest.raises(IncomparableMeasuresError, match="subject_mismatch"):
+        assert_comparable(left, right)
+    assert_comparable(left, dataclasses.replace(left, value=0.9))
+
+
+def test_two_dataset_revisions_are_never_compared() -> None:
+    left = _measure()
+    right = _measure(provenance=dataclasses.replace(RUN, dataset_revision="0f00ba11"), value=0.7)
+    assert comparability_problems(left, right) == ("provenance_mismatch (dataset_revision)",)
+
+
+def test_both_sides_without_a_draw_seed_compare() -> None:
+    full_split = dataclasses.replace(RUN, draw_seed=None)
+    assert comparability_problems(_measure(provenance=full_split), _measure(provenance=full_split)) == ()
+
+
+def test_vary_lets_the_compared_axis_differ_but_not_go_missing() -> None:
+    local = _measure(provenance=dataclasses.replace(RUN, serving_kind="local", model_id="model-b"))
+    api = _measure()
+    assert comparability_problems(local, api) == ("provenance_mismatch (serving_kind, model_id)",)
+    assert comparability_problems(local, api, vary=("serving_kind", "model_id")) == ()
+    assert comparability_problems(local, api, vary="serving_kind") == ("provenance_mismatch (model_id)",)
+    unset = _measure(provenance=dataclasses.replace(RUN, serving_kind=None))
+    assert comparability_problems(unset, api, vary="serving_kind") == ("provenance_missing (serving_kind)",)
+    assert_comparable(local, api, vary=("serving_kind", "model_id"))
+
+
+@pytest.mark.parametrize("vary", [("metric_id",), ("cost_basis",), "split_name"])
+def test_vary_names_only_provenance_keys(vary: object) -> None:
+    with pytest.raises(MeasureError, match="not provenance keys"):
+        comparability_problems(_measure(), _measure(), vary=vary)  # type: ignore[arg-type]
+
+
+def test_provenance_keys_are_the_old_keys_less_metric_id() -> None:
+    old = {
+        "dataset_revision",
+        "split",
+        "draw_seed",
+        "prompt_id",
+        "metric_id",
+        "scorer_version",
+        "serving_kind",
+        "model_id",
+    }
+    assert set(PROVENANCE_KEYS) == old - {"metric_id"}
+    assert tuple(field.name for field in dataclasses.fields(Provenance)) == PROVENANCE_KEYS
