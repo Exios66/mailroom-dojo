@@ -35,7 +35,7 @@ mailroom-dojo/
 └── .circleci/                 CI (CircleCI only)
 ```
 
-Rules: a package imports only `mailroom_record` and itself, except the launcher, which may import all of them (a test enforces this). Tuning lives in `config/` and `labels/`, never in code. A new folder needs a line in this map. Names say what a thing is, in full words; nesting goes from general to specific.
+Rules: dependencies point one way and a test enforces them: `labels` imports `record`; `dojo` imports `record` and `labels`; `engine` imports `record` (and reads client profiles from `config/`); `launcher` may import all of them; the Dojo never imports the engine, and `record` imports nothing of ours. Tuning lives in `config/` and `labels/`, never in code. A new folder needs a line in this map. Names say what a thing is, in full words; nesting goes from general to specific.
 
 Folders marked with a later project do not exist yet. Requirements behind this layout: `docs/specs/2026-11-18-lean-rewrite-design.md`, R9.
 

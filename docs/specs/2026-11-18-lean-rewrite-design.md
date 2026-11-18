@@ -87,7 +87,7 @@ Every module is tested against real behavior: real killed processes, real concur
 
 ### R9. Tunable, maintainable, and laid out so anyone can find things
 
-The old constellation became a dependency mess as goals moved: pins between repos, vendored copies, scoring split three ways. This workspace avoids that by construction. Packages depend on the record and nothing else of ours (the launcher alone composes them), enforced by a test. Tuning (classes, schemas, thresholds, policies, prompts, models, labels) is configuration and data, versioned in this repo and hashed into each run, so a goal change is a config change and a measured run, not a code fork. Every task keeps to this map:
+The old constellation became a dependency mess as goals moved: pins between repos, vendored copies, scoring split three ways. This workspace avoids that by construction. Dependencies point one way (record, then labels, then the Dojo and the engine, with the launcher alone composing them), enforced by a test. Tuning (classes, schemas, thresholds, policies, prompts, models, labels) is configuration and data, versioned in this repo and hashed into each run, so a goal change is a config change and a measured run, not a code fork. Every task keeps to this map:
 
 ```
 mailroom-dojo/
@@ -113,7 +113,7 @@ mailroom-dojo/
 └── .circleci/                 CI (CircleCI only)
 ```
 
-Rules: a package imports only `mailroom_record` and itself, except the launcher, which may import all of them (a test enforces this). Tuning lives in `config/` and `labels/`, never in code. A new folder needs a line in this map. Names say what a thing is, in full words; nesting goes from general to specific.
+Rules: dependencies point one way and a test enforces them: `labels` imports `record`; `dojo` imports `record` and `labels`; `engine` imports `record` (and reads client profiles from `config/`); `launcher` may import all of them; the Dojo never imports the engine, and `record` imports nothing of ours. Tuning lives in `config/` and `labels/`, never in code. A new folder needs a line in this map. Names say what a thing is, in full words; nesting goes from general to specific.
 
 ## Summary
 
