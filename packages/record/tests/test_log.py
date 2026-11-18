@@ -13,11 +13,14 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 from pydantic import ValidationError
 from record_testkit import (
     append_in_child,
     append_until_killed,
     check_chains,
+    join_all,
     run_fields,
     segment_lines,
     stored_v0_event_dict,
@@ -122,15 +125,29 @@ def test_parallel_processes_keep_their_chains(store: SimpleNamespace) -> None:  
         )
         for k in range(4)
     ]
-    for p in procs:
-        p.start()
-    for p in procs:
-        p.join(timeout=120)
-        assert p.exitcode == 0
+    try:
+        for p in procs:
+            p.start()
+    finally:
+        codes = join_all(procs, timeout=120)  # a worker that overruns is killed and reaped
+    assert codes == [0] * len(procs)
     counts = check_chains(store.root)
     assert counts == {f"p{k}-d{j}": 50 for k in range(4) for j in range(4)}
     assert store.log.torn_tails("r1") == []
     assert len(list(seg_dir(store).glob("*.jsonl"))) == 4  # one file per writer process
+
+
+def test_a_worker_that_overruns_is_killed_and_reaped() -> None:
+    # The guard the process tests rely on: a child still running at the deadline is
+    # stopped, so a failing test never leaves it behind.
+    ctx = multiprocessing.get_context("spawn")
+    sleeper = ctx.Process(target=time.sleep, args=(600,))
+    try:
+        sleeper.start()
+    finally:
+        codes = join_all([sleeper], timeout=0.5)
+    assert codes == [-signal.SIGKILL] and not sleeper.is_alive()
+    assert join_all([ctx.Process(target=time.sleep, args=(0,))]) == [None]  # never started
 
 
 def test_threads_sharing_one_writer_serialize(store: SimpleNamespace) -> None:
@@ -351,6 +368,44 @@ def test_mutating_inputs_or_results_after_append_does_not_change_the_record(stor
     check_chains(store.root)
 
 
+def test_append_accepts_any_mapping_for_payload_and_blob_refs(store: SimpleNamespace) -> None:
+    # The signature takes a Mapping: a read-only mapping (not a dict) is stored like one.
+    from types import MappingProxyType
+
+    ref = store.blobs.put(b"synthetic input", "original")
+    with store.log.open_writer("r1", "w0") as w:
+        ev = w.append(
+            doc_id="d1", node="n", kind="output",
+            payload=MappingProxyType({"route": "a", "nested": {"k": 1}}),
+            inputs=[MappingProxyType(ref.model_dump())],
+        )
+    (stored,) = list(store.log.iter_events("r1"))
+    assert stored == ev and stored.payload == {"route": "a", "nested": {"k": 1}} and stored.inputs == [ref]
+    check_chains(store.root)
+
+
+@pytest.mark.parametrize("bad", ["bad id", ".hidden", "-r", "r/1", "r\n", "", "x" * 201, 7])
+def test_a_malformed_run_id_is_a_value_error_on_every_path(store: SimpleNamespace, bad: Any) -> None:
+    # The same rule as Run.run_id: an id no run could have is a ValueError, never a lookup
+    # that ends in FileNotFoundError (verify_run documents ValueError for this).
+    from mailroom_record.verify import verify_run
+
+    with pytest.raises(ValueError, match="bad run id"):
+        store.log.run_dir(bad)
+    with pytest.raises(ValueError, match="bad run id"):
+        verify_run(store.log, store.blobs, bad)
+    with pytest.raises(ValueError, match="bad run id"):
+        store.log.open_writer(bad, "w0")
+    with pytest.raises(ValidationError):  # the model agrees
+        Run(**run_fields(run_id=bad))
+
+
+def test_every_valid_run_id_shape_has_a_run_dir(store: SimpleNamespace) -> None:
+    for good in ("r1", "R.2", "a_b-c", "0", "x" * 200):
+        assert store.log.run_dir(good) == store.root / "runs" / good
+        Run(**run_fields(run_id=good))
+
+
 def test_ts_defaults_to_now_and_accepts_an_explicit_value(store: SimpleNamespace) -> None:
     from datetime import datetime
 
@@ -512,3 +567,91 @@ def test_open_writer_fsyncs_the_segment_dir_even_when_the_segment_exists(
     monkeypatch.setattr(log_module, "_fsync_dir", lambda p: (calls.append(Path(p)), real(p))[1])
     store.log.open_writer("r1", "w0").close()
     assert seg_dir(store) in calls
+
+
+# --- tolerant raw reading (Task 7 needs it) -------------------------------------------
+
+
+def test_iter_raw_streams_past_a_corrupt_line_and_reports_the_torn_tail(store: SimpleNamespace) -> None:
+    # Bytes torn mid-file by a crash, then whole lines appended after them: the strict
+    # reader refuses the whole run, the raw reader yields every line and keeps going.
+    with store.log.open_writer("r1", "w0") as w:
+        a = w.append(doc_id="d1", node="n0", kind="decision")
+    seg = seg_dir(store) / "w0.jsonl"
+    good = seg.read_bytes()
+    with seg.open("ab") as f:
+        f.write(b'{"run_id":"r1","doc_\xff\n')  # corrupt whole line (not JSON, not UTF-8)
+        f.write(good)  # a whole line after it
+        f.write(b'{"torn')  # and a torn tail
+    with pytest.raises(log_module.CorruptLine):
+        list(store.log.iter_stored("r1"))
+    items = list(store.log.iter_raw("r1"))
+    assert [type(i).__name__ for i in items] == ["RawLine", "RawLine", "RawLine", "TornTail"]
+    first, bad, again, tail = items
+    assert json.loads(first.data)["hash"] == a.hash and first.byte_offset == 0
+    assert bad.byte_offset == len(good) and bad.data == b'{"run_id":"r1","doc_\xff'
+    assert again.data + b"\n" == good and again.byte_offset == len(good) + len(bad.data) + 1
+    assert tail == TornTail("w0.jsonl", again.byte_offset + len(good))
+    assert store.log.torn_tails("r1") == [tail]
+
+
+def test_iter_raw_matches_the_strict_reader_on_clean_segments(store: SimpleNamespace) -> None:
+    for wid, docs in (("w0", ["d1", "d2"]), ("w1", ["d3"])):
+        with store.log.open_writer("r1", wid, flush_every=1) as w:
+            for i in range(4):
+                for d in docs:
+                    w.append(doc_id=d, node=f"n{i}", kind="decision")
+    raw = list(store.log.iter_raw("r1"))
+    stored = list(store.log.iter_stored("r1"))
+    assert [(r.segment, r.byte_offset, json.loads(r.data)) for r in raw] == [
+        (s.segment, s.byte_offset, s.raw) for s in stored
+    ]
+    assert [p.name for p in store.log.segment_paths("r1")] == ["w0.jsonl", "w1.jsonl"]
+
+
+@given(
+    lines=st.lists(st.binary(max_size=40).map(lambda b: b.replace(b"\n", b"")), max_size=12),
+    tail=st.binary(max_size=20).map(lambda b: b.replace(b"\n", b"")),
+)
+def test_iter_raw_reproduces_any_segment_bytes(tmp_path_factory: Any, lines: list[bytes], tail: bytes) -> None:
+    # Whatever bytes a segment holds, the raw reader returns them exactly: every whole line
+    # at its offset, then the torn tail (if any) where the last newline ends.
+    path = tmp_path_factory.mktemp("raw") / "w0.jsonl"
+    data = b"".join(line + b"\n" for line in lines) + tail
+    path.write_bytes(data)
+    items = list(log_module.iter_raw_segment(path))
+    whole = [i for i in items if isinstance(i, log_module.RawLine)]
+    torn = [i for i in items if isinstance(i, TornTail)]
+    assert [i.data for i in whole] == lines
+    # Each line starts where the one before it ended (newline included), from byte 0.
+    ends = [0]
+    for line in lines:
+        ends.append(ends[-1] + len(line) + 1)
+    assert [i.byte_offset for i in whole] == ends[:-1]
+    for i in whole:
+        assert data[i.byte_offset : i.byte_offset + len(i.data) + 1] == i.data + b"\n"
+    assert torn == ([TornTail("w0.jsonl", len(data) - len(tail))] if tail else [])
+
+
+# --- the writer keeps verify's line limit (PR #2 re-review, item 11) ------------------
+
+
+def test_writer_refuses_a_line_verify_would_not_read(store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    from mailroom_record import verify as verify_module
+    from mailroom_record.log import EventTooLarge
+
+    assert verify_module.MAX_LINE == log_module.MAX_LINE == 64 * 1024 * 1024  # one limit
+    limit = 2000
+    monkeypatch.setattr(log_module, "MAX_LINE", limit)
+    monkeypatch.setattr(verify_module, "MAX_LINE", limit)
+    with store.log.open_writer("r1", "w0", flush_every=1) as w:
+        probe = len(canonical_json(w.append(doc_id="d1", node="n", kind="decision", payload={"p": ""}).model_dump(mode="json")))
+        fits = w.append(doc_id="d1", node="n", kind="decision", payload={"p": "f" * (limit - probe)})
+        with pytest.raises(EventTooLarge):
+            w.append(doc_id="d1", node="n", kind="decision", payload={"p": "f" * (limit - probe + 1)})
+        w.append(doc_id="d1", node="n", kind="decision")  # the refused event took no seq
+    line = next(s for s in log_module.iter_raw_segment(store.root / "runs" / "r1" / "segments" / "w0.jsonl") if json.loads(s.data)["seq"] == 1)
+    assert len(line.data) == limit and json.loads(line.data)["hash"] == fits.hash
+    assert [e.seq for e in store.log.iter_events("r1", "d1")] == [0, 1, 2]
+    report = verify_module.verify_run(store.log, store.blobs, "r1")
+    assert report.ok, report.problems

@@ -49,8 +49,16 @@ failure, not just simple one-off unit tests." So, for every module:
 | fsync error (`EIO`) | Monkeypatch `os.fsync` | blobs, log, seal | Error raised, writer poisoned |
 | Corrupt or truncated file | Flip, cut or append bytes | blobs, log, seal, pack | `BlobCorrupt`, `CorruptLine`, torn tail, `SealCorrupt`, `PackCorrupt` |
 | Concurrent writers | Threads and spawned processes | blobs, log, seal | Chains intact, seals numbered without gaps, one tombstone record |
-| Forked chain | Two owners of one document | log, seal, verify | `ForkedChain` refused by writers and seal, reported by verify |
+| Forked chain | Two owners of one document | log, seal, verify | `ForkedChain` refused by writers and seal, reported by verify as `forked_chain` |
 | Tampering | Edit, delete, reorder lines; delete documents | verify | The exact `Problem.kind` |
+| Corrupt line mid-segment | Garbage or torn bytes inserted before whole lines | verify | `corrupt_line` with segment and offset; the rest of the run is still checked |
+| Bit rot | Flip, truncate or replace a blob's stored bytes | verify | `corrupt_blob` (put does not repair it) |
+| Crash between tombstone and unlink | Content restored next to its tombstone | verify | `tombstone_with_content` |
+| Damaged seal or column file | Edit, rehash, delete, renumber a seal; truncate, garble, edit rows of a Parquet file | verify | `seal_mismatch`, `seal_corrupt`, `seal_missing`, `columns_missing`, `columns_mismatch` |
+| Damaged or old index file | Garbage, empty, truncated (half, header), flipped magic and b-tree page byte, older `schema_version`, older layout, unfinished `state` | index | Status names it; every query and `apply` raises `IndexUnavailable`; `ensure` rebuilds an equal index |
+| Crash mid-rebuild | Injected `ENOSPC` from the log read, a real `SQLITE_FULL` (`max_page_count`), a `SIGKILL`ed rebuild process with and without an earlier index | index | The old index unchanged, or none (`missing`); never a half-built one |
+| Damaged log under a rebuild | Corrupt and invalid lines, torn tail, gap, fork, broken link, unreadable seal and run header | index | Rebuild completes; each damage is one `problems` row with its exact kind; the document stops at its last good event |
+| Damaged log under a trace | Tombstoned and missing blobs, a forked chain, a corrupt line between other lines and in place of an event, an invalid event, a torn tail, a deleted line, a broken link, a garbled run header; a valid line nested 600 deep; a segment read failing mid-scan; an index read that yields then raises | trace, versions, CLI | Each shown as its exact `Damage` kind (or blob state) with the rest of the run intact; nothing raised; trace and versions exit 0, verify exits 1 exactly when a problem fails; a half-read document is read again from the log |
 
 ## The pyramid for this package
 
@@ -74,11 +82,32 @@ failure, not just simple one-off unit tests." So, for every module:
 | Crash mid-line | Fault injection | Torn tail reported, skipped, chain continues from last whole event | 5 |
 | Writer process killed mid-append | Fault injection | Child process appends in a loop, parent sends SIGKILL; reopen, every whole line verifies and the chain continues | 5 |
 | Parallel writers interleave or break chains | Concurrency | 8 threads, and separately 4 processes, each with their own writer and documents | 5 |
-| Edited, deleted or cut events go unnoticed | Fault injection | One test per `Problem.kind` | 7 |
-| Whole document deleted between seals | Fault injection | Seal lists documents; deletion gives `document_missing_from_log` | 7 |
+| Edited, deleted or cut events go unnoticed | Fault injection | One test per `Problem.kind` (`test_every_problem_kind_is_produced_by_some_test`); each also asserts untouched documents still verify | 7 |
+| A seal commits over damage it did not check | Fault injection | Tamper an unsealed line (stale hash, or a recomputed hash that breaks the next link), append, seal: `seal_run` refuses naming the document and `seq`, and verify reports `bad_hash` / `broken_link` | 6, 7 |
+| A busy log is refused for a race | Concurrency | Four processes hand their documents between writers on every event while the sealer reads with 20 ms between segments: no seal is refused, a re-read happened, and a real gap is still refused | 6 |
+| Verify crashes or stops on damaged data | Property | `test_verify_never_raises_on_any_damage`: random delete, truncate, flip, garbage on any stored file | 7 |
+| A flipped byte goes unnoticed | Property | `test_clean_histories_verify_and_any_flipped_byte_is_caught`: random append/seal histories verify clean; any one-byte flip in a segment or seal fails, or lands in a reported torn tail | 7 |
+| A recovered crash fails a finished run forever | Fault injection | Crash mid-append (injected short write + ENOSPC, and a real SIGKILL), reopen, append, seal: the torn tail is reported (final on a closed run) and never fails; lost committed events still fail as `seq_gap` / `truncated_after_seal` | 7 |
+| Verify falsely fails a run being written | Concurrency | A seal made, and a hand-off done, after verify read part of the log; a seal without its column file yet; four hand-off processes plus a sealing process while verify scans slowly: every report is ok, and a real gap is still reported | 7 |
+| Hostile stored bytes crash verify | Fault injection, property | JSON nested 200,000 deep in a segment, seal, run header or tombstone, and a valid line whose payload nests 5,000 deep: reported, never raised (seal_run raises `CorruptLine`); the never-raises property also draws deep nesting; a 24 MB line is reported under a lowered limit with a bounded peak | 7 |
+| A broken tombstone passes as a deletion | Fault injection | Empty, directory, not JSON, other hash, no reason: `corrupt_tombstone` | 7 |
+| Verify holds a large run in memory | Integration | 24 MB of payloads: traced peak stays under 6 MB; one line with seq 10^9 and one seal numbered 10^9 are each reported in under 5 s (asserted) | 7 |
+| Whole document deleted between seals | Fault injection | Seal lists documents; deleting a sealed document gives `document_missing_from_log` (a document added and deleted between two seals is not detectable: no seal names it) | 7 |
 | Tombstone confused with loss | Unit | Tombstone passes, missing blob fails and names the event | 7 |
 | Index drifts from the log | Integration, equivalence | Incremental index equals full reindex; deleting the index and rebuilding gives the same dump | 8 |
-| Document text leaks into an export | Leak scan | Sentinel string absent from Parquet, SQLite, CLI output, pack manifest, gate report | 6, 8, 9, 11, 12 |
+| Index drifts under real histories | Property | `test_incremental_equals_reindex_over_random_histories`: two runs sharing documents, three writers each, handoffs, flushes, seals and repeated applies; after every step the index equals a rebuild of the log (`drift == []`) | 8 |
+| An apply out of order corrupts head state | Unit | Gap, fork and broken link each raise `ApplyRefused` and change nothing; repeats and events a rebuild covered are no-ops | 8 |
+| A reader sees a half-built index | Concurrency | A reader process dumps in a loop while a slowed rebuild runs: only the old or the new digest is ever seen, and the old one mid-build | 8 |
+| Applies race a rebuild | Concurrency | Four writer threads apply after each flush while a thread rebuilds repeatedly; the end state equals a rebuild | 8 |
+| A per-document read scans the whole run | Integration, property | Reads touch one writer's lines; tails written after the rebuild and new segments are read; a shrunk segment falls back; any layout equals the log's read | 8 |
+| A reader holds a large run in memory | Integration | 26 MB run: every log reader, the rebuild and per-document reads peak under 6 MB (the old readers peaked at 28-54 MB) | 8 |
+| A reader glues a half-written line | Fault injection | A line finished while a reader iterates is never returned as a line of its own | 8 |
+| Version chain misses or repeats a version | Integration | Original, transcript, two extraction attempts, archived record, review, human correction: six versions in order, each blob once at its first use, inputs before outputs, states from the blob store | 9 |
+| Trace hides a run or reads a stale index | Integration | `trace doc` lists every run in `created_at` order; a run and events written after the index was built are found; reads go through `Index.iter_events` (no whole-run scan, nothing of a run without the document); no usable index falls back to the log; a run the index lists but the log lost is reported | 9 |
+| CLI exit codes drift or print a traceback | Integration | Exit 0/1/2 for every command and error class (malformed and unknown run ids, unknown document, root missing or a file, missing option, refused seal, unexpected exception), one line on stderr; the installed console script and `python -m mailroom_record` run as subprocesses | 9 |
+| CLI echoes stored content | Property, leak scan | `test_cli_output_never_holds_stored_content`: random histories with the sentinel in blobs, payload keys and values, decisions, causes, tombstone reasons, corrupt and invalid lines; every command in text and JSON prints no sentinel (positive control: the sentinel is in the segments; a mutation that echoes a cause is caught) | 9 |
+| Reader errors echo stored content | Leak scan | `test_every_strict_read_names_an_invalid_event_without_its_stored_values`: the sentinel in `kind`, `ts`, `tokens_in`, `cause` (a list), an input key, a decision key (with NaN) and an extra top-level key; every strict read (`iter_events`, `scan().events()`, per run and per document, `Index.iter_events` stale and rebuilt) raises `InvalidEvent` with no sentinel in its message, repr or traceback; `read_run` likewise | 4, 5, 8 |
+| Document text leaks into an export | Leak scan | Sentinel string absent from Parquet, SQLite (every table, and the raw file and WAL bytes, with the sentinel in cause, decision, payload and an invalid line), CLI output, pack manifest, gate report | 6, 8, 9, 11, 12 |
 | Payload carries free text | Unit | Parquet has no `payload` column; importer drops decision `options` text | 6, 10 |
 | Re-import duplicates a run or blobs | Idempotency | Second import is `already_imported`, blob bytes on disk unchanged | 10 |
 | Importer guesses a missing field | Unit | Missing optional files listed in `absent_fields`, value is `None` | 10 |

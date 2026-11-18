@@ -1,0 +1,33 @@
+name: merger_consideration
+version: 2
+description: >-
+  Closed vocabulary of the merger_agreement `merger_consideration` field: the MAUD Type of
+  Consideration. Values: llm-mailroom src/config/taxonomy.yaml (merger_agreement
+  label_vocabularies). Descriptions: llm-dojo-scoring llm_dojo_scoring/schemas/maud_schema.py.
+  Labels: llm-dojo-scoring llm_dojo_scoring/config.py (MAUD_CONSIDERATION_LABELS). No aliases:
+  the Dojo's `label` scorer (scored_enums.canonical_label) folds this field through the corpus
+  subclass normaliser, which credits only the five tokens, so the MAUD_CONSIDERATION_ALIASES
+  surfaces (cash, stock, none, unspecified, "all cash consideration", ...) score 0 and are not
+  accepted here either. A word for an absent value (none, unspecified) does not resolve, so it
+  never turns into `other`.
+ordered: false
+entries:
+  - key: all_cash
+    label: All Cash
+    description: Every Target share converts into a fixed cash amount only.
+  - key: all_stock
+    label: All Stock
+    description: >-
+      Every Target share converts into Parent stock at an exchange ratio; no cash except for
+      fractional shares.
+  - key: mixed_cash_stock
+    label: Mixed Cash & Stock
+    description: Each Target share converts into a fixed combination of cash and Parent stock.
+  - key: mixed_cash_stock_election
+    label: Mixed Cash & Stock (Election)
+    description: Mixed cash and stock where each holder may elect the form, subject to proration.
+  - key: other
+    label: Other / Unspecified
+    description: >-
+      Non-standard or unstated consideration; do not force a cash/stock token when the
+      agreement is silent or ambiguous.

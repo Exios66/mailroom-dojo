@@ -1,0 +1,107 @@
+name: review_causes
+version: 1
+description: >-
+  The cause tokens the pipeline attaches when it parks a document for human review, as
+  collected by collect_review_causes in llm-mailroom src/pipeline/reconsideration.py; the
+  keys and the wording of each description are its canonical tokens and CAUSE_LABELS. Every
+  route into human review carries at least one. A decision point that parks a document adds a
+  composite token `decision_point:<slot>:<cause>` instead (src/graph/decision_points.py); it is
+  not a key here because its slot and cause vary.
+ordered: false
+entries:
+  - key: class_miss
+    label: Class miss
+    description: Classification miss vs ground truth (reads the label; src/pipeline/reconsideration.py).
+  - key: subclass_miss
+    label: Subclass miss
+    description: Subclass miss vs ground truth (reads the label; src/pipeline/reconsideration.py).
+  - key: extraction_miss
+    label: Extraction miss
+    description: >-
+      Extraction score below floor, not self-reported confidence (reads scores or expected
+      fields; src/pipeline/reconsideration.py).
+  - key: judge_miss
+    label: Judge miss
+    description: Judge verdict MISS (src/pipeline/reconsideration.py).
+  - key: judge_partial
+    label: Judge partial
+    description: Judge verdict PARTIAL, incomplete reporting (src/pipeline/reconsideration.py).
+  - key: schema_invalid
+    label: Schema invalid
+    description: The extraction fails its schema (src/pipeline/reconsideration.py).
+  - key: guardrail
+    label: Guardrail
+    description: Guardrail triggered (src/pipeline/reconsideration.py).
+  - key: parse_error
+    label: Parse error
+    description: The model output could not be parsed (src/pipeline/reconsideration.py).
+  - key: reporting_incomplete
+    label: Reporting incomplete
+    description: Report or completeness incomplete (src/pipeline/reconsideration.py).
+  - key: needs_judge_review
+    label: Needs judge review
+    description: >-
+      The deterministic scorer wanted a judge that the high-confidence path skipped
+      (src/pipeline/reconsideration.py).
+  - key: hollow_extraction
+    label: Hollow extraction
+    description: Hollow extraction payload, no public fields (src/pipeline/reconsideration.py).
+  - key: sorter_low_confidence
+    label: Sorter low confidence
+    description: Sorter confidence below the low threshold (src/pipeline/reconsideration.py).
+  - key: reviewer_unavailable
+    label: Reviewer unavailable
+    description: Decision reviewer returned no valid answer (src/pipeline/decision_review.py).
+  - key: reviewer_no_text
+    label: Reviewer no text
+    description: Document has no usable text for the decision reviewer (src/pipeline/decision_review.py).
+  - key: reviewer_ineligible_label
+    label: Reviewer ineligible label
+    description: Sorter or reviewer label is not an eligible class (src/pipeline/decision_review.py).
+  - key: reviewer_disagreement
+    label: Reviewer disagreement
+    description: Sorter and decision reviewer labels disagree (src/pipeline/decision_review.py).
+  - key: reviewer_low_confidence
+    label: Reviewer low confidence
+    description: >-
+      Decision reviewer confidence missing or below the class cutoff, or no valid cutoff for
+      the class (src/pipeline/decision_review.py).
+  - key: transient_exhausted
+    label: Transient exhausted
+    description: Provider errors outlasted the transient retry budget (src/pipeline/reconsideration.py).
+  - key: boss_conflict
+    label: Boss conflict
+    description: Conflict with the matter record that the boss did not clear (src/pipeline/reconsideration.py).
+  - key: arbiter_escalated
+    label: Arbiter escalated
+    description: Arbiter escalated the extraction to a person (src/pipeline/reconsideration.py).
+  - key: classification_arbiter_escalated
+    label: Classification arbiter escalated
+    description: Classification arbiter did not accept a class (src/pipeline/reconsideration.py).
+  - key: unknown_class
+    label: Unknown class
+    description: Document class is unknown or not extractable (src/pipeline/reconsideration.py).
+  - key: empty_document
+    label: Empty document
+    description: Document has no readable text (src/pipeline/reconsideration.py).
+  - key: unsupported_extraction
+    label: Unsupported extraction
+    description: No specialist extractor for this class (src/pipeline/reconsideration.py).
+  - key: low_extraction_confidence
+    label: Low extraction confidence
+    description: Extraction confidence below the low band after retries (src/pipeline/reconsideration.py).
+  - key: judge_incomplete
+    label: Judge incomplete
+    description: Judge verdict INCOMPLETE, the extraction misses the source (src/pipeline/reconsideration.py).
+  - key: judge_error
+    label: Judge error
+    description: Judge verification failed (src/pipeline/reconsideration.py).
+  - key: retries_exhausted
+    label: Retries exhausted
+    description: Confidence retry budget spent without a settled answer (src/pipeline/reconsideration.py).
+  - key: chunk_failed
+    label: Chunk failed
+    description: One or more extraction windows failed (src/pipeline/reconsideration.py).
+  - key: out_of_vocabulary
+    label: Out of vocabulary
+    description: A closed-label field holds a value off its vocabulary (src/pipeline/reconsideration.py).
