@@ -889,6 +889,30 @@ def test_close_failing_after_a_good_flush_does_not_raise(env: SimpleNamespace, m
     verify_ok(env)
 
 
+def test_read_error_while_appending_is_damage_not_a_write_failure(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``LogWriter.append`` only reads (the chain head) and buffers, so an ``OSError`` there
+    is a record the desk cannot read: ``RecordDamaged``, nothing written, the lock free."""
+    import errno
+
+    from mailroom_record.log import LogWriter
+
+    def failing_append(self: LogWriter, **kwargs) -> None:
+        raise OSError(errno.EIO, "injected EIO reading the chain head")
+
+    monkeypatch.setattr(LogWriter, "append", failing_append)
+    with pytest.raises(RecordDamaged) as info:
+        env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    assert isinstance(info.value.__cause__, OSError) and info.value.__cause__.errno == errno.EIO
+    monkeypatch.undo()
+    assert review_events(env.root) == []
+    with desk_lock(env.root, "r1", timeout=0):
+        pass
+    assert env.desk.enqueue(request("d1", "flag_low"), env.policy).event.seq == 0
+    verify_ok(env)
+
+
 def test_full_disk_on_flush_is_a_typed_error_and_leaves_the_record_usable(
     env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:

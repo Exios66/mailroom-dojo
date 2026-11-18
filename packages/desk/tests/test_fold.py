@@ -17,6 +17,7 @@ from hypothesis import strategies as st
 from mailroom_desk import AlreadyInReview, Desk, RunChainNotReviewable, fold_case
 from mailroom_desk.fold import episode
 from mailroom_desk.models import (
+    END_OF_TIME,
     NODE,
     AssignPayload,
     ClaimPayload,
@@ -144,6 +145,18 @@ def test_escalate_without_sla_keeps_the_due_time(env: SimpleNamespace) -> None:
     desk_event(env, "d1", EscalatePayload(action="escalate", actor=ACTOR, priority="high"), T0 + timedelta(hours=5))
     c = env.desk.case("r1", "d1", now=T0)
     assert (c.priority, c.sla_due) == ("high", T0 + timedelta(hours=72))
+
+
+def test_escalate_past_the_end_of_time_saturates_with_an_anomaly(env: SimpleNamespace) -> None:
+    """The escalate path saturates its new due time like the opening path, and says so."""
+    opened = enqueue(env, "d1", "flag_low")
+    assert opened.case.anomalies == ()
+    late = datetime(9999, 12, 31, 23, tzinfo=timezone.utc)
+    esc = desk_event(env, "d1", EscalatePayload(action="escalate", actor=ACTOR, priority="high", sla_hours=2), late)
+    c = env.desk.case("r1", "d1", now=late)
+    assert (c.priority, c.sla_hours, c.sla_due) == ("high", 2.0, END_OF_TIME)
+    assert c.anomalies == (f"seq {esc.seq}: SLA due time is past the last representable time; saturated",)
+    assert not c.breached(late)
 
 
 def test_resolution_ends_the_episode(env: SimpleNamespace) -> None:

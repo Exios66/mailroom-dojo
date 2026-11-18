@@ -490,7 +490,12 @@ def test_integers_too_large_for_a_float_in_a_file_are_problems(tmp_path: Path) -
 
 
 def test_an_integer_seed_too_long_for_text_is_a_problem() -> None:
-    assert any("sample.seed" in p for p in problems_of(policy_dict(sample={"rate": 0.1, "seed": 10**5000})))
+    too_long = "sample.seed is an integer too long to use as text"
+    assert problems_of(policy_dict(sample={"rate": 0.0, "seed": 10**5000})) == (too_long,)
+    assert problems_of(policy_dict(sample={"rate": 0.1, "seed": 10**5000})) == (
+        too_long,
+        "sample.seed must be set when sample.rate > 0",
+    )
 
 
 @pytest.mark.parametrize("depth", [5000])
@@ -504,6 +509,15 @@ def test_deeply_nested_yaml_is_a_policy_error(tmp_path: Path, depth: int) -> Non
     found = problems_of(policy_dict(default_queue=deep, description="x" * 10_000))
     assert any("default_queue is not a token" in p for p in found)
     assert all(len(p) < 300 for p in found)  # hostile values are shown shortened
+
+
+def test_an_oversized_value_is_shown_shortened_in_the_problem() -> None:
+    """A refused value far longer than a message is shown cut (head ... tail), never whole."""
+    found = problems_of(policy_dict(default_queue="Q" * 10_000))
+    assert len(found) == 1 and found[0].startswith("default_queue is not a token: 'QQQ")
+    assert "..." in found[0] and len(found[0]) < 120
+    huge = problems_of(policy_dict(sample={"rate": 10**4000, "seed": "s"}))
+    assert len(huge) == 1 and huge[0].startswith("sample.rate must be a number in [0, 1], got ") and len(huge[0]) < 120
 
 
 def test_an_integer_literal_too_long_to_read_is_a_policy_error(tmp_path: Path) -> None:
