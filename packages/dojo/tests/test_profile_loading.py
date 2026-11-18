@@ -567,3 +567,16 @@ def test_every_class_field_type_equals_the_frozen_old_registry(mailroom_profile)
         assert new_types == old_types, class_key
         if class_key != "corporate_record":  # the old union lists the schema fields first; only the content matters
             assert list(new_types) == list(old_types), f"{class_key}: field order differs"
+
+
+def test_a_frozen_mapping_offers_no_writable_view_of_its_items():
+    """The stored items are a read-only view: changing them would leave the cached hash stale."""
+    from mailroom_dojo.profile.frozen import FrozenMapping
+
+    frozen = FrozenMapping({"a": 1})
+    hash(frozen)
+    with pytest.raises(TypeError):
+        frozen._items["b"] = 2  # type: ignore[index]
+    with pytest.raises(AttributeError):
+        frozen._items = {}  # type: ignore[misc]
+    assert dict(frozen) == {"a": 1}

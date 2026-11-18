@@ -95,3 +95,14 @@ def test_emptiness_of_text_agrees_with_its_parsed_container(text):
 def test_nan_is_empty_but_infinity_is_a_value():
     """NaN is a missing table cell; infinity is a (strange) value."""
     assert is_empty_value(math.nan) and not is_empty_value(math.inf)
+
+
+def test_a_huge_integer_is_signed_infinity_not_a_crash():
+    """An int too large for a float used to raise OverflowError in the old Dojo; it is now infinite money."""
+    from mailroom_dojo.field_scoring.scalar_scorers import score_money_field
+    from mailroom_dojo.normalization.money import parse_money
+
+    assert parse_money(10**400) == float("inf")
+    assert parse_money(-(10**400)) == float("-inf")
+    assert score_money_field(10**400, 10**400) == 0.0  # infinite amounts never match, as for "inf" text
+    assert score_money_field(10**400, 5) == 0.0

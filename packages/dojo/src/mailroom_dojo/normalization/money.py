@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 __all__ = ["parse_money"]
 
 _CURRENCY_WORDS_AFTER = (" USD", " DOLLARS", " DOLLAR", " EUROS", " EUR")
@@ -20,7 +22,10 @@ def parse_money(text: object) -> float | None:
     parse as a Python float (so ``"nan"`` and ``"inf"`` do). Any other type gives None.
     """
     if isinstance(text, (int, float)):
-        return float(text)
+        try:
+            return float(text)
+        except OverflowError:  # an int too large for a float (old Dojo: crash); signed infinity, like float("1e999")
+            return math.inf if text > 0 else -math.inf
     if not isinstance(text, str):
         return None
     cleaned = (

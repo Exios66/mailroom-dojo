@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
+from types import MappingProxyType
 from typing import Any, Generic, TypeVar
 
 __all__ = ["FrozenMapping"]
@@ -23,7 +24,7 @@ class FrozenMapping(Mapping[KeyType, ValueType], Generic[KeyType, ValueType]):
 
     def __init__(self, items: Mapping[KeyType, ValueType] | None = None) -> None:
         """Copy ``items`` (a mapping, or nothing for an empty mapping)."""
-        object.__setattr__(self, "_items", dict(items or {}))
+        object.__setattr__(self, "_items", MappingProxyType(dict(items or {})))
         object.__setattr__(self, "_hash", None)
 
     def __getitem__(self, key: KeyType) -> ValueType:

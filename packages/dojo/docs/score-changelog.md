@@ -120,3 +120,9 @@ Not a score change for any built-in scorer (they are not wrapped and stay proved
 but a finite number in `[0, 1]`. Before the check, 2.0 flowed into the field scores, NaN into `overall_score`
 (and made the solver refuse an entity-list matrix, which the old Dojo answered by silently switching to the
 greedy matcher), and None failed with an unhelpful `TypeError`.
+
+## Review fix: an integer too large for a float
+
+`parse_money` on an int such as `10**400` raised `OverflowError` in the old Dojo (a JSON number can be that
+large). It now returns signed infinity, like the text `"1e999"`, and a money field holding it scores 0.0 against
+anything, as `"inf"` does. No recorded or generated parity case contained such an int, so no fixture changes.
