@@ -283,15 +283,50 @@ def test_clean_set_has_no_findings(tmp_path: Path) -> None:
     assert {s.snapshot_id for s in loaded} == BASE_IDS
 
 
+#: The gate's verdict per finding kind, written out here rather than read from SEVERITY, so
+#: a kind quietly turned from error to warning (or back) fails these tests.
+EXPECTED_SEVERITY = {
+    "manifest_missing": "error",
+    "manifest_mismatch": "error",
+    "unknown_schema": "error",
+    "duplicate_snapshot": "error",
+    "corrupt_line": "error",
+    "malformed_record": "error",
+    "missing_hub": "error",
+    "dropped_source_data": "error",
+    "unknown_document": "error",
+    "duplicate_document": "error",
+    "class_mismatch": "error",
+    "subclass_mismatch": "warning",
+    "stale_content_hash": "warning",
+    "text_unverified": "warning",
+    "text_unchecked": "warning",
+    "duplicate_label": "error",
+    "status_not_allowed": "error",
+    "inconsistent_truth_flag": "error",
+    "orphan_decision": "warning",
+    "conflicting_decision": "error",
+    "unknown_class": "error",
+    "unknown_subclass": "error",
+    "unknown_field": "error",
+    "type_mismatch": "error",
+    "vocabulary_violation": "error",
+}
+
+
+def test_severity_table_matches_the_gate_contract() -> None:
+    assert SEVERITY == EXPECTED_SEVERITY
+
+
 @pytest.mark.parametrize(("name", "build", "expected"), CASES, ids=[c[0] for c in CASES])
 def test_failure_state_is_reported_and_neighbours_still_load(tmp_path: Path, name, build, expected) -> None:
     prof = profile()
     base = standard_set(tmp_path)
     report, loaded = check_dirs([*base, *build(tmp_path)], prof)
     assert {(f.kind, f.doc, f.field) for f in report.findings} == expected
-    assert all(f.severity == SEVERITY[f.kind] for f in report.findings)
+    assert all(f.severity == EXPECTED_SEVERITY[f.kind] for f in report.findings)
     assert all(f.detail or f.location for f in report.findings)
-    has_error = any(SEVERITY[k] == "error" for k, _, _ in expected)
+    has_error = any(EXPECTED_SEVERITY[k] == "error" for k, _, _ in expected)
     assert verify(report) == (1 if has_error else 0)
     # the valid neighbours were loaded and still resolve
     assert {s.snapshot_id for s in loaded} >= BASE_IDS
