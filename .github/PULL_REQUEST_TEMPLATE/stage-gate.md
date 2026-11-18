@@ -1,13 +1,13 @@
 <!--
-Stage-gate PR: the evidence that a project stage passed (or did not) its gate from the
-design and the stage's plan. An executive summary, never a transcript: no direct quotes,
+Stage-gate PR: the evidence that a project passed (or did not) its gate, as its plan in
+docs/plans/ defines it. An executive summary, never a transcript: no direct quotes,
 names, handles, credentials, local paths or document text, and no claude.ai link, session
 trailer or tool footer anywhere (.claude/rules/pr-flow.md).
 -->
 
-## Stage and gate
+## Project and gate
 
-<!-- The stage (for example "1. Record and store"), its plan in docs/plans/, and the gate criteria quoted from the plan, one per row below. -->
+<!-- "Project N's gate, from its plan": name the project, link its plan in docs/plans/, and quote the gate criteria from that plan, one per row below. Do not reuse the design's stage numbers. -->
 
 | Criterion (from the plan) | Requirement | Result | Pass |
 |:---|:---|:---|:---|
@@ -24,6 +24,7 @@ trailer or tool footer anywhere (.claude/rules/pr-flow.md).
 Commit: `<short sha>`
 Gate script: `<command>` -> `<exit code>`
 Report: `docs/reports/<kind>/<file>` (written by the script)
+Session links: `bash .circleci/check_no_session_links.sh` -> `<exit code>`; title and body read back after the last edit
 
 <details><summary>Raw gate output</summary>
 
@@ -36,9 +37,9 @@ Report: `docs/reports/<kind>/<file>` (written by the script)
 
 <!-- GO, NO-GO or GO WITH CONDITIONS, and the one-paragraph reason. -->
 
-## What the owner must decide
+## Decision needed
 
-<!-- Each decision as a question with the options and the recommended one. Intended differences that need sign-off are listed here, one per line. -->
+<!-- Each decision as a question with the options and the one you recommend, with why. Intended differences that need sign-off are listed here, one per line. Ask the owner once (one decision card or message) and do not merge or start the next project until answered. "None" if nothing is open. -->
 
 -
 
@@ -50,6 +51,11 @@ Report: `docs/reports/<kind>/<file>` (written by the script)
 
 - Adversarial rounds (`<lens>`, `<model, effort>`): `<findings and fixes>`
 - Pre-PR review, fresh context (`<model, effort>`): `<READY / fixes applied>`
+- Opus review of Sonnet or Haiku output: `<done on <sha> / not applicable>`
+
+## Risks, rollback and follow-ups
+
+<!-- What could go wrong, how to undo it (usually: revert the squash commit), and any follow-up PR or issue. Short. -->
 
 ## Cross-repo and downstream impact
 

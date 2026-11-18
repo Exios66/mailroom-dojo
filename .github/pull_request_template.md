@@ -48,6 +48,10 @@ Commit: `<short sha>`
 - Pre-PR review, fresh context (`<model, effort>`): `<READY / fixes applied>`
 - Opus review of Sonnet or Haiku output: `<done on <sha> / not applicable>`
 
+## Risks, rollback and follow-ups
+
+<!-- What could go wrong, how to undo it (usually: revert the squash commit), and any follow-up PR or issue. Short. -->
+
 ## Cross-repo and downstream impact
 
 <!-- llm-mailroom, local-mailroom-sandbox, llm-dojo-scoring and their users keep shipping until cutover. Does anything here change what they must do? "None" and why. -->

@@ -24,7 +24,7 @@ Commit: `<short sha>`
 |:---|:---|:---|
 | `<path or command>` | yes / marked "(after PR #N merges)" / marked unverified | `<command and result>` |
 
-- **Session links:** `bash .circleci/check_no_session_links.sh` -> `<exit code>`
+- **Session links:** `bash .circleci/check_no_session_links.sh` -> `<exit code>`; title and body read back after the last edit
 - **Layout map:** every new folder has a line in the README map (or "no new folder")
 
 ## Decisions left to the owner
@@ -39,6 +39,11 @@ Commit: `<short sha>`
 
 - Review (`<lens>`, `<model, effort>`): `<findings and fixes>`
 - Pre-PR review, fresh context (`<model, effort>`): `<READY / fixes applied>`
+- Opus review of Sonnet or Haiku output: `<done on <sha> / not applicable>`
+
+## Risks, rollback and follow-ups
+
+<!-- What could go wrong, how to undo it (usually: revert the squash commit), and any follow-up PR or issue. Short. -->
 
 ## Cross-repo and downstream impact
 
