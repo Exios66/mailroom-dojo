@@ -58,7 +58,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from mailroom_desk._yaml import load_yaml_file
+from mailroom_desk._yaml import load_yaml_file, show
 from mailroom_desk.errors import PolicyError
 from mailroom_desk.models import PRIORITIES, is_ref, is_token, priority_rank
 from mailroom_labels.profile import ClientProfile
@@ -240,7 +240,7 @@ class Policy(BaseModel):
             if rule.matches(causes, class_hint, confidence_hint):
                 break
         else:  # unreachable for a validated policy: the final rule is a default
-            raise RuntimeError(f"policy {self.name!r} has no default rule")
+            raise RuntimeError(f"policy {show(self.name)} has no default rule")
         t = rule.then
         if t.priority is not None and t.sla_hours is not None:
             priority, sla = t.priority, t.sla_hours
@@ -261,7 +261,13 @@ class Policy(BaseModel):
 
 
 def _is_number(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    """A finite int or float; an int too large for a float is not a number here."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _is_text(value: object) -> bool:
@@ -270,19 +276,19 @@ def _is_text(value: object) -> bool:
 
 def _keys(raw: Mapping[str, Any], allowed: set[str], where: str, problems: list[str]) -> None:
     for key in sorted(set(raw) - allowed, key=str):
-        problems.append(f"{where} has unknown key {key!r}")
+        problems.append(f"{where} has unknown key {show(key)}")
 
 
 def _sla(value: object, where: str, problems: list[str]) -> float | None:
     if not _is_number(value) or not 0 < value <= _MAX_SLA:  # type: ignore[operator]
-        problems.append(f"{where} must be a number of hours > 0 and <= {_MAX_SLA}, got {value!r}")
+        problems.append(f"{where} must be a number of hours > 0 and <= {_MAX_SLA}, got {show(value)}")
         return None
     return float(value)  # type: ignore[arg-type]
 
 
 def _priority(value: object, where: str, problems: list[str]) -> str | None:
     if value not in PRIORITIES:
-        problems.append(f"{where} must be one of {', '.join(PRIORITIES)}, got {value!r}")
+        problems.append(f"{where} must be one of {', '.join(PRIORITIES)}, got {show(value)}")
         return None
     return value  # type: ignore[return-value]
 
@@ -301,14 +307,14 @@ def _check_causes(raw: object, problems: list[str]) -> list[CauseSpec]:
         bad = len(problems)
         _keys(entry, _CAUSE_KEYS, where, problems)
         for key in sorted(_CAUSE_KEYS - set(entry)):
-            problems.append(f"{where} is missing {key!r}")
+            problems.append(f"{where} is missing {show(key)}")
         token = entry.get("token")
         if not _is_pattern(token):
-            problems.append(f"{where}.token is not a token or pattern ([a-z0-9_] or '*' segments joined by ':'): {token!r}")
+            problems.append(f"{where}.token is not a token or pattern ([a-z0-9_] or '*' segments joined by ':'): {show(token)}")
         elif is_outage(token):
-            problems.append(f"{where}.token {token!r} names a provider outage; outages wait, they are never reviewed")
+            problems.append(f"{where}.token {show(token)} names a provider outage; outages wait, they are never reviewed")
         elif token in seen:
-            problems.append(f"{where}.token {token!r} is listed twice")
+            problems.append(f"{where}.token {show(token)} is listed twice")
         if "description" in entry and not _is_text(entry["description"]):
             problems.append(f"{where}.description must be non-empty text")
         priority = _priority(entry.get("priority"), f"{where}.priority", problems) if "priority" in entry else None
@@ -320,7 +326,7 @@ def _check_causes(raw: object, problems: list[str]) -> list[CauseSpec]:
     for i, a in enumerate(patterns):
         for b in patterns[i + 1 :]:
             if _patterns_overlap(a, b):
-                problems.append(f"cause patterns {a!r} and {b!r} can match the same token")
+                problems.append(f"cause patterns {show(a)} and {show(b)} can match the same token")
     return out
 
 
@@ -332,9 +338,9 @@ def _token_list(raw: object, where: str, problems: list[str], *, patterns: bool)
     for item in raw:
         ok = _is_pattern(item) if patterns else is_ref(item)
         if not ok:
-            problems.append(f"{where} holds {item!r}, not a {'token or pattern' if patterns else 'reference'}")
+            problems.append(f"{where} holds {show(item)}, not a {'token or pattern' if patterns else 'reference'}")
         elif item in out:
-            problems.append(f"{where} lists {item!r} twice")
+            problems.append(f"{where} lists {show(item)} twice")
         else:
             out.append(item)
     return tuple(out) if len(out) == len(raw) else None
@@ -353,15 +359,15 @@ def _check_when(raw: object, where: str, catalog: Sequence[CauseSpec], problems:
         cause_in = _token_list(raw["cause_in"], f"{where}.cause_in", problems, patterns=True)
         for token in cause_in or ():
             if is_outage(token):
-                problems.append(f"{where}.cause_in names {token!r}, a provider outage; outages are never reviewed")
+                problems.append(f"{where}.cause_in names {show(token)}, a provider outage; outages are never reviewed")
             elif catalog and not any(_patterns_overlap(token, spec.token) for spec in catalog):
-                problems.append(f"{where}.cause_in names {token!r}, which matches no cause in the catalog")
+                problems.append(f"{where}.cause_in names {show(token)}, which matches no cause in the catalog")
     if "class_in" in raw:
         class_in = _token_list(raw["class_in"], f"{where}.class_in", problems, patterns=False)
     if "confidence_below" in raw:
         value = raw["confidence_below"]
         if not _is_number(value) or not 0 < value <= 1:
-            problems.append(f"{where}.confidence_below must be a number in (0, 1], got {value!r}")
+            problems.append(f"{where}.confidence_below must be a number in (0, 1], got {show(value)}")
         else:
             confidence = float(value)
     if len(problems) != bad:
@@ -383,9 +389,9 @@ def _check_then(raw: object, where: str, problems: list[str]) -> Then | None:
         problems.append(f"{where} must set priority and sla_hours together, or neither (the catalog then decides)")
     for key in ("queue", "required_role"):
         if key in raw and not is_token(raw[key]):
-            problems.append(f"{where}.{key} is not a token: {raw[key]!r}")
+            problems.append(f"{where}.{key} is not a token: {show(raw[key])}")
     if "prefill_ref" in raw and not is_ref(raw["prefill_ref"]):
-        problems.append(f"{where}.prefill_ref must be a reference: {raw['prefill_ref']!r}")
+        problems.append(f"{where}.prefill_ref must be a reference: {show(raw['prefill_ref'])}")
     if len(problems) != bad:
         return None
     return Then(
@@ -411,9 +417,9 @@ def _check_rules(raw: object, catalog: Sequence[CauseSpec], problems: list[str])
         _keys(entry, _RULE_KEYS, where, problems)
         name = entry.get("name")
         if not is_token(name):
-            problems.append(f"{where}.name is not a token: {name!r}")
+            problems.append(f"{where}.name is not a token: {show(name)}")
         elif name in names:
-            problems.append(f"{where}.name {name!r} is used twice")
+            problems.append(f"{where}.name {show(name)} is used twice")
         else:
             names.add(name)
             where = f"rules[{i}] ({name})"
@@ -439,19 +445,23 @@ def _check_sample(raw: object, catalog: Sequence[CauseSpec], problems: list[str]
     _keys(raw, _SAMPLE_KEYS, "sample", problems)
     rate = raw.get("rate", 0.0)
     if not _is_number(rate) or not 0 <= rate <= 1:
-        problems.append(f"sample.rate must be a number in [0, 1], got {rate!r}")
+        problems.append(f"sample.rate must be a number in [0, 1], got {show(rate)}")
         rate = 0.0
     seed = raw.get("seed", "")
     if isinstance(seed, int) and not isinstance(seed, bool):
-        seed = str(seed)
+        try:
+            seed = str(seed)
+        except ValueError:  # more digits than Python converts to text
+            problems.append("sample.seed is an integer too long to use as text")
+            seed = ""
     if not isinstance(seed, str):
-        problems.append(f"sample.seed must be text or an integer, got {seed!r}")
+        problems.append(f"sample.seed must be text or an integer, got {show(seed)}")
         seed = ""
     if rate > 0:
         if seed == "":
             problems.append("sample.seed must be set when sample.rate > 0")
         if catalog and not any(pattern_matches(s.token, SPOT_CHECK) for s in catalog):
-            problems.append(f"sample.rate > 0 needs a {SPOT_CHECK!r} cause in the catalog")
+            problems.append(f"sample.rate > 0 needs a {show(SPOT_CHECK)} cause in the catalog")
     return Sample(rate=float(rate), seed=seed)
 
 
@@ -470,24 +480,38 @@ def _content(name: str, description: str | None, default_queue: str, causes: Ite
 
 
 def parse_policy(raw: object, path: Path | None = None) -> Policy:
-    """Validate a policy already parsed from YAML; raise ``PolicyError`` listing every problem."""
+    """Validate a policy already parsed from YAML; raise ``PolicyError`` listing every problem.
+
+    Input too deep or too large to validate (a value nested thousands of levels deep, an
+    integer too long to show) is a ``PolicyError`` too, never a ``RecursionError`` or a
+    ``ValueError``.
+    """
+    try:
+        return _parse_policy(raw, path)
+    except RecursionError:
+        raise PolicyError(path, ["the policy is nested too deeply to validate"]) from None
+    except (ValueError, OverflowError) as exc:  # a value too large to convert or to show
+        raise PolicyError(path, [f"a value cannot be validated ({type(exc).__name__}); is it too large?"]) from None
+
+
+def _parse_policy(raw: object, path: Path | None) -> Policy:
     if not isinstance(raw, dict):
         raise PolicyError(path, ["a policy must be a mapping"])
     problems: list[str] = []
     _keys(raw, _TOP_KEYS, "the policy", problems)
     for key in sorted(_REQUIRED_TOP - set(raw)):
-        problems.append(f"missing key {key!r}")
+        problems.append(f"missing key {show(key)}")
     name = raw.get("name")
     if "name" in raw and not is_token(name):
-        problems.append(f"name is not a token: {name!r}")
+        problems.append(f"name is not a token: {show(name)}")
     elif path is not None and "name" in raw and name != path.stem:
-        problems.append(f"name {name!r} differs from the file name {path.stem!r}")
+        problems.append(f"name {show(name)} differs from the file name {show(path.stem)}")
     description = raw.get("description")
     if description is not None and not _is_text(description):
         problems.append("description must be non-empty text")
     default_queue = raw.get("default_queue", "main")
     if not is_token(default_queue):
-        problems.append(f"default_queue is not a token: {default_queue!r}")
+        problems.append(f"default_queue is not a token: {show(default_queue)}")
     causes = _check_causes(raw.get("causes"), problems) if "causes" in raw else []
     rules = _check_rules(raw.get("rules"), causes, problems) if "rules" in raw else []
     sample = _check_sample(raw.get("sample"), causes, problems)

@@ -455,3 +455,76 @@ def test_unknown_classes_lists_rule_classes_the_profile_lacks() -> None:
     raw = policy_dict()
     raw["rules"][2]["when"]["class_in"] = [known, "kind_missing"]
     assert unknown_classes(parse_policy(raw), profile) == ["kind_b", "kind_missing"]
+
+
+# --- hostile sizes: every problem is a PolicyError ----------------------------------
+
+HUGE = 10**400  # larger than any float
+
+
+@pytest.mark.parametrize(
+    "path, expect",
+    [
+        (("causes", 0, "sla_hours"), "sla_hours must be a number of hours"),
+        (("rules", 1, "then", "sla_hours"), "sla_hours must be a number of hours"),
+        (("rules", 1, "when", "confidence_below"), "confidence_below must be a number in (0, 1]"),
+        (("sample", "rate"), "sample.rate must be a number in [0, 1]"),
+    ],
+)
+@pytest.mark.parametrize("sign", [1, -1])
+def test_integers_too_large_for_a_float_are_problems(path: tuple, expect: str, sign: int) -> None:
+    raw = copy.deepcopy(POLICY)
+    node = raw
+    for key in path[:-1]:
+        node = node[key]
+    node[path[-1]] = sign * HUGE
+    assert any(expect in p for p in problems_of(raw))
+
+
+def test_integers_too_large_for_a_float_in_a_file_are_problems(tmp_path: Path) -> None:
+    text = yaml.safe_dump(POLICY, sort_keys=False).replace("sla_hours: 4\n", f"sla_hours: {HUGE}\n", 1)
+    assert str(HUGE) in text
+    path = tmp_path / "synthetic.yaml"
+    path.write_text(text, encoding="utf-8")
+    assert any("sla_hours must be a number of hours" in p for p in load_problems(path))
+
+
+def test_an_integer_seed_too_long_for_text_is_a_problem() -> None:
+    assert any("sample.seed" in p for p in problems_of(policy_dict(sample={"rate": 0.1, "seed": 10**5000})))
+
+
+@pytest.mark.parametrize("depth", [5000])
+def test_deeply_nested_yaml_is_a_policy_error(tmp_path: Path, depth: int) -> None:
+    path = tmp_path / "synthetic.yaml"
+    path.write_text("name: synthetic\ndescription: " + "[" * depth + "]" * depth + "\n", encoding="utf-8")
+    assert any("nested too deeply" in p for p in load_problems(path))
+    deep: Any = []
+    for _ in range(depth):
+        deep = [deep]
+    found = problems_of(policy_dict(default_queue=deep, description="x" * 10_000))
+    assert any("default_queue is not a token" in p for p in found)
+    assert all(len(p) < 300 for p in found)  # hostile values are shown shortened
+
+
+def test_an_integer_literal_too_long_to_read_is_a_policy_error(tmp_path: Path) -> None:
+    path = tmp_path / "synthetic.yaml"
+    text = yaml.safe_dump(POLICY, sort_keys=False).replace("sla_hours: 4\n", "sla_hours: " + "9" * 5000 + "\n", 1)
+    path.write_text(text, encoding="utf-8")
+    assert load_problems(path)
+
+
+@pytest.mark.parametrize("raised", [RecursionError, ValueError, OverflowError])
+def test_a_validator_crash_on_hostile_input_is_still_a_policy_error(monkeypatch: pytest.MonkeyPatch, raised: type) -> None:
+    import mailroom_desk.policy as policy_module
+    import mailroom_desk.reviewers as reviewers_module
+    from mailroom_desk import RegistryError
+
+    def crash(*_: Any) -> None:
+        raise raised("synthetic")
+
+    monkeypatch.setattr(policy_module, "_parse_policy", crash)
+    monkeypatch.setattr(reviewers_module, "_parse_registry", crash)
+    with pytest.raises(PolicyError):
+        parse_policy(POLICY)
+    with pytest.raises(RegistryError):
+        reviewers_module.parse_registry({"mode": "open", "reviewers": []})

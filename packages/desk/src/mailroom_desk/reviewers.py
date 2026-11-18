@@ -42,7 +42,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from mailroom_desk._yaml import load_yaml_file
+from mailroom_desk._yaml import load_yaml_file, show
 from mailroom_desk.errors import RegistryError, RoleNotHeld, TokenRejected, UnknownReviewer
 from mailroom_desk.models import ReviewerRef, is_token
 from mailroom_record.hashing import hash_obj
@@ -127,16 +127,16 @@ def _problems_of(i: int, entry: Mapping[str, Any], seen: dict[str, set[str]], pr
     where = f"reviewers[{i}]"
     bad = len(problems)
     for key in sorted(set(entry) - _REVIEWER_KEYS, key=str):
-        problems.append(f"{where} has unknown key {key!r}")
+        problems.append(f"{where} has unknown key {show(key)}")
     for key in ("id", "initials", "roles"):
         if key not in entry:
-            problems.append(f"{where} is missing {key!r}")
+            problems.append(f"{where} is missing {show(key)}")
     rid = entry.get("id")
     if "id" in entry and (not isinstance(rid, str) or not _ID_RE.fullmatch(rid)):
-        problems.append(f"{where}.id must match [a-z0-9][a-z0-9_.-]{{0,63}}, got {rid!r}")
+        problems.append(f"{where}.id must match [a-z0-9][a-z0-9_.-]{{0,63}}, got {show(rid)}")
     initials = entry.get("initials")
     if "initials" in entry and (not isinstance(initials, str) or not _INITIALS_RE.fullmatch(initials)):
-        problems.append(f"{where}.initials must be 2-6 capital letters, got {initials!r}")
+        problems.append(f"{where}.initials must be 2-6 capital letters, got {show(initials)}")
     roles = entry.get("roles")
     if "roles" in entry:
         if not isinstance(roles, list) or not roles:
@@ -144,8 +144,9 @@ def _problems_of(i: int, entry: Mapping[str, Any], seen: dict[str, set[str]], pr
         else:
             for role in roles:
                 if not is_token(role):
-                    problems.append(f"{where}.roles holds {role!r}, not a token")
-            if len(set(map(str, roles))) != len(roles):
+                    problems.append(f"{where}.roles holds {show(role)}, not a token")
+            named = [r for r in roles if isinstance(r, str)]
+            if len(set(named)) != len(named):
                 problems.append(f"{where}.roles lists a role twice")
     sha = entry.get("token_sha256")
     if "token_sha256" in entry and (not isinstance(sha, str) or not _SHA_RE.fullmatch(sha)):
@@ -159,15 +160,27 @@ def _problems_of(i: int, entry: Mapping[str, Any], seen: dict[str, set[str]], pr
 
 
 def parse_registry(raw: object, path: Path | None = None) -> ReviewerRegistry:
-    """Validate a registry already parsed from YAML; raise ``RegistryError`` listing every problem."""
+    """Validate a registry already parsed from YAML; raise ``RegistryError`` listing every problem.
+
+    Input too deep or too large to validate is a ``RegistryError`` too (see ``parse_policy``).
+    """
+    try:
+        return _parse_registry(raw, path)
+    except RecursionError:
+        raise RegistryError(path, ["the registry is nested too deeply to validate"]) from None
+    except (ValueError, OverflowError) as exc:  # a value too large to convert or to show
+        raise RegistryError(path, [f"a value cannot be validated ({type(exc).__name__}); is it too large?"]) from None
+
+
+def _parse_registry(raw: object, path: Path | None) -> ReviewerRegistry:
     if not isinstance(raw, dict):
         raise RegistryError(path, ["a reviewer registry must be a mapping"])
     problems: list[str] = []
     for key in sorted(set(raw) - _TOP_KEYS, key=str):
-        problems.append(f"unknown key {key!r}")
+        problems.append(f"unknown key {show(key)}")
     mode = raw.get("mode")
     if mode not in ("strict", "open"):
-        problems.append(f"mode must be 'strict' or 'open', got {mode!r}")
+        problems.append(f"mode must be 'strict' or 'open', got {show(mode)}")
     entries = raw.get("reviewers")
     good: list[Reviewer] = []
     if not isinstance(entries, list):

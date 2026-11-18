@@ -175,3 +175,27 @@ def test_registry_hash_ignores_order_of_keys_and_changes_with_meaning(tmp_path: 
         raw = yaml.safe_load(yaml.safe_dump(REGISTRY))
         mutate(raw)
         assert parse_registry(raw).hash != base
+
+
+def test_hostile_sizes_are_registry_errors(tmp_path: Path) -> None:
+    depth = 5000
+    path = tmp_path / "reviewers.yaml"
+    path.write_text("mode: strict\nreviewers: " + "[" * depth + "]" * depth + "\n", encoding="utf-8")
+    with pytest.raises(RegistryError) as info:
+        load_registry(path)
+    assert any("nested too deeply" in p for p in info.value.problems)
+    path.write_text("mode: strict\nreviewers:\n  - {id: rv-a, initials: RVA, roles: [" + "9" * 5000 + "]}\n", encoding="utf-8")
+    with pytest.raises(RegistryError):
+        load_registry(path)
+    deep: Any = []
+    for _ in range(depth):
+        deep = [deep]
+    raw = copy.deepcopy(REGISTRY)
+    raw["reviewers"][0]["roles"] = deep
+    with pytest.raises(RegistryError) as info:
+        parse_registry(raw)
+    raw = copy.deepcopy(REGISTRY)
+    raw["reviewers"][0]["roles"] = [10**5000]
+    with pytest.raises(RegistryError) as info:
+        parse_registry(raw)
+    assert any("roles holds" in p and "not a token" in p for p in info.value.problems)

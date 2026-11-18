@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
+import reprlib
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-__all__ = ["load_yaml_file"]
+__all__ = ["load_yaml_file", "show"]
+
+_SHOW = reprlib.Repr()
+_SHOW.maxlevel, _SHOW.maxstring, _SHOW.maxother, _SHOW.maxlong = 3, 80, 80, 40
+_SHOW.maxlist = _SHOW.maxtuple = _SHOW.maxdict = _SHOW.maxset = 6
+
+
+def show(value: Any) -> str:
+    """A bounded ``repr`` for problem messages: a hostile value (a long string, a huge
+    integer, a list nested thousands deep) is shortened, never echoed whole or crashing."""
+    try:
+        return _SHOW.repr(value)
+    except (RecursionError, ValueError):
+        return f"<{type(value).__name__}>"
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -36,7 +50,8 @@ _UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
 
 def load_yaml_file(path: Path) -> tuple[Any, list[str]]:
     """Read ``path`` as YAML. Returns ``(data, problems)``; ``problems`` is non-empty when
-    the file cannot be read or parsed (then ``data`` is ``None``)."""
+    the file cannot be read or parsed (then ``data`` is ``None``), including a document
+    nested too deeply for the parser or holding an integer too long to convert."""
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
@@ -45,3 +60,7 @@ def load_yaml_file(path: Path) -> tuple[Any, list[str]]:
         return yaml.load(text, Loader=_UniqueKeyLoader), []  # noqa: S506 - a SafeLoader subclass
     except yaml.YAMLError as exc:
         return None, [f"not valid YAML: {exc}"]
+    except RecursionError:
+        return None, ["not readable YAML: nested too deeply"]
+    except (ValueError, OverflowError) as exc:  # e.g. an integer literal too long to convert
+        return None, [f"not readable YAML: {type(exc).__name__}: {exc}"]
