@@ -221,6 +221,7 @@ def cutoff_at_target(rows: Sequence[Pair], target: float) -> float | None:
     """
     if not 0.0 < target <= 1.0:
         raise ValueError(f"target must be in (0, 1]; got {target!r}")
+    rows = list(rows)  # read a one-shot iterable once: checked, then sorted
     _require_finite_confidences(rows, "rows")
     ordered = sorted(rows, key=lambda pair: -pair[0])
     best: float | None = None
@@ -261,8 +262,8 @@ def cross_fit_cutoffs(
     if folds < 2:
         raise ValueError("folds must be at least 2")
     validate_confidence(confidence)
-    _require_finite_confidences(rows, "rows")
-    shuffled = list(rows)
+    shuffled = list(rows)  # read a one-shot iterable once: checked, then shuffled
+    _require_finite_confidences(shuffled, "rows")
     random.Random(seed).shuffle(shuffled)
     cutoff = cutoff_at_target(shuffled, target)
     if cutoff is None:

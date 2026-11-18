@@ -124,6 +124,16 @@ def test_cutoff_searches_refuse_a_non_finite_confidence():
         cutoff_for_precision([0.2, 0.4, INF], [True, False, True], 0.9)
 
 
+def test_cutoff_searches_read_a_generator_once():
+    """A one-shot iterable gives the same cutoff as a list, as in the old Dojo (0.8, 30 held out, 21 kept)."""
+    rows = [(0.95, True)] * 10 + [(0.8, True)] * 10 + [(0.8, False)] + [(0.5, False)] * 5 + [(0.3, True)] * 4
+    assert cutoff_at_target(rows, 0.9) == 0.8
+    assert cutoff_at_target((row for row in rows), 0.9) == 0.8
+    expected = cross_fit_cutoffs(rows, target=0.9)
+    assert (expected.cutoff, expected.holdout_documents, expected.holdout_accepted) == (0.8, 30, 21)
+    assert cross_fit_cutoffs((row for row in rows), target=0.9) == expected
+
+
 def test_calibration_drops_unusable_confidences_and_ranking_drops_nan():
     """ECE and Brier leave out confidences that are not finite numbers in [0, 1]; ranking drops NaN."""
     noisy = [
