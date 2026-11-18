@@ -123,6 +123,17 @@ finished by the next one; a different folder under the same run id raises `Impor
 routing inputs the `legacy` router replay needs are present or absent in a folder. The module
 docstrings state every mapping rule.
 
+## Floor replay
+
+`replay_timeline(log, run_id) -> (timeline, meta)` (`mailroom_record.replay`) rebuilds the
+floor replay of any stored or imported run from the record alone, under the contract of the
+sandbox's `tui/floor_replay.py:build_timeline`: a sorted list of `(at_seconds, event)` with
+`{"node": ...}`, `{"item": ...}` and `{"checkpoint": ...}` events, and a `meta` dict. A node
+start is played at its `started_ts`, its finish at the event's `ts`; a node in flight when
+the run stopped replays as `running`. The timeline holds no document text and no extracted
+value. `tests/test_replay.py` checks it against the sandbox's own `build_timeline` when
+`MAILROOM_SANDBOX_CHECKOUT` names a sandbox checkout, and skips that check otherwise.
+
 ## Command line
 
 `pip install -e packages/record` installs `mailroom-record` (also `python -m mailroom_record`):

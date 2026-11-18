@@ -543,7 +543,7 @@ Added 2026-11-18 (JJB: all floor replayability moves into this repo). The TUI an
 - Produces: `replay_timeline(log, run_id) -> tuple[list[tuple[float, dict]], dict]`, the same contract as the sandbox's `tui/floor_replay.py:build_timeline`: a sorted list of `(at_seconds, event)` where `event` is `{"node": {...}}`, `{"item": {...}}` or `{"checkpoint": {...}}`, plus a `meta` dict (`source_run_id`, `engine_kind`, `engine_model`, `node_records`, `item_records`, `duration_s`, `synthetic_timing`, `incomplete`, `source_state`, `warnings`). Node rows carry `doc`, `node`, `status`, `agent`, `model`, `step`, `stage`, `ms`, `decisions` (without `options` text); item rows carry the outcome fields from the final `output` event (no extracted values, no document text). A `running` start is emitted at `started_ts` and its finish at the event `ts`.
 - No document text and no extracted field values in the timeline.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```python
 def test_timeline_matches_fixture_folder(tmp_store, fixture_folder):
@@ -557,8 +557,8 @@ def test_timeline_has_no_document_text(tmp_store, fixture_folder): ...     # sen
 def test_native_run_replays(store_with_events): ...                        # a run written by LogWriter, not imported
 ```
 
-- [ ] **Step 2:** Run; expect import failure. **Step 3:** Implement. **Step 4:** Run; expect pass.
-- [ ] **Step 5:** Commit: `feat(record): floor replay timeline from the record`.
+- [x] **Step 2:** Run; expect import failure. **Step 3:** Implement. **Step 4:** Run; expect pass.
+- [x] **Step 5:** Commit: `feat(record): floor replay timeline from the record`.
 
 ### Task 11: Pack, unpack and prune
 
