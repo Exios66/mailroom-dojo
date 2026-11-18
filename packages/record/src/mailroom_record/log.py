@@ -314,6 +314,11 @@ def iter_raw_segment(path: Path, max_line: int | None = None) -> Iterator[RawLin
             offset += length
 
 
+def _plain(value: Any) -> Any:
+    """A Mapping as a dict (left as is when it is not one, for the model to reject)."""
+    return dict(value) if isinstance(value, Mapping) and not isinstance(value, dict) else value
+
+
 def _check_writer_id(writer_id: Any) -> str:
     if not isinstance(writer_id, str) or not _WRITER_ID_RE.fullmatch(writer_id):
         raise ValueError(f"writer_id must match {_WRITER_ID_RE.pattern}, got {writer_id!r}")
@@ -852,9 +857,11 @@ class LogWriter:
                 "latency_ms": latency_ms,
                 "decision": decision,
                 "cause": cause,
-                "inputs": list(inputs),
-                "outputs": list(outputs),
-                "payload": {} if payload is None else payload,
+                # Any Mapping is accepted: copy it to a dict first, since deepcopy cannot
+                # copy some (a MappingProxyType, for one).
+                "inputs": [_plain(r) for r in inputs],
+                "outputs": [_plain(r) for r in outputs],
+                "payload": {} if payload is None else _plain(payload),
             }
         )
         with self._lock:

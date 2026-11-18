@@ -353,6 +353,22 @@ def test_mutating_inputs_or_results_after_append_does_not_change_the_record(stor
     check_chains(store.root)
 
 
+def test_append_accepts_any_mapping_for_payload_and_blob_refs(store: SimpleNamespace) -> None:
+    # The signature takes a Mapping: a read-only mapping (not a dict) is stored like one.
+    from types import MappingProxyType
+
+    ref = store.blobs.put(b"synthetic input", "original")
+    with store.log.open_writer("r1", "w0") as w:
+        ev = w.append(
+            doc_id="d1", node="n", kind="output",
+            payload=MappingProxyType({"route": "a", "nested": {"k": 1}}),
+            inputs=[MappingProxyType(ref.model_dump())],
+        )
+    (stored,) = list(store.log.iter_events("r1"))
+    assert stored == ev and stored.payload == {"route": "a", "nested": {"k": 1}} and stored.inputs == [ref]
+    check_chains(store.root)
+
+
 def test_ts_defaults_to_now_and_accepts_an_explicit_value(store: SimpleNamespace) -> None:
     from datetime import datetime
 
