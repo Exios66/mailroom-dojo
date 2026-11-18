@@ -1,0 +1,65 @@
+name: field_types
+version: 2
+description: >-
+  How an extracted field is scored. A schema names one type per field; `entity_list` may be
+  followed by `:` and an entity element type (`entity_list:name`). Source: the Dojo's field
+  scorers (llm-dojo-scoring llm_dojo_scoring/scoring/field_scoring.py FIELD_SCORERS and
+  score_field) and the field_scoring notes in llm-mailroom src/config/taxonomy.yaml.
+ordered: false
+entries:
+  - key: name
+    label: Name
+    description: A name of a person, organization, place or document, scored by fuzzy name match.
+    attributes: {takes_element: false}
+  - key: label
+    label: Closed label
+    description: >-
+      A value from a closed vocabulary, scored by exact match after normalization. Which
+      vocabulary applies is given per class by `closed_label_fields` in doc_classes.
+    attributes: {takes_element: false}
+  - key: date
+    label: Date
+    description: >-
+      A date, parsed into the components it states (year, month, day; none is invented). A
+      blank-template or bare-label expectation scores 1 only for an empty prediction. The
+      expected date phrase contained in the prediction scores 1. Two full dates: same date 1,
+      same year and month or within 45 days 0.67, same year or same month only 0.33, else 0.
+      A partial date is compared on the components both sides state, with at most 0.67 when
+      the prediction leaves out one the label states. A prediction stating a year scores at
+      most 0.67 against a label that states none. Values that do not parse fall back to fuzzy name
+      matching (capped when the label is a date the prediction does not parse to).
+    attributes: {takes_element: false}
+  - key: money
+    label: Money
+    description: >-
+      An amount of money: both sides parsed to a number (currency symbols and words, commas
+      and K/M/B suffixes removed) and scored 1 when within one cent, else 0. When either
+      side does not parse, it falls back to fuzzy name matching.
+    attributes: {takes_element: false}
+  - key: id
+    label: Identifier
+    description: An identifier such as a claim, policy or filing number, scored by exact match.
+    attributes: {takes_element: false}
+  - key: free_text
+    label: Free text
+    description: Prose, scored by token F1.
+    attributes: {takes_element: false}
+  - key: containment
+    label: Containment
+    description: >-
+      Prose whose expected value is one passage of a longer text, scored by the share of the
+      expected text's tokens (stopwords removed) that the prediction covers.
+    attributes: {takes_element: false}
+  - key: entity_list
+    label: Entity list
+    description: >-
+      A list of items, matched one to one (bipartite matching) and each item scored as its
+      element type. With no element type written, the Dojo scores items as `name`.
+    attributes: {takes_element: true, default_element: name}
+  - key: cms_doc_ref
+    label: CMS document reference
+    description: >-
+      One CMS DE-SynPUF supporting-document item (provider NPI, NDC, a descriptor such as
+      "HCPCS detail"), scored 1 or 0 by identifier-aware match; near-miss identifiers earn
+      nothing.
+    attributes: {takes_element: false}

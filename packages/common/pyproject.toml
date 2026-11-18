@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mailroom-common"
+version = "0.1.0"
+description = "Shared foundation for the Mailroom packages: errors, hashing, JSONL IO, config loading, logging, model-client interface, plugin registry."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2",
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-xdist", "hypothesis"]
+
+[project.entry-points.pytest11]
+# Loads the shared fixtures in every pytest run where mailroom-common is installed.
+mailroom_common = "mailroom_common.pytest_plugin"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mailroom_common = ["py.typed"]

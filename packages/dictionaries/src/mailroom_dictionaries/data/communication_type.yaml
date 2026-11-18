@@ -1,0 +1,18 @@
+name: communication_type
+version: 1
+description: >-
+  Closed vocabulary of the correspondence `communication_type` field: the form of the
+  communication. Values: llm-mailroom src/config/taxonomy.yaml (correspondence
+  label_vocabularies); the attorney_demand and demand distinction: llm-dojo-scoring
+  llm_dojo_scoring/schemas/scored_enums.py.
+ordered: false
+entries:
+  - {key: email, label: Email, description: An email.}
+  - {key: letter, label: Letter, description: A letter.}
+  - {key: memo, label: Memo, description: A memo.}
+  - {key: notice, label: Notice, description: A notice.}
+  - {key: demand, label: Demand, description: "A demand that is not a lawyer's demand letter."}
+  - {key: attorney_demand, label: Attorney demand, description: "A lawyer's demand letter."}
+  - {key: press_release, label: Press release, description: A press release.}
+  - {key: meeting_request, label: Meeting request, description: A meeting request.}
+  - {key: other, label: Other, description: Any other form of communication.}

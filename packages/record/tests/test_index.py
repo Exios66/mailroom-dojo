@@ -46,7 +46,7 @@ from mailroom_record.blobs import BlobStore
 from mailroom_record.index import SCHEMA_VERSION, ApplyRefused, Index, IndexUnavailable
 from mailroom_record.log import EventLog
 from mailroom_record.models import Run, Seal
-from mailroom_record.seal import list_seals, seal_run
+from mailroom_record.seal import seal_run
 
 
 def append(store: SimpleNamespace, writer: str = "w-x", run_id: str = "r1", **fields: Any) -> Any:

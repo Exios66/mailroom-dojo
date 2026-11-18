@@ -13,6 +13,7 @@ come from is `docs/specs/2026-11-18-lean-rewrite-design.md`; the build plan is
 | [0004](0004-storage-formats.md) | JSONL segments per writer, Parquet at seal, SQLite (WAL) index, DuckDB for analysis | Accepted |
 | [0005](0005-schema-versions-and-read-time-upgrades.md) | Every stored object carries `schema_version`; old data is upgraded on read, never rewritten | Accepted |
 | [0006](0006-importing-sandbox-runs.md) | Sandbox run folders import as records; absent fields stay absent and labels stay out | Accepted |
+| [0007](0007-shared-leaf-packages.md) | Shared plumbing lives in `common` and vocabularies in `dictionaries`, two leaf packages every package may use | Accepted |
 
 Status values: Proposed, Accepted, Deprecated, Superseded. A superseding ADR names the one it
 replaces, and the old one is marked, not deleted.
