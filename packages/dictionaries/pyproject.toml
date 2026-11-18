@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mailroom-dictionaries"
+version = "0.1.0"
+description = "Versioned controlled vocabularies, taxonomies and the glossary for the Mailroom, with a validating loader."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mailroom-common",
+    "pydantic>=2",
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-xdist", "hypothesis"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mailroom_dictionaries = ["py.typed", "data/*.yaml"]
