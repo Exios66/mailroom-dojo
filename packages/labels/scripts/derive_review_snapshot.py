@@ -17,10 +17,10 @@ come from ``--known-warnings`` under the new snapshot id, as for an import.
         --out labels/gold-review-2026-11-18-r2 \\
         --known-warnings config/clients/mailroom-dataset/known-warnings.yaml   # --check: compare only
 
-``--source`` is the snapshot directory itself (the one holding its ``manifest.json``).
-An existing ``--out`` is replaced only when it is an earlier derivation of the same source
-(a review snapshot of the derived id whose ``source.derived_from.snapshot_id`` is the
-source's id); anything else is refused untouched.
+``--source`` is the snapshot directory itself (the one holding its ``manifest.json``);
+neither directory may lie inside the other. An existing ``--out`` is replaced only when it
+is an earlier derivation of the same source (a review snapshot of the derived id whose
+``source.derived_from.snapshot_id`` is the source's id); anything else is refused untouched.
 The source snapshot is not kept beside its derivation; for ``--check``, extract it from
 commit ``4ca36109f8a2098b530bfdc52fd802fb620bd81b``, which holds it exactly as it was added
 (reachable from ``refs/pull/5/head``; ``git fetch origin refs/pull/5/head`` when it is not
@@ -88,6 +88,9 @@ def _derived_from(out_dir: Path) -> Any:
 
 def derive(source_dir: Path, out_dir: Path, known_warnings: Path | None) -> SnapshotManifest:
     """Write the derived snapshot to ``out_dir`` (its name is the new snapshot id)."""
+    src, out = source_dir.resolve(), out_dir.resolve()
+    if out.is_relative_to(src) or src.is_relative_to(out):
+        raise ImportRefused(f"{out_dir} and {source_dir}: one lies inside the other")
     source = load_snapshot(source_dir)
     if source.kind != "review":
         raise ImportRefused(f"{source_dir}: a {source.kind} snapshot, not a review snapshot")

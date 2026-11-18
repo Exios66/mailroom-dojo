@@ -173,3 +173,19 @@ def test_out_holding_a_review_snapshot_not_derived_from_this_source_is_refused(t
     with pytest.raises(ImportRefused, match="derived_from"):
         script.derive(src, derived, None)
     script.derive(elsewhere, derived, None)  # its own source may rebuild it
+
+
+@pytest.mark.parametrize("nesting", ["out_in_source", "source_in_out"])
+def test_out_and_source_must_not_contain_each_other(tmp_path: Path, nesting: str) -> None:
+    script = _script()
+    if nesting == "out_in_source":
+        src = _source(tmp_path, ROWS[:1])
+        out = src / "review-src-r2"
+    else:
+        out = tmp_path / "review-src-r2"
+        src = _source(out, ROWS[:1])
+    before = _tree(src)
+    with pytest.raises(ImportRefused, match="inside"):
+        script.derive(src, out, None)
+    assert script.main(["--source", str(src), "--out", str(out)]) == 1
+    assert _tree(src) == before and not (src / "review-src-r2").exists()
