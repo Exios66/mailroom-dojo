@@ -442,6 +442,48 @@ def test_prune_waits_for_a_live_writer_and_sees_its_events(
     assert verify_run(*s.parts, "r2").ok
 
 
+@pytest.mark.parametrize("include_blobs", [True, False], ids=["with-blobs", "without-blobs"])
+def test_prune_cannot_run_while_an_unpack_places_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, include_blobs: bool
+) -> None:
+    """An unpack of r2 skips the shared blob the target already holds (r1 names it). A prune
+    of r1 run between the blob step and r2's run files would see no other run naming it and
+    delete it. The unpack holds the maintenance lock shared, so that prune gives up."""
+    import mailroom_record.pack as pack_module
+
+    origin = build_two_run_sealed_store(tmp_path / "origin")
+    archive = tmp_path / "r2.tar.zst"
+    pack_run(origin.root, "r2", archive, include_blobs=include_blobs)
+    target = build_two_run_sealed_store(tmp_path / "target")
+    for sha in target.only["r2"]:  # r2's own blobs, as a store holding only r1 would lack them
+        target.blobs.content_path(sha).unlink()
+    if not include_blobs:  # the archive lacks blobs: the target must hold r2's own
+        for sha in origin.only["r2"]:
+            target.blobs.put(origin.blobs.get(sha), "extraction")
+    (tmp_path / "target" / "runs" / "r2").rename(tmp_path / "r2-gone")
+    pack_run(target.root, "r1", tmp_path / "r1.tar.zst")
+
+    real = pack_module._makedirs_durable
+    raced: list[BaseException | object] = []
+
+    def makedirs(path: Path, root: Path) -> None:
+        if "runs" in Path(path).relative_to(root).parts and not raced:
+            try:
+                raced.append(prune_run(target.root, "r1", lock_timeout=0.2))
+            except StoreBusy as exc:
+                raced.append(exc)
+        real(path, root)
+
+    monkeypatch.setattr(pack_module, "_makedirs_durable", makedirs)
+    assert unpack_run(archive, target.root) == "r2"
+    monkeypatch.undo()
+    assert len(raced) == 1 and isinstance(raced[0], StoreBusy), raced
+    assert target.blobs.exists(target.shared) == "present"
+    assert verify_run(*target.parts, "r2").ok
+    prune_run(target.root, "r1")  # after the unpack, r2 names the shared blob: it is kept
+    assert target.blobs.exists(target.shared) == "present" and verify_run(*target.parts, "r2").ok
+
+
 def test_prune_gives_up_after_its_timeout(two_run_sealed_store: SimpleNamespace, tmp_path: Path) -> None:
     s = two_run_sealed_store
     pack_run(s.root, "r1", tmp_path / "r1.tar.zst")

@@ -39,7 +39,11 @@ Rules
   ``UnpackConflict`` and nothing is changed; equal files are left alone, missing ones are
   hard-linked into place (blobs first, ``run.json`` last), so a second unpack is a no-op and
   an unpack interrupted part way is finished by the next. A blob already present or
-  tombstoned in the target is never replaced. The staging store is removed on return or
+  tombstoned in the target is never replaced. From taking blobs from the target until
+  ``run.json`` is placed, it holds the maintenance lock shared, as a writer does (waiting
+  up to ``lock_timeout`` seconds while a prune holds it: ``StoreBusy``), so a concurrent
+  ``prune_run`` of another run cannot delete a blob this unpack relies on before the
+  unpacked run names it. The staging store is removed on return or
   error; a process killed mid-unpack leaves it behind (remove ``.unpack-*`` by hand).
 - ``prune_run`` removes the segments and seals (and, unless ``keep_columns``, the Parquet
   files) of a packed run, and the blobs its archive holds that no other run names. It
@@ -138,7 +142,7 @@ class PruneRefused(RuntimeError):
 
 
 class StoreBusy(TimeoutError):
-    """The maintenance lock was not free within the timeout (a writer is live)."""
+    """The maintenance lock was not free within the timeout (a writer, unpack or prune is live)."""
 
 
 @dataclass(frozen=True)
@@ -462,13 +466,22 @@ def _same_bytes(a: Path, b: Path) -> bool:
     return a.stat().st_size == b.stat().st_size and _sha_file(a) == _sha_file(b)
 
 
-def unpack_run(archive: Path, root: Path) -> str:
+def unpack_run(archive: Path, root: Path, *, lock_timeout: float = 60.0) -> str:
     """Restore the run in ``archive`` under ``root`` and return its id (see the module doc)."""
     archive, root = Path(archive), Path(root)
     root.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(dir=root, prefix=".unpack-"))
     try:
         read = _read_archive(archive, lambda name, chunks: _write_staged(staging / name, chunks))
+        with _maintenance(root, lock_timeout, exclusive=False):
+            return _place(read, staging, root)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def _place(read: _Read, staging: Path, root: Path) -> str:
+    """Verify the staged run and place it under ``root``; the caller holds the maintenance lock."""
+    if True:
         run_id = read.run_id
         s_log, s_blobs = _open_store(staging)
         target = BlobStore(root)
@@ -530,25 +543,25 @@ def unpack_run(archive: Path, root: Path) -> str:
             prune_record.unlink()
             _fsync_dir(prune_record.parent)
         return run_id
-    finally:
-        shutil.rmtree(staging, ignore_errors=True)
 
 
 # --- prune ------------------------------------------------------------------------
 
 
 @contextlib.contextmanager
-def _exclusive_maintenance(root: Path, timeout: float) -> Iterator[None]:
+def _maintenance(root: Path, timeout: float, *, exclusive: bool = True) -> Iterator[None]:
+    """Hold the store's maintenance lock (exclusive for a prune, shared for an unpack)."""
     fd = os.open(root / MAINTENANCE_LOCK, os.O_RDWR | os.O_CREAT, 0o644)
+    mode = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
     try:
         deadline = time.monotonic() + timeout
         while True:
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(fd, mode | fcntl.LOCK_NB)
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise StoreBusy(f"the store is busy (a writer is live) after {timeout:g}s; try again") from None
+                    raise StoreBusy(f"the store is busy (a writer, unpack or prune is live) after {timeout:g}s; try again") from None
                 time.sleep(0.05)
         yield
     finally:
@@ -591,7 +604,7 @@ def prune_run(root: Path, run_id: str, *, keep_columns: bool = True, lock_timeou
     run_dir = log.run_dir(run_id)
     if not (run_dir / "run.json").is_file():
         raise FileNotFoundError(f"no run {run_id!r} under {root}")
-    with _exclusive_maintenance(root, lock_timeout):
+    with _maintenance(root, lock_timeout):
         record_path = run_dir / _PACK_RECORD
         if not record_path.is_file():
             raise PruneRefused(f"run {run_id!r}: no pack recorded; pack it first")
