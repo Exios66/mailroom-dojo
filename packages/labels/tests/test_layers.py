@@ -320,3 +320,17 @@ def test_a_hash_with_a_trailing_newline_is_malformed_and_never_matches(tmp_path:
     )
     assert [f.kind for f in read_layer(ng).findings] == ["malformed_record"]
     assert hash_matches(full[:16], full)  # a valid prefix still matches
+
+
+@pytest.mark.parametrize("kind", ["hub", "near_gold"])
+def test_a_populated_label_with_a_null_value_is_malformed_not_truth(tmp_path: Path, kind: str) -> None:
+    # A populated label must carry a value: a null one would rank as a populated label (hub
+    # above interim:gap_fill) while saying nothing.
+    if kind == "hub":
+        row = hub_row("D1", fields={"sender": (None, "populated"), "recipient": "Bob"})
+    else:
+        row = near_gold_row("D1", {"sender": None, "recipient": "Bob"})
+        row["labels"]["sender"]["presence"] = "populated"
+    out = read_layer(load_snapshot(make_snapshot(tmp_path, kind, [row])))
+    assert [(f.kind, f.severity, f.field) for f in out.findings] == [("malformed_record", "error", "sender")]
+    assert [r.field for r in out.records] == ["recipient"]

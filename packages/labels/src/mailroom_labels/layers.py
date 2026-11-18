@@ -143,6 +143,11 @@ class _Ctx:
         )
 
 
+#: A label that says ``populated`` must carry a value. A null one is refused, never ranked
+#: as a populated label (where the Hub's would outrank an interim gap fill) or skipped.
+_POPULATED_NULL = "presence populated with a null value"
+
+
 def _absence(value: Any) -> str:
     return "schema_documented_absence" if value is None else "populated"
 
@@ -188,6 +193,9 @@ def _read_hub(snap: LabelSnapshot, row: Row, out: LayerRead, unverified: frozens
             continue
         if presence not in PRESENCES:
             out.findings.append(ctx.bad(f"unknown presence {presence!r}", doc, fname))
+            continue
+        if presence == "populated" and lab["value"] is None:
+            out.findings.append(ctx.bad(_POPULATED_NULL, doc, fname))
             continue
         out.records.append(
             ctx.record(
@@ -306,6 +314,9 @@ def _read_near_gold(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
         presence = lab.get("presence")
         if presence not in PRESENCES:
             out.findings.append(ctx.bad(f"unknown presence {presence!r}", doc, fname))
+            continue
+        if presence == "populated" and lab["value"] is None:
+            out.findings.append(ctx.bad(_POPULATED_NULL, doc, fname))
             continue
         if lab.get("use_as_truth"):
             out.findings.append(
