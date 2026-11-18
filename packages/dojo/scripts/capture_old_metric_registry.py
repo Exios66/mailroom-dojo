@@ -18,10 +18,21 @@ tests read only that file, never an old checkout. It holds:
     so the test can show the two agree.
 ``golden``
     Every metric name the old golden baseline (``tests/fixtures/golden/scores.json``)
-    emits: the numeric or null top-level keys of each ``score`` and ``score_document``
-    payload, the ``metric_names`` of emit-only suites and the keys of the serving
-    comparison's ``metrics`` block, each with the places it appears, and the sha256 of
-    that ``scores.json``.
+    emits: the numeric or null top-level keys of each ``score``, ``score_document`` and
+    ``chained_summary`` payload, the ``metric_names`` of emit-only suites and the keys
+    of the serving comparison's ``metrics`` block, each with the places it appears
+    (``names``); every nested block of those payloads (``breakdowns``); and the sha256
+    of that ``scores.json``.
+
+The nested-breakdown rule: a numeric or null value below the top level of a payload is
+a breakdown of a metric (per class, per question, per field, per serving side, per
+pipeline stage), an interval, a count block or configuration, never a new metric id.
+So the capture records, for each nested block ``<payload>.<key>`` (a mapping value of a
+top-level key; the serving ``metrics`` block is read as names instead), the sorted
+names of its numeric or null leaves at any depth (the last path component) and the
+places it appears. The parity test maps every block to a reason, and maps each leaf of
+the blocks that carry metric values under their own names (the chained summary's
+stages and the MAUD ``per_question`` block) to a row or a reasoned exception.
 
 The registry is read from the YAML constant, never through ``load_registry``, so the
 ``LLM_DOJO_SCORING_REGISTRY`` environment variable cannot change the capture. Run it
@@ -116,6 +127,40 @@ def _is_metric_value(value: Any) -> bool:
     return value is None or (isinstance(value, int | float) and not isinstance(value, bool))
 
 
+#: The payloads of a golden case whose top-level numeric keys are metric names.
+_PAYLOADS = ("score", "score_document", "chained_summary")
+
+
+def _leaf_names(value: Any, out: set[str], name: str = "") -> None:
+    """The last path component of every numeric or null leaf under ``value`` (lists are not entered)."""
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            _leaf_names(inner, out, str(key))
+    elif not isinstance(value, list) and _is_metric_value(value):
+        out.add(name)
+
+
+def _golden_breakdowns(scores: dict[str, Any]) -> dict[str, dict[str, list[str]]]:
+    """Every nested block of a payload: its numeric leaf names and the places it appears."""
+    blocks: dict[str, tuple[set[str], set[str]]] = {}
+    for section, cases in scores.items():
+        for case, body in cases.items():
+            for key in _PAYLOADS:
+                payload = body.get(key)
+                if not isinstance(payload, dict):
+                    continue
+                for name, value in payload.items():
+                    if not isinstance(value, dict) or name == "metrics":
+                        continue
+                    leaves, places = blocks.setdefault(f"{key}.{name}", (set(), set()))
+                    _leaf_names(value, leaves)
+                    places.add(f"{section}/{case}")
+    return {
+        block: {"leaves": sorted(leaves), "places": sorted(places)}
+        for block, (leaves, places) in sorted(blocks.items())
+    }
+
+
 def _golden_names(scores: dict[str, Any]) -> dict[str, list[str]]:
     """Every metric name the golden baseline emits, with the sorted places it appears."""
     names: dict[str, set[str]] = {}
@@ -123,7 +168,7 @@ def _golden_names(scores: dict[str, Any]) -> dict[str, list[str]]:
         for case, body in cases.items():
             for name in body.get("metric_names", []):
                 names.setdefault(name, set()).add(f"{section}/{case}:metric_names")
-            for key in ("score", "score_document"):
+            for key in _PAYLOADS:
                 payload = body.get(key)
                 if not isinstance(payload, dict):
                     continue
@@ -145,6 +190,7 @@ def build(old_dojo: Path) -> dict[str, Any]:
     metrics, order, families, version = _registry(old_dojo)
     scores_path = old_dojo / "tests" / "fixtures" / "golden" / "scores.json"
     scores_bytes = scores_path.read_bytes()
+    scores = json.loads(scores_bytes)
     return {
         "old_commit": commit,
         "old_version": version,
@@ -159,7 +205,8 @@ def build(old_dojo: Path) -> dict[str, Any]:
         "golden": {
             "scores_path": "tests/fixtures/golden/scores.json",
             "scores_sha256": hashlib.sha256(scores_bytes).hexdigest(),
-            "names": _golden_names(json.loads(scores_bytes)),
+            "names": _golden_names(scores),
+            "breakdowns": _golden_breakdowns(scores),
         },
     }
 
@@ -174,7 +221,8 @@ def main(argv: list[str] | None = None) -> int:
     args.output.write_text(json.dumps(document, sort_keys=True, ensure_ascii=True, indent=1) + "\n")
     print(
         f"old commit {document['old_commit']}, version {document['old_version']}: "
-        f"{len(document['metrics'])} metrics, {len(document['golden']['names'])} golden names"
+        f"{len(document['metrics'])} metrics, {len(document['golden']['names'])} golden names, "
+        f"{len(document['golden']['breakdowns'])} nested blocks"
     )
     return 0
 

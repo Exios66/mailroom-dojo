@@ -50,6 +50,10 @@
    "direction": "none",
    "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
   },
+  "composite": {
+   "direction": "higher",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
   "date_mae_days": {
    "direction": "lower",
    "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
@@ -400,6 +404,7 @@
   "no_related_rate": "none",
   "false_no_related_rate": "lower",
   "false_no_related_rate_paper": "lower",
-  "jaccard_median": "higher"
+  "jaccard_median": "higher",
+  "composite": "higher"
  }
 }

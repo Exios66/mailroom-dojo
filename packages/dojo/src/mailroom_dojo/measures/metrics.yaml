@@ -140,6 +140,7 @@ direction_overrides:
   "classification_correct": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
   "classification_quality": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
   "completeness_label": {direction: "none", why: "a category label, not a better-or-worse number"}
+  "composite": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
   "completion_tokens": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
   "date_mae_days": {direction: "lower", why: "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"}
   "determination_consistency": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
@@ -3440,3 +3441,19 @@ metrics:
     old_source: "tasks.contracteval_metrics"
     citation: "Old tasks.contracteval_metrics: the upper median (sorted list, index n // 2) of tasks.get_jaccard over pairs with label spans."
     inclusion: "Old code returned 0.0 with no positive pair."
+  - id: "composite"
+    description: "Chained sorter-then-extractor run: weighted mean of the sorter's exact match and the extractor's overall extraction score"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "none"
+    agents: ["sorter", "SPECIALISTS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:composite"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "golden"
+    old_source: "tasks.chained_summary"
+    citation: "Old tasks.chained_composite: round(0.25 * sorter exact match + 0.75 * extractor overall extraction score, 4) with the default weights (0.25, 0.75), which chained_summary also reports under weights."
+    inclusion: "Chained runs only (task kind chained). A missing sorter or extractor score raises instead of scoring 0."

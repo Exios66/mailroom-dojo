@@ -45,6 +45,573 @@
   ]
  },
  "golden": {
+  "breakdowns": {
+   "chained_summary.extractor": {
+    "leaves": [
+     "field_presence",
+     "overall_extraction_score"
+    ],
+    "places": [
+     "task_kinds/chained"
+    ]
+   },
+   "chained_summary.sorter": {
+    "leaves": [
+     "exact_match",
+     "subtype_accuracy"
+    ],
+    "places": [
+     "task_kinds/chained"
+    ]
+   },
+   "chained_summary.weights": {
+    "leaves": [
+     "extractor",
+     "sorter"
+    ],
+    "places": [
+     "task_kinds/chained"
+    ]
+   },
+   "score.api": {
+    "leaves": [
+     "base_url_host",
+     "completion_tokens",
+     "cost_per_document",
+     "dataset_fingerprint",
+     "dataset_revision",
+     "docs_per_second",
+     "draw_seed",
+     "dtype",
+     "e2e_ci",
+     "e2e_latency_seconds",
+     "e2e_p50",
+     "e2e_p95",
+     "error_rate",
+     "estimated_cost_usd",
+     "experiment_name",
+     "extraction_f1",
+     "gpu",
+     "gpu_count",
+     "gpu_memory_used_gb",
+     "gpu_utilization",
+     "kv_cache_utilization",
+     "max_model_len",
+     "n",
+     "n_docs",
+     "n_requests",
+     "n_runs",
+     "output_tokens_per_second",
+     "profile",
+     "prompt_tokens",
+     "prompt_tokens_per_second",
+     "prompt_version",
+     "quantization",
+     "queue_time_seconds",
+     "requests_per_second",
+     "split",
+     "task",
+     "tensor_parallel",
+     "tokens_per_second",
+     "total_tokens",
+     "tpot_seconds",
+     "ttft_ci",
+     "ttft_p50",
+     "ttft_p95",
+     "ttft_seconds"
+    ],
+    "places": [
+     "suites/local_vs_api"
+    ]
+   },
+   "score.binary": {
+    "leaves": [
+     "accuracy",
+     "f1",
+     "f2",
+     "false_negative_rate",
+     "false_positive_rate",
+     "fn",
+     "fp",
+     "precision",
+     "recall",
+     "tn",
+     "tp"
+    ],
+    "places": [
+     "task_kinds/legalbench"
+    ]
+   },
+   "score.confusion": {
+    "leaves": [],
+    "places": [
+     "suites/judge",
+     "task_kinds/content_topic",
+     "task_kinds/court_opinion",
+     "task_kinds/doc_class",
+     "task_kinds/enron_sentiment",
+     "task_kinds/enron_topic",
+     "task_kinds/legalbench",
+     "task_kinds/maud_question",
+     "task_kinds/multiclass",
+     "task_kinds/sentiment",
+     "task_kinds/subtype"
+    ]
+   },
+   "score.cost": {
+    "leaves": [
+     "api",
+     "completion_tokens",
+     "cost_basis",
+     "cost_per_document",
+     "delta_local_minus_api",
+     "estimated_cost_usd",
+     "formula",
+     "local",
+     "n_docs",
+     "price_per_million_completion",
+     "price_per_million_prompt",
+     "prompt_tokens",
+     "quantization",
+     "total_tokens"
+    ],
+    "places": [
+     "suites/local_vs_api"
+    ]
+   },
+   "score.doc_type_accuracy_ci": {
+    "leaves": [
+     "half",
+     "hi",
+     "lo",
+     "n",
+     "n_boot",
+     "seed"
+    ],
+    "places": [
+     "suites/sorter",
+     "suites/sorter_reviewer",
+     "task_kinds/docclass",
+     "task_kinds/maud_docclass"
+    ]
+   },
+   "score.entity_list_audit": {
+    "leaves": [],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score.entity_list_scores": {
+    "leaves": [
+     "f1",
+     "matched",
+     "n_expected",
+     "n_predicted",
+     "precision",
+     "recall"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score.exact_match_ci": {
+    "leaves": [
+     "half",
+     "hi",
+     "lo",
+     "n",
+     "n_boot",
+     "seed"
+    ],
+    "places": [
+     "suites/judge",
+     "task_kinds/court_opinion",
+     "task_kinds/doc_class",
+     "task_kinds/docclass",
+     "task_kinds/legalbench",
+     "task_kinds/maud_docclass",
+     "task_kinds/maud_question",
+     "task_kinds/multiclass",
+     "task_kinds/subtype"
+    ]
+   },
+   "score.extraction": {
+    "leaves": [
+     "calibration_error",
+     "claim_number",
+     "claimed_amount",
+     "confidence",
+     "coverage_determination",
+     "effective_date",
+     "entity_name",
+     "f1",
+     "filing_number",
+     "finding",
+     "governing_law",
+     "matched",
+     "n_expected",
+     "n_predicted",
+     "n_reasoning_entries",
+     "overall_score",
+     "parties",
+     "precision",
+     "reasoning",
+     "recall",
+     "recipient",
+     "risk",
+     "sender",
+     "severity",
+     "summary"
+    ],
+    "places": [
+     "suites/arbiter",
+     "suites/audit_agent",
+     "suites/contract_auditor",
+     "suites/corporate_records_auditor",
+     "suites/correspondence_auditor",
+     "suites/insurance_claims_auditor"
+    ]
+   },
+   "score.field_scores": {
+    "leaves": [
+     "adjuster",
+     "claim_number",
+     "claim_type",
+     "claimed_amount",
+     "cms_source_table",
+     "contract_value",
+     "coverage_determination",
+     "denial_reasons",
+     "document_name",
+     "effective_date",
+     "effective_time",
+     "entity_name",
+     "parties",
+     "sender",
+     "supporting_documents"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score.local": {
+    "leaves": [
+     "base_url_host",
+     "completion_tokens",
+     "cost_per_document",
+     "dataset_fingerprint",
+     "dataset_revision",
+     "docs_per_second",
+     "draw_seed",
+     "dtype",
+     "e2e_ci",
+     "e2e_latency_seconds",
+     "e2e_p50",
+     "e2e_p95",
+     "error_rate",
+     "estimated_cost_usd",
+     "experiment_name",
+     "extraction_f1",
+     "gpu_count",
+     "gpu_memory_used_gb",
+     "gpu_utilization",
+     "kv_cache_utilization",
+     "max_model_len",
+     "n",
+     "n_docs",
+     "n_requests",
+     "n_runs",
+     "output_tokens_per_second",
+     "profile",
+     "prompt_tokens",
+     "prompt_tokens_per_second",
+     "prompt_version",
+     "queue_time_seconds",
+     "requests_per_second",
+     "split",
+     "task",
+     "tensor_parallel",
+     "tokens_per_second",
+     "total_tokens",
+     "tpot_seconds",
+     "ttft_ci",
+     "ttft_p50",
+     "ttft_p95",
+     "ttft_seconds"
+    ],
+    "places": [
+     "suites/local_vs_api"
+    ]
+   },
+   "score.per_category": {
+    "leaves": [
+     "accuracy",
+     "f1",
+     "f2",
+     "fn",
+     "fp",
+     "jaccard_mean",
+     "n_pairs",
+     "n_positive",
+     "precision",
+     "recall",
+     "tn",
+     "tp"
+    ],
+    "places": [
+     "task_kinds/contracteval"
+    ]
+   },
+   "score.per_class": {
+    "leaves": [
+     "accuracy",
+     "correct",
+     "f1",
+     "f2",
+     "n",
+     "precision",
+     "recall"
+    ],
+    "places": [
+     "suites/judge",
+     "suites/sorter",
+     "suites/sorter_reviewer",
+     "task_kinds/content_topic",
+     "task_kinds/court_opinion",
+     "task_kinds/doc_class",
+     "task_kinds/docclass",
+     "task_kinds/document-pipeline",
+     "task_kinds/enron_sentiment",
+     "task_kinds/enron_topic",
+     "task_kinds/legalbench",
+     "task_kinds/maud_docclass",
+     "task_kinds/maud_question",
+     "task_kinds/multiclass",
+     "task_kinds/pipeline",
+     "task_kinds/sentiment",
+     "task_kinds/subtype"
+    ]
+   },
+   "score.per_question": {
+    "leaves": [
+     "accuracy",
+     "category_accuracy",
+     "n",
+     "presence",
+     "valid_class_rate"
+    ],
+    "places": [
+     "task_kinds/maud_clause",
+     "task_kinds/maud_extraction"
+    ]
+   },
+   "score.per_subclass": {
+    "leaves": [
+     "accuracy",
+     "correct",
+     "f1",
+     "f2",
+     "n",
+     "precision",
+     "recall"
+    ],
+    "places": [
+     "task_kinds/docclass",
+     "task_kinds/document-pipeline",
+     "task_kinds/maud_docclass",
+     "task_kinds/pipeline"
+    ]
+   },
+   "score.prep_invariants": {
+    "leaves": [],
+    "places": [
+     "suites/intake",
+     "task_kinds/intake"
+    ]
+   },
+   "score.quality": {
+    "leaves": [
+     "api",
+     "delta_local_minus_api",
+     "local"
+    ],
+    "places": [
+     "suites/local_vs_api"
+    ]
+   },
+   "score.scorecard": {
+    "leaves": [
+     "api",
+     "base_url_host",
+     "completion_tokens",
+     "cost_basis",
+     "cost_per_document",
+     "dataset_fingerprint",
+     "dataset_revision",
+     "delta_local_minus_api",
+     "draw_seed",
+     "dtype",
+     "estimated_cost_usd",
+     "experiment_name",
+     "formula",
+     "gpu",
+     "gpu_count",
+     "local",
+     "max_model_len",
+     "n",
+     "n_docs",
+     "note",
+     "price_per_million_completion",
+     "price_per_million_prompt",
+     "profile",
+     "prompt_tokens",
+     "prompt_version",
+     "quantization",
+     "ratio_local_over_api",
+     "split",
+     "task",
+     "tensor_parallel",
+     "tier",
+     "total_tokens"
+    ],
+    "places": [
+     "suites/local_vs_api"
+    ]
+   },
+   "score.subclass_accuracy_ci": {
+    "leaves": [
+     "half",
+     "hi",
+     "lo",
+     "n",
+     "n_boot",
+     "seed"
+    ],
+    "places": [
+     "task_kinds/docclass",
+     "task_kinds/maud_docclass"
+    ]
+   },
+   "score.trace": {
+    "leaves": [
+     "calibration_error",
+     "confidence",
+     "n_reasoning_entries",
+     "reasoning"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score_document.detail": {
+    "leaves": [
+     "amount_exactness",
+     "determination_consistency"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score_document.extraction": {
+    "leaves": [
+     "adjuster",
+     "calibration_error",
+     "claim_number",
+     "claim_type",
+     "claimed_amount",
+     "cms_source_table",
+     "confidence",
+     "contract_value",
+     "coverage_determination",
+     "denial_reasons",
+     "document_name",
+     "effective_date",
+     "effective_time",
+     "entity_name",
+     "f1",
+     "matched",
+     "n_expected",
+     "n_predicted",
+     "n_reasoning_entries",
+     "overall_score",
+     "parties",
+     "precision",
+     "reasoning",
+     "recall",
+     "sender",
+     "supporting_documents"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score_document.provenance": {
+    "leaves": [
+     "dataset_revision",
+     "draw_seed",
+     "model_id",
+     "prompt_id",
+     "serving_kind",
+     "split"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score_document.schema": {
+    "leaves": [
+     "subtype"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score_document.schema_promotion_gate": {
+    "leaves": [
+     "schema_valid",
+     "threshold"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   }
+  },
   "names": {
    "accuracy": [
     "suites/boss:metric_names",
@@ -115,6 +682,9 @@
    ],
    "completion_tokens": [
     "suites/local_vs_api:score.metrics"
+   ],
+   "composite": [
+    "task_kinds/chained:chained_summary"
    ],
    "content_topic_accuracy": [
     "task_kinds/content_topic:score",
@@ -387,6 +957,7 @@
     "suites/sorter:score",
     "suites/sorter_reviewer:score",
     "task_kinds/cer:score",
+    "task_kinds/chained:chained_summary",
     "task_kinds/content_topic:score",
     "task_kinds/court_opinion:score",
     "task_kinds/doc_class:score",
