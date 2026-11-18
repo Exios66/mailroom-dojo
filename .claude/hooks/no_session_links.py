@@ -33,10 +33,12 @@ from typing import Any
 
 _DOT = r"(\.|\\\.|&#0*46;|&#x0*2e;|%2e)"
 _WS = r"[ \t\r\f\v]"  # grep's [[:space:]] within one line, ASCII only
+# After the domain: a host boundary, so a longer host name (claude.ai<more>) passes.
+_HOST_END = r"([^a-z0-9._-]|\.([^a-z0-9_-]|$)|$)"
 _SEP = r"[-_* \t\r\f\v]{1,8}"  # bounded: no catastrophic backtracking
 
 PATTERN = re.compile(
-    rf"https?://([a-z0-9-]+{_DOT})*claude{_DOT}a[i]"
+    rf"https?://([a-z0-9-]+{_DOT})*claude{_DOT}a[i]{_HOST_END}"
     rf"|claude{_DOT}a[i](/|%2f)[a-z0-9]"
     rf"|claude{_DOT}co[m](/|%2f)(claude-code|code|session|project|chat|artifact|share)"
     rf"|Claude[-_ ][S]ession{_WS}*:"

@@ -11,6 +11,9 @@
 #                      re-checked.
 #   On other branches: every commit not yet on origin/main, every pull request CircleCI
 #                      reports for the build, and every tracked file.
+#   For each checked commit, both its message and the lines it adds to files, so text
+#   added by one commit and removed by a later one still fails (history keeps it).
+#   A grep or git grep that errors is a failed scan, never a clean one.
 #
 # A shallow clone is unshallowed first; if that fails the script fails, because a
 # shallow history would hide commits and give a false "ok".
@@ -37,9 +40,29 @@ export LC_ALL=C
 
 # Dot between "claude" and the top-level domain: plain, markdown-escaped, an HTML entity
 # or percent-encoded. Separators inside a footer: spaces, hyphens and markdown emphasis,
-# bounded ({1,8}) so the Python hook cannot backtrack for long on a hostile run.
-PATTERN='https?://([[:alnum:]-]+(\.|\\\.|&#0*46;|&#x0*2e;|%2e))*claude(\.|\\\.|&#0*46;|&#x0*2e;|%2e)a[i]|claude(\.|\\\.|&#0*46;|&#x0*2e;|%2e)a[i](/|%2f)[[:alnum:]]|claude(\.|\\\.|&#0*46;|&#x0*2e;|%2e)co[m](/|%2f)(claude-code|code|session|project|chat|artifact|share)|Claude[-_ ][S]ession[[:space:]]*:|[s]ession_[[:alnum:]]{20,}|G[e]nerated[-_*[:space:]]{1,8}(with|by|using)[-_*[:space:]]{1,8}\[?[*_]{0,4}Claude[-_*[:space:]]{1,8}Code'
+# bounded ({1,8}) so the Python hook cannot backtrack for long on a hostile run. A link
+# needs a host boundary after the domain, so a longer host name (claude.ai<more>) passes.
+PATTERN='https?://([[:alnum:]-]+(\.|\\\.|&#0*46;|&#x0*2e;|%2e))*claude(\.|\\\.|&#0*46;|&#x0*2e;|%2e)a[i]([^[:alnum:]._-]|[.]([^[:alnum:]_-]|$)|$)|claude(\.|\\\.|&#0*46;|&#x0*2e;|%2e)a[i](/|%2f)[[:alnum:]]|claude(\.|\\\.|&#0*46;|&#x0*2e;|%2e)co[m](/|%2f)(claude-code|code|session|project|chat|artifact|share)|Claude[-_ ][S]ession[[:space:]]*:|[s]ession_[[:alnum:]]{20,}|G[e]nerated[-_*[:space:]]{1,8}(with|by|using)[-_*[:space:]]{1,8}\[?[*_]{0,4}Claude[-_*[:space:]]{1,8}Code'
 status=0
+
+# scan TEXT: 0 = match, 1 = clean, 2 = grep itself failed (never treated as clean).
+scan() {
+  local rc=0
+  # grep without -q reads all input, so the writer never dies of SIGPIPE under pipefail.
+  printf '%s\n' "$1" | grep -iE "$PATTERN" >/dev/null || rc=$?
+  if [ "$rc" -le 1 ]; then return "$rc"; fi
+  return 2
+}
+
+# Lines a commit adds (no headers, no context). A merge is diffed against its first
+# parent; binary files show only "Binary files differ".
+added_lines() {
+  if git rev-parse --verify --quiet "$1^2" >/dev/null; then
+    git diff --no-color --no-ext-diff --unified=0 "$1^1" "$1"
+  else
+    git diff-tree -p --root --no-color --no-ext-diff --unified=0 --no-commit-id "$1"
+  fi | awk '/^diff /{h=1} /^@@/{h=0; next} !h && /^\+/{print substr($0, 2)}'
+}
 
 # 0. A shallow clone hides history: unshallow it or stop.
 if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
@@ -84,13 +107,26 @@ else
 fi
 
 bad=()
+added_bad=()
+unchecked=()
 for c in $commits; do
+  short=$(git log -1 --format=%h "$c")
   msg=$(git log -1 --format=%B "$c")
-  # grep without -q reads all input, so the writer never dies of SIGPIPE under pipefail.
-  if printf '%s\n' "$msg" | grep -iE "$PATTERN" >/dev/null; then
-    bad+=("$(git log -1 --format=%h "$c")")
+  rc=0; scan "$msg" || rc=$?
+  if [ "$rc" -eq 0 ]; then bad+=("$short"); elif [ "$rc" -ne 1 ]; then unchecked+=("$short (message)"); fi
+  # Text the commit adds, even if a later commit removes it again: history keeps it.
+  if ! added=$(added_lines "$c"); then
+    unchecked+=("$short (diff)")
+    continue
   fi
+  rc=0; scan "$added" || rc=$?
+  if [ "$rc" -eq 0 ]; then added_bad+=("$short"); elif [ "$rc" -ne 1 ]; then unchecked+=("$short (diff)"); fi
 done
+if [ ${#unchecked[@]} -gt 0 ]; then
+  echo "error: ${#unchecked[@]} item(s) in $range could not be scanned; commit(s) not checked:" >&2
+  printf '  %s\n' "${unchecked[@]}" >&2
+  status=1
+fi
 if [ ${#bad[@]} -gt 0 ]; then
   echo "error: ${#bad[@]} commit message(s) in $range carry a session link, session trailer or Claude Code footer:" >&2
   printf '  %s\n' "${bad[@]}" >&2
@@ -98,6 +134,14 @@ if [ ${#bad[@]} -gt 0 ]; then
   status=1
 else
   echo "ok: no session links or footers in commit messages ($range)"
+fi
+if [ ${#added_bad[@]} -gt 0 ]; then
+  echo "error: ${#added_bad[@]} commit(s) in $range add a session link, session trailer or Claude Code footer to a file (even if a later commit removes it, history keeps it):" >&2
+  printf '  %s\n' "${added_bad[@]}" >&2
+  echo "Rewrite those commits before they are pushed; for pushed commits, ask the owner." >&2
+  status=1
+else
+  echo "ok: no session links or footers in text added by commits ($range)"
 fi
 
 # 2. Pull request titles and descriptions: the description can end up in the squash body.
@@ -136,11 +180,15 @@ print(d.get("body") or "")
       fi
     fi
     if [ "$readable" -eq 1 ]; then
-      if printf '%s\n' "$text" | grep -iE "$PATTERN" >/dev/null; then
+      rc=0; scan "$text" || rc=$?
+      if [ "$rc" -eq 0 ]; then
         echo "error: the title or description of $pr_url carries a session link or a Claude Code footer. Edit it, then re-run this job." >&2
         status=1
-      else
+      elif [ "$rc" -eq 1 ]; then
         echo "ok: no session links or footers in the title or description of $pr_url"
+      else
+        echo "error: scanning the title and description of $pr_url failed; not checked" >&2
+        status=1
       fi
     elif [ -n "${GITHUB_TOKEN:-}" ]; then
       echo "error: could not read $pr_url from the GitHub API with GITHUB_TOKEN set; its title and description were not checked" >&2
@@ -153,17 +201,20 @@ else
   echo "note: no pull request for this build yet; no description checked"
 fi
 
-# 3. Tracked files (text only).
+# 3. Tracked files (text only), in the final tree. git grep's own diagnostics go to a
+# file: exit 1 with diagnostics (a read error) is a failed scan, not a clean one.
+errs=$(mktemp)
+trap 'rm -f "$errs"' EXIT
 rc=0
-files=$(git grep -lIiE "$PATTERN") || rc=$?
+files=$(git grep -lIiE "$PATTERN" 2>"$errs") || rc=$?
 if [ "$rc" -eq 0 ]; then
   echo "error: tracked file(s) carry a session link, session trailer or Claude Code footer:" >&2
   printf '%s\n' "$files" | sed 's/^/  /' >&2
   status=1
-elif [ "$rc" -eq 1 ]; then
+elif [ "$rc" -eq 1 ] && [ ! -s "$errs" ]; then
   echo "ok: no session links or footers in tracked files"
 else
-  echo "error: git grep failed with exit $rc; tracked files not checked" >&2
+  echo "error: git grep failed with exit $rc (or reported read errors); tracked files not checked" >&2
   status=1
 fi
 

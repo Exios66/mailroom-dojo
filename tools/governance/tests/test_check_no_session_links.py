@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -281,8 +282,8 @@ def test_untracked_file_is_ignored(repo: Repo) -> None:
     assert result.returncode == 0, result.stderr
 
 
-def test_git_grep_error_fails(repo: Repo, tmp_path: Path) -> None:
-    """A git grep that errors (exit > 1) must fail the run, not read as "no match"."""
+def fake_git(tmp_path: Path, grep_body: str) -> dict[str, str]:
+    """A ``git`` first on PATH whose ``grep`` subcommand runs ``grep_body``; all else is real."""
     real_git = shutil.which("git")
     assert real_git
     bin_dir = tmp_path / "gitbin"
@@ -290,17 +291,114 @@ def test_git_grep_error_fails(repo: Repo, tmp_path: Path) -> None:
     fake = bin_dir / "git"
     fake.write_text(
         "#!/bin/sh\n"
-        'if [ "$1" = grep ]; then echo "fatal: simulated" >&2; exit 2; fi\n'
-        f'exec {real_git} "$@"\n',
+        f'if [ "$1" = grep ]; then {grep_body}; fi\n'
+        f'exec {shlex.quote(real_git)} "$@"\n',
         encoding="utf-8",
     )
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    return {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+
+def test_git_grep_error_fails(repo: Repo, tmp_path: Path) -> None:
+    """A git grep that errors (exit > 1) must fail the run, not read as "no match"."""
     on_branch(repo)
     repo.commit(CLEAN_MESSAGE)
-    result = repo.run_guard({"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"})
+    result = repo.run_guard(fake_git(tmp_path, 'echo "fatal: simulated" >&2; exit 2'))
     assert result.returncode == 1, result.stdout
     assert "git grep failed with exit 2" in result.stderr
     assert "ok: no session links or footers in tracked files" not in result.stdout
+
+
+def test_git_grep_exit_1_with_diagnostics_fails(repo: Repo, tmp_path: Path) -> None:
+    """Exit 1 plus a read error on stderr is a failed scan, not a clean tree."""
+    on_branch(repo)
+    repo.commit(CLEAN_MESSAGE)
+    result = repo.run_guard(fake_git(tmp_path, 'echo "error: simulated read failure" >&2; exit 1'))
+    assert result.returncode == 1, result.stdout
+    assert "tracked files not checked" in result.stderr
+    assert "ok: no session links or footers in tracked files" not in result.stdout
+    # Positive control: exit 1 with no diagnostics is still clean.
+    clean = repo.run_guard()
+    assert clean.returncode == 0, clean.stderr
+    assert "ok: no session links or footers in tracked files" in clean.stdout
+
+
+SCAN_FAIL = "SCAN" + "FAIL-MARKER"
+
+
+def fake_grep(tmp_path: Path) -> dict[str, str]:
+    """A ``grep`` first on PATH that exits 2 when its input holds SCAN_FAIL, else is real."""
+    real_grep = shutil.which("grep")
+    assert real_grep
+    bin_dir = tmp_path / "grepbin"
+    bin_dir.mkdir()
+    fake = bin_dir / "grep"
+    fake.write_text(
+        "#!/usr/bin/env python3\n"
+        "import subprocess, sys\n"
+        "data = sys.stdin.buffer.read()\n"
+        f"if {SCAN_FAIL.encode()!r} in data:\n"
+        "    sys.exit(2)\n"
+        f"sys.exit(subprocess.run([{real_grep!r}, *sys.argv[1:]], input=data).returncode)\n",
+        encoding="utf-8",
+    )
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    return {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}
+
+
+def test_grep_error_on_a_commit_message_fails_and_names_the_commit(repo: Repo, tmp_path: Path) -> None:
+    on_branch(repo)
+    repo.commit(CLEAN_MESSAGE)
+    broken = repo.commit("docs: x\n\n" + SCAN_FAIL + "\n")
+    result = repo.run_guard(fake_grep(tmp_path))
+    assert result.returncode == 1, result.stdout
+    assert "could not be scanned" in result.stderr
+    assert f"  {broken} (message)" in result.stderr
+    assert SCAN_FAIL not in result.stdout + result.stderr  # no message text in the log
+
+
+def test_grep_error_on_added_text_fails(repo: Repo, tmp_path: Path) -> None:
+    on_branch(repo)
+    broken = repo.commit(CLEAN_MESSAGE, rel="notes.md", text=SCAN_FAIL + "\n")
+    result = repo.run_guard(fake_grep(tmp_path))
+    assert result.returncode == 1, result.stdout
+    assert f"  {broken} (diff)" in result.stderr
+
+
+# --- text added by commits ---------------------------------------------------------
+
+
+def test_link_added_then_removed_still_fails_and_names_only_that_commit(repo: Repo) -> None:
+    on_branch(repo)
+    added = repo.commit(CLEAN_MESSAGE, rel="docs/notes.md", text="# Notes\nSee " + SESSION_LINK + "\n")
+    repo.commit(CLEAN_MESSAGE, rel="docs/notes.md", text="# Notes\nSee the session, in words.\n")
+    result = repo.run_guard()
+    assert result.returncode == 1, result.stdout
+    assert "ok: no session links or footers in tracked files" in result.stdout  # final tree is clean
+    assert "add a session link" in result.stderr
+    named = re.findall(r"^  ([0-9a-f]{7,})$", result.stderr, flags=re.M)
+    assert named == [added]
+    assert_no_leak(result)
+
+
+def test_removing_a_link_is_not_flagged(repo: Repo) -> None:
+    repo.commit(CLEAN_MESSAGE, rel="old.md", text="x " + FOOTER + "\n")
+    repo.push_main()
+    on_branch(repo)
+    repo.commit(CLEAN_MESSAGE, rel="old.md", text="x\n")
+    result = repo.run_guard()
+    assert result.returncode == 0, result.stderr
+
+
+def test_main_checks_text_added_by_head(repo: Repo) -> None:
+    head = repo.commit(CLEAN_MESSAGE, rel="a.md", text=BARE_TRAILER + "\n")
+    repo.commit(CLEAN_MESSAGE, rel="a.md", text="clean\n")
+    clean = repo.run_guard({"CIRCLE_BRANCH": "main"})
+    assert clean.returncode == 0, clean.stderr  # only HEAD is checked on main
+    repo.git("reset", "--quiet", "--hard", head)
+    result = repo.run_guard({"CIRCLE_BRANCH": "main"})
+    assert result.returncode == 1
+    assert f"  {head}" in result.stderr
 
 
 # --- pull request title and description -------------------------------------------
@@ -390,6 +488,16 @@ def test_every_listed_pr_is_checked(repo: Repo, tmp_path: Path) -> None:
     assert f"description of {PR.format(1)}" in result.stdout
 
 
+def test_grep_error_on_pr_text_fails(repo: Repo, tmp_path: Path) -> None:
+    on_branch(repo)
+    repo.commit(CLEAN_MESSAGE)
+    env = {**stub_curl(tmp_path, {"5": {"title": "feat: x", "body": SCAN_FAIL}})}
+    env["PATH"] = fake_grep(tmp_path)["PATH"].split(os.pathsep)[0] + os.pathsep + env["PATH"]
+    result = repo.run_guard({**env, "CIRCLE_PULL_REQUEST": PR.format(5)})
+    assert result.returncode == 1, result.stdout
+    assert f"scanning the title and description of {PR.format(5)} failed" in result.stderr
+
+
 @pytest.mark.parametrize(
     "response",
     [pytest.param(None, id="http-error"), pytest.param("<html>not json</html>", id="not-json")],
@@ -447,6 +555,9 @@ def script_pattern() -> str:
 
 
 CORPUS_BAD = [
+    "https://claude" + ".ai",  # the bare domain URL, at the end of the text
+    "see https://claude" + ".ai.",
+    "<https://claude" + ".ai>",
     SESSION_LINK,
     PROJECT_LINK,
     SESSION_TRAILER,
@@ -477,6 +588,8 @@ CORPUS_BAD = [
     "Gene" + "rated with [**Claude Code**](x)",
 ]
 CORPUS_OK = [
+    "https://claude" + ".airtable.com/base/x",  # a longer host name, not the domain
+    "https://claude" + ".ai.example.com/code/x",
     "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
     "a claude" + ".ai session link, described in words",
     "pattern='claude\\.a[i]/[c]ode|Claude-[S]ession:'",
@@ -523,7 +636,7 @@ def test_script_and_hook_patterns_agree(text: str, expected_bad: bool) -> None:
         text=True,
     )
     assert (grep.returncode == 0) is expected_bad, "script pattern disagrees with the expected verdict"
-    assert (hook.returncode == 2) is expected_bad, "hook disagrees with the expected verdict"
+    assert hook.returncode == (2 if expected_bad else 0), "hook disagrees with the expected verdict"
 
 
 def test_repository_passes_its_own_scan(repo: Repo) -> None:
