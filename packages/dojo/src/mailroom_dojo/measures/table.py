@@ -718,7 +718,8 @@ def _check_aliases(rows: tuple[MetricRow, ...]) -> None:
 
     ``same_as`` marks a duplicate that keeps its own row (it may be computed at another
     level): it names another row that is itself canonical (no alias, no ``same_as``), with
-    the same unit and direction.
+    the same unit and direction. Both point at a kept row: never at a ``not_ported`` row,
+    and never at a row that is itself a duplicate.
     """
     by_id = {row.id: row for row in rows}
     for index, row in enumerate(rows):
@@ -730,6 +731,8 @@ def _check_aliases(rows: tuple[MetricRow, ...]) -> None:
             raise _fail(path, f"{row.same_as!r} is not another metric in the table")
         if target.alias_of is not None or target.same_as is not None:
             raise _fail(path, f"{target.id!r} is itself a duplicate; name the canonical row")
+        if target.status == "not_ported":
+            raise _fail(path, f"{target.id!r} is not ported; a duplicate names a kept canonical row")
         for key in ("unit", "direction"):
             if getattr(row, key) != getattr(target, key):
                 raise _fail(
@@ -744,6 +747,8 @@ def _check_aliases(rows: tuple[MetricRow, ...]) -> None:
             raise _fail(path, f"{row.alias_of!r} is not another metric in the table")
         if target.alias_of is not None or target.status == "not_ported":
             raise _fail(path, f"{target.id!r} is an alias or not ported; an alias names a kept metric")
+        if target.same_as is not None:
+            raise _fail(path, f"{target.id!r} is itself a duplicate of {target.same_as!r}; name that row")
         for key in ("unit", "direction", "aggregation"):
             if getattr(row, key) != getattr(target, key):
                 raise _fail(

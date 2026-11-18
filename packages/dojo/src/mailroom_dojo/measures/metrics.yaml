@@ -100,12 +100,14 @@
 #                 guessed here; the old code and docs define none. Until D7 sets it, a
 #                 comparison reports its interval and no "beats the noise" verdict.
 #   alias_of      default null; for a not_ported row that is another row's value under
-#                 a second name: the kept row it is reported under (same unit, direction
+#                 a second name: the kept row it is reported under (no alias and no
+#                 duplicate itself; same unit, direction
 #                 and aggregation). MetricTable.resolve(id) follows it; check() refuses a
 #                 Measure filed under the alias.
 #   same_as       default null; a duplicate that keeps its own row (it may be computed at
 #                 another level, or is kept for golden parity): the canonical row it
-#                 duplicates (same unit and direction; the target is itself canonical).
+#                 duplicates (same unit and direction; the target is itself canonical and
+#                 kept).
 #                 Groups: laziness_rate and contracteval_false_no_related ->
 #                 false_no_related_rate; schema_adherence -> schema_valid;
 #                 expected_field_presence -> field_presence (an alias).

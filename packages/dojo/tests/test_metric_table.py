@@ -119,6 +119,14 @@ def _set(metric: str, key: str, value: Any) -> Callable[[dict[str, Any]], None]:
     return edit
 
 
+def _sequence(*edits: Callable[[dict[str, Any]], None]) -> Callable[[dict[str, Any]], None]:
+    def edit(raw: dict[str, Any]) -> None:
+        for each in edits:
+            each(raw)
+
+    return edit
+
+
 def _drop(metric: str, key: str) -> Callable[[dict[str, Any]], None]:
     def edit(raw: dict[str, Any]) -> None:
         del raw["metrics"][_row_index(raw, metric)][key]
@@ -805,8 +813,27 @@ def test_the_duplicate_groups_name_their_canonical_row() -> None:
         (_set("schema_valid", "same_as", "laziness_rate"), "is itself a duplicate"),
         (_set("laziness_rate", "same_as", "f1_macro"), "direction 'lower' differs from"),
         (_set("expected_field_presence", "same_as", "schema_valid"), "an alias already names its target"),
+        (
+            _set("schema_adherence", "same_as", "ml_intake_doc_type_accuracy"),
+            "(schema_adherence).same_as: 'ml_intake_doc_type_accuracy' is not ported",
+        ),
+        (
+            _sequence(
+                _set("contracteval_false_no_related", "direction", "higher"),
+                _set("contracteval_false_no_related", "alias_of", "schema_adherence"),
+            ),
+            "(contracteval_false_no_related).alias_of: 'schema_adherence' is itself a duplicate",
+        ),
     ],
-    ids=["unknown", "itself", "chain", "different direction or unit", "alias and same_as"],
+    ids=[
+        "unknown",
+        "itself",
+        "chain",
+        "different direction or unit",
+        "alias and same_as",
+        "same_as a dropped row",
+        "alias of a duplicate",
+    ],
 )
 def test_a_broken_same_as_is_refused(edit: Callable[[dict[str, Any]], None], expected: str) -> None:
     raw = _raw()
