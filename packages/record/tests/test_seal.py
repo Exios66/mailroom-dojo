@@ -15,6 +15,7 @@ import pytest
 from record_testkit import SENTINEL, append_more, seal_in_child, stored_v0_event_dict
 
 from mailroom_record.hashing import canonical_json
+from mailroom_record import log as log_module
 from mailroom_record.log import ForkedChain
 from mailroom_record.models import GENESIS, Event, Seal, seal_hash
 from mailroom_record import seal as seal_module
@@ -401,21 +402,20 @@ def test_handoff_during_the_read_is_not_sealed_over(store: SimpleNamespace, monk
     append_more(store, doc_id="d2", n=1, writer_id="b")  # b.jsonl exists, sorts after a.jsonl
     append_more(store, doc_id="d1", n=3, writer_id="a")
     wa = store.log.open_writer("r1", "a")
-    original = Path.read_bytes
+    original = log_module._iter_segment_stored  # the streaming per-segment reader
     fired: list[bool] = []
 
-    def read_bytes(self: Path) -> bytes:
-        data = original(self)
-        if self.name == "a.jsonl" and not fired:
+    def read_segment(path: Path):  # type: ignore[no-untyped-def]
+        yield from original(path)
+        if path.name == "a.jsonl" and not fired:  # a.jsonl fully read, b.jsonl not yet
             fired.append(True)
             wa.append(doc_id="d1", node="n", kind="output")  # seq 3 -> a.jsonl
             wa.close()
             append_more(store, doc_id="d1", n=1, writer_id="b")  # seq 4 -> b.jsonl
-        return data
 
-    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    monkeypatch.setattr(log_module, "_iter_segment_stored", read_segment)
     s0 = seal_run(store.log, "r1")
-    monkeypatch.setattr(Path, "read_bytes", original)
+    monkeypatch.setattr(log_module, "_iter_segment_stored", original)
     assert fired
     heads = store.log.doc_head_seqs("r1")
     assert s0.event_count == sum(seq + 1 for seq, _ in heads.values()) == 6

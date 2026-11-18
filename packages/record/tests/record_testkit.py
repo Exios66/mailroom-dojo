@@ -559,3 +559,51 @@ def forge_event(store: Any, doc_id: str, seq: int, prev_hash: str, segment: str 
     with path.open("ab") as f:
         f.write(canonical_json(event.model_dump(mode="json")) + b"\n")
     return event
+
+
+# --- streaming reads (Task 8) --------------------------------------------------------
+
+
+def write_lines(root: Any, segment: str, events: list[Any], run_id: str = "r1", extra: bytes = b"") -> Any:
+    """Append ``events`` (Events or stored dicts) as canonical lines to one segment, then ``extra``.
+
+    Bypasses the writer, so tests can lay out any history (handoffs, forks, gaps, damage).
+    """
+    from pathlib import Path
+
+    from mailroom_record.hashing import canonical_json
+
+    seg = Path(root) / "runs" / run_id / "segments" / segment
+    seg.parent.mkdir(parents=True, exist_ok=True)
+    with seg.open("ab") as f:
+        for e in events:
+            raw = e if isinstance(e, dict) else e.model_dump(mode="json")
+            f.write(canonical_json(raw) + b"\n")
+        f.write(extra)
+    return seg
+
+
+def chain(doc_id: str, n: int, start: int = 0, prev: str = GENESIS, run_id: str = "r1", **fields: Any) -> list[Event]:
+    """``n`` linked events of ``doc_id`` starting at ``seq`` ``start`` after ``prev``."""
+    out: list[Event] = []
+    for i in range(start, start + n):
+        e = make_event(run_id=run_id, doc_id=doc_id, seq=i, prev_hash=prev, node=f"n{i}", **fields)
+        out.append(e)
+        prev = e.hash
+    return out
+
+
+def peak_bytes(fn: Any) -> int:
+    """Peak traced Python allocation while ``fn()`` runs (``tracemalloc``)."""
+    import gc
+    import tracemalloc
+
+    gc.collect()
+    tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        fn()
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
