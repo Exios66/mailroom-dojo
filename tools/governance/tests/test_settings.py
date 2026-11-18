@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -180,6 +181,28 @@ def test_env_example_check_is_exact(rule: str, names_example: bool) -> None:
     assert bool(re.search(r"(^Read\(|/)\.env\.example\)$", rule)) is names_example
 
 
-def test_settings_is_the_file_claude_code_loads() -> None:
-    assert SETTINGS == Path(REPO_ROOT, ".claude", "settings.json")
+@pytest.mark.parametrize(
+    "rule",
+    [
+        "Bash(git push --delete:*)",
+        "Bash(git push -d:*)",
+        "Bash(git push * --delete*)",
+        "Bash(git push * -d *)",
+        "Bash(git push * :*)",
+        "Bash(git push --mirror:*)",
+        "Bash(git push * --mirror*)",
+    ],
+)
+def test_remote_branch_deletes_are_denied_in_every_spelling(rule: str) -> None:
+    """Leading and trailing flag forms, the colon refspec and --mirror."""
+    assert rule in load()["permissions"]["deny"]
+
+
+def test_settings_file_is_tracked_where_claude_code_loads_it() -> None:
+    tracked = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "ls-files", "--error-unmatch", ".claude/settings.json"],
+        capture_output=True,
+        text=True,
+    )
+    assert tracked.returncode == 0, tracked.stderr
     assert isinstance(load(), dict)

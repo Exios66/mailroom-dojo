@@ -13,7 +13,7 @@ Protected:
   content-addressed blobs under ``blobs/<aa>/<bb>/``, packed run archives (``.tar.zst``)
   and the stored sandbox runs under ``runs/autoresearch/``. The record is append-only
   (design, ADR-0001 and ADR-0004); a hand edit breaks the hash chain or fakes a baseline.
-- ``docs/reports/`` and any ``docs/**/*gate-report.md`` inside the repository: gate
+- ``docs/reports/`` (except its ``README.md``) and any ``docs/**/*gate-report.md`` inside the repository: gate
   reports are written by scripts.
 
 Repository-only rules hold in both the launch checkout (``CLAUDE_PROJECT_DIR``) and the

@@ -438,7 +438,7 @@ and hooks), `.github/` (PR templates and contributing guide) and `tools/governan
 | `.claude/agents/adversarial-reviewer.md` | Opus read-only reviewer, one lens per round. |
 | `.claude/agents/pre-pr-reviewer.md` | Opus fresh-context reviewer, with "Lessons from bot reviews". |
 | `.claude/settings.json` | Permissions and the hook wiring (below). |
-| `.claude/hooks/guard_paths.py` | Refuses edit-tool writes to `.env` files, stored run data and script-written gate reports. |
+| `.claude/hooks/guard_paths.py` | Refuses edit-tool writes to `.env` files, stored run data and script-written gate reports (everything under `docs/reports/` except its `README.md`). |
 | `.claude/hooks/no_session_links.py` | Refuses Bash, edit and GitHub tool calls whose input carries a session link, session id or trailer, or a Claude Code footer. |
 | `.github/pull_request_template.md` | Default PR template. |
 | `.github/PULL_REQUEST_TEMPLATE/docs.md` | PR template for specs, plans, ADRs and guidance. |

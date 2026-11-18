@@ -105,7 +105,7 @@ type cleanliness, and do not add one inside an unrelated PR.
 - Stored run data: `runs/<id>/segments/`, `runs/<id>/columns/`, `runs/<id>/seals/`,
   `blobs/`, packed `.tar.zst` archives and stored sandbox runs under `runs/autoresearch/`.
   The record is append-only; write it only through `mailroom_record`.
-- `docs/reports/` and any `docs/**/*gate-report.md`: gate reports are written by scripts.
+- `docs/reports/` (except its `README.md`) and any `docs/**/*gate-report.md`: gate reports are written by scripts.
 
 The hook is a guard against accidents, not a security boundary: it sees only the edit
 tools' file path, so a Bash redirect, `sed -i` or a script writes past it. Those are
