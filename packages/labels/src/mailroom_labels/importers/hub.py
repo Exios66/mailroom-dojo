@@ -25,7 +25,8 @@ presence codes (``corpus.normalize_rows``: ``expected_fields`` is the parsed ``g
   So does any code that, after that mapping, is not a presence the Hub reader accepts
   (``layers.HUB_PRESENCES``: an unknown string, a number, a null, a list, ...), and a row
   the snapshot reader would refuse as a corrupt line (``snapshot.json_problem``: a value
-  nested deeper than ``MAX_JSON_DEPTH``, or a string holding a lone surrogate).
+  nested deeper than ``MAX_JSON_DEPTH``, or a string holding a lone surrogate), and a row
+  whose ``document_id`` is not a non-empty string.
 - A ``not_applicable`` key that is **not a field of the document's class in the profile**
   (the dataset carries every class's keys on every row as placeholders) is omitted:
   omitted means not_applicable. A ``not_applicable`` key the class does define is kept.
@@ -225,6 +226,12 @@ def _fields(
 ) -> tuple[dict[str, dict[str, Any]], _Tally] | None:
     """The row's fields and its own counts (merged by the caller only when it keeps the row),
     or None when the row is refused (recorded in ``tally.bad_gt_fields``)."""
+    if not (isinstance(row.get("document_id"), str) and row["document_id"]):
+        # Every later step keys on the id (the text check sorts the unverified ids).
+        tally.bad_gt_fields.append(
+            {"document_id": row.get("document_id"), "reason": "document_id must be a non-empty string"}
+        )
+        return None
     doc_class = row.get("expected")
     gt = _json_or_raw(row.get("gt_fields"))
     if gt in (None, ""):

@@ -1846,3 +1846,33 @@ def test_an_import_never_replaces_a_snapshot_of_another_kind(tmp_path: Path) -> 
     assert result.exit_code == 2 and "kind" in result.output, result.output
     after = {p.relative_to(target).as_posix(): p.read_bytes() for p in target.rglob("*") if p.is_file()}
     assert after == before
+
+
+@pytest.mark.parametrize("doc_id", [None, ""])
+@pytest.mark.parametrize("text_row", [True, False])
+def test_hub_row_without_a_document_id_is_refused_per_row(
+    tmp_path: Path, doc_id: str | None, text_row: bool
+) -> None:
+    """A null or empty ``document_id`` is refused for its row (``unparseable_gt_fields``),
+    with or without a text row for it; the import never crashes sorting the ids."""
+    bad = gt_row("X1", "letter", "email", "train", {"sender": "a"}, {"sender": "populated"})
+    bad["document_id"] = doc_id
+    text = [{"filename": "X1.txt", "doc_text": "text-X1"}] if text_row else []
+    data = write_dataset(tmp_path / "b", extra=[bad], extra_text=text)
+    with pytest.raises(ImportRefused, match="unparseable_gt_fields 1"):
+        hub_build(tmp_path / "hub-x", data)
+    manifest = hub_build(tmp_path / "hub-x", data, allow_rejected=True)
+    assert manifest.source["unparseable_gt_fields"] == [
+        {"document_id": doc_id, "reason": "document_id must be a non-empty string"}
+    ]
+    assert sorted(hub_rows(tmp_path / "hub-x")) == ["D1", "D2", "D3", "F1"]
+
+
+@pytest.mark.parametrize("doc_id", [5, ["D1"], {"id": "D1"}, True])
+def test_hub_row_with_a_non_string_document_id_is_refused(doc_id: Any) -> None:
+    from mailroom_labels.importers import hub
+
+    tally = hub._Tally()
+    raw = gt_row("X1", "letter", "email", "train", {"sender": "a"}, {"sender": "populated"})
+    assert hub._fields({**raw, "document_id": doc_id}, profile(), tally) is None
+    assert [e["reason"] for e in tally.bad_gt_fields] == ["document_id must be a non-empty string"]
