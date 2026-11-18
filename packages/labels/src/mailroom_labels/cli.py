@@ -22,11 +22,13 @@ Usage errors (a missing option, a profile that does not validate) exit 2.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from collections.abc import Callable
 from typing import Annotated, Any
 
 import typer
+import yaml
 
 from mailroom_labels.coverage import coverage as build_coverage
 from mailroom_labels.coverage import render_markdown
@@ -41,6 +43,7 @@ from mailroom_labels.importers import (
 )
 from mailroom_labels.importers.common import file_sha256, known_warnings_for
 from mailroom_labels.importers.hub import load_hub_pins
+from mailroom_labels.models import SNAPSHOT_ID_PATTERN
 from mailroom_labels.layers import corpus_index, read_layers
 from mailroom_labels.profile import ClientProfile, load_profile
 from mailroom_labels.quality import QualityReport, check_dirs
@@ -122,7 +125,17 @@ KnownOpt = Annotated[Path | None, typer.Option(
     "--known-warnings", help="YAML {snapshot_id: [{kind, doc, field, reason}]}: warnings accepted in the manifest.")]
 
 
-def _run_import(out: Path, check: bool, build: Callable[[Path], Any]) -> None:
+def _usage_error(message: str) -> typer.Exit:
+    typer.echo(f"usage error: {message}", err=True)
+    return typer.Exit(2)
+
+
+def _run_import(out: Path, check: bool, build: Callable[[Path], Any], sid: str) -> None:
+    """Build (or ``--check``) a snapshot. A refused source exits 1; a bad option (an
+    invalid snapshot id, an unreadable option file, an ``--out`` that holds something else)
+    exits 2 with a one-line message, never a traceback."""
+    if not re.fullmatch(SNAPSHOT_ID_PATTERN, sid):
+        raise _usage_error(f"snapshot id {sid!r} (from --snapshot-id or the --out name) must match {SNAPSHOT_ID_PATTERN}")
     try:
         if check:
             result = check_snapshot(out, build)
@@ -134,6 +147,8 @@ def _run_import(out: Path, check: bool, build: Callable[[Path], Any]) -> None:
     except ImportRefused as exc:
         typer.echo(f"import refused: {exc}", err=True)
         raise typer.Exit(1) from exc
+    except (ValueError, OSError, yaml.YAMLError) as exc:
+        raise _usage_error(f"{exc.__class__.__name__}: {exc}") from exc
     rows = sum(f.rows for f in manifest.files)
     typer.echo(f"wrote {out} ({len(manifest.files)} file(s), {rows} row(s), manifest_hash {manifest.manifest_hash})")
 
@@ -158,13 +173,12 @@ def import_hub(
     sid = snapshot_id or out.name
     try:
         pinned = load_hub_pins(pins)
-    except ImportRefused as exc:
-        typer.echo(f"import refused: {exc}", err=True)
-        raise typer.Exit(1) from exc
+    except (ImportRefused, OSError, yaml.YAMLError) as exc:
+        raise _usage_error(f"--pins {pins}: {exc.__class__.__name__}: {exc}") from exc
     _run_import(out, check, lambda d: build_hub(
         d, dataset_dir=dataset_dir, profile=prof, profile_sha256=file_sha256(profile), repository=repository,
         revision=revision, default_dir=default_dir, snapshot_id=sid,
-        known_warnings=known_warnings_for(known_warnings, sid), allow_rejected=allow_rejected, pins=pinned))
+        known_warnings=known_warnings_for(known_warnings, sid), allow_rejected=allow_rejected, pins=pinned), sid)
 
 
 def _overlay_command(name: str, build: Callable[..., Any], what: str) -> None:
@@ -182,7 +196,7 @@ def _overlay_command(name: str, build: Callable[..., Any], what: str) -> None:
         sid = snapshot_id or out.name
         _run_import(out, check, lambda d: build(
             d, source_dir=source_dir, source_path=source_path, repository=repository, commit=commit,
-            snapshot_id=sid, known_warnings=known_warnings_for(known_warnings, sid), allow_rejected=allow_rejected))
+            snapshot_id=sid, known_warnings=known_warnings_for(known_warnings, sid), allow_rejected=allow_rejected), sid)
 
     command.__doc__ = f"Import the sandbox {what} overlay (hashes checked against its MANIFEST.json)."
     app.command(name)(command)
@@ -225,7 +239,7 @@ def import_review(
     sid = snapshot_id or out.name
     _run_import(out, check, lambda d: build_review(
         d, decisions=_named(decisions, decisions_root), desk=_named(desk, desk_root), provenance=prov,
-        snapshot_id=sid, known_warnings=known_warnings_for(known_warnings, sid), allow_rejected=allow_rejected))
+        snapshot_id=sid, known_warnings=known_warnings_for(known_warnings, sid), allow_rejected=allow_rejected), sid)
 
 
 def main() -> None:  # pragma: no cover - console entry convenience

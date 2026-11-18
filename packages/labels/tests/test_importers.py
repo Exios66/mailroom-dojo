@@ -854,3 +854,37 @@ def test_a_hub_import_without_the_text_check_warns_and_fails_strict(tmp_path: Pa
     hub_build(tmp_path / "hub-y", data, default=False, known_warnings=known)
     report, _ = check_dirs([tmp_path / "hub-y"], profile())
     assert [f.known for f in report.warnings if f.kind == "text_unchecked"] == [True]
+
+
+# --- CLI usage errors exit 2 with one line, never a traceback ----------------------------------
+
+
+def _interim_args(tmp_path: Path, out: Path) -> list[str]:
+    src = write_overlay(tmp_path / "src", {"letter.jsonl": jsonl(interim_row("D1", {"sender": ("gap_fill", "A")}))})
+    return ["import-interim", "--out", str(out), "--source-dir", str(src), "--source-path", "x",
+            "--repository", "example/sandbox", "--commit", "1" * 40]
+
+
+@pytest.mark.parametrize("case", ["bad_id_option", "bad_out_name", "out_holds_other_files", "missing_known_warnings"])
+def test_cli_import_usage_errors_exit_2_without_a_traceback(tmp_path: Path, case: str) -> None:
+    out = tmp_path / ("Bad Name" if case == "bad_out_name" else "interim-x")
+    args = _interim_args(tmp_path, out)
+    if case == "bad_id_option":
+        args += ["--snapshot-id", "a+b"]
+    if case == "out_holds_other_files":
+        out.mkdir()
+        (out / "old.jsonl").write_text("{}\n")
+    if case == "missing_known_warnings":
+        args += ["--known-warnings", str(tmp_path / "nope.yaml")]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 2, result.output
+    assert isinstance(result.exception, SystemExit)  # handled: no traceback
+    assert "usage error:" in result.output and "Traceback" not in result.output
+
+
+def test_cli_import_hub_with_missing_pins_exits_2(tmp_path: Path) -> None:
+    data = write_dataset(tmp_path / "data")
+    result = runner.invoke(app, ["import-hub", "--out", str(tmp_path / "hub-x"), "--profile", str(PROFILE_PATH),
+                                 "--dataset-dir", str(data), "--revision", "0" * 40, "--pins", str(tmp_path / "nope.yaml")])
+    assert result.exit_code == 2 and isinstance(result.exception, SystemExit)
+    assert "usage error: --pins" in result.output

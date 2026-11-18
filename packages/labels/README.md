@@ -86,6 +86,9 @@ through `build_manifest`, recording its sources (repository, revision or commit,
 sha256 of every input file) and its builder (`mailroom_labels.importers.<kind>` and
 `BUILDER_VERSION`). Building twice from the same inputs gives byte-identical files, so
 `--check` rebuilds in memory and compares with the committed snapshot without writing.
+`--out` must be missing, empty or an earlier build of the same snapshot id, which is
+replaced whole (no file of the old build survives); anything else, an invalid snapshot id
+or an unreadable option file is a usage error (exit 2, one line).
 Nothing is dropped or repaired silently: every omission, mapping and refusal is counted in
 the manifest's `source` (for example `presence_mapped` for `pending_annotation` read as
 `unlabeled`, `decoded_json_lists`, `not_imported`).
