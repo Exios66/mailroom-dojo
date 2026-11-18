@@ -23,8 +23,11 @@ A reference (``requested_by``, ``class_hint``, ``prefill_ref``) names something 
 the desk: a node or service, a class of the client profile, a prefill. It is ASCII letters,
 digits and ``_ . : - /``, starting with a letter or digit, at most 128 characters: no
 whitespace, no control, format or bidi character, nothing outside ASCII. A payload is
-never erasable (ADR-0007), so a field that could carry free text would carry it forever;
-a reference cannot.
+never erasable (ADR-0007), so a field that could carry free text would carry it forever.
+The rule bounds what fits (no sentence or pasted document) but cannot stop a short label
+such as ``patient-x-has-condition`` or a path-like ``a/../../etc``: callers put names
+there, and free text goes in blobs. ``prefill_ref`` is an opaque name, never a
+filesystem path (D3 must look it up by name, never join it to a path).
 
 Review actions
 --------------

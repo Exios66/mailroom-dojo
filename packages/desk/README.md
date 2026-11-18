@@ -24,8 +24,9 @@ policy = load_policy("config/review/default.yaml")
 desk = Desk("<record root>")            # optional: index=Index(...), clock=..., lock_timeout=...
 done = desk.enqueue(ReviewRequest(run_id="r1", doc_id="<doc sha256>",
                                   causes=["sorter_low_confidence"], requested_by="node:classify"), policy)
-desk.queue("r1")                          # cases in review, in queue order
+desk.queue("r1")                          # cases in review, in queue order (read from the log)
 desk.case("r1", "<doc sha256>")           # one document's case (its last episode)
+desk.index_drift()                        # with an index: problem lines, [] when it agrees with the log
 ```
 
 ## Modules
@@ -61,10 +62,13 @@ desk.case("r1", "<doc sha256>")           # one document's case (its last episod
   already exists.
 - The run-level chain `_run` holds run events, not a document: `enqueue` refuses it
   (`RunChainNotReviewable`), with causes or as a sample-only request.
-- With an index, `queue()` checks run by run that the index's document heads equal the log's.
-  A run where they differ (or an unavailable index) is read from the log and a warning is
-  logged (logger `mailroom_desk`), so a stale index never hides a case;
-  `Desk.index_drift()` lists such runs and `Index.reindex` brings them back in step.
+- The log is the truth, and reading never needs the index: `queue()` folds each run from
+  one ordered scan of its log (one scan per run, however many cases are in review) and
+  `case()` from one scan. An index given to the desk only receives the desk's events
+  (`Enqueued.index_error` says why it refused one), so a stale, locked or broken index
+  changes no answer. `Desk.index_drift()` is a diagnostic that never raises: it returns
+  `"<run_id>: <problem>"` lines (unknown run, index or log unreadable, document heads that
+  differ), and `Index.reindex` repairs the index.
 - Outage tokens (`transient_exhausted`, `provider_unavailable`) are refused in policies and
   requests: an outage makes a document wait, never park (R1).
 - `enqueue` never raises after its event is durable: an `OSError` from closing the writer
@@ -82,7 +86,13 @@ desk.case("r1", "<doc sha256>")           # one document's case (its last episod
 - Free text never goes in a payload: what the reviewer is shown is a list of blob
   references (`inputs`), and those blobs must be present before the event is written.
 - `requested_by`, `class_hint` and `prefill_ref` are references: ASCII letters, digits and
-  `_ . : - /`, at most 128 characters, no whitespace or control characters. A payload can
-  never be erased, so no payload field can hold free text.
+  `_ . : - /`, starting with a letter or digit, at most 128 characters. What that
+  guarantees: no whitespace, no control, format or bidi character, nothing outside ASCII,
+  and a bounded length, so no sentence, note or pasted document fits. It does not stop a
+  short label (`patient-x-has-condition`) or a path-like string (`a/../../etc`): callers
+  put names there, never facts about a person, and every free text goes in a blob. A
+  payload can never be erased, so this matters.
+- `prefill_ref` is an opaque name. D3 (and any later reader) must look it up by name and
+  must never use it as a filesystem path or join it to one.
 
 Test strategy: `docs/test-strategy-desk.md`.

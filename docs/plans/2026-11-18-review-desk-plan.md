@@ -49,7 +49,7 @@ Queue state is a fold over a document's `review` events since its last non-revie
 
 | Action | Event | In queue after? |
 |---|---|---|
-| enqueue | `kind="review"`, `node="human_review"`, `cause=<primary cause>`, `payload={action:"enqueue", causes, rule, priority, sla_hours, queue, required_role, prefill_ref, sampled, policy_name, policy_hash, requested_by, class_hint, confidence_hint}`, `inputs` = blobs shown. D1 extended the first draft (`causes, rule, priority, sla_hours, queue, requested_by, sampled?`) with `required_role`, `prefill_ref`, `policy_name`, `policy_hash`, `class_hint` and `confidence_hint`, so the event records everything the routing read and decided. `requested_by`, `class_hint` and `prefill_ref` are references (ASCII letters, digits and `_ . : - /`, at most 128 characters), never free text | yes |
+| enqueue | `kind="review"`, `node="human_review"`, `cause=<primary cause>`, `payload={action:"enqueue", causes, rule, priority, sla_hours, queue, required_role, prefill_ref, sampled, policy_name, policy_hash, requested_by, class_hint, confidence_hint}`, `inputs` = blobs shown. D1 extended the first draft (`causes, rule, priority, sla_hours, queue, requested_by, sampled?`) with `required_role`, `prefill_ref`, `policy_name`, `policy_hash`, `class_hint` and `confidence_hint`, so the event records everything the routing read and decided. `requested_by`, `class_hint` and `prefill_ref` are references (ASCII letters, digits and `_ . : - /`, at most 128 characters: no whitespace, controls or non-ASCII, bounded; a short label or a path-like string still fits, so free text goes in blobs). `prefill_ref` is an opaque name: D3 looks it up by name and never uses it as a filesystem path | yes |
 | assign, claim, release, escalate, defer, reopen, comment-free state changes | `kind="review"`, `payload={action, actor, ...}` | yes |
 | resolve (approve_as_is, correct, reclassify) | `kind="output"`, `decision={resolution, route}`, `outputs=[human_correction blob]`, `payload={reviewer, ...}` | no |
 | resolve (reject) | `kind="decision"`, `cause=<reject reason token>`, `outputs=[human_correction blob]` | no |
@@ -123,7 +123,7 @@ failures (R8); `docs/test-strategy-desk.md` has the matrix.
 | D0 | This plan, ADR-0007, test strategy, README layout line | yes |
 | D1 | Package skeleton; models; review policy and reviewer registry (load, validate, hash); `enqueue` with rules and sampling; queue fold; agreement with `Index.review_queue()` | yes |
 | D2 | assign, claim, release, lease expiry, escalate, defer, reopen; resolve (4 resolutions) with correction blob, validation against the client profile, optimistic concurrency; multi-process tests | yes |
-| D3 | Case view (version chain by blob role, capped text, no server path); `export-labels` through `build_review`; round trip through `mailroom_labels.resolve` shows gold with the reviewer | yes |
+| D3 | Case view (version chain by blob role, capped text, no server path; `prefill_ref` resolved by name only, never as a path); `export-labels` through `build_review`; round trip through `mailroom_labels.resolve` shows gold with the reviewer | yes |
 | D4 | `human_review` node, `Disposition`, entry-point registration, a fake engine loop test (park, wait, resume) over a real record; CLI | yes |
 | D5 | HTTP API with old-shape compatibility routes and token identity | yes |
 | D6 | Web desk UI (rebuild of the sandbox desk on case data, evidence quotes, structured edits, identity, audit panel) | next chunk |

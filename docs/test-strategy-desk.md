@@ -25,6 +25,10 @@ one-off unit tests.
   ten seconds with `-n 4`.
 - **Shared helpers** live in `packages/desk/tests/desk_testkit.py` (on `pythonpath`, so
   spawned children can import the process targets); fixtures live in `conftest.py`.
+- **Linux-only tests are marked.** Two tests name a descriptor's file through
+  `/proc/self/fd` (the seals-fsync spy and the full-disk injection) and carry a
+  `LINUX_ONLY` skip marker, so on another platform they are reported as skipped, not
+  failed. Everything else needs only POSIX (`flock`, `fork`, `SIGKILL`).
 
 ## Fault and refusal matrix (D1)
 
@@ -49,9 +53,13 @@ one-off unit tests.
 | Outage cause | `transient_exhausted`, `provider_unavailable`, as a token or a segment | `OutageNotReviewable` in requests; refused in a policy's catalog and rules | `test_outage_causes_are_refused`, `test_outage_tokens_are_refused_in_the_catalog_and_rules` |
 | Full disk on the flush | `os.write` raises `ENOSPC` for segment files (like the record's fault tests) | `RecordWriteFailed` with the `OSError` as `__cause__`; nothing in the segment; the lock is free; the next enqueue and `verify_run` succeed | `test_full_disk_on_flush_is_a_typed_error_and_leaves_the_record_usable` |
 | Close fails after a good flush | `LogWriter.close` raises `EIO` after closing | `enqueue` returns the durable event; the lock is free; `verify_run` ok | `test_close_failing_after_a_good_flush_does_not_raise` |
-| Time at the edges | A desk clock at 9999-12-31T23:00 (the SLA due time overflows); a record-valid far-future review event from another writer; a clock in year 5 | `enqueue` returns its durable event (never raises after the append); the due time saturates at `END_OF_TIME` with an anomaly; the queue still lists every case; a four-digit year is written | `test_enqueue_at_the_end_of_time_returns_its_event`, `test_one_far_future_event_does_not_take_down_the_queue`, `test_enqueue_at_the_start_of_time_writes_a_valid_timestamp` |
-| Index behind the log | A desk without the index enqueues, an engine writes a review event, both unseen by the index | `queue()` reads that run from the log (same result as a desk with no index), logs a warning naming the run, `index_drift()` lists it; after `reindex` the index path is used again and no warning is logged; an index that knows the document but holds an older head is drift too | `test_stale_index_never_hides_a_case`, `test_index_behind_on_a_known_document_is_drift` |
+| Time at the edges | A desk clock at 9999-12-31T23:00 (the SLA due time overflows); a record-valid far-future review event from another writer; an escalation at 9999-12-31T23:00 with a new SLA; a clock in year 5 | `enqueue` returns its durable event (never raises after the append); the due time saturates at `END_OF_TIME` with exactly one anomaly (on the opening and the escalate path); the queue still lists every case; a four-digit year is written | `test_enqueue_at_the_end_of_time_returns_its_event`, `test_one_far_future_event_does_not_take_down_the_queue`, `test_escalate_past_the_end_of_time_saturates_with_an_anomaly`, `test_enqueue_at_the_start_of_time_writes_a_valid_timestamp` |
+| Index behind the log | A desk without the index enqueues, an engine writes a review event, both unseen by the index | `queue()` and `case()` give the same answers as a desk with no index (they read the log only); `index_drift()` reports `r1: 2 document head(s) differ from the log`; after `reindex` it is `[]`; an index that knows the document but holds an older head is drift too | `test_stale_index_changes_no_answer`, `test_index_behind_on_a_known_document_is_drift` |
+| Index broken or locked | A directory in place of `index.sqlite` (a raw `sqlite3.OperationalError` the record does not translate); another connection holding `BEGIN EXCLUSIVE` with `busy_timeout=0` | `queue()` and `case()` answer from the log; `enqueue` appends durably and reports `index_error` (`OperationalError: ...`, not only `ApplyRefused`); `index_drift()` reports the index instead of raising; `verify_run` ok | `test_broken_index_changes_no_answer`, `test_locked_index_changes_no_answer` |
 | Index refuses the apply | A run created after the index was built | The event is durable; `index_error` names `unknown_run`; a reindex shows it | `test_index_refusal_is_reported_not_raised` |
+| `index_drift` on bad input | An unknown run, a path-like, non-string or over-long id, an index never built, a corrupt log line, a broken run header | One problem line each (the id shortened), never an exception; reading still works without the index | `test_index_drift_reports_and_never_raises` |
+| Reading cost grows with the cases | A counting wrapper on the desk's `EventLog` (`scan`, `iter_stored`, `doc_head_seqs`, `iter_located`) and an index that fails on any read | `queue()` over two runs is exactly one `scan` per run, `queue("r1")` one, `case()` one scan of its document; the index is applied to (13 events) and never read. Deterministic: counts, not wall-clock | `test_reading_scans_each_run_once_and_never_reads_the_index` |
+| Read error while appending | `LogWriter.append` raises `EIO` (it only reads the chain head and buffers) | `RecordDamaged` (not `RecordWriteFailed`) with the `OSError` as cause; nothing written; the lock is free | `test_read_error_while_appending_is_damage_not_a_write_failure` |
 | Free text in a payload | Sentinel text in a shown blob | The sentinel is absent from every segment; the blob hash is present (positive control) | `test_payload_holds_no_free_text` |
 
 ## What is tested, by risk
@@ -61,11 +69,11 @@ one-off unit tests.
 | A rule matches wrongly or out of order | Unit, each branch (`cause_in`, `class_in`, `confidence_below` strictly below, all conditions together, patterns) and a reordered policy | `test_policy.py` routing tests |
 | A policy without a default, or a hidden rule, loads | Validation | `test_missing_default_rule_is_refused`, `test_default_rule_before_the_end_is_refused` |
 | Bad YAML loads silently | Validation: duplicate keys (top and nested), unhashable keys, python tags, unknown keys at every level, bad tokens, bad types (strings, bools, NaN, infinities, ranges) | `test_policy.py`, `test_reviewers.py` |
-| Hostile config crashes the loader | Integers too large for a float (`sla_hours`, `confidence_below`, `sample.rate`, an integer seed), integer literals too long to read, YAML and Python values nested 5,000 deep, a validator raising `RecursionError`/`ValueError`/`OverflowError`: each is a `PolicyError` or `RegistryError`, and problem messages show values shortened | `test_integers_too_large_for_a_float_*`, `test_deeply_nested_yaml_is_a_policy_error`, `test_a_validator_crash_on_hostile_input_is_still_a_policy_error`, `test_hostile_sizes_are_registry_errors` |
+| Hostile config crashes the loader | Integers too large for a float (`sla_hours`, `confidence_below`, `sample.rate`, an integer seed), integer literals too long to read, YAML and Python values nested 5,000 deep, a validator raising `RecursionError`/`ValueError`/`OverflowError`: each is a `PolicyError` or `RegistryError`, and problem messages show values shortened (a 10,000-character queue name and a 4,000-digit rate are cut to under 120 characters); an integer seed too long for text is exactly that problem | `test_integers_too_large_for_a_float_*`, `test_deeply_nested_yaml_is_a_policy_error`, `test_an_oversized_value_is_shown_shortened_in_the_problem`, `test_an_integer_seed_too_long_for_text_is_a_problem`, `test_a_validator_crash_on_hostile_input_is_still_a_policy_error`, `test_hostile_sizes_are_registry_errors` |
 | The policy hash misses a change or changes without one | Property-like table: every rule, cause and sample field mutated in turn changes it; key order, comments and `24` vs `24.0` do not | `test_any_change_of_meaning_changes_the_hash`, `test_hash_ignores_key_order_comments_and_number_format` |
 | The sample is biased or not repeatable | 10,000 ids at three rates within five binomial sigmas; same seed same set, other seed other set; rate 0 none, 1 all; monotone in the rate; strict threshold | `test_sampling_*` |
 | A strict registry admits an unknown reviewer | Unit: strict and open modes, tokens, roles | `test_reviewers.py` |
-| The fold disagrees with the index | Property: random histories over two runs, four documents and the run-level chain `_run`, of non-review events, foreign review events (unreadable payloads, assign, live and lapsed claims, defer, release, a claim with no opening) and desk enqueues; after every step the plain and index-backed desk queues are the same list (cases, statuses, order), their membership equals `Index.review_queue()` of an applied and a rebuilt index and a model the test keeps from the operations alone, each status equals the model's, the queue is in `sort_key` order, enqueue refuses exactly when the model says so (`AlreadyInReview`, `RunChainNotReviewable`), no `human_review` event follows a review event, and `drift == []` | `test_fold.py::test_fold_agrees_with_the_index_on_random_histories` |
+| The fold disagrees with the index | Property: random histories over two runs, four documents and the run-level chain `_run`, of non-review events, foreign review events (also on `_run`, which the queue then shows, as the index does; unreadable payloads, assign, live and lapsed claims, defer, release, a claim with no opening) and desk enqueues; after every step the queues of a desk without and with an index are the same list (cases, statuses, order), their membership equals `Index.review_queue()` of an applied and a rebuilt index and a model the test keeps from the operations alone, each status equals the model's, the queue is in `sort_key` order, enqueue refuses exactly when the model says so (`AlreadyInReview`, `RunChainNotReviewable`), no `human_review` event follows a review event, and `drift == []` | `test_fold.py::test_fold_agrees_with_the_index_on_random_histories` |
 | A lease or deferral outlives its time | Injected clock at the boundary (one microsecond before; exactly at) | `test_claim_holds_until_the_lease_expires_exactly`, `test_injected_clock_drives_lease_expiry_in_the_queue`, `test_release_escalate_defer_and_reopen` |
 | SLA breach is off by one | Boundary: due minus 1 us, due, due plus 1 us; a resolved case never breaches | `test_sla_breach_boundaries`, `test_resolution_ends_the_episode` |
 | Queue order is wrong | Priority, then due time, then opened time, then id; an unreadable case first | `test_queue_order_priority_then_due_then_opened_then_id` |
@@ -101,6 +109,26 @@ space allowed in a reference, and deep YAML not caught. One mutation is equivale
 survives by design: treating an integer too large for a float as a number in
 `policy._is_number` (the range checks that follow refuse it anyway).
 
+### Re-check after the second D1 review
+
+The second review's survivors, applied the same way on the final code, each now caught
+(`git diff` empty after each): `show()` not shortening (M4,
+`test_an_oversized_value_is_shown_shortened_in_the_problem`); `_apply` catching only
+`ValueError`/`RuntimeError` (M6, the broken and locked index tests); an unreadable index
+reported as no drift (M7, `test_broken_index_changes_no_answer`,
+`test_index_drift_reports_and_never_raises`); the escalate path saturating without an
+anomaly (M9, `test_escalate_past_the_end_of_time_saturates_with_an_anomaly`); an append
+`OSError` mapped to `RecordWriteFailed` (M13,
+`test_read_error_while_appending_is_damage_not_a_write_failure`); the "seed too long"
+problem dropped (M15, `test_an_integer_seed_too_long_for_text_is_a_problem`);
+`index_drift` skipping the run check (M19, `test_index_drift_reports_and_never_raises`).
+On the log-only read path: a per-case re-scan (`test_reading_scans_each_run_once_and_never_reads_the_index`),
+`queue(run_id)` ignoring its run (that test, the property and
+`test_stale_index_changes_no_answer`), dropping the `_run` chain from the queue (the
+property, after its foreign events were allowed on `_run`), a sort by ids instead of
+`sort_key`, folding only the first document of a run, drift ignoring documents the index
+lacks, `index_drift` raising on a damaged log and `case()` ignoring its `now`: all caught.
+
 ## Later tasks
 
 - D2: assign, claim, release, escalate, defer, reopen and resolve through the desk API,
@@ -112,10 +140,14 @@ survives by design: treating an integer too large for a float as a number in
 
 ## Known gaps
 
-- A crash between the desk's flush and the index apply leaves the index behind the log;
-  `queue()` then reads that run from the log (tested with an index that was never given the
-  events), `Desk.index_drift()` names it and `reindex` repairs it, but no test kills a
-  process at that exact point.
+- A crash between the desk's flush and the index apply leaves the index behind the log.
+  The desk never reads the index, so no answer changes (tested with an index that was never
+  given the events); `Desk.index_drift()` names the run and `reindex` repairs it. No test
+  kills a process at that exact point.
+- References bound what fits in a payload but cannot stop a short label or a path-like
+  string (`a/../../etc` is accepted); `prefill_ref` must be treated as an opaque name by
+  D3, never as a path. Tested: whitespace, controls, non-ASCII and over-long values are
+  refused.
 - A process forked without `exec` while it holds a desk lock keeps the lock (tested and
   documented, not prevented): workers must be started with `spawn` or `subprocess`.
 - Multi-host writers are out of scope (ADR-0004): `flock` serialises one host only.
