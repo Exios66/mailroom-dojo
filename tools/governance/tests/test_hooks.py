@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 from governance_testkit import (
+    BARE_SESSION_ID,
     BARE_TRAILER,
     FOOTER,
     GUARD_PATHS_HOOK,
@@ -69,6 +70,20 @@ def run_hook(hook: Path, payload: Any, *, root: Path | None = None, raw: str | N
         ),
         pytest.param("Write", {"file_path": "/x/docs/a.md", "content": FOOTER}, id="write-file"),
         pytest.param("Edit", {"file_path": "/x/a.md", "old_string": "a", "new_string": SESSION_LINK}, id="edit-new-string"),
+        pytest.param(
+            "MultiEdit",
+            {"file_path": "/x/a.md", "edits": [{"old_string": "a", "new_string": "b"}, {"old_string": "c", "new_string": FOOTER}]},
+            id="multiedit-second-edit",
+        ),
+        pytest.param(
+            "NotebookEdit",
+            {"notebook_path": "/x/n.ipynb", "cell_id": "c1", "new_source": "# " + BARE_TRAILER},
+            id="notebookedit-source",
+        ),
+        pytest.param("bash", {"command": "echo " + SESSION_LINK}, id="lowercase-tool-name"),
+        pytest.param("mcp__GitHub__create_pull_request", {"body": PLAIN_FOOTER}, id="mixed-case-mcp-server"),
+        pytest.param("Bash", {"command": "git commit -m 'x' -m 'id " + BARE_SESSION_ID + "'"}, id="bare-session-id"),
+        pytest.param("Bash", {"command": "grep -rn 'claude\\.ai/code' ."}, id="sweep-regex-spelling-a-link"),
     ],
 )
 def test_no_session_links_blocks(tool_name: str, tool_input: dict[str, Any]) -> None:
@@ -87,6 +102,12 @@ def test_no_session_links_blocks(tool_name: str, tool_input: dict[str, Any]) -> 
             id="bash-co-authored-by",
         ),
         pytest.param("Bash", {"command": "git grep -nE 'claude\\.ai|Claude-Session'"}, id="bash-sweep-regex"),
+        pytest.param("Bash", {"command": "git grep -nE 'claude\\.a[i]/|Claude-[S]ession *:'"}, id="bash-sweep-regex-bracketed"),
+        pytest.param(
+            "MultiEdit",
+            {"file_path": "/x/a.md", "edits": [{"old_string": SESSION_LINK, "new_string": "a link, in words"}]},
+            id="multiedit-removes-link",
+        ),
         pytest.param(
             "mcp__github__create_pull_request",
             {"title": "feat: x", "body": '<!-- claude-projects-attribution: {"github_login":"someone"} -->\n## Problem'},
@@ -115,6 +136,20 @@ def test_no_session_links_fails_open(raw: str) -> None:
     assert run_hook(NO_LINKS_HOOK, None, raw=raw).returncode == 0
 
 
+def test_no_session_links_blocks_deeply_nested_input() -> None:
+    """Nesting deeper than Python's recursion limit (1000) must not make the hook fail open.
+
+    2000 levels of dict-in-list still parse with json, but a recursive walk of them
+    raises RecursionError, which the hook's catch-all would turn into "allow".
+    """
+    depth = 2000
+    raw = '{"tool_name": "mcp__github__push_files", "tool_input": ' + '{"a": [' * depth
+    raw += json.dumps(SESSION_LINK) + "]}" * depth + "}"
+    json.loads(raw)  # positive control: the input itself is valid JSON
+    result = run_hook(NO_LINKS_HOOK, None, raw=raw)
+    assert result.returncode == 2, result.stderr[-300:]
+
+
 # --- guard_paths.py --------------------------------------------------------------
 
 
@@ -132,6 +167,18 @@ def test_no_session_links_fails_open(raw: str) -> None:
         "store/archive/r1.tar.zst",
         "docs/reports/stage1-gate.md",
         "docs/stage1-gate-report.md",
+        "docs/plans/record/stage1-gate-report.md",
+        ".ENV",
+        "config/.Env.Local",
+        ".env/secret",
+        "packages/engine/.env/nested/key",
+        "prod.env",
+        "config/Staging.ENV",
+        "Docs/Reports/stage1-gate.md",
+        "store/blobs/AB/CD/" + "AB" * 32,
+        "store/archive/r1.TAR.ZST",
+        "runs/r1/seals/seal-0.json",
+        "RUNS/r1/SEGMENTS/w0.jsonl",
     ],
 )
 def test_guard_paths_blocks_inside_repo(tmp_path: Path, rel: str) -> None:
@@ -158,6 +205,11 @@ def test_guard_paths_blocks_stored_runs_and_env_outside_repo(tmp_path: Path, pat
     [
         ".env.example",
         "packages/engine/.env.example",
+        ".ENV.EXAMPLE",
+        ".envrc.md",
+        "docs/environment.md",
+        "src/dotenv.py",
+        "docs/reports-index.md",
         "packages/record/src/mailroom_record/log.py",
         "docs/reports/README.md",
         "docs/runs.md",
