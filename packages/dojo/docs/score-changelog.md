@@ -136,3 +136,11 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   exactly as given, so `positive` must be a class key (its docstring says so; a sorter label or a mixed-case
   name never matches). The row-variant marker token is read with `str(value or "")`, so a JSON number `0`
   becomes an empty token (no mailroom marker is numeric). Both are the old Dojo's behaviour.
+
+## Review fixes, round 3
+
+- `parse_json_container` returns JSON text nested deeper than the interpreter allows unchanged; the old Dojo
+  raised `RecursionError` out of extraction scoring on it.
+- **Found, not changed:** the `catalog` fold's normalizer maps a mixed-case or punctuated catalog key only through
+  the key, the aliases or the label prefix, as the old `normalize_corpus_subclass` did; `fold` and `normalize`
+  can therefore differ for such a key. Differential parity covers the old behaviour, so it stays.

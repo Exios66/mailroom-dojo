@@ -106,3 +106,12 @@ def test_a_huge_integer_is_signed_infinity_not_a_crash():
     assert parse_money(-(10**400)) == float("-inf")
     assert score_money_field(10**400, 10**400) == 0.0  # infinite amounts never match, as for "inf" text
     assert score_money_field(10**400, 5) == 0.0
+
+
+def test_absurdly_nested_json_text_stays_as_written_instead_of_crashing():
+    """JSON text nested deeper than the interpreter allows is left unchanged (the old Dojo raised RecursionError)."""
+    from mailroom_dojo.values import parse_json_container
+
+    deep = "[" * 100_000 + "]" * 100_000
+    assert parse_json_container(deep) == deep
+    assert parse_json_container("[[1]]") == [[1]]

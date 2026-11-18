@@ -34,7 +34,7 @@ def parse_json_container(value: Any) -> Any:
         return value
     try:
         parsed = json.loads(stripped)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):  # RecursionError: JSON nested deeper than the interpreter allows
         return value
     return parsed if isinstance(parsed, (list, dict)) else value
 
