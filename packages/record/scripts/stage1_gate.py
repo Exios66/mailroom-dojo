@@ -40,7 +40,7 @@ these totals and checks:
   sandbox's ``build_timeline`` on the folder give the same event sequence (node rows by
   doc, node and status; items by id; checkpoints) and the same times within 1 ms. The
   sandbox's ``tui/floor_replay.py`` is loaded by path (it imports only the standard
-  library); without ``--sandbox`` the check is reported as skipped. Scope: this check
+  library; no bytecode is written into the checkout); without ``--sandbox`` the check is reported as skipped. Scope: this check
   compares the sequence and the times only, not the rows' other fields. Those differ by
   design (a fixed field list, no free text or extracted values, ``options`` dropped, the
   cause token for an error, the outcome fields lifted out of ``pred``, a finished row's
@@ -66,7 +66,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.util
-import os
+import json
 import subprocess
 import sys
 import tempfile
@@ -174,7 +174,11 @@ def load_sandbox_floor_replay(checkout: Path) -> ModuleType:
         raise ImportError("cannot load the sandbox's floor_replay.py")
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module  # dataclasses look their module up while the class is built
-    spec.loader.exec_module(module)
+    before, sys.dont_write_bytecode = sys.dont_write_bytecode, True  # no __pycache__ in the checkout
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = before
     return module
 
 
@@ -264,8 +268,6 @@ def _commit() -> str:
 
 
 def _longest_text(folders: list[Path]) -> str | None:
-    import json
-
     best: str | None = None
     for folder in folders:
         with (folder / "dataset.jsonl").open("rb") as f:
@@ -522,5 +524,4 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
     sys.exit(main())

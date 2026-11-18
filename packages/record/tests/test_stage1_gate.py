@@ -229,3 +229,19 @@ def test_a_store_holding_other_runs_fails_the_gate(gate: ModuleType, runs_dir: P
     assert "- FAILED: the store holds 2 runs not under --runs (ar-gate-crashed, ar-gate-r01)" in text
     assert gate.main(_args(subset, tmp_path / "own-store", report)) == 0  # a store of its own passes
     assert gate.main(_args(runs_dir, root, report)) == 0  # and the full folder still passes on the first
+
+
+def test_loading_the_sandbox_replay_writes_no_bytecode_into_the_checkout(
+    gate: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The checkout is someone else's tree: the by-path load leaves no ``__pycache__`` in it,
+    even when the process writes bytecode, and puts the process's setting back."""
+    checkout = tmp_path / "sandbox"
+    (checkout / "tui").mkdir(parents=True)
+    (checkout / "tui" / "floor_replay.py").write_text("def build_timeline(folder):\n    return [], {}\n")
+    monkeypatch.delitem(sys.modules, "stage1_gate_sandbox_floor_replay", raising=False)
+    monkeypatch.setattr(sys, "dont_write_bytecode", False)
+    module = gate.load_sandbox_floor_replay(checkout)
+    assert module.build_timeline(checkout) == ([], {})
+    assert not list(checkout.rglob("__pycache__")) and not list(checkout.rglob("*.pyc"))
+    assert sys.dont_write_bytecode is False
