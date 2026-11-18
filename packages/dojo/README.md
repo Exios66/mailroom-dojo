@@ -33,6 +33,7 @@ from `llm_dojo_scoring`.
 | `field_scoring/trace_capture.py` | `capture_trace`: model-emitted `confidence` and `reasoning`, captured for the run log under the profile's `TraceCaptureOptions`, never scored. |
 | `field_scoring/extraction.py` | `score_extraction(profile, class_key, predicted, expected, ...)` → `ExtractionScoreResult` (field scores, overall score, judge-review fields, list scores, audits, trace). A plug-in scorer that returns anything but a finite number in `[0, 1]` raises `ScorerResultError`. |
 | `classification/` | `ClassLabelSet.from_profile(profile)` and the classification metrics: `normalize_label`, `exact_match`, `accuracy`, `fbeta`, `per_class_stats`, `macro_accuracy`, `macro_prf`, `confusion_matrix`, `top_confusions`, `binary_metrics`, `class_distribution`. The class set, its match order and retired classes come from the profile. |
+| `measures/` | `Measure(value, n, cost_basis, label_status, method, ci=None, reason=None)`: an immutable number that carries its sample size, cost basis (closed vocabulary) and label status, validated when built (the old scorecard-honesty rules), plus `comparability_problems` / `assert_comparable` and `combined_label_status`. `load_metric_table()` reads the metric table (`measures/metrics.yaml`, package data) into a `MetricTable` identified by `content_hash`; `MetricTable.check(measure)` applies the per-metric rules (unit range, labels required, cost basis). |
 | `labels_interface/` | structural Protocols (`LabelSource`, `ExpectedDocument`, `PresenceExpectation`) that the labels package satisfies, `expected_values(...)` (keeps scorable fields only; refuses or flags unverified documents), and `hub_rows.py`, a reference adapter for Hub rows that is meant to move to `mailroom_labels`. |
 
 ## The scoring profile
@@ -91,6 +92,24 @@ is used as given (it also opts retired and accepted-unscored keys back in). An
 unregistered type in a caller's map raises `UnknownFieldTypeError`; an expected key with
 no type follows the profile's `unmapped_fields` policy. Pass `apply_variants=False` when
 the expected values are not ground truth (comparing two model outputs).
+
+## The metric table
+
+`src/mailroom_dojo/measures/metrics.yaml` has one row for every id of the old Dojo's metric
+registry (184, in the old order) plus nine metrics the old golden baseline emits outside
+it. Each row keeps the old description, unit, aggregation, agents, ground truth,
+inclusion and citation; tiers are replaced by `headline` (exactly the old tier-0 ids), a
+`layer`, a `status` and the `readers` (gate, report or projection) that use it. A row is
+`implemented` or `planned` only when a named reader uses it; every other id stays as a
+`not_ported` row with its reason, so it can be revived without changing its meaning.
+`noise_floor` and `pairing` are set only where the old code defines them. The header of the
+file documents every column and reader. `MetricTable.content_hash` is the sha256 of the
+table's canonical JSON form, so a run can record which table it was scored against.
+
+`tests/test_metric_table_parity.py` checks the table against
+`tests/fixtures/measures/old_metric_registry.json`, which
+`scripts/capture_old_metric_registry.py` captures from an old checkout (commit recorded in
+the file); the tests never read an old checkout.
 
 ## Tests
 
