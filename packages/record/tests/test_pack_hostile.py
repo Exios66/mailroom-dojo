@@ -101,7 +101,7 @@ def _sha(data: bytes) -> str:
 
 def test_an_unnamed_blob_member_is_refused(tmp_path: Path) -> None:
     """A blob the run does not name, even one whose content is what its name says, never
-    reaches the target: it could pre-empt a later put of the same bytes."""
+    reaches the target: it could preempt a later put of the same bytes."""
     _, members = _packed(tmp_path)
     future = b"bytes some later document will hold"
     extra = [(blob_member(_sha(future)), zstandard.ZstdCompressor().compress(future))]
@@ -223,20 +223,18 @@ def test_the_placed_run_is_verified_in_the_target(tmp_path: Path, monkeypatch: p
     UnpackVerifyFailed naming the problems, and the CLI never says "it verifies"."""
     archive, _ = _packed(tmp_path)
     root = tmp_path / "target"
-    real = pack_module.verify_run
+    real = pack_module._verify_contents
     calls: list[Path] = []
 
     def judged_in_target(log: EventLog, blobs: BlobStore, run_id: str) -> VerifyReport:
         calls.append(Path(log.root))
         report = real(log, blobs, run_id)
-        if Path(log.root) != root:
-            return report
         injected = Problem("missing_blob", "d1", 0, "injected for the test")
         return replace(report, ok=False, problems=[*report.problems, injected])
 
-    monkeypatch.setattr(pack_module, "verify_run", judged_in_target)
+    monkeypatch.setattr(pack_module, "_verify_contents", judged_in_target)
     with pytest.raises(UnpackVerifyFailed, match="missing_blob"):
         unpack_run(archive, root)
-    assert root in calls  # the target itself was verified, after the staging store
+    assert calls == [root]  # the target itself was verified (the staging store by verify_run)
     res = run_cli("unpack", str(archive), root=root)
     assert res.exit_code == 1 and "it verifies" not in res.stdout

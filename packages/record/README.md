@@ -49,6 +49,12 @@ Problem kinds: `bad_hash`, `broken_link`, `seq_gap`, `forked_chain`, `corrupt_li
 `corrupt_run_header`, `torn_tail`, `unsealed_events`. The module
 docstring of `verify.py` states exactly when each is reported.
 
+A pruned run (`runs/<run>/prune.json`: `prune_run` removed its events after packing them) is
+its own state, neither ok nor damaged: `VerifyReport.pruned_archive` names the archive and
+`pruned_seal` the last seal it holds, `ok` is false and `problems` is empty, because there is
+nothing in this store to check. The command line prints a line starting `PRUNED` (the run,
+the archive, the seal) and exits 0. Unpack the archive to verify the events themselves.
+
 ## Seal
 
 `seal_run(log, run_id)` (`mailroom_record.seal`) commits every flushed event not yet sealed
@@ -87,6 +93,11 @@ review queue. No table holds document text, payloads, decisions or causes.
 - `iter_events(log, run_id, doc_id)` reads one document through the byte ranges the rebuild
   recorded, plus anything written since, and falls back to a full scan when they no longer
   match.
+- A pruned run is not indexed as an empty run: `reindex` records it in a `pruned_runs` table
+  (run and archive) and lists it in `IndexStats.pruned_runs`, and indexes every other run as
+  usual. `Index.pruned_runs()` returns them; `documents` and `review_queue` of a pruned run,
+  and `iter_events` of a pruned run (checked on the log, so a stale index cannot hide it),
+  raise `RunPruned` naming the archive. Unpack the archive, then reindex.
 
 The module docstring of `index.py` states every rule.
 
@@ -107,7 +118,10 @@ the index has not seen yet is still found. A trace never shows blob content, pay
 the values inside a decision or cause: those appear as a `Digest` (shape, field names, size,
 SHA-256). Damaged data never raises: corrupt and invalid lines, gaps, forks, broken links,
 torn tails and an unreadable run header become `Damage` entries, and everything readable is
-still shown. Only a malformed run id (`BadRunId`) or an unknown run (`UnknownRun`) raises.
+still shown. Only a malformed run id (`BadRunId`) or an unknown run (`UnknownRun`) raises, and
+a pruned run: `trace_run`, `version_chain`, `replay_timeline`, `EventLog.scan`, `iter_events`
+and `iter_located` raise `RunPruned` naming the archive, since its events are not in this
+store. `trace_doc` skips pruned runs and names them in `DocTrace.pruned_runs`.
 The module docstrings of `versions.py`, `trace.py` and `_reading.py` state the rules.
 
 ## Importing sandbox runs
@@ -195,7 +209,7 @@ edit these records by hand.
 `pip install -e packages/record` installs `mailroom-record` (also `python -m mailroom_record`):
 
 ```bash
-mailroom-record verify <run> --root <store>          # exit 1 when the run is not ok
+mailroom-record verify <run> --root <store>          # exit 1 when the run is not ok; PRUNED, exit 0
 mailroom-record seal <run> --root <store>
 mailroom-record reindex --root <store>               # rebuilds <store>/index.sqlite
 mailroom-record trace run <run> --root <store>
@@ -208,7 +222,9 @@ mailroom-record unpack <archive> --root <store>      # creates <store> when miss
 mailroom-record prune <run> --root <store>           # --drop-columns removes Parquet files too
 ```
 
-Every command takes `--json` for tools. Exit codes: 0 done (verify: ok); 1 the run is not ok,
+Every command takes `--json` for tools. Exit codes: 0 done (verify: ok, or pruned: a `PRUNED`
+line naming the archive); 1 the run is not ok, reading a pruned run's content (`trace run`,
+`versions`),
 a seal, pack, unpack or prune was refused, a document has no readable event but unreadable lines may hold it, or an
 unexpected error; 2 a usage error (malformed run id, unknown run or document, a root that is
 not a directory, a bad option); 141 the output pipe closed (`| head`), nothing printed.

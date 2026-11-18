@@ -14,9 +14,11 @@ Commands (each takes ``--root``, the store root, and ``--json`` for machine-read
     mailroom-record unpack <archive>      restore a packed run (creates --root)
     mailroom-record prune <run>           remove a packed run's segments, seals and unshared blobs
 
-Exit codes: 0 done (for ``verify``: the run is ok); 1 the record is not ok or an operation
+Exit codes: 0 done (for ``verify``: the run is ok, or pruned: a line that starts ``PRUNED``
+names the archive that holds it); 1 the record is not ok or an operation
 was refused or failed (``verify`` found a failing problem, ``seal`` refused a damaged log,
-a document that is not readable but may sit in unreadable lines, an unexpected error); 2 a usage error (a malformed run id, an unknown run or document, a
+a document that is not readable but may sit in unreadable lines, ``trace run`` or
+``versions`` of a pruned run (``RunPruned`` names the archive), an unexpected error); 2 a usage error (a malformed run id, an unknown run or document, a
 root that is not a directory, a missing or unknown option); 141 the reader of stdout went
 away (a closed pipe), with nothing printed. Errors are one line on stderr,
 never a traceback.
@@ -50,7 +52,7 @@ from mailroom_record.blobs import BlobStore
 from mailroom_record.importer.audit import audit_sandbox_run
 from mailroom_record.importer.sandbox_run import ImportConflict, SandboxFolderInvalid, import_sandbox_run
 from mailroom_record.index import ApplyRefused, Index, IndexUnavailable
-from mailroom_record.log import CorruptLine, EventLog, ForkedChain, RunPruned
+from mailroom_record.log import CorruptLine, EventLog, ForkedChain, RunPruned, refuse_if_pruned
 from mailroom_record.pack import (
     PackCorrupt,
     PackRefused,
@@ -99,6 +101,10 @@ class _Usage(Exception):
 
 class _Damaged(Exception):
     """The record could not be read well enough to answer: exit 1 with a one-line message."""
+
+
+def _pruned_text(pruned: dict[str, str]) -> str:
+    return ", ".join(f"{rid} ({archive})" for rid, archive in sorted(pruned.items()))
 
 
 def _unread_text(unread: dict[str, int]) -> str:
@@ -330,6 +336,10 @@ def verify(run_id: RunArg, root: Root, as_json: AsJson = False) -> None:
         report = verify_run(s.log, s.blobs, rid)
         if as_json:
             _print_json({"run_id": rid, **asdict(report)})
+        elif report.pruned_archive is not None:
+            seal = "" if report.pruned_seal is None else f" (seal {report.pruned_seal})"
+            _echo(f"PRUNED run {rid}: pruned from {report.pruned_archive}{seal}")
+            _echo("its events are in that archive, not in this store: unpack it to verify them")
         else:
             failing = sum(p.fails for p in report.problems)
             state = "ok" if report.ok else f"NOT OK ({failing} failing problem{'s' if failing != 1 else ''})"
@@ -349,7 +359,7 @@ def verify(run_id: RunArg, root: Root, as_json: AsJson = False) -> None:
                 )
                 note = "" if p.fails else " (does not fail)"
                 _echo(f"  {p.kind}{note}{where}: {p.detail}")
-        return 0 if report.ok else 1
+        return 0 if report.ok or report.pruned_archive is not None else 1
 
     _guard(body)
 
@@ -392,6 +402,8 @@ def reindex(root: Root, as_json: AsJson = False) -> None:
             f"reindexed {s.index.path}: {stats.runs} runs, {stats.documents} documents, {stats.events} events, "
             f"{stats.seals} seals, {stats.torn_tails} torn tails, {len(stats.problems)} problems"
         )
+        if stats.pruned_runs:
+            _echo(f"pruned (not indexed): {', '.join(stats.pruned_runs)}; unpack a run's archive to index it")
         for p in stats.problems:
             where = "".join(
                 [
@@ -451,6 +463,11 @@ def trace_doc_cmd(doc_id: DocArg, root: Root, as_json: AsJson = False) -> None:
                 f"no run found for document {doc_id!r}, but the store is damaged ({t.damage[0].detail}); "
                 "run verify"
             )
+        if not t.runs and t.pruned_runs:
+            raise RunPruned(
+                f"no run of this store that is not pruned holds document {doc_id!r}; pruned runs may "
+                f"({_pruned_text(t.pruned_runs)}): unpack them to see it"
+            )
         if not t.runs:
             raise _Usage(f"no run in this store holds document {doc_id!r}")
         if as_json:
@@ -475,6 +492,8 @@ def trace_doc_cmd(doc_id: DocArg, root: Root, as_json: AsJson = False) -> None:
                 _echo("  run damage:")
                 for line in _damage_lines(r.damage, "    "):
                     _echo(line)
+        if t.pruned_runs:
+            _echo(f"pruned runs not read (unpack them to see this document there): {_pruned_text(t.pruned_runs)}")
         if t.unread_lines:
             listed = ", ".join(f"{rid} ({n})" for rid, n in sorted(t.unread_lines.items()))
             _echo(f"unreadable lines in runs not shown: {listed}; one may be this document's (run verify)")
@@ -490,6 +509,7 @@ def versions(run_id: RunArg, doc_id: DocArg, root: Root, as_json: AsJson = False
     def body() -> int:
         s = _Store(root)
         rid = require_run(s.log, run_id)
+        refuse_if_pruned(s.log, rid, "read")
         usable, note = open_index(s.log, s.index)
         read = read_document(s.log, usable, rid, doc_id)
         if not read.events and not any(d.doc_id == doc_id for d in read.damage):

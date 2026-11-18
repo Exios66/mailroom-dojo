@@ -116,7 +116,17 @@ first scan saw are kept: each of those was on disk before the first scan ended, 
 still there is real. Lines written after the first scan are left to the next verify.
 
 Every other kind always fails the run (``columns_missing`` of an older seal included).
-``ok`` is true when no problem fails.
+``ok`` is true when no problem fails and the run is not pruned.
+
+A pruned run
+------------
+A run with ``runs/<run_id>/prune.json`` (``prune_run`` removed its segments and seals, and
+maybe its Parquet files, after packing it) is neither damaged nor an empty run: its events
+are in the archive. ``verify_run`` checks nothing then and returns a report with
+``pruned_archive`` (the archive ``pack.json`` names) and ``pruned_seal`` (the latest seal it
+covers), no problems, and ``ok`` false. If a prune finishes while verify reads the run, the
+report is that pruned report too. ``mailroom-record verify`` prints a line that starts
+``PRUNED`` and exits 0. Unpack the archive to verify the run's contents.
 """
 
 from __future__ import annotations
@@ -137,8 +147,27 @@ import zstandard
 
 from mailroom_record.blobs import BlobStore, _zstd_frame_whole
 from mailroom_record.hashing import canonical_json
-from mailroom_record.log import MAX_LINE, EventLog, OverlongLine, RawLine, StoredLine, TornTail, iter_raw_segment
-from mailroom_record.models import GENESIS, INT64_MAX, Event, Run, Seal, event_hash, seal_hash, validation_detail
+from mailroom_record.log import (
+    MAX_LINE,
+    PACK_RECORD,
+    EventLog,
+    OverlongLine,
+    RawLine,
+    StoredLine,
+    TornTail,
+    iter_raw_segment,
+    pruned_archive,
+)
+from mailroom_record.models import (
+    GENESIS,
+    INT64_MAX,
+    Event,
+    Run,
+    Seal,
+    event_hash,
+    seal_hash,
+    validation_detail,
+)
 from mailroom_record.seal import EVENT_SCHEMA, _columns_path, _row, _seals_dir
 
 __all__ = ["PROBLEM_KINDS", "Problem", "ProblemKind", "VerifyReport", "verify_run"]
@@ -192,7 +221,9 @@ _PARSE_ERRORS = (ValueError, TypeError, RecursionError)
 # The longest line verify reads is log.MAX_LINE (64 MiB), the limit LogWriter.append
 # enforces. Content belongs in blobs, so an event line is a few KB; a longer line is
 # reported as corrupt_line without being held in memory.
-_INT_COLUMNS = tuple(name for name, t in zip(EVENT_SCHEMA.names, EVENT_SCHEMA.types) if pa.types.is_integer(t))
+_INT_COLUMNS = tuple(
+    name for name, t in zip(EVENT_SCHEMA.names, EVENT_SCHEMA.types) if pa.types.is_integer(t)
+)
 _INT64 = (-(2**63), 2**63 - 1)
 _INF = float("inf")
 
@@ -219,7 +250,14 @@ class Problem:
 
 @dataclass(frozen=True)
 class VerifyReport:
-    """The outcome of ``verify_run``. ``ok`` is true when no problem ``fails``."""
+    """The outcome of ``verify_run``. ``ok`` is true when no problem ``fails`` and the run is
+    not pruned.
+
+    ``pruned_archive`` is set (and ``pruned_seal``, the latest seal the pack covers, when its
+    ``pack.json`` says) when the run is pruned: then nothing was checked, ``problems`` is
+    empty and ``ok`` is false, because the run's events are in the archive, not here. That
+    is its own state, not damage: unpack the archive to verify the run.
+    """
 
     ok: bool
     problems: list[Problem]
@@ -228,6 +266,8 @@ class VerifyReport:
     tombstoned_blobs: int
     seals_checked: int = 0
     closed: bool = False
+    pruned_archive: str | None = None
+    pruned_seal: int | None = None
 
 
 @dataclass(slots=True)
@@ -276,6 +316,39 @@ def verify_run(log: EventLog, blobs: BlobStore, run_id: str) -> VerifyReport:
     run_dir = log.run_dir(run_id)
     if not run_dir.is_dir():
         raise FileNotFoundError(f"no run {run_id!r} under {log.root}")
+    pruned = _pruned_report(log, run_id)
+    if pruned is not None:
+        return pruned
+    report = _verify_contents(log, blobs, run_id)
+    # A prune that finished while we read deleted what we read: report the run as pruned,
+    # never the damage that deletion looks like.
+    return _pruned_report(log, run_id) or report
+
+
+def _pruned_report(log: EventLog, run_id: str) -> VerifyReport | None:
+    archive = pruned_archive(log, run_id)
+    if archive is None:
+        return None
+    seal: int | None = None
+    try:
+        n = json.loads((log.run_dir(run_id) / PACK_RECORD).read_bytes())["last_seal"]["n"]
+        seal = n if isinstance(n, int) and not isinstance(n, bool) else None
+    except (OSError, ValueError, RecursionError, KeyError, TypeError):
+        pass
+    return VerifyReport(
+        ok=False,
+        problems=[],
+        events_checked=0,
+        documents_checked=0,
+        tombstoned_blobs=0,
+        pruned_archive=archive,
+        pruned_seal=seal,
+    )
+
+
+def _verify_contents(log: EventLog, blobs: BlobStore, run_id: str) -> VerifyReport:
+    """Verify what is on disk for ``run_id``, pruned or not (``unpack_run`` checks a run it
+    placed this way before it removes ``prune.json``)."""
     st = _State(run_id)
     run = _check_header(log, run_id, st)
     # Column files, then seal files, then segments: each is written only after the one
@@ -315,7 +388,9 @@ def verify_run(log: EventLog, blobs: BlobStore, run_id: str) -> VerifyReport:
                 "still being written (a crash or a write in progress); skipped, not an event"
             )
         st.problems.append(
-            Problem("torn_tail", None, None, detail, segment=t.segment, byte_offset=t.byte_offset, fails=False)
+            Problem(
+                "torn_tail", None, None, detail, segment=t.segment, byte_offset=t.byte_offset, fails=False
+            )
         )
 
     return VerifyReport(
@@ -377,13 +452,21 @@ def _scan(log: EventLog, run_id: str, st: _State) -> None:
                 if isinstance(item, TornTail):
                     st.torn.append(item)
                 elif isinstance(item, OverlongLine):
-                    st.add("corrupt_line", None, None,
-                           f"{item.segment} at byte {item.byte_offset}: a line of {item.length} bytes, over the "
-                           f"{MAX_LINE}-byte limit; not read", segment=item.segment, byte_offset=item.byte_offset)
+                    st.add(
+                        "corrupt_line",
+                        None,
+                        None,
+                        f"{item.segment} at byte {item.byte_offset}: a line of {item.length} bytes, over the "
+                        f"{MAX_LINE}-byte limit; not read",
+                        segment=item.segment,
+                        byte_offset=item.byte_offset,
+                    )
                 else:
                     _check_line(item, st)
         except OSError as exc:
-            st.add("corrupt_line", None, None, f"{seg.name} cannot be read ({_oserror(exc)})", segment=seg.name)
+            st.add(
+                "corrupt_line", None, None, f"{seg.name} cannot be read ({_oserror(exc)})", segment=seg.name
+            )
 
 
 def _check_line(line: RawLine, st: _State) -> None:
@@ -405,7 +488,13 @@ def _check_line(line: RawLine, st: _State) -> None:
     if not (isinstance(seq, int) and not isinstance(seq, bool) and 0 <= seq <= INT64_MAX):
         # The document's line, but with no place in its chain (negative, past int64, not an
         # integer): one invalid_event, as the index reports it, and no seq_gap of its own.
-        st.add("invalid_event", doc, None, f"{at}: not a valid event (seq: not an integer in 0..2**63-1)", **where)
+        st.add(
+            "invalid_event",
+            doc,
+            None,
+            f"{at}: not a valid event (seq: not an integer in 0..2**63-1)",
+            **where,
+        )
         return
     if st.bound is not None and seq > st.bound.get(doc, -1):
         return  # written after the first scan: left to the next verify
@@ -420,7 +509,9 @@ def _check_line(line: RawLine, st: _State) -> None:
     if true_hash != h:
         st.add("bad_hash", doc, seq, f"{at}: the event does not hash to its stored hash", **where)
     elif not canonical:
-        st.add("corrupt_line", doc, seq, f"{at}: the line is not the canonical encoding of the event", **where)
+        st.add(
+            "corrupt_line", doc, seq, f"{at}: the line is not the canonical encoding of the event", **where
+        )
 
     digest: bytes | None = None
     try:
@@ -446,8 +537,13 @@ def _check_line(line: RawLine, st: _State) -> None:
                 row = _row(StoredLine(segment, line.byte_offset, raw))
                 big = [c for c in _INT_COLUMNS if row[c] is not None and not _INT64[0] <= row[c] <= _INT64[1]]
                 if big:  # seal_run cannot export it either (Parquet int64)
-                    st.add("invalid_event", doc, seq, f"{at}: not a valid event ({', '.join(big)}: out of int64 range)",
-                           **where)
+                    st.add(
+                        "invalid_event",
+                        doc,
+                        seq,
+                        f"{at}: not a valid event ({', '.join(big)}: out of int64 range)",
+                        **where,
+                    )
                 else:
                     digest = _digest(row)
             except _PARSE_ERRORS as exc:  # a value Parquet cannot hold, deep nesting
@@ -480,14 +576,25 @@ def _check_chains(st: _State) -> dict[str, dict[int, _Entry]]:
             for e in by_seq[seq]:
                 if seq == 0:
                     if e.prev_hash != GENESIS:
-                        st.add("broken_link", doc, 0, f"{e.segment} at byte {e.byte_offset}: seq 0 does not start from GENESIS",
-                               segment=e.segment, byte_offset=e.byte_offset)
+                        st.add(
+                            "broken_link",
+                            doc,
+                            0,
+                            f"{e.segment} at byte {e.byte_offset}: seq 0 does not start from GENESIS",
+                            segment=e.segment,
+                            byte_offset=e.byte_offset,
+                        )
                 elif seq - 1 in by_seq:
                     linked = {p.true_hash for p in by_seq[seq - 1] if p.true_hash is not None}
                     if e.prev_hash not in linked:
-                        st.add("broken_link", doc, seq,
-                               f"{e.segment} at byte {e.byte_offset}: prev_hash is not the hash of seq {seq - 1}",
-                               segment=e.segment, byte_offset=e.byte_offset)
+                        st.add(
+                            "broken_link",
+                            doc,
+                            seq,
+                            f"{e.segment} at byte {e.byte_offset}: prev_hash is not the hash of seq {seq - 1}",
+                            segment=e.segment,
+                            byte_offset=e.byte_offset,
+                        )
         # Forked seqs are left out; a forked_chain problem marks them damaged, so only the
         # seal whose rows they touch skips this document (st.damaged in _check_columns).
         out[doc] = {seq: es[0] for seq, es in by_seq.items() if len(es) == 1}
@@ -532,7 +639,9 @@ def _list_columns(log: EventLog, run_id: str, st: _State) -> set[int]:
     return numbers
 
 
-def _read_seal_files(log: EventLog, run_id: str, st: _State) -> tuple[set[int], dict[int, tuple[Seal, dict[str, Any]]]]:
+def _read_seal_files(
+    log: EventLog, run_id: str, st: _State
+) -> tuple[set[int], dict[int, tuple[Seal, dict[str, Any]]]]:
     """The numbers of the seal files present, and the readable ones."""
     seals_dir = _seals_dir(log, run_id)
     numbers: set[int] = set()
@@ -592,14 +701,25 @@ def _check_seals(
             if doc not in st.entries:
                 if doc not in reported:
                     reported.add(doc)
-                    st.add("document_missing_from_log", doc, None, f"seal {n} lists the document; the log has no event of it", seal=n)
+                    st.add(
+                        "document_missing_from_log",
+                        doc,
+                        None,
+                        f"seal {n} lists the document; the log has no event of it",
+                        seal=n,
+                    )
                 continue
             seq = hash_seq[doc].get(h)
             if seq is None:
                 if doc not in reported:
                     reported.add(doc)
-                    st.add("truncated_after_seal", doc, None,
-                           f"seal {n} committed head {h[:16]}..., which the log no longer holds", seal=n)
+                    st.add(
+                        "truncated_after_seal",
+                        doc,
+                        None,
+                        f"seal {n} committed head {h[:16]}..., which the log no longer holds",
+                        seal=n,
+                    )
                 continue
             heads[doc] = seq
 
@@ -607,9 +727,17 @@ def _check_seals(
         if prev is not None:
             for doc in sorted(prev.seal.doc_heads):
                 if doc not in seal.doc_heads:
-                    st.add("seal_mismatch", doc, None, f"seal {n} drops a document seal {n - 1} lists", seal=n)
+                    st.add(
+                        "seal_mismatch", doc, None, f"seal {n} drops a document seal {n - 1} lists", seal=n
+                    )
                 elif doc in heads and doc in prev.heads and heads[doc] < prev.heads[doc]:
-                    st.add("seal_mismatch", doc, heads[doc], f"seal {n} commits an earlier head than seal {n - 1}", seal=n)
+                    st.add(
+                        "seal_mismatch",
+                        doc,
+                        heads[doc],
+                        f"seal {n} commits an earlier head than seal {n - 1}",
+                        seal=n,
+                    )
         complete = len(heads) == len(seal.doc_heads)
         infos[n] = _SealInfo(seal, raw, heads, complete)
 
@@ -618,8 +746,13 @@ def _check_seals(
         if info.complete and not any(st.damaged(d, 0, q) for d, q in info.heads.items()):
             expected = sum(seq + 1 for seq in info.heads.values())
             if info.seal.event_count != expected:
-                st.add("seal_mismatch", None, None,
-                       f"seal {n} counts {info.seal.event_count} events; its heads cover {expected}", seal=n)
+                st.add(
+                    "seal_mismatch",
+                    None,
+                    None,
+                    f"seal {n} counts {info.seal.event_count} events; its heads cover {expected}",
+                    seal=n,
+                )
     return infos, n_files
 
 
@@ -674,8 +807,13 @@ def _check_columns(
             continue
         if mode is not None and not stat.S_ISREG(mode):
             # Not the recoverable "missing" case: seal_run cannot write the file over it.
-            st.add("columns_mismatch", None, None, f"{name} is not a regular file; remove it, then seal_run rebuilds it",
-                   seal=n)
+            st.add(
+                "columns_mismatch",
+                None,
+                None,
+                f"{name} is not a regular file; remove it, then seal_run rebuilds it",
+                seal=n,
+            )
             continue
         if mode is None:
             latest = n == max(seals)
@@ -685,15 +823,22 @@ def _check_columns(
             if not latest:
                 why = ""
             elif closed:
-                why = (" (the closing seal of a closed run: a crash or the seal still in progress; "
-                       "no later seal will come, so run seal_run once more, which commits nothing new)")
+                why = (
+                    " (the closing seal of a closed run: a crash or the seal still in progress; "
+                    "no later seal will come, so run seal_run once more, which commits nothing new)"
+                )
             else:
                 why = " (the latest seal: a crash or a seal in progress, recoverable)"
-            st.problems.append(Problem(
-                "columns_missing", None, None,
-                f"columns/events-{n}.parquet is missing; seal_run rebuilds it{why}",
-                seal=n, fails=not latest,
-            ))
+            st.problems.append(
+                Problem(
+                    "columns_missing",
+                    None,
+                    None,
+                    f"columns/events-{n}.parquet is missing; seal_run rebuilds it{why}",
+                    seal=n,
+                    fails=not latest,
+                )
+            )
             continue
         if n > 0 and n - 1 not in seals:
             continue  # no readable previous seal: the rows this seal added cannot be bounded
@@ -719,14 +864,23 @@ def _check_columns(
             want, got = expected.get(doc), actual.get(doc, {})
             if want is None:
                 if doc not in info.heads:
-                    st.add("columns_mismatch", doc, min(got),
-                           f"columns/events-{n}.parquet holds {len(got)} rows of a document seal {n} does not list", seal=n)
+                    st.add(
+                        "columns_mismatch",
+                        doc,
+                        min(got),
+                        f"columns/events-{n}.parquet holds {len(got)} rows of a document seal {n} does not list",
+                        seal=n,
+                    )
                 continue  # listed but its rows cannot be expected exactly (head missing)
             bad = sorted(s for s in set(want) | set(got) if want.get(s) is None or want.get(s) != got.get(s))
             if bad:
-                st.add("columns_mismatch", doc, bad[0],
-                       f"columns/events-{n}.parquet disagrees with the log on {len(bad)} row(s), first at seq {bad[0]}",
-                       seal=n)
+                st.add(
+                    "columns_mismatch",
+                    doc,
+                    bad[0],
+                    f"columns/events-{n}.parquet disagrees with the log on {len(bad)} row(s), first at seq {bad[0]}",
+                    seal=n,
+                )
 
 
 def _note_unsealed(st: _State, seals: dict[int, _SealInfo], last: int) -> None:
@@ -755,11 +909,14 @@ def _note_unsealed(st: _State, seals: dict[int, _SealInfo], last: int) -> None:
         if above:
             n = len(above)
             st.add(
-                "unsealed_events", doc, above[0],
+                "unsealed_events",
+                doc,
+                above[0],
                 f"{n} event{'s' if n != 1 else ''} from seq {above[0]} after seal {last}, the last seal "
                 "of this closed run; no seal commits them, so losing them would go undetected "
                 "(seal_run commits them)",
-                seal=last, fails=False,
+                seal=last,
+                fails=False,
             )
 
 
@@ -776,7 +933,9 @@ def _read_columns(path: Path, n: int, st: _State) -> dict[str, dict[int, bytes |
             for row in batch.to_pylist():
                 doc, seq = row["doc_id"], row["seq"]
                 if not isinstance(doc, str) or not isinstance(seq, int):
-                    st.add("columns_mismatch", None, None, f"{name} holds a row without doc_id or seq", seal=n)
+                    st.add(
+                        "columns_mismatch", None, None, f"{name} holds a row without doc_id or seq", seal=n
+                    )
                     return None
                 out[doc][seq] = None if seq in out[doc] else _digest(row)
     except (OSError, pa.ArrowException, ValueError, TypeError, KeyError) as exc:
@@ -825,7 +984,12 @@ def _check_blobs(blobs: BlobStore, st: _State) -> int:
             if why is None:
                 tombstoned += 1
             else:
-                st.add("corrupt_tombstone", doc, seq, f"{named}: {why}; BlobStore.tombstone(sha, reason) rewrites the record (remove a non-empty directory there first)")
+                st.add(
+                    "corrupt_tombstone",
+                    doc,
+                    seq,
+                    f"{named}: {why}; BlobStore.tombstone(sha, reason) rewrites the record (remove a non-empty directory there first)",
+                )
         elif not has_content:
             st.add("missing_blob", doc, seq, f"{named}: no content and no tombstone")
         elif why is not None:

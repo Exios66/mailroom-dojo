@@ -116,7 +116,7 @@ from mailroom_record.hashing import canonical_json
 from mailroom_record.log import MAINTENANCE_LOCK, MAX_LINE, PACK_RECORD, PRUNE_RECORD, EventLog, refuse_if_pruned
 from mailroom_record.models import _RUN_ID_RE
 from mailroom_record.seal import list_seals
-from mailroom_record.verify import _VANISHED, _blob_damage, _tombstone_damage, verify_run
+from mailroom_record.verify import _VANISHED, _blob_damage, _tombstone_damage, _verify_contents, verify_run
 
 __all__ = [
     "MAX_BLOB",
@@ -833,7 +833,8 @@ def _place(read: _Read, staging: Path, root: Path) -> str:
         placed_dirs.add(dst.parent)
     for d in sorted(placed_dirs):
         _fsync_dir(d)
-    report = verify_run(*_open_store(root), run_id)  # what was placed, as the target holds it
+    # What was placed, as the target holds it; prune.json is still there, so the contents.
+    report = _verify_contents(*_open_store(root), run_id)
     if not report.ok:
         kinds = sorted({p.kind for p in report.problems if p.fails})
         raise UnpackVerifyFailed(

@@ -47,8 +47,9 @@ latest row. Only ``done`` and
 
 No document text and no extracted value is in the timeline: rows are built from a fixed
 list of fields, decisions lose any ``options`` entry, and blobs are never read. Raises
-``FileNotFoundError`` for an unknown run and ``ValueError`` for a run with no node or item
-row, or a timeline longer than seven days (the sandbox's limits).
+``FileNotFoundError`` for an unknown run, ``RunPruned`` for a pruned run (naming the
+archive that holds its events) and ``ValueError`` for a run with no node or item row, or a
+timeline longer than seven days (the sandbox's limits).
 """
 
 from __future__ import annotations
@@ -57,7 +58,7 @@ from datetime import datetime
 from typing import Any
 
 from mailroom_record.hashing import canonical_json
-from mailroom_record.log import EventLog
+from mailroom_record.log import EventLog, refuse_if_pruned
 from mailroom_record.models import Event
 
 __all__ = ["MAX_TIMELINE_S", "replay_timeline"]
@@ -183,6 +184,7 @@ class _Rows:
 
 def replay_timeline(log: EventLog, run_id: str) -> tuple[list[tuple[float, dict[str, Any]]], dict[str, Any]]:
     """The run's floor replay timeline and its metadata (see the module doc)."""
+    refuse_if_pruned(log, run_id, "replayed")  # its events are in the archive
     run = log.read_run(run_id)
     rows = _Rows()
     for e in log.iter_events(run_id):

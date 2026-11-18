@@ -28,6 +28,10 @@ Writing
   would start the chains again at ``seq`` 0 and fork them when the archive is unpacked.
   ``refuse_if_pruned`` is the store's one check of that state; ``seal_run``, ``pack_run``
   and the importer call it too. Unpack the archive first (``unpack_run``), then write.
+  Nor does a pruned run give events: ``scan``, ``iter_located`` and ``iter_events`` raise
+  ``RunPruned`` naming the archive, so no reader takes a pruned run for an empty one
+  (``verify_run`` reports it as pruned; the raw readers ``iter_raw`` and ``iter_stored``
+  that verify and pack use still read what is on disk).
 - ``LogWriter.append`` validates the event, sets ``seq``, ``prev_hash`` and ``hash`` itself,
   and serializes the line at once: canonical JSON of the validated model's JSON-mode dump,
   plus ``\\n``. So every stored line satisfies ``event_hash(json.loads(line)) == hash``.
@@ -737,7 +741,12 @@ class EventLog:
         must be a line boundary. Without ``spans`` every segment is read whole. Strict
         (the default) raises ``CorruptLine`` and validation errors like ``iter_events``;
         ``strict=False`` records them in ``RunScan.bad`` and skips the line.
+
+        A pruned run (``prune.json`` there) raises ``RunPruned`` naming its archive, as
+        ``iter_events`` and ``iter_located`` do (both read through here): its events are in
+        the archive, and reading what is left would give an empty or partial run.
         """
+        refuse_if_pruned(self, run_id, "read")
         out = RunScan(self, run_id, doc_id, strict)
         paths = self._segments(run_id)
         if spans is not None:
@@ -763,7 +772,8 @@ class EventLog:
         """Flushed events, upgraded and validated, grouped by ``doc_id`` and ordered by ``seq``.
 
         Streamed in two passes (see "Ordering contract" in the module doc): memory is a few
-        machine words per event plus one line, never the run's payloads.
+        machine words per event plus one line, never the run's payloads. ``RunPruned`` for
+        a pruned run (see ``scan``).
         """
         for located in self.scan(run_id, doc_id).events():
             yield located.event

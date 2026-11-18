@@ -104,6 +104,13 @@ were in flight; the next rebuild or ``verify_run`` sees them). Seals are read wi
 seals that are numbered from 0 and chained, and records ``seal_corrupt`` or
 ``seal_chain`` otherwise. Problem details name error types and field locations only,
 never stored content.
+
+A pruned run (``runs/<run_id>/prune.json``: its events are in an archive) is not indexed as
+an empty run: the rebuild records it in ``pruned_runs`` with its archive, lists it in
+``IndexStats.pruned_runs``, and writes no ``runs`` or document row for it. ``documents`` and
+``review_queue`` of that run, and ``iter_events`` of any pruned run (checked on the log),
+raise ``RunPruned`` naming the archive. ``runs_for_document`` cannot know whether a pruned run
+held the document; ``trace_doc`` names the pruned runs beside its answer.
 """
 
 from __future__ import annotations
@@ -119,7 +126,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mailroom_record.log import CorruptLine, EventLog, RunScan, _safe_detail
+from mailroom_record.log import CorruptLine, EventLog, RunPruned, RunScan, _safe_detail, pruned_archive, refuse_if_pruned
 from mailroom_record.models import _RUN_ID_RE, GENESIS, Event, Run, Seal
 from mailroom_record.seal import SealCorrupt, list_seals
 
@@ -134,7 +141,8 @@ __all__ = [
     "RunRow",
 ]
 
-SCHEMA_VERSION = 2  # 2: segments.fingerprint (the read path checks a segment is the one indexed)
+# 2: segments.fingerprint (the read path checks a segment is the one indexed); 3: pruned_runs
+SCHEMA_VERSION = 3
 
 _DDL = (
     "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
@@ -153,11 +161,12 @@ _DDL = (
     "fingerprint TEXT NOT NULL, PRIMARY KEY (run_id, segment))",
     "CREATE TABLE doc_spans (run_id TEXT NOT NULL, doc_id TEXT NOT NULL, segment TEXT NOT NULL, "
     "first_offset INTEGER NOT NULL, end_offset INTEGER NOT NULL, PRIMARY KEY (run_id, doc_id, segment))",
+    "CREATE TABLE pruned_runs (run_id TEXT PRIMARY KEY, archive TEXT NOT NULL)",
 )
 
 # The tables whose content is the index's meaning (``dump``); segments and doc_spans are an
 # access path that only a rebuild fills, so they are left out of equality checks.
-_DUMP_TABLES = ("runs", "documents", "chain_heads", "doc_runs", "review_queue", "problems")
+_DUMP_TABLES = ("runs", "documents", "chain_heads", "doc_runs", "review_queue", "problems", "pruned_runs")
 _CORRUPT_ERRORS = {"SQLITE_CORRUPT", "SQLITE_NOTADB"}
 _BUSY_ERRORS = {"SQLITE_BUSY", "SQLITE_LOCKED"}
 _SCAN_TRIES = 3
@@ -233,6 +242,7 @@ class IndexStats:
     seals: int
     torn_tails: int
     problems: tuple[IndexProblem, ...]
+    pruned_runs: tuple[str, ...] = ()  # pruned runs, recorded as pruned and not indexed
 
 
 @dataclass(frozen=True)
@@ -525,15 +535,35 @@ class Index:
         with self._txn(write=False) as con:
             return [RunRow(*r) for r in con.execute(self._RUN_SELECT + " ORDER BY r.run_id")]
 
-    def documents(self, run_id: str) -> list[DocRow]:
+    def pruned_runs(self) -> dict[str, str]:
+        """The runs the last rebuild found pruned: run id -> the archive that holds them."""
         with self._txn(write=False) as con:
+            return dict(con.execute("SELECT run_id, archive FROM pruned_runs ORDER BY run_id").fetchall())
+
+    @staticmethod
+    def _refuse_pruned(con: sqlite3.Connection, run_id: str) -> None:
+        row = con.execute("SELECT archive FROM pruned_runs WHERE run_id = ?", (run_id,)).fetchone()
+        if row is not None:
+            raise RunPruned(
+                f"run {run_id!r} is pruned in this store (the index rebuilt it as pruned), so its "
+                f"documents cannot be read; unpack {row[0]} first (mailroom-record unpack), then reindex"
+            )
+
+    def documents(self, run_id: str) -> list[DocRow]:
+        """The run's documents. ``RunPruned`` for a run the last rebuild found pruned."""
+        with self._txn(write=False) as con:
+            self._refuse_pruned(con, run_id)
             rows = con.execute(self._DOC_SELECT + " WHERE d.run_id = ? ORDER BY d.doc_id", (run_id,))
             return [DocRow(*r[:6], bool(r[6])) for r in rows]
 
     def review_queue(self, run_id: str | None = None) -> list[DocRow]:
-        """Documents in review (head event of kind ``review``), by run then doc id."""
+        """Documents in review (head event of kind ``review``), by run then doc id.
+        ``RunPruned`` for a named run the last rebuild found pruned (all runs: pruned ones
+        hold no rows)."""
         where = " WHERE q.doc_id IS NOT NULL" + ("" if run_id is None else " AND d.run_id = ?")
         with self._txn(write=False) as con:
+            if run_id is not None:
+                self._refuse_pruned(con, run_id)
             rows = con.execute(self._DOC_SELECT + where + " ORDER BY d.run_id, d.doc_id", () if run_id is None else (run_id,))
             return [DocRow(*r[:6], bool(r[6])) for r in rows]
 
@@ -591,7 +621,10 @@ class Index:
         in another document's lines outside those ranges is not seen here either (the full
         read would raise on it). ``verify_run`` reads every line and is the tamper check:
         it reports such damage (a ``seq_gap``, a ``broken_link``, a ``corrupt_line``).
+
+        A pruned run raises ``RunPruned`` (checked on the log, so a stale index cannot hide it).
         """
+        refuse_if_pruned(log, run_id, "read")
         found = self._spans_for(log, run_id, doc_id)
         scan: RunScan | None = None
         if found is not None:
@@ -740,8 +773,18 @@ def _build(con: sqlite3.Connection, log: EventLog) -> IndexStats:
     for ddl in _DDL:
         con.execute(ddl)
     problems: list[IndexProblem] = []
+    pruned: list[str] = []
     n_runs = n_docs = n_events = n_seals = n_torn = 0
+
+    def record_pruned(run_id: str, archive: str) -> None:
+        con.execute("INSERT INTO pruned_runs VALUES (?, ?)", (run_id, archive))
+        pruned.append(run_id)
+
     for run_id in _run_ids(log):
+        archive = pruned_archive(log, run_id)
+        if archive is not None:  # its events are in the archive: recorded as pruned, not as empty
+            record_pruned(run_id, archive)
+            continue
         if not (log.run_dir(run_id) / "run.json").exists() and not log.segment_paths(run_id):
             continue  # being created (create_run writes run.json before any segment can exist)
         try:
@@ -765,10 +808,15 @@ def _build(con: sqlite3.Connection, log: EventLog) -> IndexStats:
         except SealCorrupt as exc:
             problems.append(IndexProblem(run_id, None, None, None, "seal_corrupt", type(exc).__name__))
             seals, last = None, None
+        try:
+            scan, bound = _stable_scan(log, run_id)
+        except RunPruned:  # pruned while the rebuild read it
+            n_runs -= 1
+            record_pruned(run_id, pruned_archive(log, run_id) or "(the recorded archive)")
+            continue
         n_seals += seals or 0
         con.execute("INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?)", (run_id, *_run_header(run), seals, last))
 
-        scan, bound = _stable_scan(log, run_id)
         n_torn += len(scan.torn)
         spans: dict[tuple[str, str], list[int]] = {}
         heads: dict[str, _Head] = {}
@@ -821,5 +869,5 @@ def _build(con: sqlite3.Connection, log: EventLog) -> IndexStats:
         "INSERT INTO problems VALUES (?, ?, ?, ?, ?, ?)",
         [(p.run_id, p.doc_id, p.segment, p.byte_offset, p.kind, p.detail) for p in problems],
     )
-    return IndexStats(n_runs, n_docs, n_events, n_seals, n_torn, tuple(problems))
+    return IndexStats(n_runs, n_docs, n_events, n_seals, n_torn, tuple(problems), tuple(pruned))
 
