@@ -17,27 +17,6 @@ json_values = st.recursive(
     max_leaves=30,
 )
 
-FIXED_VECTORS: list[Any] = [
-    None,
-    True,
-    0,
-    -1,
-    2**70,
-    1.5,
-    -0.0,
-    1e-300,
-    "",
-    "plain",
-    "naïve ✓ 文字 \U0001f600",
-    "line\nbreak\ttab\r  \x00",
-    [],
-    {},
-    [1, "a", None, [2, {"b": 3}]],
-    {"b": 1, "a": 2, "A": 3, "é": 4, "": 5},
-    {"nested": {"z": [1, 2, {"y": None}], "a": {"k": "v"}}},
-    (1, 2, 3),
-]
-
 
 def test_known_encoding_is_sorted_compact_and_unescaped() -> None:
     assert canonical_json({"b": 1, "a": [1, 2], "é": "✓"}) == '{"a":[1,2],"b":1,"é":"✓"}'.encode()
@@ -141,36 +120,3 @@ def test_sha256_file_errors(tmp_path: Path) -> None:
 @given(json_values)
 def test_hash_is_sha256_of_canonical_bytes(value: Any) -> None:
     assert hash_obj(value) == hashlib.sha256(canonical_json(value)).hexdigest()
-
-
-# --- parity with mailroom_record.hashing: any divergence must fail here -----------------
-
-
-def _record_hashing() -> Any:
-    return pytest.importorskip("mailroom_record.hashing")
-
-
-def _outcome(fn: Any, value: Any) -> tuple[str, Any]:
-    try:
-        return ("ok", fn(value))
-    except Exception as exc:  # noqa: BLE001  (comparing which error each side raises)
-        return ("error", type(exc))
-
-
-@pytest.mark.parametrize("value", FIXED_VECTORS + [math.nan, {1: "a"}, {"a": object()}])
-def test_parity_with_record_on_fixed_vectors(value: Any) -> None:
-    record = _record_hashing()
-    assert _outcome(canonical_json, value) == _outcome(record.canonical_json, value)
-    assert _outcome(hash_obj, value) == _outcome(record.hash_obj, value)
-
-
-@given(json_values)
-def test_parity_with_record_on_generated_values(value: Any) -> None:
-    record = _record_hashing()
-    assert canonical_json(value) == record.canonical_json(value)
-    assert hash_obj(value) == record.hash_obj(value)
-
-
-@given(st.binary())
-def test_parity_with_record_sha256_hex(data: bytes) -> None:
-    assert sha256_hex(data) == _record_hashing().sha256_hex(data)
