@@ -16,6 +16,8 @@ Branch: `claude/project-thread-pbvxf9` (PR #5). PR #2 (record) is on `main` and 
 - CircleCI is now configured on `main` (`.circleci/config.yml`); it must be green on the landing head before the merge.
 - Not verified: live `fetch_hub.py` download, `build_profile.py` regeneration (needs the EDA clone), rebuilding the review snapshot from public sources (inputs are project files).
 - Merge into `main` through the merge gate in `.claude/rules/pr-flow.md`, step 7.
+- Follow-up (round-3 finding 10, deferred): a `known_warnings` entry that no longer matches any finding is not reported as stale. Real data: 0 of the 13 committed entries are stale.
+- Follow-up (round-3 finding 11, deferred): a review decision with an `absent` reason that also carries a non-empty value resolves to a scorable value. Real data: 0 such decisions in `labels/gold-review-2026-11-18-r2/` (191 `absent` decisions carry only `[]`).
 
 ## Open questions for the owner
 1. Human desk decisions are `gold` with the desk role as reviewer (no reviewer initials recorded). Should initials be added first?
