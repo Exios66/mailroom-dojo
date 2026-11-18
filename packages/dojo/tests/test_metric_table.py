@@ -22,6 +22,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from mailroom_dojo.measures import (
+    PAIRING_METHODS,
     READERS,
     ConfidenceInterval,
     Measure,
@@ -256,6 +257,27 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
     ("unknown reader", _set("f1_macro", "readers", ["dashboard"]), "(f1_macro).readers[0]: 'dashboard'"),
     ("reader twice", _set("schema_valid", "readers", ["run_report", "run_report"]), "lists a reader twice"),
     ("bad pairing", _set("f1_macro", "pairing", "paired_t"), "(f1_macro).pairing"),
+    (
+        "headline without pairing",
+        _set("accuracy", "pairing", None),
+        "(accuracy).pairing: a kept headline or keep-rule metric names its pairing",
+    ),
+    (
+        "keep rule without pairing",
+        _set("per_field_scores", "pairing", None),
+        "(per_field_scores).pairing: a kept headline or keep-rule metric",
+    ),
+    ("pairing and note", _set("accuracy", "pairing_note", "why"), "(accuracy).pairing_note: a note says why"),
+    (
+        "empty pairing note",
+        _set("f1_macro", "pairing_note", " "),
+        "(f1_macro).pairing_note: must not be empty",
+    ),
+    (
+        "not ported with pairing",
+        _set("bert_elapsed_ms", "pairing", "paired_percentile_bootstrap"),
+        "(bert_elapsed_ms).pairing",
+    ),
     (
         "keep rule without direction",
         _set("extraction_overall_score", "direction", "none"),
@@ -557,3 +579,29 @@ def test_a_repeated_key_is_refused(tmp_path: Path) -> None:
     path.write_text(text, encoding="utf-8")
     with pytest.raises(MetricTableError, match=f"found duplicate key '{CONFIRMED_AGENT}'"):
         load_metric_table(path)
+
+
+def test_every_compared_metric_names_its_pairing_or_why_not() -> None:
+    table = load_metric_table()
+    compared = [
+        row
+        for row in table.rows
+        if row.status != "not_ported" and (row.headline or "keep_rule" in row.readers)
+    ]
+    assert compared
+    for row in compared:
+        assert (row.pairing is None) != (row.pairing_note is None), row.id
+    assert {row.pairing for row in table.rows} - {None} <= set(PAIRING_METHODS)
+
+
+def test_the_pairings_are_the_tests_d1_implements() -> None:
+    """Each pairing names a D1 function by the method string its result carries."""
+    paired = pytest.importorskip("mailroom_dojo.statistics.paired", reason="D1 statistics not on this branch")
+    bootstrap = pytest.importorskip("mailroom_dojo.statistics.bootstrap")
+    import dataclasses
+
+    def default_method(cls: type) -> object:
+        return next(field.default for field in dataclasses.fields(cls) if field.name == "method")
+
+    assert default_method(paired.PairedDelta) == PAIRING_METHODS["paired_percentile_bootstrap"]
+    assert default_method(bootstrap.DeltaInterval) == PAIRING_METHODS["two_sample_percentile_bootstrap"]

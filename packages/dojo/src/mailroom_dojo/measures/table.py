@@ -42,6 +42,7 @@ __all__ = [
     "NON_NUMERIC_UNITS",
     "ORIGINS",
     "PAIRINGS",
+    "PAIRING_METHODS",
     "READERS",
     "STATUSES",
     "TABLE_FORMAT",
@@ -118,9 +119,19 @@ LAYERS: tuple[str, ...] = ("classification", "field_scoring", "D1", "D3b", "D4",
 _EXISTING_LAYERS = frozenset({"classification", "field_scoring"})
 STATUSES: tuple[str, ...] = ("implemented", "planned", "not_ported")
 ORIGINS: tuple[str, ...] = ("registry", "golden")
-#: Pairing rules for comparing two runs. ``two_sample_percentile_bootstrap`` is the old
-#: ``analysis.bootstrap.delta_significance`` that ``compare_serving`` runs on latencies.
-PAIRINGS: tuple[str, ...] = ("two_sample_percentile_bootstrap",)
+#: How two runs' values of a metric are compared, each a test D1 implements
+#: (``mailroom_dojo.statistics``), with the ``method`` string D1 stamps on its result:
+#: ``paired_percentile_bootstrap`` is ``paired_bootstrap_delta`` (per-document values of
+#: two runs over the same documents, paired by document id; the design's "Comparing
+#: runs"); ``two_sample_percentile_bootstrap`` is ``delta_significance`` (two unpaired
+#: samples; the old ``compare_serving`` on latencies).
+PAIRING_METHODS: Mapping[str, str] = MappingProxyType(
+    {
+        "paired_percentile_bootstrap": "paired-percentile-bootstrap",
+        "two_sample_percentile_bootstrap": "two-sample-percentile-bootstrap",
+    }
+)
+PAIRINGS: tuple[str, ...] = tuple(PAIRING_METHODS)
 
 #: The gates, reports and projections that read metrics, as the master design and the port
 #: design name them (``metrics.yaml`` says where). A kept metric names at least one.
@@ -170,6 +181,7 @@ _ROW_DEFAULTS: Mapping[str, Any] = MappingProxyType(
         "status_reason": None,
         "cost": False,
         "pairing": None,
+        "pairing_note": None,
         "noise_floor": None,
         "old_source": None,
         "notes": "",
@@ -244,6 +256,7 @@ class MetricRow:
     status_reason: str | None
     cost: bool
     pairing: str | None
+    pairing_note: str | None
     noise_floor: float | None
     old_source: str | None
     notes: str
@@ -551,6 +564,20 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
     direction = str(_choice(spec["direction"], DIRECTIONS, f"{path}.direction"))
     if "keep_rule" in readers and direction == "none":
         raise _fail(f"{path}.direction", "a metric the keep rule reads needs a direction (higher or lower)")
+    pairing = _choice(spec["pairing"], PAIRINGS, f"{path}.pairing", nullable=True)
+    pairing_note = (
+        None if spec["pairing_note"] is None else _string(spec["pairing_note"], f"{path}.pairing_note")
+    )
+    if status == "not_ported" and (pairing is not None or pairing_note is not None):
+        raise _fail(f"{path}.pairing", "a not_ported metric has no pairing")
+    if pairing is not None and pairing_note is not None:
+        raise _fail(f"{path}.pairing_note", "a note says why there is no pairing; this row has one")
+    compared = status != "not_ported" and (spec["headline"] or "keep_rule" in readers)
+    if compared and pairing is None and pairing_note is None:
+        raise _fail(
+            f"{path}.pairing",
+            "a kept headline or keep-rule metric names its pairing, or a pairing_note says why it has none",
+        )
     noise_floor = spec["noise_floor"]
     if noise_floor is not None and (
         isinstance(noise_floor, bool)
@@ -582,7 +609,8 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
         producer=producer,
         status_reason=reason,
         cost=spec["cost"],
-        pairing=_choice(spec["pairing"], PAIRINGS, f"{path}.pairing", nullable=True),
+        pairing=pairing,
+        pairing_note=pairing_note,
         noise_floor=None if noise_floor is None else float(noise_floor),
         old_source=None if spec["old_source"] is None else _string(spec["old_source"], f"{path}.old_source"),
         notes=_string(spec["notes"], f"{path}.notes", allow_empty=True),
@@ -616,6 +644,7 @@ def _row_canonical(row: MetricRow) -> dict[str, Any]:
         "status_reason": row.status_reason,
         "cost": row.cost,
         "pairing": row.pairing,
+        "pairing_note": row.pairing_note,
         "noise_floor": row.noise_floor,
         "old_source": row.old_source,
         "notes": row.notes,

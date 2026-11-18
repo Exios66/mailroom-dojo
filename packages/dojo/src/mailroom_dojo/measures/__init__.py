@@ -23,6 +23,7 @@ from .measure import (
     comparability_problems,
 )
 from .table import (
+    PAIRING_METHODS,
     READERS,
     DefaultView,
     DirectionOverride,
@@ -39,6 +40,7 @@ __all__ = [
     "COST_BASES",
     "LABEL_STATUSES",
     "LABEL_STATUS_WORDS",
+    "PAIRING_METHODS",
     "PROVENANCE_KEYS",
     "READERS",
     "ConfidenceInterval",

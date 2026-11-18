@@ -77,9 +77,19 @@
 #   producer      default null; the new function that computes it today
 #   cost          default false; true when the value is money spent (a Measure of it
 #                 needs a cost basis other than none)
-#   pairing       default null; how two runs are compared, where the old code defines it
-#   noise_floor   default null; the smallest difference that counts, where the old code
-#                 or docs define one (none do today)
+#   pairing       default null; how two runs' values are compared, one of the tests D1
+#                 implements (table.PAIRING_METHODS): paired_percentile_bootstrap (D1
+#                 paired_bootstrap_delta: per-document values over the same documents,
+#                 paired by document id, the design's "Comparing runs") or
+#                 two_sample_percentile_bootstrap (D1 delta_significance, the old
+#                 compare_serving on latencies). Required on every kept headline row
+#                 and every row the keep rule reads, unless pairing_note says why not.
+#   pairing_note  default null; why a kept headline or keep-rule row has no pairing (a
+#                 statistic of the whole set, such as macro F1, or a bound)
+#   noise_floor   default null everywhere, on purpose: the smallest difference that
+#                 counts is measured by D7 (repeat runs of one configuration), not
+#                 guessed here; the old code and docs define none. Until D7 sets it, a
+#                 comparison reports its interval and no "beats the noise" verdict.
 #   origin        registry | golden
 #
 # default_views (top level): the one number each agent's dashboard shows by default,
@@ -297,6 +307,7 @@ metrics:
     layer: "classification"
     status: "implemented"
     readers: ["golden_parity_gate", "headline_view"]
+    pairing_note: "Macro F1 is a statistic of the whole confusion matrix, not a mean of per-document values, so D1's paired_bootstrap_delta (mean per-document difference) does not apply; a paired document resample that recomputes the statistic on both runs is D7's to build. Compare runs on accuracy (paired) meanwhile."
     producer: "mailroom_dojo.classification.metrics.macro_prf"
     origin: "registry"
     old_source: "classification.macro_prf"
@@ -314,6 +325,7 @@ metrics:
     layer: "classification"
     status: "implemented"
     readers: ["golden_parity_gate", "headline_view", "classification_report"]
+    pairing: "paired_percentile_bootstrap"
     producer: "mailroom_dojo.classification.metrics.accuracy"
     origin: "registry"
     old_source: "classification.accuracy"
@@ -331,6 +343,7 @@ metrics:
     layer: "field_scoring"
     status: "implemented"
     readers: ["golden_parity_gate", "headline_view", "specialist_report", "keep_rule", "set_c_report"]
+    pairing: "paired_percentile_bootstrap"
     producer: "mailroom_dojo.field_scoring.extraction.score_extraction"
     origin: "registry"
     old_source: "field_scoring.score_extraction"
@@ -348,6 +361,7 @@ metrics:
     layer: "D3b"
     status: "planned"
     readers: ["golden_parity_gate", "headline_view"]
+    pairing: "paired_percentile_bootstrap"
     origin: "registry"
     old_source: "extraction_metrics.extraction_binary_metrics"
     citation: "ACE / CoNLL / SemEval slot filling; TP requires typed score ≥ 1.0. F1 is van Rijsbergen β=1."
@@ -364,6 +378,7 @@ metrics:
     layer: "D3b"
     status: "planned"
     readers: ["golden_parity_gate", "headline_view"]
+    pairing: "paired_percentile_bootstrap"
     origin: "registry"
     old_source: "extraction_metrics.extraction_binary_metrics"
     citation: "ACE / CoNLL / SemEval slot filling; F2 is van Rijsbergen Fβ with β=2 (5PR/(4P+R))."
@@ -381,6 +396,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["headline_view", "set_a_report"]
+    pairing: "paired_percentile_bootstrap"
     origin: "registry"
     old_source: "reviewer.score_review_lane"
     citation: "Exact class match over reviewer-answered rows with a verified target."
@@ -397,6 +413,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["headline_view", "set_a_report"]
+    pairing: "paired_percentile_bootstrap"
     origin: "registry"
     old_source: "reviewer.score_review_lane"
     citation: "Accepted = the pipeline routed the document to extraction; wrong = accepted label differs from the verified target."
@@ -413,6 +430,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["headline_view", "set_a_report"]
+    pairing_note: "An upper confidence bound is a guard, not a number two runs are compared on; compare reviewer_wrong_accept_rate (paired) instead."
     origin: "registry"
     old_source: "reviewer.score_review_lane"
     citation: "Clopper-Pearson exact upper bound (analysis.calibration.clopper_pearson_upper)."
@@ -429,6 +447,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["headline_view", "set_a_report"]
+    pairing: "paired_percentile_bootstrap"
     origin: "registry"
     old_source: "reviewer.score_review_lane"
     citation: "Pipeline reviewer routing basis: a human verdict, no usable answer, or a confidence below the class cutoff."
@@ -445,6 +464,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["headline_view", "set_a_report"]
+    pairing: "paired_percentile_bootstrap"
     origin: "registry"
     old_source: "reviewer.score_review_lane"
     citation: "Every accept must have text, an eligible reviewer label, no causes, a cutoff, and agreement unless the sorter was below its low band."
@@ -1862,6 +1882,7 @@ metrics:
     layer: "D3b"
     status: "planned"
     readers: ["golden_parity_gate", "headline_view"]
+    pairing_note: "Macro F1 over topics is a statistic of the whole set, not a mean of per-document values, so D1's paired_bootstrap_delta does not apply; a paired document resample that recomputes it is D7's to build."
     origin: "registry"
     old_source: "content_scoring.score_content_topic"
     citation: "Enron 11-topic catalog; unweighted macro-F1 (content_scoring.score_content_topic)."
@@ -2154,6 +2175,7 @@ metrics:
     layer: "D5"
     status: "planned"
     readers: ["golden_parity_gate", "headline_view", "run_report"]
+    pairing: "two_sample_percentile_bootstrap"
     origin: "registry"
     old_source: "serving.score_serving_run"
     citation: "Decode throughput: completion_tokens / e2e_latency (vLLM tokens/s convention)."
@@ -2752,6 +2774,7 @@ metrics:
     layer: "field_scoring"
     status: "implemented"
     readers: ["specialist_report", "keep_rule"]
+    pairing: "paired_percentile_bootstrap"
     producer: "mailroom_dojo.field_scoring.extraction.score_extraction"
     origin: "registry"
     old_source: "field_scoring.score_field"
