@@ -87,6 +87,25 @@ def test_the_index_refuses_a_pruned_run_and_indexes_the_rest(tmp_path: Path, kee
     assert res.exit_code == 0 and "pruned (not indexed): r1" in res.stdout
 
 
+def test_an_index_rebuilt_before_the_prune_answers_from_its_cache_until_a_reindex(tmp_path: Path) -> None:
+    """``prune_run`` does not touch the index (a cache the caller places): its ``documents``
+    and ``review_queue`` answer from the last rebuild until ``reindex``, and ``drift`` says
+    so; ``iter_events`` checks the log and refuses at once (as the README states)."""
+    s = build_two_run_sealed_store(tmp_path / "store")
+    index = Index(s.root / "index.sqlite")
+    index.reindex(s.log)
+    before = index.documents("r1")
+    pack_run(s.root, "r1", tmp_path / "r1.tar.zst")
+    prune_run(s.root, "r1")
+    assert index.documents("r1") == before and index.pruned_runs() == {}
+    assert index.drift(s.log) != []
+    with pytest.raises(RunPruned, match="r1.tar.zst"):
+        list(index.iter_events(s.log, "r1", "d1"))
+    index.reindex(s.log)
+    with pytest.raises(RunPruned, match="r1.tar.zst"):
+        index.documents("r1")
+
+
 @MODES
 def test_trace_doc_names_the_pruned_runs_it_could_not_read(tmp_path: Path, keep_columns: bool) -> None:
     s = _pruned(tmp_path, keep_columns)

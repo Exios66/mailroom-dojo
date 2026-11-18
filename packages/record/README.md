@@ -95,9 +95,12 @@ review queue. No table holds document text, payloads, decisions or causes.
   match.
 - A pruned run is not indexed as an empty run: `reindex` records it in a `pruned_runs` table
   (run and archive) and lists it in `IndexStats.pruned_runs`, and indexes every other run as
-  usual. `Index.pruned_runs()` returns them; `documents` and `review_queue` of a pruned run,
-  and `iter_events` of a pruned run (checked on the log, so a stale index cannot hide it),
-  raise `RunPruned` naming the archive. Unpack the archive, then reindex.
+  usual. `Index.pruned_runs()` returns them. `iter_events` of a pruned run raises `RunPruned`
+  naming the archive as soon as the run is pruned (it is checked on the log, so a stale index
+  cannot hide it). `documents` and `review_queue` read only the index, and `prune_run` does
+  not touch it: they raise `RunPruned` for a run the last `reindex` found pruned, and until
+  that reindex they answer from the earlier rebuild (`drift` then names the stale tables).
+  Reindex after a prune; after `unpack_run`, reindex again.
 
 The module docstring of `index.py` states every rule.
 
@@ -244,7 +247,8 @@ holds that lock shared from its first check until it writes `pack.json`, so a pr
 a pack in progress. Unpacking the recorded archive (the one `pack.json` names, or the one
 `prune.json` names: the archive the run was pruned from) restores a pruned run in place; any
 other archive of that run, such as an older pack, is `UnpackConflict` in this store and
-changes nothing.
+changes nothing. Neither `prune_run` nor `unpack_run` touches an index: run `reindex` after
+either (see "Index" above).
 
 Recovering a damaged pack or prune record. A `pack.json` that is unreadable or not the record
 `pack_run` writes, or a `prune.json` that is unreadable or names another archive, makes
