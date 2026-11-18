@@ -153,28 +153,31 @@ def _rows_for(agent: str) -> list[dict[str, Any]]:
     ]
 
 
+def _roster(status: str) -> list[str]:
+    return [agent for agent, entry in PACKAGED_RAW["agent_roster"].items() if entry["status"] == status]
+
+
 # Agents and metrics picked from the packaged data by property, so the owner can change
 # any view by editing the YAML without touching this file.
-CONFIRMED_AGENT = _views_by(lambda _, view: view["confirmed"])[0]
+CONFIRMED_AGENT = _views_by(lambda _, view: view["confirmed"] and view["metric"] is not None)[0]
 CONFIRMED_METRIC = PACKAGED_RAW["default_views"][CONFIRMED_AGENT]["metric"]
-HEADLINE_AGENT = sorted(_headline_agents() & set(_views_by(lambda _, view: view["metric"] is not None)))[0]
-PROPOSAL_AGENT = _views_by(
-    lambda agent, view: (
-        not view["confirmed"] and view["metric"] is not None and agent not in _headline_agents()
-    )
-)[0]
+LIVE_AGENT = _roster("live")[0]
+LEGACY_AGENT = _roster("legacy")[0]
+RETIRED_AGENT = _roster("retired")[0]
+GUARDED_AGENT = _views_by(lambda _, view: view.get("guard") is not None)[0]
+UNGUARDED_AGENT = _views_by(lambda _, view: view["metric"] is not None and view.get("guard") is None)[0]
+LABELLED_AGENT = _views_by(lambda _, view: bool(view.get("label_layers")))[0]
+UNLABELLED_AGENT = _views_by(lambda _, view: view["metric"] is not None and view.get("label_layers") == [])[0]
 NO_METRIC_AGENT = _views_by(lambda _, view: view["metric"] is None)[0]
 FOREIGN_METRIC = next(
     row["id"]
     for row in PACKAGED_RAW["metrics"]
     if row not in _rows_for(CONFIRMED_AGENT) and row["status"] != "not_ported"
 )
-NON_HEADLINE_FOR_HEADLINE_AGENT = next(row["id"] for row in _rows_for(HEADLINE_AGENT) if not row["headline"])
-DIRECTIONLESS_HEADLINE_AGENT, DIRECTIONLESS_HEADLINE = next(
-    (agent, row["id"])
-    for agent in sorted(_headline_agents())
-    for row in _rows_for(agent)
-    if row["headline"] and row["direction"] == "none"
+DIRECTIONLESS_METRIC = next(
+    row["id"]
+    for row in _rows_for(CONFIRMED_AGENT)
+    if row["direction"] == "none" and row["unit"] != "structure"
 )
 
 
@@ -306,27 +309,56 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
     ("nan noise floor", _set("f1_macro", "noise_floor", float("nan")), "(f1_macro).noise_floor"),
     ("bool noise floor", _set("f1_macro", "noise_floor", True), "(f1_macro).noise_floor"),
     ("foreign registry id", _set("f1", "metric_id", "registry:f2"), "(f1).metric_id: a registry id names"),
-    ("headline agent without a view", _drop_view(HEADLINE_AGENT), "has headline metrics but no default view"),
+    ("live agent without a view", _drop_view(LIVE_AGENT), f"{LIVE_AGENT!r} is a live agent with no entry"),
     (
-        "view metric unknown",
+        "legacy agent with a view",
+        _copy_view(CONFIRMED_AGENT, LEGACY_AGENT),
+        "is legacy; it has no default view",
+    ),
+    (
+        "retired agent with a view",
+        _copy_view(CONFIRMED_AGENT, RETIRED_AGENT),
+        "is retired; it has no default view",
+    ),
+    (
+        "unknown agent",
+        _copy_view(CONFIRMED_AGENT, "nobody_agent"),
+        "'nobody_agent' is not an agent of the roster",
+    ),
+    (
+        "view not a metric",
         _view(CONFIRMED_AGENT, metric="f9"),
         f"default_views.{CONFIRMED_AGENT}.metric: 'f9' is not",
     ),
-    ("view not ported", _view(HEADLINE_AGENT, metric="bert_elapsed_ms"), "'bert_elapsed_ms' is not ported"),
+    ("view not ported", _view(CONFIRMED_AGENT, metric="bert_elapsed_ms"), "'bert_elapsed_ms' is not ported"),
     ("view not for agent", _view(CONFIRMED_AGENT, metric=FOREIGN_METRIC), "does not apply to"),
-    ("confirmed non-headline", _view(PROPOSAL_AGENT, confirmed=True), "is not a headline metric"),
     (
-        "headline agent non-headline",
-        _view(HEADLINE_AGENT, metric=NON_HEADLINE_FOR_HEADLINE_AGENT),
-        "is not a headline metric",
+        "view without direction",
+        _view(CONFIRMED_AGENT, metric=DIRECTIONLESS_METRIC),
+        "has no direction (none)",
     ),
+    ("guard without direction", _view(GUARDED_AGENT, guard=DIRECTIONLESS_METRIC), ".guard: "),
+    ("guard not for agent", _view(GUARDED_AGENT, guard=FOREIGN_METRIC), "does not apply to"),
+    ("guard is the metric", _view(CONFIRMED_AGENT, guard=CONFIRMED_METRIC), "is the default metric itself"),
+    ("guard confirmed alone", _view(UNGUARDED_AGENT, guard_confirmed=True), "there is no guard to confirm"),
+    ("guard confirmed not bool", _view(GUARDED_AGENT, guard_confirmed="no"), "guard_confirmed: must be true"),
+    ("layers missing", _view(LABELLED_AGENT, label_layers=_DELETE), "label_layers: missing"),
+    ("layers empty", _view(LABELLED_AGENT, label_layers=[]), "needs labels; name the layers"),
     (
-        "confirmed without direction",
-        _view(DIRECTIONLESS_HEADLINE_AGENT, metric=DIRECTIONLESS_HEADLINE, confirmed=True),
-        "has no direction; only an unconfirmed proposal may",
+        "unknown layer",
+        _view(LABELLED_AGENT, label_layers=["human"]),
+        "label_layers[0]: 'human' is not one of",
     ),
+    ("layer twice", _view(LABELLED_AGENT, label_layers=["hub", "hub"]), "lists a layer twice"),
+    ("derived with others", _view(LABELLED_AGENT, label_layers=["derived", "hub"]), "list it alone"),
+    ("layers for no labels", _view(UNLABELLED_AGENT, label_layers=["hub"]), "needs no labels"),
     ("null without reason", _view(NO_METRIC_AGENT, reason=None), f"default_views.{NO_METRIC_AGENT}.reason"),
-    ("null confirmed", _view(NO_METRIC_AGENT, confirmed=True), f"default_views.{NO_METRIC_AGENT}.confirmed"),
+    (
+        "null with guard",
+        _view(NO_METRIC_AGENT, guard=CONFIRMED_METRIC),
+        f"default_views.{NO_METRIC_AGENT}.guard",
+    ),
+    ("null with layers", _view(NO_METRIC_AGENT, label_layers=["hub"]), "reads no labels"),
     ("reason with metric", _view(CONFIRMED_AGENT, reason="because"), "only an agent with no default metric"),
     ("empty source", _view(CONFIRMED_AGENT, source=" "), f"default_views.{CONFIRMED_AGENT}.source: must not"),
     ("confirmed not bool", _view(CONFIRMED_AGENT, confirmed="yes"), "confirmed: must be true or false"),
@@ -340,10 +372,26 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
         _view(CONFIRMED_AGENT, source=_DELETE),
         f"default_views.{CONFIRMED_AGENT}.source: missing",
     ),
-    ("unknown agent", _copy_view(CONFIRMED_AGENT, "nobody_agent"), "'nobody_agent' is not an agent of any"),
-    ("bad secondary", _view(CONFIRMED_AGENT, secondary=[FOREIGN_METRIC]), "secondary[0]"),
-    ("secondary is metric", _view(CONFIRMED_AGENT, secondary=[CONFIRMED_METRIC]), "listed twice"),
-    ("secondary twice", _view(CONFIRMED_AGENT, secondary=["accuracy", "accuracy"]), "listed twice"),
+    (
+        "roster not a mapping",
+        lambda raw: raw.__setitem__("agent_roster", []),
+        "agent_roster: must be a mapping",
+    ),
+    (
+        "agent missing from roster",
+        lambda raw: raw["agent_roster"].pop(LEGACY_AGENT),
+        f"agent_roster: {LEGACY_AGENT!r} is named by a metric row or family but not listed",
+    ),
+    (
+        "bad roster status",
+        lambda raw: raw["agent_roster"].__setitem__(LIVE_AGENT, {"status": "active"}),
+        f"agent_roster.{LIVE_AGENT}.status: 'active' is not one of",
+    ),
+    (
+        "roster extra key",
+        lambda raw: raw["agent_roster"].__setitem__(LIVE_AGENT, {"status": "live", "tier": 0}),
+        f"agent_roster.{LIVE_AGENT}: must be a mapping with status",
+    ),
     (
         "views not a mapping",
         lambda raw: raw.__setitem__("default_views", []),
@@ -516,8 +564,11 @@ def test_check_accepts_measures_that_keep_their_rows() -> None:
     assert table.check(Measure.missing(method="accuracy", reason="gt_missing"))
     assert table.check(_measure("prompt_tokens", value=120, label_status="none")).unit == "count"
     assert table.check(_measure("prompt_tokens", value=120.0, label_status="none")).unit == "count"
+    mean_of_counts = _raw()
+    _set("prompt_tokens", "aggregation", "mean")(mean_of_counts)
     assert (
-        table.check(_measure("intake_hyphen_unwraps", value=1.5, label_status="none")).aggregation == "mean"
+        load_metric_table(mean_of_counts).check(_measure("prompt_tokens", value=1.5, label_status="none")).id
+        == "prompt_tokens"
     )
     assert table.check(_measure("accuracy", value=0.5, ci=_ci(0.5, 1.0))).id == "accuracy"
     assert table.check(_measure("wer", value=1.7, ci=_ci(1.2, 2.4))).id == "wer"
@@ -528,27 +579,37 @@ def test_check_accepts_measures_that_keep_their_rows() -> None:
 VIEWS_PATH = Path(__file__).parent / "fixtures" / "measures" / "default_views.json"
 
 
-def test_each_agent_with_a_headline_has_one_default_view() -> None:
+def test_every_live_agent_has_one_entry_and_no_legacy_or_retired_agent_has_one() -> None:
     table = load_metric_table()
-    headline_agents = {
-        agent
-        for row in table.headline_rows()
-        if row.status != "not_ported"
-        for agent in row.expanded_agents
-        if agent != "ALL"
-    }
-    assert headline_agents <= set(table.default_views)
+    live = set(table.agents_with_status("live"))
+    assert len(live) == 16
+    assert live <= set(table.default_views)
+    for status in ("legacy", "retired"):
+        assert not set(table.agents_with_status(status)) & set(table.default_views), status
+
+
+def test_no_default_or_guard_uses_a_directionless_or_dropped_metric() -> None:
+    table = load_metric_table()
     for agent, view in table.default_views.items():
         assert view.agent == agent and view.source.strip()
         if view.metric is None:
-            assert view.reason and not view.confirmed
+            assert view.reason and view.guard is None and not view.label_layers
             continue
-        row = table.get(view.metric)
-        assert row.status != "not_ported" and row.applies_to(agent)
-        if view.confirmed or agent in headline_agents:
-            assert row.headline, agent
-        if view.confirmed:
-            assert row.direction != "none", agent
+        for metric in (view.metric, view.guard):
+            if metric is None:
+                continue
+            row = table.get(metric)
+            assert row.status != "not_ported" and row.applies_to(agent), (agent, metric)
+            assert row.direction != "none", (agent, metric)
+        assert bool(view.label_layers) == (table.get(view.metric).ground_truth in ("required", "optional"))
+
+
+def test_the_roster_names_every_agent_of_every_row() -> None:
+    table = load_metric_table()
+    named = {agent for row in table.rows for agent in row.expanded_agents} - {"ALL"}
+    assert named <= set(table.agent_roster)
+    with pytest.raises(UnknownMetricError, match="unknown agent status"):
+        table.agents_with_status("active")
 
 
 def test_the_default_views_are_the_reviewed_ones() -> None:
@@ -557,11 +618,10 @@ def test_the_default_views_are_the_reviewed_ones() -> None:
 
     table = load_metric_table()
     frozen = json.loads(VIEWS_PATH.read_text(encoding="utf-8"))
-    assert (
-        frozen["status"] == "confirmed only where the old registry names the number; the rest are proposals"
-    )
-    current = metric_table_canonical_form(table)["default_views"]
-    assert current == frozen["default_views"]
+    assert frozen["status"] == "confirmed only where the owner decided; the rest are proposals"
+    canonical = metric_table_canonical_form(table)
+    assert canonical["default_views"] == frozen["default_views"]
+    assert canonical["agent_roster"] == frozen["agent_roster"]
     assert table.default_view("not_an_agent") is None
 
 

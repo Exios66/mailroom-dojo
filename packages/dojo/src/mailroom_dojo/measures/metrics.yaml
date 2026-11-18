@@ -92,19 +92,18 @@
 #                 Measure filed under the alias.
 #   origin        registry | golden
 #
-# default_views (top level): the one number each agent's dashboard shows by default,
-# what the old registry's tier 0 meant ("ONE number per agent on the default view",
-# registry.py line 13). agent -> {metric, confirmed, source, secondary?, reason?}.
-# The loader checks: every agent named by a kept headline row (families expanded, ALL
-# not counted) has exactly one entry (a repeated key is refused); the metric is in the
-# table, not not_ported, and applies to the agent; a confirmed entry, or any entry for
-# an agent with headline rows, uses a headline row; an unconfirmed proposal for an agent
-# without headline rows may use any kept row; a confirmed entry's metric has a direction
-# (none only in a proposal); metric null needs a reason and is never confirmed (the
-# archivist); source is never empty; secondary metrics (a guard or second headline) are
-# kept rows that apply to the agent. confirmed: true only where the registry names the
-# number (classifiers and specialists); every other entry is a proposal, owner to
-# confirm. The entries are part of the content hash.
+# default_views (top level): the one number each agent's dashboard shows by default
+# (the old registry's tier 0, "ONE number per agent on the default view", registry.py
+# line 13), with a guard beside it. agent -> {metric, confirmed, source, guard?,
+# guard_confirmed?, label_layers, reason?}. The loader checks: every live agent of
+# agent_roster has an entry, and no legacy or retired agent has one; the metric and the
+# guard are kept rows that apply to the agent and have a direction (never none); the
+# guard is not the metric; label_layers names the layers the gold comes from
+# (table.LABEL_LAYERS: hub, interim, near_gold, gold_review, or derived alone), empty
+# only for a metric that needs no labels; metric null needs a reason and has no guard
+# and no layers. confirmed is true only where the owner decided; every other entry is
+# a proposal. The entries are part of the content hash and frozen in
+# tests/fixtures/measures/default_views.json.
 #   old_source    default null; the old function, relative to llm_dojo_scoring
 
 table_format: 1
@@ -124,122 +123,158 @@ agent_families:
   SPECIALISTS: ["contracts_specialist", "merger_agreement_specialist", "corporate_records_specialist", "due_diligence_specialist", "correspondence_specialist", "compliance_specialist", "court_opinions_specialist", "insurance_claims_specialist"]
   TRANSCRIBERS: ["pdf_transcriber", "image_extractor"]
 
+# agent_roster (top level): every agent a row or family names, and the agents of the
+# running pipeline, each with a status (table.AGENT_STATUSES). live = the 16 agents of
+# llm-mailroom src/config/taxonomy.yaml (agents:); legacy = the eight auditors, whose rows
+# stay for golden parity only; retired = the specialists of classes the pipeline no
+# longer routes (history only); procedural, human, comparison and graph_node name an
+# entry that is not a model agent.
+agent_roster:
+  sorter: {status: "live"}
+  sorter_reviewer: {status: "live"}
+  judge: {status: "live"}
+  arbiter: {status: "live"}
+  boss: {status: "live"}
+  intake: {status: "live"}
+  gmail_triage: {status: "live"}
+  relations: {status: "live"}
+  reporter: {status: "live", note: "procedural: builds the report from the record; makes no model decision"}
+  pdf_transcriber: {status: "live"}
+  image_extractor: {status: "live"}
+  contracts_specialist: {status: "live"}
+  merger_agreement_specialist: {status: "live"}
+  corporate_records_specialist: {status: "live"}
+  correspondence_specialist: {status: "live"}
+  insurance_claims_specialist: {status: "live"}
+  due_diligence_specialist: {status: "retired", note: "class no longer routed; rows kept for history and golden parity"}
+  compliance_specialist: {status: "retired", note: "class no longer routed; rows kept for history and golden parity"}
+  court_opinions_specialist: {status: "retired", note: "class no longer routed; rows kept for history and golden parity"}
+  audit_agent: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  contract_auditor: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  corporate_records_auditor: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  due_diligence_auditor: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  correspondence_auditor: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  compliance_auditor: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  court_opinions_auditor: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  insurance_claims_auditor: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  archivist: {status: "procedural", note: "files the document; judged by the archive gate's checks"}
+  human_review: {status: "human", note: "the people who resolve review items"}
+  local_vs_api: {status: "comparison", note: "a serving comparison; the backend is a column of the run, not an agent"}
+  classification_arbiter: {status: "graph_node", note: "the graph node that runs the arbiter agent"}
+
 default_views:
   sorter:
     metric: "f1_macro"
     confirmed: true
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 308: f1_macro is 'the universal classifier headline'; line 13: tier 0 is ONE number per agent on the default view. sorter and judge are classifiers (CLASSIFIERS family)."
-  judge:
-    metric: "f1_macro"
-    confirmed: true
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 308: f1_macro is 'the universal classifier headline'; line 13: tier 0 is ONE number per agent on the default view. sorter and judge are classifiers (CLASSIFIERS family)."
-  contracts_specialist:
-    metric: "extraction_overall_score"
-    confirmed: true
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
-  merger_agreement_specialist:
-    metric: "extraction_overall_score"
-    confirmed: true
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
-  corporate_records_specialist:
-    metric: "extraction_overall_score"
-    confirmed: true
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
-  due_diligence_specialist:
-    metric: "extraction_overall_score"
-    confirmed: true
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
-  compliance_specialist:
-    metric: "extraction_overall_score"
-    confirmed: true
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
-  court_opinions_specialist:
-    metric: "extraction_overall_score"
-    confirmed: true
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
-  insurance_claims_specialist:
-    metric: "extraction_f2"
-    confirmed: true
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 344: extraction_f2 is the 'insurance claims board number'; line 13."
-  correspondence_specialist:
-    metric: "content_topic_f1_macro"
-    confirmed: true
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 997: content_topic_f1_macro, 'promoted to T0', is 'the correspondence board number'; line 13."
-  reporter:
-    metric: "extraction_overall_score"
-    confirmed: false
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 327: extraction_overall_score, tier 0, is the only headline that names reporter and boss. Proposal, owner to confirm."
-  boss:
-    metric: "extraction_overall_score"
-    confirmed: false
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 327: extraction_overall_score, tier 0, is the only headline that names reporter and boss. Proposal, owner to confirm."
+    guard: "accuracy"
+    label_layers: ["hub", "interim", "near_gold", "gold_review"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 308: f1_macro is 'the universal classifier headline'; line 13: tier 0 is ONE number per agent on the default view."
   sorter_reviewer:
     metric: "reviewer_class_accuracy"
     confirmed: false
-    secondary: ["reviewer_wrong_accept_upper_95"]
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 352-353: reviewer_class_accuracy, the first of the five tier-0 reviewer metrics, with reviewer_wrong_accept_upper_95 (line 370) as its guard. Open owner question."
-  local_vs_api:
-    metric: "tokens_per_second"
+    guard: "reviewer_wrong_accept_upper_95"
+    label_layers: ["derived"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 352-353 and 370: reviewer_class_accuracy, tier 0, with reviewer_wrong_accept_upper_95 as its guard. Gold derived from the class labels (rule in each row's status_reason)."
+  judge:
+    metric: "judge_verdict_accuracy"
     confirmed: false
-    secondary: ["ttft_seconds"]
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 1097-1098: tokens_per_second, tier 0, with ttft_seconds (line 1091, tier 0) as the secondary. Proposal, owner to confirm."
+    guard: "judge_escalation_recall"
+    label_layers: ["derived"]
+    source: "Review of the provisional defaults: f1_macro has no gold for the judge in the new system; the verdict is graded against a verdict derived from the field labels (rule in the row's status_reason)."
   arbiter:
     metric: "arbiter_decision_accuracy"
     confirmed: false
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 526-534: arbiter_decision_accuracy (tier 1), the arbiter's labelled quality metric; the arbiter has no tier-0 metric. Proposal, owner to confirm."
-  audit_agent:
-    metric: "audit_resolution_rate"
-    confirmed: false
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
-  contract_auditor:
-    metric: "audit_resolution_rate"
-    confirmed: false
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
-  corporate_records_auditor:
-    metric: "audit_resolution_rate"
-    confirmed: false
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
-  due_diligence_auditor:
-    metric: "audit_resolution_rate"
-    confirmed: false
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
-  correspondence_auditor:
-    metric: "audit_resolution_rate"
-    confirmed: false
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
-  compliance_auditor:
-    metric: "audit_resolution_rate"
-    confirmed: false
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
-  court_opinions_auditor:
-    metric: "audit_resolution_rate"
-    confirmed: false
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
-  insurance_claims_auditor:
-    metric: "audit_resolution_rate"
-    confirmed: false
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm."
-  pdf_transcriber:
-    metric: "word_accuracy"
-    confirmed: false
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 1051: word_accuracy is the 'complementary transcription headline' (tier 1). Proposal, owner to confirm."
-  image_extractor:
-    metric: "word_accuracy"
-    confirmed: false
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 1051: word_accuracy is the 'complementary transcription headline' (tier 1). Proposal, owner to confirm."
+    guard: "arbiter_wrongful_accept_rate"
+    label_layers: ["derived"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 526-534: the arbiter's quality metric (tier 1); the arbiter has no tier-0 metric. Gold derived (rule in the row's status_reason)."
+  boss:
+    metric: "boss_wrongful_approve_rate"
+    confirmed: true
+    guard: "boss_needless_review_rate"
+    guard_confirmed: false
+    label_layers: ["derived"]
+    source: "Owner decision, 2026-11-18: the boss is judged on wrong approvals. Not extraction_overall_score, which grades the specialist. Gold derived (rule in the row's status_reason)."
   intake:
-    metric: "intake_prep_completeness"
+    metric: "accuracy"
+    confirmed: true
+    label_layers: ["hub", "interim", "near_gold", "gold_review"]
+    source: "Owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class against the gold class, with no guard; the clerk diagnostics are not needed to judge intake."
+  contracts_specialist:
+    metric: "extraction_overall_score"
     confirmed: false
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 1059-1064 (tier 1, INTAKE), emitted by the golden intake suite (tests/fixtures/golden/scores.json at 23f8234c); bert_elapsed_ms, intake's tier-0 metric, is not ported. Proposal, owner to confirm."
-  human_review:
-    metric: "review_tray_wasted_review_rate"
+    guard: "per_field_scores"
+    label_layers: ["hub", "interim", "near_gold", "gold_review"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
+  merger_agreement_specialist:
+    metric: "extraction_overall_score"
     confirmed: false
-    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 580-588 (tier 1): review_tray_wasted_review_rate, the review tray's one kept metric. Proposal, owner to confirm."
+    guard: "per_field_scores"
+    label_layers: ["hub", "interim", "near_gold", "gold_review"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
+  corporate_records_specialist:
+    metric: "extraction_overall_score"
+    confirmed: false
+    guard: "per_field_scores"
+    label_layers: ["hub", "interim", "near_gold", "gold_review"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
+  insurance_claims_specialist:
+    metric: "extraction_f2"
+    confirmed: false
+    guard: "per_field_scores"
+    label_layers: ["hub", "interim", "near_gold", "gold_review"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 344: extraction_f2 is the 'insurance claims board number'; line 13."
+  correspondence_specialist:
+    metric: "extraction_overall_score"
+    confirmed: false
+    guard: "per_field_scores"
+    label_layers: ["hub", "interim", "near_gold", "gold_review"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326 (the specialist headline). Not content_topic_f1_macro (line 997): the live correspondence schema has no content_topic field, so a perfect extraction would score 0.0; that row stays for eval-lineage runs."
+  local_vs_api:
+    metric: "tokens_per_second"
+    confirmed: false
+    guard: "cost_per_document"
+    label_layers: []
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 1097-1098: tokens_per_second, tier 0, kept for continuity. The backend is a column of the run, not an agent."
+  pdf_transcriber:
+    metric: null
+    confirmed: true
+    reason: "deferred by owner decision"
+    source: "Owner decision, 2026-11-18: transcribers are out of scope for this step."
+  image_extractor:
+    metric: null
+    confirmed: true
+    reason: "deferred by owner decision"
+    source: "Owner decision, 2026-11-18: transcribers are out of scope for this step."
+  reporter:
+    metric: null
+    confirmed: false
+    reason: "procedural; no model decision to score"
+    source: "Review of the provisional defaults: extraction_overall_score grades the specialist, not the reporter."
   archivist:
     metric: null
     confirmed: false
-    reason: "procedural; judged by archive-gate checks, not a metric"
+    reason: "procedural; no model decision to score"
     source: "tests/fixtures/golden/scores.json at 23f8234c: suites.archivist is a cost suite with an empty score; no registry metric names the archivist."
+  human_review:
+    metric: null
+    confirmed: true
+    reason: "humans are the gold source"
+    source: "Owner decision, 2026-11-18. Wasted review is attributed to the routing policy that sent the document (review_tray_wasted_review_rate), not to the reviewers."
+  relations:
+    metric: null
+    confirmed: false
+    reason: "no metric yet: the old registry has none for relations and no reader needs one"
+    source: "llm-mailroom src/config/taxonomy.yaml (agents:); llm_dojo_scoring/metrics/registry.py at 23f8234c names no relations metric."
+  gmail_triage:
+    metric: null
+    confirmed: false
+    reason: "no metric yet: mail intake ahead of the pipeline; the old registry has none and no reader needs one"
+    source: "llm-mailroom src/config/taxonomy.yaml (agents:); llm_dojo_scoring/metrics/registry.py at 23f8234c names no gmail_triage metric."
+  classification_arbiter:
+    metric: null
+    confirmed: false
+    reason: "the graph node of the arbiter agent; its decisions are scored under arbiter"
+    source: "llm-mailroom src/graph/build_graph.py: classification_arbiter is the node that runs the arbiter agent."
 
 metrics:
   - id: "f1_macro"
@@ -343,6 +378,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["headline_view", "set_a_report"]
+    status_reason: "Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): the reviewer's class is right when it equals the resolved class label (hub, interim, near_gold or gold_review, in the labels package's order). No scoring code in D2."
     pairing: "paired_percentile_bootstrap"
     origin: "registry"
     old_source: "reviewer.score_review_lane"
@@ -377,6 +413,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["headline_view", "set_a_report"]
+    status_reason: "Gold derived (owner decision, 2026-11-18): an accept is wrong when the accepted class differs from the resolved class label; the bound is Clopper-Pearson over those accepts. No scoring code in D2."
     pairing_note: "An upper confidence bound is a guard, not a number two runs are compared on; compare reviewer_wrong_accept_rate (paired) instead."
     origin: "registry"
     old_source: "reviewer.score_review_lane"
@@ -572,6 +609,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    status_reason: "Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): the gold verdict is complete when the extraction scores at or above the high band against the resolved field labels and the class is right, partial between the low and high bands, incomplete below the low band or under a wrong class. The bands come from the scoring profile in config/, never from code. No scoring code in D2."
     origin: "registry"
     old_source: "decision_lanes.score_judge_lane"
     citation: "Exact match of the judge verdict with the gold verdict: human resolution (approve_as_is complete, correct partial, reject/reclassify incomplete), else the dataset extraction score read through the ambiguous band."
@@ -604,6 +642,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    status_reason: "Gold derived (owner decision, 2026-11-18): over documents whose derived verdict (judge_verdict_accuracy's rule) is partial or incomplete. No scoring code in D2."
     origin: "registry"
     old_source: "decision_lanes.score_judge_lane"
     citation: "Recall of the judge's escalation (verdict other than complete) over documents whose gold verdict is partial or incomplete."
@@ -652,6 +691,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    status_reason: "Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): a retry is right when the next attempt's score against the resolved field labels rose by at least epsilon; an accept is right when the final score is at or above the high band and the class is right. The bands come from the scoring profile in config/, never from code. No scoring code in D2."
     origin: "registry"
     old_source: "decision_lanes.score_arbiter_lane"
     citation: "Retry right when the next attempt's dataset score rose by epsilon; accept right when the person approved as is or the final score is at or above the high band; human_review right when the person changed the work or the final score is below the high band."
@@ -684,6 +724,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    status_reason: "Gold derived (owner decision, 2026-11-18): an accept_with_caveats ruling is wrong when the final extraction scores below the high band against the resolved field labels, or the class is wrong. The bands come from the scoring profile in config/, never from code. No scoring code in D2."
     origin: "registry"
     old_source: "decision_lanes.score_arbiter_lane"
     citation: "Accept wrong when the person corrected, reclassified or rejected the work, or, with no resolution, the final dataset score is below the high band."
@@ -716,6 +757,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    status_reason: "Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): an approval is wrong when the approved extraction scores below the high band against the resolved field labels, or the class is wrong. This replaces the old 'human outcome only' rule. The bands come from the scoring profile in config/, never from code. No scoring code in D2."
     origin: "registry"
     old_source: "decision_lanes.score_boss_lane"
     citation: "Human outcome only: approved, then the person corrected, reclassified or rejected the document."
@@ -732,6 +774,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    status_reason: "Gold derived (owner decision, 2026-11-18): a review ruling was needless when the extraction scores at or above the high band against the resolved field labels and the class is right. This replaces the old 'human outcome only' rule. The bands come from the scoring profile in config/, never from code. No scoring code in D2."
     origin: "registry"
     old_source: "decision_lanes.score_boss_lane"
     citation: "Human outcome only: review, then the person approved as is."
@@ -748,6 +791,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    status_reason: "Attributed to the routing policy that sent the document to review, not to the reviewers: humans are the gold source (owner decision, 2026-11-18)."
     origin: "registry"
     old_source: "decision_lanes.score_review_tray"
     citation: "A review that changed nothing: resolution approve_as_is and empty field_corrections."
@@ -1830,6 +1874,7 @@ metrics:
     layer: "D3b"
     status: "planned"
     readers: ["golden_parity_gate", "headline_view"]
+    status_reason: "For eval-lineage runs only: the live correspondence schema has no content_topic field, so a perfect live extraction would score 0.0. The correspondence specialist's default view is extraction_overall_score."
     pairing_note: "Macro F1 over topics is a statistic of the whole set, not a mean of per-document values, so D1's paired_bootstrap_delta does not apply; a paired document resample that recomputes it is D7's to build."
     origin: "registry"
     old_source: "content_scoring.score_content_topic"
@@ -2022,9 +2067,9 @@ metrics:
     ground_truth: "structural"
     headline: false
     metric_id: "registry:intake_prep_completeness"
-    layer: "D3b"
-    status: "planned"
-    readers: ["golden_parity_gate"]
+    layer: null
+    status: "not_ported"
+    status_reason: "Clerk diagnostics; not needed to judge intake (owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class). The old golden intake suite emits it, so D3b lists it as an intended difference of the parity gate; the row keeps its meaning."
     origin: "registry"
     old_source: "intake.intake_prep_completeness"
     citation: "Share of intake prep-step invariants that hold (NFC, newline unify, NBSP, zero-width, C0, hyphen unwrap, blank-run collapse, horizontal space, trim). Structural check on predicted text vs the clerk contract; not a labeled GT score (intake.intake_prep_completeness)."
@@ -2039,9 +2084,9 @@ metrics:
     ground_truth: "optional"
     headline: false
     metric_id: "registry:intake_changed_rate"
-    layer: "D3b"
-    status: "planned"
-    readers: ["golden_parity_gate"]
+    layer: null
+    status: "not_ported"
+    status_reason: "Clerk diagnostics; not needed to judge intake (owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class). The old golden intake suite emits it, so D3b lists it as an intended difference of the parity gate; the row keeps its meaning."
     origin: "registry"
     old_source: "intake.score_intake"
     citation: "Share of documents whose intake clerk mutated the transcribed text (intake.score_intake)."
@@ -2055,9 +2100,9 @@ metrics:
     ground_truth: "none"
     headline: false
     metric_id: "registry:intake_messy_rate"
-    layer: "D3b"
-    status: "planned"
-    readers: ["golden_parity_gate"]
+    layer: null
+    status: "not_ported"
+    status_reason: "Clerk diagnostics; not needed to judge intake (owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class). The old golden intake suite emits it, so D3b lists it as an intended difference of the parity gate; the row keeps its meaning."
     origin: "registry"
     old_source: "intake.looks_messy"
     citation: "Share of documents flagged looks_messy after intake (OCR residue / wrap artifacts) (intake.looks_messy)."
@@ -2071,9 +2116,9 @@ metrics:
     ground_truth: null
     headline: false
     metric_id: "registry:intake_hyphen_unwraps"
-    layer: "D3b"
-    status: "planned"
-    readers: ["golden_parity_gate"]
+    layer: null
+    status: "not_ported"
+    status_reason: "Clerk diagnostics; not needed to judge intake (owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class). The old golden intake suite emits it, so D3b lists it as an intended difference of the parity gate; the row keeps its meaning."
     origin: "registry"
     old_source: "intake.deterministic_normalize"
     citation: ""
@@ -2087,9 +2132,9 @@ metrics:
     ground_truth: null
     headline: false
     metric_id: "registry:intake_collapsed_blanks"
-    layer: "D3b"
-    status: "planned"
-    readers: ["golden_parity_gate"]
+    layer: null
+    status: "not_ported"
+    status_reason: "Clerk diagnostics; not needed to judge intake (owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class). The old golden intake suite emits it, so D3b lists it as an intended difference of the parity gate; the row keeps its meaning."
     origin: "registry"
     old_source: "intake.deterministic_normalize"
     citation: ""

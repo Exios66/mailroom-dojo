@@ -31,10 +31,13 @@ import yaml
 from .measure import Measure, MeasureError
 
 __all__ = [
+    "AGENT_STATUSES",
     "AGGREGATIONS",
+    "AgentEntry",
     "DefaultView",
     "DIRECTIONS",
     "GROUND_TRUTH",
+    "LABEL_LAYERS",
     "LAYERS",
     "NON_NUMERIC_UNITS",
     "ORIGINS",
@@ -85,6 +88,24 @@ GROUND_TRUTH: tuple[str, ...] = ("required", "optional", "structural", "none")
 LAYERS: tuple[str, ...] = ("classification", "field_scoring", "D1", "D3b", "D4", "D5", "D6", "D7")
 _EXISTING_LAYERS = frozenset({"classification", "field_scoring"})
 STATUSES: tuple[str, ...] = ("implemented", "planned", "not_ported")
+#: Where an agent stands. ``live`` is an agent of the running pipeline (llm-mailroom
+#: ``src/config/taxonomy.yaml``, ``agents:``); ``legacy`` and ``retired`` agents keep their
+#: rows for golden parity and history but get no default view; the rest name what the
+#: entry is when it is not a model agent.
+AGENT_STATUSES: tuple[str, ...] = (
+    "live",
+    "legacy",
+    "retired",
+    "procedural",
+    "human",
+    "comparison",
+    "graph_node",
+)
+#: The label layers a default view reads its gold from: the dataset ground truth (``hub``),
+#: the generated interim labels (``interim``, ``near_gold``), reviewed gold
+#: (``gold_review``), and ``derived`` gold, computed deterministically from those layers'
+#: class and field labels (for decision agents; the row's ``status_reason`` gives the rule).
+LABEL_LAYERS: tuple[str, ...] = ("hub", "interim", "near_gold", "gold_review", "derived")
 ORIGINS: tuple[str, ...] = ("registry", "golden")
 #: How two runs' values of a metric are compared, each a test D1 implements
 #: (``mailroom_dojo.statistics``), with the ``method`` string D1 stamps on its result:
@@ -156,9 +177,11 @@ _ROW_DEFAULTS: Mapping[str, Any] = MappingProxyType(
     }
 )
 _TOP_KEYS = frozenset(
-    {"table_format", "version", "source", "agent_families", "default_views", "metrics"}
+    {"table_format", "version", "source", "agent_families", "agent_roster", "default_views", "metrics"}
 )
-_VIEW_KEYS = frozenset({"metric", "confirmed", "source", "reason", "secondary"})
+_VIEW_KEYS = frozenset(
+    {"metric", "confirmed", "source", "reason", "guard", "guard_confirmed", "label_layers"}
+)
 _VIEW_REQUIRED = ("metric", "confirmed", "source")
 
 
@@ -241,13 +264,24 @@ class MetricRow:
 
 
 @dataclass(frozen=True)
+class AgentEntry:
+    """An agent the table names, its status (:data:`AGENT_STATUSES`) and an optional note."""
+
+    agent: str
+    status: str
+    note: str | None
+
+
+@dataclass(frozen=True)
 class DefaultView:
     """The one number an agent's dashboard shows by default (the old tier 0, "ONE number per agent").
 
-    ``metric`` is ``None`` for an agent that has no metric, and ``reason`` says why.
-    ``confirmed`` is true only where the owner or the old registry fixed the choice;
-    ``source`` cites where it comes from; ``secondary`` names the metrics shown beside it
-    (a guard or a second headline).
+    ``metric`` is ``None`` for an agent with no default number, and ``reason`` says why.
+    ``confirmed`` is true only where the owner fixed the choice; ``source`` says where the
+    choice comes from. ``guard`` is the metric shown beside it so the default cannot be
+    gamed alone, with its own ``guard_confirmed``. ``label_layers`` names the label layers
+    (:data:`LABEL_LAYERS`) the gold comes from; it is empty only for a metric that needs no
+    labels.
     """
 
     agent: str
@@ -255,7 +289,9 @@ class DefaultView:
     confirmed: bool
     source: str
     reason: str | None
-    secondary: tuple[str, ...]
+    guard: str | None
+    guard_confirmed: bool
+    label_layers: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -265,6 +301,7 @@ class MetricTable:
     version: int
     source: Mapping[str, str]
     agent_families: Mapping[str, tuple[str, ...]]
+    agent_roster: Mapping[str, AgentEntry]
     rows: tuple[MetricRow, ...]
     default_views: Mapping[str, DefaultView]
     content_hash: str
@@ -291,6 +328,12 @@ class MetricTable:
     def default_view(self, agent: str) -> DefaultView | None:
         """The agent's default view, or ``None`` when the table names none."""
         return self.default_views.get(agent)
+
+    def agents_with_status(self, status: str) -> tuple[str, ...]:
+        """The roster's agents with ``status`` (an unknown status raises), in roster order."""
+        if status not in AGENT_STATUSES:
+            raise UnknownMetricError(f"unknown agent status {status!r}; known: {', '.join(AGENT_STATUSES)}")
+        return tuple(name for name, entry in self.agent_roster.items() if entry.status == status)
 
     def resolve(self, metric: str) -> MetricRow:
         """The row a metric id is reported under: the target of an alias, else its own row."""
@@ -608,13 +651,19 @@ def metric_table_canonical_form(table: MetricTable) -> dict[str, Any]:
         "version": table.version,
         "source": dict(sorted(table.source.items())),
         "agent_families": {name: list(members) for name, members in sorted(table.agent_families.items())},
+        "agent_roster": {
+            name: {"status": entry.status, "note": entry.note}
+            for name, entry in sorted(table.agent_roster.items())
+        },
         "default_views": {
             agent: {
                 "metric": view.metric,
                 "confirmed": view.confirmed,
                 "source": view.source,
                 "reason": view.reason,
-                "secondary": list(view.secondary),
+                "guard": view.guard,
+                "guard_confirmed": view.guard_confirmed,
+                "label_layers": list(view.label_layers),
             }
             for agent, view in sorted(table.default_views.items())
         },
@@ -657,29 +706,53 @@ def _check_aliases(rows: tuple[MetricRow, ...]) -> None:
                 )
 
 
-def _default_views(
+def _roster(
     raw: Any, rows: tuple[MetricRow, ...], families: Mapping[str, tuple[str, ...]]
+) -> dict[str, AgentEntry]:
+    """Validate ``agent_roster``: every agent a row or a family names is listed, with a status."""
+    if not isinstance(raw, Mapping):
+        raise _fail("agent_roster", "must be a mapping of agent to {status, note?}")
+    out: dict[str, AgentEntry] = {}
+    for agent, spec in raw.items():
+        path = f"agent_roster.{agent}"
+        if not isinstance(agent, str) or not _AGENT.match(agent):
+            raise _fail(path, f"{agent!r} is not an agent name")
+        if not isinstance(spec, Mapping) or not set(spec) <= {"status", "note"} or "status" not in spec:
+            raise _fail(path, "must be a mapping with status and an optional note")
+        status = str(_choice(spec["status"], AGENT_STATUSES, f"{path}.status"))
+        note = None if spec.get("note") is None else _string(spec["note"], f"{path}.note")
+        out[agent] = AgentEntry(agent, status, note)
+    named = {agent for row in rows for agent in row.expanded_agents} | {
+        agent for members in families.values() for agent in members
+    }
+    named.discard(_ALL_AGENTS)
+    absent = sorted(named - set(out))
+    if absent:
+        raise _fail("agent_roster", f"{absent[0]!r} is named by a metric row or family but not listed")
+    return out
+
+
+def _view_guarded_metric(metric: Any, agent: str, by_id: Mapping[str, MetricRow], path: str) -> MetricRow:
+    row = _view_metric(metric, agent, by_id, path)
+    if row.direction == "none":
+        raise _fail(path, f"{metric!r} has no direction (none); a default view or guard needs one")
+    return row
+
+
+def _default_views(
+    raw: Any, rows: tuple[MetricRow, ...], roster: Mapping[str, AgentEntry]
 ) -> dict[str, DefaultView]:
-    """Validate ``default_views``: one entry per agent with a headline row, and each rule."""
+    """Validate ``default_views``: one entry per live agent, none for a legacy or retired one."""
     if not isinstance(raw, Mapping):
         raise _fail("default_views", "must be a mapping of agent to its default view")
     by_id = {row.id: row for row in rows}
-    known = {agent for row in rows for agent in row.expanded_agents} | {
-        agent for members in families.values() for agent in members
-    }
-    known.discard(_ALL_AGENTS)
-    headline_agents = {
-        agent
-        for row in rows
-        if row.headline and row.status != "not_ported"
-        for agent in row.expanded_agents
-        if agent != _ALL_AGENTS
-    }
     views: dict[str, DefaultView] = {}
     for agent, spec in raw.items():
         path = f"default_views.{agent}"
-        if not isinstance(agent, str) or not _AGENT.match(agent):
-            raise _fail(path, f"{agent!r} is not an agent name")
+        if not isinstance(agent, str) or agent not in roster:
+            raise _fail(path, f"{agent!r} is not an agent of the roster")
+        if roster[agent].status in ("legacy", "retired"):
+            raise _fail(path, f"{agent!r} is {roster[agent].status}; it has no default view")
         if not isinstance(spec, Mapping):
             raise _fail(path, "must be a mapping")
         unknown = sorted(set(spec) - _VIEW_KEYS)
@@ -691,46 +764,58 @@ def _default_views(
         confirmed = spec["confirmed"]
         if not isinstance(confirmed, bool):
             raise _fail(f"{path}.confirmed", "must be true or false")
+        guard_confirmed = spec.get("guard_confirmed", False)
+        if not isinstance(guard_confirmed, bool):
+            raise _fail(f"{path}.guard_confirmed", "must be true or false")
         source = _string(spec["source"], f"{path}.source")
         reason = spec.get("reason")
-        secondary_raw = spec.get("secondary", [])
+        guard = spec.get("guard")
+        layers_raw = spec.get("label_layers")
         metric = spec["metric"]
         if metric is None:
             if reason is None:
                 raise _fail(f"{path}.reason", "an agent with no default metric needs the reason")
             reason = _string(reason, f"{path}.reason")
-            if confirmed:
-                raise _fail(
-                    f"{path}.confirmed", "an agent with no default metric is a proposal, not confirmed"
-                )
-            if secondary_raw:
-                raise _fail(f"{path}.secondary", "an agent with no default metric has no secondary metric")
-            views[agent] = DefaultView(agent, None, False, source, reason, ())
+            if guard is not None or "guard_confirmed" in spec:
+                raise _fail(f"{path}.guard", "an agent with no default metric has no guard")
+            if layers_raw is not None:
+                raise _fail(f"{path}.label_layers", "an agent with no default metric reads no labels")
+            views[agent] = DefaultView(agent, None, confirmed, source, reason, None, False, ())
             continue
         if reason is not None:
             raise _fail(f"{path}.reason", "only an agent with no default metric gives a reason")
-        if agent not in known:
-            raise _fail(path, f"{agent!r} is not an agent of any metric row or family")
-        row = _view_metric(metric, agent, by_id, f"{path}.metric")
-        if (confirmed or agent in headline_agents) and not row.headline:
+        row = _view_guarded_metric(metric, agent, by_id, f"{path}.metric")
+        if guard is None:
+            if "guard_confirmed" in spec:
+                raise _fail(f"{path}.guard_confirmed", "there is no guard to confirm")
+        else:
+            _view_guarded_metric(guard, agent, by_id, f"{path}.guard")
+            if guard == metric:
+                raise _fail(f"{path}.guard", f"{guard!r} is the default metric itself")
+        if layers_raw is None:
+            raise _fail(f"{path}.label_layers", "missing: name the label layers the gold comes from")
+        if not isinstance(layers_raw, list):
+            raise _fail(f"{path}.label_layers", "must be a list of label layers")
+        for index, layer in enumerate(layers_raw):
+            _choice(layer, LABEL_LAYERS, f"{path}.label_layers[{index}]")
+        if len(set(layers_raw)) != len(layers_raw):
+            raise _fail(f"{path}.label_layers", "lists a layer twice")
+        needs_labels = row.ground_truth in ("required", "optional")
+        if needs_labels and not layers_raw:
+            raise _fail(f"{path}.label_layers", f"{metric!r} needs labels; name the layers they come from")
+        if not needs_labels and layers_raw:
+            raise _fail(f"{path}.label_layers", f"{metric!r} needs no labels, so it reads no label layer")
+        if "derived" in layers_raw and len(layers_raw) > 1:
             raise _fail(
-                f"{path}.metric",
-                f"{metric!r} is not a headline metric; a confirmed view, or one for an agent "
-                "with headline metrics, uses a headline metric",
+                f"{path}.label_layers", "derived gold is computed from the other layers; list it alone"
             )
-        if confirmed and row.direction == "none":
-            raise _fail(f"{path}.metric", f"{metric!r} has no direction; only an unconfirmed proposal may")
-        if not isinstance(secondary_raw, list):
-            raise _fail(f"{path}.secondary", "must be a list of metric ids")
-        for index, other in enumerate(secondary_raw):
-            _view_metric(other, agent, by_id, f"{path}.secondary[{index}]")
-            if other == metric or secondary_raw.index(other) != index:
-                raise _fail(f"{path}.secondary[{index}]", f"{other!r} is listed twice")
-        views[agent] = DefaultView(agent, metric, confirmed, source, None, tuple(secondary_raw))
-    absent = sorted(headline_agents - set(views))
+        views[agent] = DefaultView(
+            agent, metric, confirmed, source, None, guard, guard_confirmed, tuple(layers_raw)
+        )
+    absent = [name for name, entry in roster.items() if entry.status == "live" and name not in views]
     if absent:
         raise _fail(
-            "default_views", f"{absent[0]!r} has headline metrics but no default view (one per agent)"
+            "default_views", f"{absent[0]!r} is a live agent with no entry (a metric, or null with a reason)"
         )
     return views
 
@@ -769,11 +854,13 @@ def _build(data: Any) -> MetricTable:
             )
         seen_metric_ids[row.metric_id] = row.id
     _check_aliases(rows)
-    views = _default_views(data["default_views"], rows, families)
+    roster = _roster(data["agent_roster"], rows, families)
+    views = _default_views(data["default_views"], rows, roster)
     table = MetricTable(
         version=version,
         source=MappingProxyType(_source(data["source"])),
         agent_families=MappingProxyType(families),
+        agent_roster=MappingProxyType(roster),
         rows=rows,
         default_views=MappingProxyType(views),
         content_hash="",

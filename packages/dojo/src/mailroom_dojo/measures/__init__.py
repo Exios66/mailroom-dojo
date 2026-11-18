@@ -23,8 +23,11 @@ from .measure import (
     comparability_problems,
 )
 from .table import (
+    AGENT_STATUSES,
+    LABEL_LAYERS,
     PAIRING_METHODS,
     READERS,
+    AgentEntry,
     DefaultView,
     MetricRow,
     MetricTable,
@@ -35,12 +38,15 @@ from .table import (
 )
 
 __all__ = [
+    "AGENT_STATUSES",
     "COST_BASES",
+    "LABEL_LAYERS",
     "LABEL_STATUSES",
     "LABEL_STATUS_WORDS",
     "PAIRING_METHODS",
     "PROVENANCE_KEYS",
     "READERS",
+    "AgentEntry",
     "ConfidenceInterval",
     "DefaultView",
     "IncomparableMeasuresError",

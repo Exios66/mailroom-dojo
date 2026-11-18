@@ -1,205 +1,354 @@
 {
- "description": "The metric table's default_views, frozen for review (tests/test_metric_table.py). Regenerate from the table after a reviewed YAML edit: the value is metric_table_canonical_form(table)['default_views'].",
- "status": "confirmed only where the old registry names the number; the rest are proposals",
+ "description": "Each agent's default view and guard, and the agent roster, frozen for review. Live agents are llm-mailroom's 16 (src/config/taxonomy.yaml, agents:); legacy auditors and retired specialists get no view. confirmed is true only where the owner decided; every other entry is a proposal. A change is a metrics.yaml edit plus a refresh of this file in the same commit.",
+ "status": "confirmed only where the owner decided; the rest are proposals",
+ "agent_roster": {
+  "arbiter": {
+   "status": "live",
+   "note": null
+  },
+  "archivist": {
+   "status": "procedural",
+   "note": "files the document; judged by the archive gate's checks"
+  },
+  "audit_agent": {
+   "status": "legacy",
+   "note": "auditor; rows kept for golden parity only"
+  },
+  "boss": {
+   "status": "live",
+   "note": null
+  },
+  "classification_arbiter": {
+   "status": "graph_node",
+   "note": "the graph node that runs the arbiter agent"
+  },
+  "compliance_auditor": {
+   "status": "legacy",
+   "note": "auditor; rows kept for golden parity only"
+  },
+  "compliance_specialist": {
+   "status": "retired",
+   "note": "class no longer routed; rows kept for history and golden parity"
+  },
+  "contract_auditor": {
+   "status": "legacy",
+   "note": "auditor; rows kept for golden parity only"
+  },
+  "contracts_specialist": {
+   "status": "live",
+   "note": null
+  },
+  "corporate_records_auditor": {
+   "status": "legacy",
+   "note": "auditor; rows kept for golden parity only"
+  },
+  "corporate_records_specialist": {
+   "status": "live",
+   "note": null
+  },
+  "correspondence_auditor": {
+   "status": "legacy",
+   "note": "auditor; rows kept for golden parity only"
+  },
+  "correspondence_specialist": {
+   "status": "live",
+   "note": null
+  },
+  "court_opinions_auditor": {
+   "status": "legacy",
+   "note": "auditor; rows kept for golden parity only"
+  },
+  "court_opinions_specialist": {
+   "status": "retired",
+   "note": "class no longer routed; rows kept for history and golden parity"
+  },
+  "due_diligence_auditor": {
+   "status": "legacy",
+   "note": "auditor; rows kept for golden parity only"
+  },
+  "due_diligence_specialist": {
+   "status": "retired",
+   "note": "class no longer routed; rows kept for history and golden parity"
+  },
+  "gmail_triage": {
+   "status": "live",
+   "note": null
+  },
+  "human_review": {
+   "status": "human",
+   "note": "the people who resolve review items"
+  },
+  "image_extractor": {
+   "status": "live",
+   "note": null
+  },
+  "insurance_claims_auditor": {
+   "status": "legacy",
+   "note": "auditor; rows kept for golden parity only"
+  },
+  "insurance_claims_specialist": {
+   "status": "live",
+   "note": null
+  },
+  "intake": {
+   "status": "live",
+   "note": null
+  },
+  "judge": {
+   "status": "live",
+   "note": null
+  },
+  "local_vs_api": {
+   "status": "comparison",
+   "note": "a serving comparison; the backend is a column of the run, not an agent"
+  },
+  "merger_agreement_specialist": {
+   "status": "live",
+   "note": null
+  },
+  "pdf_transcriber": {
+   "status": "live",
+   "note": null
+  },
+  "relations": {
+   "status": "live",
+   "note": null
+  },
+  "reporter": {
+   "status": "live",
+   "note": "procedural: builds the report from the record; makes no model decision"
+  },
+  "sorter": {
+   "status": "live",
+   "note": null
+  },
+  "sorter_reviewer": {
+   "status": "live",
+   "note": null
+  }
+ },
  "default_views": {
   "arbiter": {
    "metric": "arbiter_decision_accuracy",
    "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 526-534: arbiter_decision_accuracy (tier 1), the arbiter's labelled quality metric; the arbiter has no tier-0 metric. Proposal, owner to confirm.",
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 526-534: the arbiter's quality metric (tier 1); the arbiter has no tier-0 metric. Gold derived (rule in the row's status_reason).",
    "reason": null,
-   "secondary": []
+   "guard": "arbiter_wrongful_accept_rate",
+   "guard_confirmed": false,
+   "label_layers": [
+    "derived"
+   ]
   },
   "archivist": {
    "metric": null,
    "confirmed": false,
    "source": "tests/fixtures/golden/scores.json at 23f8234c: suites.archivist is a cost suite with an empty score; no registry metric names the archivist.",
-   "reason": "procedural; judged by archive-gate checks, not a metric",
-   "secondary": []
-  },
-  "audit_agent": {
-   "metric": "audit_resolution_rate",
-   "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
-   "reason": null,
-   "secondary": []
+   "reason": "procedural; no model decision to score",
+   "guard": null,
+   "guard_confirmed": false,
+   "label_layers": []
   },
   "boss": {
-   "metric": "extraction_overall_score",
-   "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 327: extraction_overall_score, tier 0, is the only headline that names reporter and boss. Proposal, owner to confirm.",
-   "reason": null,
-   "secondary": []
-  },
-  "compliance_auditor": {
-   "metric": "audit_resolution_rate",
-   "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
-   "reason": null,
-   "secondary": []
-  },
-  "compliance_specialist": {
-   "metric": "extraction_overall_score",
+   "metric": "boss_wrongful_approve_rate",
    "confirmed": true,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13.",
+   "source": "Owner decision, 2026-11-18: the boss is judged on wrong approvals. Not extraction_overall_score, which grades the specialist. Gold derived (rule in the row's status_reason).",
    "reason": null,
-   "secondary": []
+   "guard": "boss_needless_review_rate",
+   "guard_confirmed": false,
+   "label_layers": [
+    "derived"
+   ]
   },
-  "contract_auditor": {
-   "metric": "audit_resolution_rate",
+  "classification_arbiter": {
+   "metric": null,
    "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
-   "reason": null,
-   "secondary": []
+   "source": "llm-mailroom src/graph/build_graph.py: classification_arbiter is the node that runs the arbiter agent.",
+   "reason": "the graph node of the arbiter agent; its decisions are scored under arbiter",
+   "guard": null,
+   "guard_confirmed": false,
+   "label_layers": []
   },
   "contracts_specialist": {
    "metric": "extraction_overall_score",
-   "confirmed": true,
+   "confirmed": false,
    "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13.",
    "reason": null,
-   "secondary": []
-  },
-  "corporate_records_auditor": {
-   "metric": "audit_resolution_rate",
-   "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
-   "reason": null,
-   "secondary": []
+   "guard": "per_field_scores",
+   "guard_confirmed": false,
+   "label_layers": [
+    "hub",
+    "interim",
+    "near_gold",
+    "gold_review"
+   ]
   },
   "corporate_records_specialist": {
    "metric": "extraction_overall_score",
-   "confirmed": true,
+   "confirmed": false,
    "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13.",
    "reason": null,
-   "secondary": []
-  },
-  "correspondence_auditor": {
-   "metric": "audit_resolution_rate",
-   "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
-   "reason": null,
-   "secondary": []
+   "guard": "per_field_scores",
+   "guard_confirmed": false,
+   "label_layers": [
+    "hub",
+    "interim",
+    "near_gold",
+    "gold_review"
+   ]
   },
   "correspondence_specialist": {
-   "metric": "content_topic_f1_macro",
-   "confirmed": true,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 997: content_topic_f1_macro, 'promoted to T0', is 'the correspondence board number'; line 13.",
-   "reason": null,
-   "secondary": []
-  },
-  "court_opinions_auditor": {
-   "metric": "audit_resolution_rate",
-   "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
-   "reason": null,
-   "secondary": []
-  },
-  "court_opinions_specialist": {
    "metric": "extraction_overall_score",
-   "confirmed": true,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13.",
-   "reason": null,
-   "secondary": []
-  },
-  "due_diligence_auditor": {
-   "metric": "audit_resolution_rate",
    "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326 (the specialist headline). Not content_topic_f1_macro (line 997): the live correspondence schema has no content_topic field, so a perfect extraction would score 0.0; that row stays for eval-lineage runs.",
    "reason": null,
-   "secondary": []
+   "guard": "per_field_scores",
+   "guard_confirmed": false,
+   "label_layers": [
+    "hub",
+    "interim",
+    "near_gold",
+    "gold_review"
+   ]
   },
-  "due_diligence_specialist": {
-   "metric": "extraction_overall_score",
-   "confirmed": true,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13.",
-   "reason": null,
-   "secondary": []
+  "gmail_triage": {
+   "metric": null,
+   "confirmed": false,
+   "source": "llm-mailroom src/config/taxonomy.yaml (agents:); llm_dojo_scoring/metrics/registry.py at 23f8234c names no gmail_triage metric.",
+   "reason": "no metric yet: mail intake ahead of the pipeline; the old registry has none and no reader needs one",
+   "guard": null,
+   "guard_confirmed": false,
+   "label_layers": []
   },
   "human_review": {
-   "metric": "review_tray_wasted_review_rate",
-   "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 580-588 (tier 1): review_tray_wasted_review_rate, the review tray's one kept metric. Proposal, owner to confirm.",
-   "reason": null,
-   "secondary": []
+   "metric": null,
+   "confirmed": true,
+   "source": "Owner decision, 2026-11-18. Wasted review is attributed to the routing policy that sent the document (review_tray_wasted_review_rate), not to the reviewers.",
+   "reason": "humans are the gold source",
+   "guard": null,
+   "guard_confirmed": false,
+   "label_layers": []
   },
   "image_extractor": {
-   "metric": "word_accuracy",
-   "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 1051: word_accuracy is the 'complementary transcription headline' (tier 1). Proposal, owner to confirm.",
-   "reason": null,
-   "secondary": []
-  },
-  "insurance_claims_auditor": {
-   "metric": "audit_resolution_rate",
-   "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 947-952 (tier 1, AUDITORS), emitted by each auditor's golden suite (tests/fixtures/golden/scores.json at 23f8234c). A behaviour rate with direction none: a stopgap until D3b proposes a labelled measure. Proposal, owner to confirm.",
-   "reason": null,
-   "secondary": []
+   "metric": null,
+   "confirmed": true,
+   "source": "Owner decision, 2026-11-18: transcribers are out of scope for this step.",
+   "reason": "deferred by owner decision",
+   "guard": null,
+   "guard_confirmed": false,
+   "label_layers": []
   },
   "insurance_claims_specialist": {
    "metric": "extraction_f2",
-   "confirmed": true,
+   "confirmed": false,
    "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 344: extraction_f2 is the 'insurance claims board number'; line 13.",
    "reason": null,
-   "secondary": []
+   "guard": "per_field_scores",
+   "guard_confirmed": false,
+   "label_layers": [
+    "hub",
+    "interim",
+    "near_gold",
+    "gold_review"
+   ]
   },
   "intake": {
-   "metric": "intake_prep_completeness",
-   "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 1059-1064 (tier 1, INTAKE), emitted by the golden intake suite (tests/fixtures/golden/scores.json at 23f8234c); bert_elapsed_ms, intake's tier-0 metric, is not ported. Proposal, owner to confirm.",
+   "metric": "accuracy",
+   "confirmed": true,
+   "source": "Owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class against the gold class, with no guard; the clerk diagnostics are not needed to judge intake.",
    "reason": null,
-   "secondary": []
+   "guard": null,
+   "guard_confirmed": false,
+   "label_layers": [
+    "hub",
+    "interim",
+    "near_gold",
+    "gold_review"
+   ]
   },
   "judge": {
-   "metric": "f1_macro",
-   "confirmed": true,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 308: f1_macro is 'the universal classifier headline'; line 13: tier 0 is ONE number per agent on the default view. sorter and judge are classifiers (CLASSIFIERS family).",
+   "metric": "judge_verdict_accuracy",
+   "confirmed": false,
+   "source": "Review of the provisional defaults: f1_macro has no gold for the judge in the new system; the verdict is graded against a verdict derived from the field labels (rule in the row's status_reason).",
    "reason": null,
-   "secondary": []
+   "guard": "judge_escalation_recall",
+   "guard_confirmed": false,
+   "label_layers": [
+    "derived"
+   ]
   },
   "local_vs_api": {
    "metric": "tokens_per_second",
    "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 1097-1098: tokens_per_second, tier 0, with ttft_seconds (line 1091, tier 0) as the secondary. Proposal, owner to confirm.",
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 1097-1098: tokens_per_second, tier 0, kept for continuity. The backend is a column of the run, not an agent.",
    "reason": null,
-   "secondary": [
-    "ttft_seconds"
-   ]
+   "guard": "cost_per_document",
+   "guard_confirmed": false,
+   "label_layers": []
   },
   "merger_agreement_specialist": {
    "metric": "extraction_overall_score",
-   "confirmed": true,
+   "confirmed": false,
    "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13.",
    "reason": null,
-   "secondary": []
+   "guard": "per_field_scores",
+   "guard_confirmed": false,
+   "label_layers": [
+    "hub",
+    "interim",
+    "near_gold",
+    "gold_review"
+   ]
   },
   "pdf_transcriber": {
-   "metric": "word_accuracy",
+   "metric": null,
+   "confirmed": true,
+   "source": "Owner decision, 2026-11-18: transcribers are out of scope for this step.",
+   "reason": "deferred by owner decision",
+   "guard": null,
+   "guard_confirmed": false,
+   "label_layers": []
+  },
+  "relations": {
+   "metric": null,
    "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 1051: word_accuracy is the 'complementary transcription headline' (tier 1). Proposal, owner to confirm.",
-   "reason": null,
-   "secondary": []
+   "source": "llm-mailroom src/config/taxonomy.yaml (agents:); llm_dojo_scoring/metrics/registry.py at 23f8234c names no relations metric.",
+   "reason": "no metric yet: the old registry has none for relations and no reader needs one",
+   "guard": null,
+   "guard_confirmed": false,
+   "label_layers": []
   },
   "reporter": {
-   "metric": "extraction_overall_score",
+   "metric": null,
    "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 327: extraction_overall_score, tier 0, is the only headline that names reporter and boss. Proposal, owner to confirm.",
-   "reason": null,
-   "secondary": []
+   "source": "Review of the provisional defaults: extraction_overall_score grades the specialist, not the reporter.",
+   "reason": "procedural; no model decision to score",
+   "guard": null,
+   "guard_confirmed": false,
+   "label_layers": []
   },
   "sorter": {
    "metric": "f1_macro",
    "confirmed": true,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 308: f1_macro is 'the universal classifier headline'; line 13: tier 0 is ONE number per agent on the default view. sorter and judge are classifiers (CLASSIFIERS family).",
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 308: f1_macro is 'the universal classifier headline'; line 13: tier 0 is ONE number per agent on the default view.",
    "reason": null,
-   "secondary": []
+   "guard": "accuracy",
+   "guard_confirmed": false,
+   "label_layers": [
+    "hub",
+    "interim",
+    "near_gold",
+    "gold_review"
+   ]
   },
   "sorter_reviewer": {
    "metric": "reviewer_class_accuracy",
    "confirmed": false,
-   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 352-353: reviewer_class_accuracy, the first of the five tier-0 reviewer metrics, with reviewer_wrong_accept_upper_95 (line 370) as its guard. Open owner question.",
+   "source": "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 352-353 and 370: reviewer_class_accuracy, tier 0, with reviewer_wrong_accept_upper_95 as its guard. Gold derived from the class labels (rule in each row's status_reason).",
    "reason": null,
-   "secondary": [
-    "reviewer_wrong_accept_upper_95"
+   "guard": "reviewer_wrong_accept_upper_95",
+   "guard_confirmed": false,
+   "label_layers": [
+    "derived"
    ]
   }
  }

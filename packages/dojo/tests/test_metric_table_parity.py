@@ -289,10 +289,27 @@ def test_every_golden_metric_is_kept_for_the_parity_gate(table: MetricTable) -> 
     golden_rows = {GOLDEN_ALIASES[name][0] if name in GOLDEN_ALIASES else name for name in names} - set(
         GOLDEN_EXCEPTIONS
     )
-    for metric in golden_rows:
+    for metric in sorted(OWNER_DROPPED_GOLDEN):
+        row = table.get(metric)
+        assert row.status == "not_ported" and "owner decision" in str(row.status_reason), metric
+    kept = golden_rows - OWNER_DROPPED_GOLDEN
+    for metric in kept:
         row = table.get(metric)
         assert row.status != "not_ported" and "golden_parity_gate" in row.readers, metric
-    assert {row.id for row in table.rows_for_reader("golden_parity_gate")} == golden_rows
+    assert {row.id for row in table.rows_for_reader("golden_parity_gate")} == kept
+
+
+#: Golden metrics the owner dropped (2026-11-18): intake's clerk diagnostics are not needed to
+#: judge intake. The rows keep their meaning; D3b lists them as intended parity differences.
+OWNER_DROPPED_GOLDEN = frozenset(
+    {
+        "intake_prep_completeness",
+        "intake_changed_rate",
+        "intake_messy_rate",
+        "intake_hyphen_unwraps",
+        "intake_collapsed_blanks",
+    }
+)
 
 
 def test_only_read_metrics_are_kept(table: MetricTable) -> None:
@@ -318,6 +335,6 @@ def test_counts(table: MetricTable) -> None:
     assert len(table.headline_rows()) == 14
     assert {status: statuses.count(status) for status in set(statuses)} == {
         "implemented": 19,
-        "planned": 93,
-        "not_ported": 82,
+        "planned": 88,
+        "not_ported": 87,
     }
