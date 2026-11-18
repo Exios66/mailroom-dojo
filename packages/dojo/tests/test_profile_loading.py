@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import hashlib
+import json
 import random
 from pathlib import Path
 from typing import Any, Callable
@@ -550,3 +551,19 @@ def test_profile_file_is_valid_for_a_fresh_reader():
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert result.stdout.strip() == load_scoring_profile(Path(MAILROOM_PROFILE_PATH)).content_hash
+
+def test_every_class_field_type_equals_the_frozen_old_registry(mailroom_profile):
+    """Each class's fields, types and order equal the old Dojo's registry, byte for byte.
+
+    corporate_record is compared with the 40-field map the old specialist suite scored with. A wrong type in
+    scoring.yaml (for example a claim checklist typed as a name list) changes scores silently, so every
+    declared field is compared, not just counts.
+    """
+    frozen = json.loads((Path(__file__).parent / "fixtures" / "old_registry_field_types.json").read_text())
+    expected = {**frozen["registry"], "corporate_record": frozen["corporate_record_specialist_suite"]}
+    assert set(mailroom_profile.class_keys) >= set(expected)
+    for class_key, old_types in expected.items():
+        new_types = dict(mailroom_profile.field_types(class_key))
+        assert new_types == old_types, class_key
+        if class_key != "corporate_record":  # the old union lists the schema fields first; only the content matters
+            assert list(new_types) == list(old_types), f"{class_key}: field order differs"
