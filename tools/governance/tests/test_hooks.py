@@ -7,9 +7,11 @@ cannot parse, so a hook bug never wedges a session.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -136,19 +138,34 @@ def test_no_session_links_fails_open(raw: str) -> None:
     assert run_hook(NO_LINKS_HOOK, None, raw=raw).returncode == 0
 
 
-def test_no_session_links_blocks_deeply_nested_input() -> None:
-    """Nesting deeper than Python's recursion limit (1000) must not make the hook fail open.
+def load_hook_module(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
-    2000 levels of dict-in-list still parse with json, but a recursive walk of them
-    raises RecursionError, which the hook's catch-all would turn into "allow".
+
+def test_no_session_links_walk_survives_nesting_past_the_recursion_limit() -> None:
+    """The walk itself must not raise RecursionError (the hook would then fail open).
+
+    Built in memory, not through json: json on some Pythons refuses this depth on its own.
     """
-    depth = 2000
+    hook = load_hook_module(NO_LINKS_HOOK, "no_session_links_under_test")
+    depth = sys.getrecursionlimit() * 3
+    value: Any = SESSION_LINK
+    for _ in range(depth):
+        value = {"a": [value]}
+    assert hook._strings(value) == [SESSION_LINK]
+    assert hook.find_violation("mcp__github__push_files", value) is True
+
+
+def test_no_session_links_blocks_nested_input_end_to_end() -> None:
+    """Through the real hook process, at a depth every supported Python's json parses."""
+    depth = 400
     raw = '{"tool_name": "mcp__github__push_files", "tool_input": ' + '{"a": [' * depth
     raw += json.dumps(SESSION_LINK) + "]}" * depth + "}"
-    try:
-        json.loads(raw)  # positive control: the input itself is valid JSON
-    except RecursionError:
-        pytest.skip("this Python's json module cannot parse input nested this deeply (3.11)")
+    json.loads(raw)  # positive control: the input is valid JSON here
     result = run_hook(NO_LINKS_HOOK, None, raw=raw)
     assert result.returncode == 2, result.stderr[-300:]
 
@@ -253,6 +270,55 @@ def test_guard_paths_allows_source(tmp_path: Path, rel: str) -> None:
 def test_guard_paths_readme_exception_is_exactly_the_reports_readme(tmp_path: Path, rel: str, blocked: bool) -> None:
     result = run_hook(GUARD_PATHS_HOOK, {"tool_name": "Write", "tool_input": {"file_path": rel}}, root=tmp_path)
     assert (result.returncode == 2) is blocked, rel
+
+
+def _git(cwd: Path, *args: str) -> None:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
+               GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
+               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid")
+    subprocess.run(["git", *args], cwd=cwd, env=env, check=True, capture_output=True)
+
+
+@pytest.fixture
+def launch_and_worktree(tmp_path: Path) -> tuple[Path, Path]:
+    """A checkout (where the session started) and a linked worktree of it."""
+    launch = tmp_path / "launch"
+    launch.mkdir()
+    _git(launch, "init", "--quiet", "-b", "main")
+    _git(launch, "config", "commit.gpgsign", "false")
+    (launch / "README.md").write_text("x\n", encoding="utf-8")
+    _git(launch, "add", "README.md")
+    _git(launch, "commit", "--quiet", "-m", "init")
+    worktree = tmp_path / "wt"
+    _git(launch, "worktree", "add", "--quiet", "-b", "side", str(worktree))
+    (worktree / "docs").mkdir()
+    return launch, worktree
+
+
+def test_guard_paths_applies_repo_rules_in_the_active_worktree(launch_and_worktree: tuple[Path, Path]) -> None:
+    launch, worktree = launch_and_worktree
+    target = str(worktree / "docs" / "reports" / "gate.md")
+    payload = {"tool_name": "Write", "tool_input": {"file_path": target}}
+    # Positive control: from the launch checkout alone, the worktree path is "outside".
+    assert run_hook(GUARD_PATHS_HOOK, payload, root=launch).returncode == 0
+    # With the payload's cwd in a subfolder of the worktree, the rule applies there.
+    with_cwd = {**payload, "cwd": str(worktree / "docs")}
+    result = run_hook(GUARD_PATHS_HOOK, with_cwd, root=launch)
+    assert result.returncode == 2, result.stderr
+    # And still in the launch checkout.
+    in_launch = {"tool_name": "Write", "tool_input": {"file_path": str(launch / "docs" / "reports" / "x.md")},
+                 "cwd": str(worktree)}
+    assert run_hook(GUARD_PATHS_HOOK, in_launch, root=launch).returncode == 2
+
+
+def test_guard_paths_outside_both_checkouts_is_unchanged(launch_and_worktree: tuple[Path, Path], tmp_path: Path) -> None:
+    launch, worktree = launch_and_worktree
+    elsewhere = tmp_path / "elsewhere" / "docs" / "reports" / "x.md"
+    payload = {"tool_name": "Write", "tool_input": {"file_path": str(elsewhere)}, "cwd": str(worktree)}
+    assert run_hook(GUARD_PATHS_HOOK, payload, root=launch).returncode == 0
+    not_git = {**payload, "cwd": str(tmp_path)}  # a cwd outside any checkout adds no root
+    assert run_hook(GUARD_PATHS_HOOK, not_git, root=launch).returncode == 0
 
 
 def test_guard_paths_sees_through_a_symlinked_folder(tmp_path: Path) -> None:

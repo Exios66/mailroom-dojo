@@ -16,6 +16,10 @@ Protected:
 - ``docs/reports/`` and any ``docs/**/*gate-report.md`` inside the repository: gate
   reports are written by scripts.
 
+Repository-only rules hold in both the launch checkout (``CLAUDE_PROJECT_DIR``) and the
+checkout that contains the payload's ``cwd`` (a linked worktree), found with
+``git rev-parse --show-toplevel``.
+
 This is a guard against accidents, not a security boundary: it sees only the edit tools'
 file path, so a Bash redirect, ``sed -i``, ``cp`` or a script writes past it.
 """
@@ -25,6 +29,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 
 ENV_REASON = (
@@ -116,6 +121,29 @@ def blocked_reason(path: str, root: str) -> str | None:
     return None
 
 
+def _active_checkout(cwd: object) -> str | None:
+    """The top level of the git checkout containing ``cwd``, or None.
+
+    In a linked worktree, ``CLAUDE_PROJECT_DIR`` is the checkout the session started in
+    while the payload's ``cwd`` is the worktree being edited; the repository rules must
+    hold in both. Raw ``cwd`` is never used as a root (it may be a subfolder).
+    """
+    if not isinstance(cwd, str) or not cwd or not os.path.isdir(cwd):
+        return None
+    try:
+        done = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    top = done.stdout.strip()
+    return top if done.returncode == 0 and top else None
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -123,8 +151,11 @@ def main() -> int:
         path = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
         if not isinstance(path, str):
             return 0
-        root = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
-        reason = blocked_reason(path, root)
+        roots = [os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()]
+        active = _active_checkout(payload.get("cwd"))
+        if active and active not in roots:
+            roots.append(active)
+        reason = next((r for r in (blocked_reason(path, root) for root in roots) if r), None)
     except Exception:
         return 0
     if reason:
