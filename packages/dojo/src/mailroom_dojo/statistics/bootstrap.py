@@ -6,13 +6,16 @@ and deterministic: the resampling generator is a ``random.Random`` seeded from t
 numbers are the old Dojo's (``tests/test_differential_statistics_parity.py``).
 
 What changed (``packages/dojo/docs/score-changelog.md``): a NaN or infinite score, a
-rate outside ``[0, 1]``, a count that is not an integer, ``n_boot < 1`` and an
-``alpha`` outside ``(0, 1)`` raise instead of producing a meaningless interval; results
-are frozen dataclasses whose ``to_dict()`` is the old dictionary.
+rate outside ``[0, 1]`` or given as text, a support that is not a whole number,
+``n_boot < 1``, an ``alpha`` outside ``(0, 1)`` and a seed that is not an integer raise
+instead of producing a meaningless or text-seeded interval; results are frozen
+dataclasses whose ``to_dict()`` is the old dictionary. As in the old Dojo, fewer than two
+usable values give ``None`` before the parameters are looked at.
 """
 
 from __future__ import annotations
 
+import decimal
 import math
 import numbers
 import random
@@ -160,12 +163,13 @@ def bootstrap_ci(
     """Percentile-bootstrap ``1 - alpha`` interval for the mean of per-document scores.
 
     ``half`` is the half-width in score points (0-1 scale). Returns ``None`` when fewer
-    than two usable values remain (no interval on a single document).
+    than two usable values remain (no interval on a single document), before the
+    resampling parameters are checked, as in the old Dojo.
     """
-    validate_resampling(n_boot, alpha, seed)
     cleaned = scores_as_floats(values)
     if len(cleaned) < 2:
         return None
+    validate_resampling(n_boot, alpha, seed)
     means = resample_means(cleaned, n_boot, random.Random(seed))
     means.sort()
     lo_index, hi_index = percentile_indices(n_boot, alpha)
@@ -188,15 +192,16 @@ def delta_significance(
 
     ``significant`` is True when the ``1 - alpha`` interval, unrounded, excludes zero.
     Returns ``None`` when either side has fewer than two usable values (the delta is
-    then unmeasurable, not "insignificant"). For two runs over the same documents use
+    then unmeasurable, not "insignificant"), before the resampling parameters are
+    checked. For two runs over the same documents use
     :func:`mailroom_dojo.statistics.paired.paired_bootstrap_delta`, which pairs by
     document and is the tighter test.
     """
-    validate_resampling(n_boot, alpha, seed)
     a = scores_as_floats(values_a, "values_a")
     b = scores_as_floats(values_b, "values_b")
     if len(a) < 2 or len(b) < 2:
         return None
+    validate_resampling(n_boot, alpha, seed)
     rng = random.Random(seed)
     mean_a = sum(a) / len(a)
     mean_b = sum(b) / len(b)
@@ -231,11 +236,19 @@ def _validate_rate(p: Any) -> float:
     return float(p)
 
 
-def _validate_support(n: Any) -> int:
-    """A support is an integer (not a bool)."""
-    if isinstance(n, bool) or not isinstance(n, numbers.Integral):
+def _validate_support(n: Any) -> int | float:
+    """A support is a whole number: an integer (not a bool) or an integer-valued float.
+
+    Workbook rows arrive as ``float64``, and the old Dojo computed with ``n = 10.0`` as
+    given; such a value is returned as a float so the arithmetic is the old one.
+    """
+    if isinstance(n, bool):
         raise TypeError(f"n must be an integer; got {n!r}")
-    return int(n)
+    if isinstance(n, numbers.Integral):
+        return int(n)
+    if isinstance(n, numbers.Real) and float(n).is_integer():
+        return float(n)
+    raise TypeError(f"n must be an integer; got {n!r}")
 
 
 def _validate_z(z: Any) -> float:
@@ -248,7 +261,11 @@ def _validate_z(z: Any) -> float:
 
 
 def wilson_bounds(p: float, n: int, z: float = 1.96) -> tuple[float, float]:
-    """Exact (unrounded) Wilson score bounds ``(lo, hi)`` for rate ``p`` over ``n >= 1`` trials."""
+    """Exact (unrounded) Wilson score bounds ``(lo, hi)`` for rate ``p`` over ``n >= 1`` trials.
+
+    ``p`` is a real number (a ``Decimal`` is refused, as the old arithmetic refused it);
+    ``n`` is an integer or an integer-valued float.
+    """
     _validate_z(z)
     p = _validate_rate(p)
     n = _validate_support(n)
@@ -285,15 +302,17 @@ def wilson_ci(p: float | None, n: int, z: float = 1.96) -> WilsonInterval | None
     """Wilson score interval for an aggregate rate ``p`` over ``n`` trials.
 
     Used when only the rate and its support are known, not per-document scores. Returns
-    ``None`` when ``p`` is None or ``n < 1``. The bounds are rounded outward (``lo`` down,
+    ``None`` when ``p`` is None or ``n < 1``. ``n`` may be an integer-valued float
+    (``10.0``) and ``p`` a ``decimal.Decimal``, both read as the old Dojo read them; a
+    text rate is refused. The bounds are rounded outward (``lo`` down,
     ``hi`` up) to 4 places, so the reported interval always contains the exact one and a
     bound compared with a budget never passes where the exact bound fails. Gates that
     need the exact value use :func:`wilson_bounds`.
     """
-    n = _validate_support(n)
-    if n < 1 or p is None:
+    support = _validate_support(n)
+    if support < 1 or p is None:
         return None
-    rate = _validate_rate(p)
-    exact_lo, exact_hi = wilson_bounds(rate, n, z)
+    rate = _validate_rate(float(p) if isinstance(p, decimal.Decimal) else p)
+    exact_lo, exact_hi = wilson_bounds(rate, support, z)
     lo, hi = round_down(exact_lo, 4), round_up(exact_hi, 4)
-    return WilsonInterval(lo=lo, hi=hi, half=round((hi - lo) / 2, 4), n=n, p=round(rate, 4), z=z)
+    return WilsonInterval(lo=lo, hi=hi, half=round((hi - lo) / 2, 4), n=int(support), p=round(rate, 4), z=z)

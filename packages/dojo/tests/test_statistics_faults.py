@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import re
+from decimal import Decimal
 
 import numpy
 import pytest
@@ -210,7 +211,9 @@ def test_resampling_parameters_are_checked_by_both_bootstraps(kwargs, error, mes
         ((-0.1, 10), ValueError, "p must be a rate in [0, 1]; got -0.1"),
         ((True, 10), TypeError, "p must be a real number; got True"),
         ((0.5, 2.5), TypeError, "n must be an integer; got 2.5"),
-        ((0.5, 10.0), TypeError, "n must be an integer; got 10.0"),
+        ((0.5, NAN), TypeError, "n must be an integer; got nan"),
+        ((0.5, "10"), TypeError, "n must be an integer; got '10'"),
+        (("0.5", 10), TypeError, "p must be a real number; got '0.5'"),
         ((0.5, True), TypeError, "n must be an integer; got True"),
         ((0.5, 10, -1.0), ValueError, "z must be non-negative; got -1.0"),
         ((0.5, 10, NAN), ValueError, "z must be non-negative; got nan"),
@@ -230,6 +233,41 @@ def test_wilson_none_and_zero_support():
     assert wilson_ci(0.5, -3) is None
     with raises_exactly(ValueError, "n must be at least 1; got 0"):
         wilson_bounds(0.5, 0)
+
+
+def test_integer_valued_float_supports_are_counts():
+    """Workbook rows arrive as float64: n = 10.0 is ten trials, as in the old Dojo; 2.5 is not."""
+    expected = wilson_ci(0.5, 10)
+    assert wilson_ci(0.5, 10.0) == expected
+    assert wilson_ci(0.5, numpy.float64(10.0)) == expected
+    assert type(wilson_ci(0.5, 10.0).n) is int
+    assert wilson_bounds(0.5, 10.0) == wilson_bounds(0.5, 10)
+    assert wilson_ci(None, 10.0) is None
+    assert wilson_ci(0.5, 0.0) is None
+    with raises_exactly(TypeError, "n must be an integer; got 2.5"):
+        wilson_ci(None, 2.5)
+
+
+def test_a_decimal_rate_is_read_as_a_number_by_wilson_ci():
+    """wilson_ci converts a Decimal rate with float(), as the old Dojo did; text stays refused."""
+    assert wilson_ci(Decimal("0.5"), 10) == wilson_ci(0.5, 10)
+    assert wilson_ci(Decimal("0.25"), 40, z=1.645) == wilson_ci(0.25, 40, z=1.645)
+    with raises_exactly(ValueError, "p must be a rate in [0, 1]; got nan"):
+        wilson_ci(Decimal("NaN"), 10)
+    # wilson_bounds never converted its rate (the old one raised from Decimal + float).
+    with raises_exactly(TypeError, "p must be a real number; got Decimal('0.5')"):
+        wilson_bounds(Decimal("0.5"), 10)
+
+
+def test_too_few_values_is_none_before_the_parameters_are_checked():
+    """As in the old Dojo, under two usable values there is no interval, whatever the parameters."""
+    assert bootstrap_ci([0.5], n_boot=0) is None
+    assert bootstrap_ci([None, "x"], alpha=NAN, seed="abc") is None
+    assert delta_significance([0.5], [0.1, 0.2], alpha=NAN) is None
+    assert delta_significance([0.1, 0.2], [], n_boot=-1) is None
+    # Enough values: the parameters are checked (test_resampling_parameters_are_checked_by_both_bootstraps).
+    with raises_exactly(TypeError, "seed must be an integer"):
+        bootstrap_ci([0.0, 1.0, 0.5, 0.25], n_boot=100, seed="abc")
 
 
 def test_numpy_counts_and_scores_are_accepted():

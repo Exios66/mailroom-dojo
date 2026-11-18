@@ -157,8 +157,8 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
 ## Intended differences (D1, statistics)
 
 `mailroom_dojo.statistics` gives the old `analysis/bootstrap.py` and
-`analysis/calibration.py` numbers on every valid input of the statistics corpus (1,979
-cases, among them every call of the old golden run and of eleven old test files). The 209
+`analysis/calibration.py` numbers on every valid input of the statistics corpus (2,000
+cases, among them every call of the old golden run and of eleven old test files). The 197
 cases that differ are all invalid inputs; each is listed with its new outcome in
 `tests/fixtures/differential/statistics_intended_differences.json`. No golden score moves:
 the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
@@ -173,14 +173,23 @@ the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
   reliability bins, AUROC and Spearman still drop such values, as before.
 - **Resampling parameters are checked.** `n_boot` must be an integer of at least 1
   (`n_boot=0` raised `IndexError` inside the old resampler), `alpha` must be in `(0, 1)`
-  (`alpha=1.5` gave an interval with `lo` above `hi`), and `seed` must be an integer.
+  (`alpha=1.5` gave an interval with `lo` above `hi`), and `seed` must be an integer (the
+  old Dojo seeded `random.Random` with text such as `"abc"` and returned an interval). As in
+  the old Dojo, fewer than two usable values give `None` first, so `bootstrap_ci([0.5],
+  n_boot=0)` and `delta_significance([0.5], [0.1, 0.2], alpha=nan)` are still `None`; with
+  enough values a bad parameter raises.
 - **A Wilson rate must be a rate.** `wilson_ci` and `wilson_bounds` refuse a `p` outside
-  `[0, 1]`, NaN or infinite (`ValueError`) and a bool `p` (`TypeError`). The old Dojo
-  answered `[0, 1]` for NaN, gave bounds for `p = 1.1`, and raised `TypeError` comparing a
-  complex number for `p = 3.0`.
-- **A Wilson support must be an integer.** `n = 2.5`, `10.0` or `True` is a `TypeError`;
-  the old Dojo computed with 2.5 trials and reported `n = 2`. `wilson_bounds(p, 0)` is a
-  `ValueError` (it was `ZeroDivisionError`); `wilson_ci` still returns `None` for `n < 1`.
+  `[0, 1]`, NaN or infinite (`ValueError`), a bool `p` and a text `p` such as `"0.5"`
+  (`TypeError`). The old Dojo answered `[0, 1]` for NaN, gave bounds for `p = 1.1`, raised
+  `TypeError` comparing a complex number for `p = 3.0`, and read `"0.5"` with `float()`.
+  A `decimal.Decimal` rate is read by `wilson_ci` as before; `wilson_bounds` still refuses
+  it with a `TypeError` (the old one raised from `Decimal + float`), with another message.
+- **A Wilson support must be a whole number.** `n = 2.5` or `True` is a `TypeError`, also
+  when `p` is `None` (the old Dojo returned `None` there before looking at `n`, computed
+  with 2.5 trials and reported `n = 2`, and read `True` as one trial). An integer-valued
+  float (`10.0`, NumPy's `float64(10.0)`, as workbook rows arrive) is ten trials, as
+  before. `wilson_bounds(p, 0)` is a `ValueError` (it was `ZeroDivisionError`);
+  `wilson_ci` still returns `None` for `n < 1`.
 - **An infinite `z` is refused** (it gave the interval `[0, 1]`).
 - **Results are frozen dataclasses** (`BootstrapInterval`, `DeltaInterval`,
   `WilsonInterval`, `CrossFitResult`, `ReliabilityBin`, `PrecisionCutoff`); `to_dict()` is

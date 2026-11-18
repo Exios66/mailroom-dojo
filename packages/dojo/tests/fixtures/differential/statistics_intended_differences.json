@@ -269,7 +269,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "be74284298d0062a",
@@ -278,25 +278,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "3ac56b883ff98481",
-   "function": "wilson_ci",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "90f0d6f1b223598a",
-   "function": "wilson_bounds",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "ffb1d65168b575b4",
@@ -305,7 +287,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "bcaf68278ed047a5",
@@ -314,7 +296,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "0aae517c8e09309e",
@@ -323,7 +305,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "bf007f3ffd89871a",
@@ -332,25 +314,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "73d4c3eb103a59ba",
-   "function": "wilson_ci",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "85eec58be092855b",
-   "function": "wilson_bounds",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "d408a367dec4526e",
@@ -359,7 +323,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "d23d29181390c0f3",
@@ -368,7 +332,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "623bcccc95ba4051",
@@ -377,7 +341,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "83524938ba377fc4",
@@ -386,25 +350,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "c25a4c8b90dd41e9",
-   "function": "wilson_ci",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "4997a55c61259943",
-   "function": "wilson_bounds",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "66cb5addcf1d8222",
@@ -413,7 +359,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "efd2d21778da326b",
@@ -422,7 +368,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "761b2d9e40a6ecbb",
@@ -431,7 +377,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "78fffec305cff81c",
@@ -440,25 +386,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "0d8d4b25dda93562",
-   "function": "wilson_ci",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "671092ca480100e6",
-   "function": "wilson_bounds",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "656958b203cfb5bf",
@@ -467,7 +395,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "4b83ce7cb94f5099",
@@ -476,7 +404,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "f1476518575e04da",
@@ -485,7 +413,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "b30f9006cbdbbf63",
@@ -494,25 +422,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "c9e2551f4542e241",
-   "function": "wilson_ci",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "080bed496e2e5e44",
-   "function": "wilson_bounds",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "6a9ae9f1ad264349",
@@ -521,7 +431,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "2f4d340fcbfe3891",
@@ -530,7 +440,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "451f1e119811c33a",
@@ -539,7 +449,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "82a9209c39cffbc4",
@@ -548,25 +458,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "9494e0835069772f",
-   "function": "wilson_ci",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "36b98af444aa9b1e",
-   "function": "wilson_bounds",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "236e0a7cc11461be",
@@ -575,7 +467,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "275d50ee5b12aa80",
@@ -584,7 +476,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "f367ba536f2bc7b3",
@@ -593,7 +485,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "c807bcac256810aa",
@@ -602,25 +494,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "2f3119c72981cbb5",
-   "function": "wilson_ci",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "cef1c3c42c0bd5cc",
-   "function": "wilson_bounds",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "e5b72cabb1810400",
@@ -629,7 +503,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "91fb5cf90580339d",
@@ -638,7 +512,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "0f802682e4ec291d",
@@ -755,7 +629,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "6170722088a4f92f",
@@ -770,10 +644,10 @@
    "case": "b6cb7bdd49556362",
    "function": "wilson_ci",
    "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
   },
   {
    "case": "61fb0c37e7f22abe",
@@ -791,7 +665,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "ede09f2dd3f86249",
@@ -917,7 +791,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "b035fb6258b866bd",
@@ -932,10 +806,10 @@
    "case": "41e6f2ecfda80bf7",
    "function": "wilson_ci",
    "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
   },
   {
    "case": "55cf94fdf6942741",
@@ -953,7 +827,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "356c904e4cc06535",
@@ -1079,7 +953,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "2d0cb03ae58cd66b",
@@ -1094,10 +968,10 @@
    "case": "d8b5dcc0de41dc88",
    "function": "wilson_ci",
    "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
   },
   {
    "case": "1633a48192c6aa91",
@@ -1115,7 +989,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "f1f5fa18d6398bf7",
@@ -1241,7 +1115,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "ac41ecd7bceceaaa",
@@ -1256,10 +1130,10 @@
    "case": "7866475d8023cd51",
    "function": "wilson_ci",
    "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
   },
   {
    "case": "0d00aa85ad07939e",
@@ -1277,7 +1151,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "13d3b0aac27bd08f",
@@ -1403,7 +1277,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "3de07b4d45df5af3",
@@ -1418,10 +1292,10 @@
    "case": "a51da6f07f64eeb4",
    "function": "wilson_ci",
    "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
   },
   {
    "case": "79fefd8b1a07a786",
@@ -1439,7 +1313,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "df79625c689f8638",
@@ -1565,7 +1439,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "e8a06264e784317c",
@@ -1580,10 +1454,10 @@
    "case": "796dc435066f46a9",
    "function": "wilson_ci",
    "new_outcome": {
-    "message": "n must be an integer; got 10.0",
+    "message": "p must be a real number; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
   },
   {
    "case": "64cd2ad6305a184c",
@@ -1601,7 +1475,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "ec27d03d4c2a807a",
@@ -1619,7 +1493,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "6a184b664ad3743d",
@@ -1628,25 +1502,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "dd2e0649c299015c",
-   "function": "wilson_ci",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "6d2604b568689d3c",
-   "function": "wilson_bounds",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "f2e7456f7d06be4b",
@@ -1655,7 +1511,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "d475cfee0d7b1944",
@@ -1664,7 +1520,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "b8621aaf068ab286",
@@ -1673,7 +1529,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "535b4f5abc24e8fa",
@@ -1682,25 +1538,7 @@
     "message": "n must be an integer; got 2.5",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "446f7d1c2a0a7db2",
-   "function": "wilson_ci",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
-  },
-  {
-   "case": "ba86bbaeb058699d",
-   "function": "wilson_bounds",
-   "new_outcome": {
-    "message": "n must be an integer; got 10.0",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "e4e8035b6bf243b2",
@@ -1709,7 +1547,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "0ed858135c255dd2",
@@ -1718,7 +1556,7 @@
     "message": "n must be an integer; got True",
     "raises": "TypeError"
    },
-   "reason": "A support that is not an integer (2.5, 10.0, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2."
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
   },
   {
    "case": "44d044ce58875ad3",
@@ -1881,6 +1719,60 @@
     "raises": "ValueError"
    },
    "reason": "A NaN or infinite score is refused in a cutoff search (ValueError naming its position). The old Dojo put NaN among the candidate cutoffs and returned a cutoff that depended on where it sorted."
+  },
+  {
+   "case": "3a0a736c5b63ec35",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a real number; got Decimal('0.5')",
+    "raises": "TypeError"
+   },
+   "reason": "wilson_bounds does not convert a Decimal rate: still a TypeError, as in the old Dojo (which raised from Decimal + float arithmetic); only the message differs. wilson_ci converts it, as before."
+  },
+  {
+   "case": "1b51647e034a8b23",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a real number; got '0.5'",
+    "raises": "TypeError"
+   },
+   "reason": "A text rate is a TypeError (wilson_ci reads numbers, a Decimal included, not text); the old Dojo converted '0.5' with float()."
+  },
+  {
+   "case": "fd0a63be9521a361",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError even without a rate; the old Dojo returned None for p=None before looking at n."
+  },
+  {
+   "case": "d7e8588e91098095",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError even without a rate; the old Dojo returned None for p=None before looking at n."
+  },
+  {
+   "case": "9cbfe0174ee21c80",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "seed must be an integer",
+    "raises": "TypeError"
+   },
+   "reason": "A seed that is not an integer is a TypeError; the old Dojo seeded random.Random with the text ('abc') and returned an interval."
+  },
+  {
+   "case": "ddcbfb2988c17344",
+   "function": "delta_significance",
+   "new_outcome": {
+    "message": "seed must be an integer",
+    "raises": "TypeError"
+   },
+   "reason": "A seed that is not an integer is a TypeError; the old Dojo seeded random.Random with the text ('abc') and returned an interval."
   }
  ],
  "old_commit": "23f8234c3c548bdc203033388bb316e52e588a2c",

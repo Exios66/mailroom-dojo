@@ -32,12 +32,24 @@ Run it only with an interpreter that can import the old Dojo, never in CI::
 It reads the old checkout and writes nothing inside it (pytest runs from a temporary
 directory with its cache plugin off, and no bytecode is written). The old commit is read
 from the checkout's ``.git`` files, without running git.
+
+``--supplement`` adds the generated cases a committed corpus lacks (after new inputs were
+appended to the generator) without re-running the old tests or golden run: it loads the
+old ``analysis/bootstrap.py`` and ``analysis/calibration.py`` by file path (they need
+only the standard library, NumPy and SciPy), computes each missing case's old outcome,
+appends it, and records the run in the header's ``supplements`` list::
+
+    PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \\
+        packages/dojo/scripts/capture_old_dojo_statistics_cases.py --supplement \\
+        --old-dojo <llm-dojo-scoring checkout at 23f8234c> \\
+        --output packages/dojo/tests/fixtures/differential/statistics_cases.jsonl
 """
 
 from __future__ import annotations
 
 import argparse
 import copy
+import decimal
 import hashlib
 import importlib.metadata
 import importlib.util
@@ -47,6 +59,7 @@ import random
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -416,6 +429,28 @@ def generated_cases(rng: random.Random) -> list[dict[str, Any]]:
         axis_sets.append(([rng.randrange(5) for _ in range(size)], [rng.randrange(5) for _ in range(size)]))
     for xs, ys in axis_sets:
         add("spearman", xs=xs, ys=ys)
+
+    # Inputs no earlier source fed (adversarial review, round 1): valid numerics the old
+    # Dojo accepted (a Decimal rate, an integer-valued float support), the order of the
+    # "fewer than two values" step and the parameter checks, a text rate, a text seed.
+    # They draw nothing from ``rng``, so every case above is unchanged.
+    add("wilson_ci", p=decimal.Decimal("0.5"), n=10)
+    add("wilson_ci", p=decimal.Decimal("0.25"), n=40, z=1.645)
+    add("wilson_bounds", p=decimal.Decimal("0.5"), n=10)
+    add("wilson_ci", p="0.5", n=10)
+    for n in (10.0, 2.5, 0.0, True):
+        add("wilson_ci", p=None, n=n)
+    for n in (1.0, 0.0, -1.0, 1e300):
+        add("wilson_ci", p=0.5, n=n)
+    for n in (1.0, 1e300):
+        add("wilson_bounds", p=0.5, n=n)
+    add("bootstrap_ci", values=[0.5], n_boot=0)
+    add("bootstrap_ci", values=[], alpha=NAN)
+    add("bootstrap_ci", values=[0.5, None], seed="abc")
+    add("bootstrap_ci", values=[0.0, 1.0, 0.5, 0.25], n_boot=100, seed="abc")
+    add("delta_significance", values_a=[0.5], values_b=[0.1, 0.2], alpha=NAN)
+    add("delta_significance", values_a=[0.1, 0.2], values_b=[], n_boot=-1)
+    add("delta_significance", values_a=[0.0, 1.0, 1.0], values_b=[1.0, 1.0, 0.0], n_boot=100, seed="abc")
     return cases
 
 
@@ -430,6 +465,102 @@ def old_functions() -> dict[str, Any]:
 
     modules = {"analysis/bootstrap.py": bootstrap, "analysis/calibration.py": calibration}
     return {name: getattr(modules[module], name) for module, names in TARGETS.items() for name in names}
+
+
+def old_functions_from_files(old_dojo: Path) -> dict[str, Any]:
+    """Map each target name to the old callable, loading the two old modules by file path.
+
+    The modules are loaded under a private package name, so ``calibration``'s relative
+    import of ``bootstrap`` resolves, without importing the rest of the old package.
+    """
+    package_name = "_old_dojo_analysis"
+    directory = old_dojo / "llm_dojo_scoring" / "analysis"
+    package = ModuleType(package_name)
+    package.__path__ = [str(directory)]
+    sys.modules[package_name] = package
+    modules: dict[str, ModuleType] = {}
+    for relative in TARGETS:
+        path = old_dojo / "llm_dojo_scoring" / relative
+        name = f"{package_name}.{path.stem}"
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+        if Path(module.__file__).resolve() != path.resolve():
+            raise SystemExit(f"{relative} loaded from {module.__file__}, not from {path}")
+        modules[relative] = module
+    return {name: getattr(modules[module], name) for module, names in TARGETS.items() for name in names}
+
+
+def case_key(case: dict[str, Any]) -> str:
+    """The deduplication key of a case; its id is the first 16 hex digits of its SHA-256."""
+    return json.dumps([case["function"], case["args"]], sort_keys=True, ensure_ascii=True)
+
+
+def case_line(source: str, case: dict[str, Any], outcome: dict[str, Any]) -> str:
+    """One corpus line."""
+    return canonical_text(
+        {
+            "id": hashlib.sha256(case_key(case).encode("utf-8")).hexdigest()[:16],
+            "source": source,
+            "function": case["function"],
+            "args": case["args"],
+            "outcome": outcome,
+        }
+    )
+
+
+def outcome_kind(outcome: dict[str, Any]) -> str:
+    """``result``, ``raises`` or ``unencodable`` (a raised outcome also holds ``message``)."""
+    return next(kind for kind in ("result", "raises", "unencodable") if kind in outcome)
+
+
+def supplement(old_dojo: Path, output: Path, seed: int) -> int:
+    """Append the generated cases the committed corpus lacks, with their old outcomes."""
+    commit = read_commit(old_dojo)
+    if commit != EXPECTED_OLD_COMMIT:
+        print(f"old Dojo is at {commit}, expected {EXPECTED_OLD_COMMIT}; refusing to write", file=sys.stderr)
+        return 1
+    lines = output.read_text(encoding="utf-8").splitlines()
+    header = json.loads(lines[0])["header"]
+    if header["seed"] != seed or header["old_commit"] != commit:
+        print("the corpus was captured with another seed or old commit; refusing to write", file=sys.stderr)
+        return 1
+    cases = [json.loads(line) for line in lines[1:]]
+    seen = {case["id"] for case in cases}
+    functions = old_functions_from_files(old_dojo)
+    added: list[str] = []
+    for case in generated_cases(random.Random(seed)):
+        case_id = hashlib.sha256(case_key(case).encode("utf-8")).hexdigest()[:16]
+        if case_id in seen:
+            continue
+        seen.add(case_id)
+        added.append(case_line("generated", case, run_case(functions, case)))
+    if not added:
+        print("every generated case is already in the corpus; nothing written")
+        return 0
+    cases += [json.loads(line) for line in added]
+    header["cases"] = len(cases)
+    header["cases_by_function"] = dict(sorted(Counter(case["function"] for case in cases).items()))
+    header["outcome_kinds"] = dict(sorted(Counter(outcome_kind(case["outcome"]) for case in cases).items()))
+    header.setdefault("supplements", []).append(
+        {
+            "cases_added": len(added),
+            "method": (
+                "--supplement: the old analysis/bootstrap.py and analysis/calibration.py loaded by "
+                "file path from the old checkout; old tests and golden run not re-run"
+            ),
+            "dependencies": {name: importlib.metadata.version(name) for name in ("scipy", "numpy")},
+            "python": sys.version.split()[0],
+        }
+    )
+    output.write_text(
+        "\n".join([json.dumps({"header": header}, sort_keys=True, ensure_ascii=True)] + lines[1:] + added)
+        + "\n"
+    )
+    print(f"old commit {commit}; appended {len(added)} generated cases to {output} ({len(cases)} in all)")
+    print(f"outcomes: {header['outcome_kinds']}")
+    return 0
 
 
 def run_case(functions: dict[str, Any], case: dict[str, Any]) -> dict[str, Any]:
@@ -467,6 +598,11 @@ def main() -> int:
     parser.add_argument("--old-dojo", type=Path, required=True)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument(
+        "--supplement",
+        action="store_true",
+        help="append the generated cases the corpus at --output lacks (old modules loaded by path)",
+    )
     parser.add_argument("--collect-test-calls", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--collect-golden-calls", type=Path, help=argparse.SUPPRESS)
     options = parser.parse_args()
@@ -483,6 +619,8 @@ def main() -> int:
     output = options.output.resolve()
     if old_dojo in output.parents:
         parser.error("refusing to write inside the old Dojo checkout")
+    if options.supplement:
+        return supplement(old_dojo, output, options.seed)
     commit = read_commit(old_dojo)
     if commit != EXPECTED_OLD_COMMIT:
         print(f"warning: old Dojo is at {commit}, expected {EXPECTED_OLD_COMMIT}", file=sys.stderr)
@@ -511,24 +649,14 @@ def main() -> int:
     counts: dict[str, int] = {}
     outcome_kinds: dict[str, int] = {}
     for source, case in sources:
-        key = json.dumps([case["function"], case["args"]], sort_keys=True, ensure_ascii=True)
+        key = case_key(case)
         if key in seen:
             continue
         seen.add(key)
         outcome = run_case(functions, case)
-        kind = next(iter(outcome))
+        kind = outcome_kind(outcome)
         outcome_kinds[kind] = outcome_kinds.get(kind, 0) + 1
-        lines.append(
-            canonical_text(
-                {
-                    "id": hashlib.sha256(key.encode("utf-8")).hexdigest()[:16],
-                    "source": source,
-                    "function": case["function"],
-                    "args": case["args"],
-                    "outcome": outcome,
-                }
-            )
-        )
+        lines.append(case_line(source, case, outcome))
         counts[case["function"]] = counts.get(case["function"], 0) + 1
 
     header = {

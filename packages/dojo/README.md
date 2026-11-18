@@ -106,9 +106,9 @@ path and hash, the calls the old tests make into the extraction layers, and seed
 generated inputs, many under non-default settings that the replay builds into a profile.
 `scripts/capture_old_dojo_extraction_cases.py` regenerates it byte for byte.
 
-The statistics corpus (`tests/fixtures/differential/statistics_cases.jsonl`, 1,979 cases)
+The statistics corpus (`tests/fixtures/differential/statistics_cases.jsonl`, 2,000 cases)
 holds every call the old golden run and eleven old test files made into the old bootstrap
 and calibration modules, plus seeded inputs. Every valid input gives the old number; the
-209 invalid inputs that now raise are listed with reasons in
+197 invalid inputs that now raise are listed with reasons in
 `statistics_intended_differences.json` and in `docs/score-changelog.md`.
 `scripts/capture_old_dojo_statistics_cases.py` regenerates the corpus byte for byte.

@@ -9,7 +9,8 @@ matches only with the same type and the same message.
 
 A difference must be listed in ``statistics_intended_differences.json`` with its reason
 and the new outcome; every listed one is an invalid input (NaN, a rate outside
-``[0, 1]``, a non-integer count, a bad resampling parameter).
+``[0, 1]`` or given as text, a support that is not a whole number, a bad resampling
+parameter or a text seed), or a ``Decimal`` rate ``wilson_bounds`` refused before too.
 """
 
 from __future__ import annotations
