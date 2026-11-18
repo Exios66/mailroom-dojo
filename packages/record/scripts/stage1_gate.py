@@ -3,11 +3,14 @@
 Usage::
 
     python packages/record/scripts/stage1_gate.py --runs <dir> --root <store>
-        [--sandbox <sandbox checkout>] [--report <file>]
+        [--sandbox <sandbox checkout>] [--report <file>] [--expect-runs <n>]
 
-Every folder under ``--runs`` that holds a ``dataset.jsonl`` is a run folder. Each is imported
-into the store at ``--root`` (created when missing; a second run of the script with the same
-root finds every run ``already_imported``), audited for routing inputs, and verified; then
+Every folder under ``--runs`` that holds a ``dataset.jsonl`` is a run folder; with
+``--expect-runs N`` there must be exactly ``N`` of them. Each is imported into the store at
+``--root`` (created when missing; a second run of the script with the same root must find
+every run it stored before ``already_imported``: a run already in the store that imports as
+``imported`` means the stored run was incomplete or the folder changed, and fails the gate),
+audited for routing inputs, and verified; then
 the index is rebuilt and the report written (default ``docs/stage1-gate-report.md``, at the
 repository root). The report holds counts, hashes and run ids only: one row per run, then
 these totals and checks:
@@ -36,8 +39,10 @@ these totals and checks:
   as the run's ``import`` event);
 - append throughput with ``flush_every=16`` in a scratch store (reported, not a gate).
 
-Exit status: 0 when every import succeeded, every run verifies, the store is smaller than
-the source, the trace check holds, the leak scan is clean and parity did not fail; 1
+Exit status: 0 when the run folder count is as expected (``--expect-runs``), every import
+succeeded, no run already in the store imported again, every run verifies, the store is
+smaller than the source, the trace check holds, the leak scan is clean and parity did not
+fail; 1
 otherwise (each failed condition is listed in the report and on stderr); 2 for bad
 arguments.
 """
@@ -268,7 +273,13 @@ def _cell(values: list[str]) -> str:
 # --- the gate -----------------------------------------------------------------------
 
 
-def run_gate(runs: Path, root: Path, sandbox: Path | None = None, report: Path = DEFAULT_REPORT) -> GateResult:
+def run_gate(
+    runs: Path,
+    root: Path,
+    sandbox: Path | None = None,
+    report: Path = DEFAULT_REPORT,
+    expect_runs: int | None = None,
+) -> GateResult:
     """Run the gate and write the report (see the module doc)."""
     root.mkdir(parents=True, exist_ok=True)
     blobs = BlobStore(root)
@@ -276,6 +287,9 @@ def run_gate(runs: Path, root: Path, sandbox: Path | None = None, report: Path =
     folders = _run_folders(runs)
     floor = load_sandbox_floor_replay(sandbox) if sandbox is not None else None
     failures: list[str] = []
+    if expect_runs is not None and len(folders) != expect_runs:
+        failures.append(f"found {len(folders)} run folders, expected {expect_runs}")
+    stored_before = {p.parent.name for p in (root / "runs").glob("*/run.json")}
     rows: list[RunRow] = []
     for folder in folders:
         row = RunRow(folder=folder.name)
@@ -287,6 +301,11 @@ def run_gate(runs: Path, root: Path, sandbox: Path | None = None, report: Path =
             failures.append(f"{folder.name}: import failed ({row.error})")
             continue
         row.run_id, row.status = imported.run_id, imported.status
+        if imported.status == "imported" and imported.run_id in stored_before:
+            failures.append(
+                f"{row.run_id}: already stored before this gate run, but imported again "
+                "(the stored run was incomplete or the folder changed)"
+            )
         row.documents, row.events, row.absent_fields = imported.documents, imported.events, imported.absent_fields
         row.warnings = imported.warnings
         row.routing_absent = audit_sandbox_run(folder).absent
@@ -373,7 +392,9 @@ def run_gate(runs: Path, root: Path, sandbox: Path | None = None, report: Path =
         "",
         "## Totals",
         "",
-        f"- Run folders: {len(folders)}; imported now: {status_counts['imported']}; already imported: "
+        f"- Run folders: {len(folders)}"
+        + (f" (expected {expect_runs})" if expect_runs is not None else "")
+        + f"; imported now: {status_counts['imported']}; already imported: "
         f"{status_counts['already_imported']}; failed: {len(rows) - len(imported_rows)}.",
         f"- Verify ok: {sum(r.verify_ok for r in imported_rows)} of {len(imported_rows)}.",
         f"- Runs with import warnings: {sum(bool(r.warnings) for r in imported_rows)}.",
@@ -431,12 +452,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, required=True, help="the store root (created when missing)")
     parser.add_argument("--sandbox", type=Path, help="a sandbox checkout, for the floor replay parity check")
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT, help="where to write the report")
+    parser.add_argument("--expect-runs", type=int, help="fail unless --runs holds exactly this many run folders")
     args = parser.parse_args(argv)
     if not args.runs.is_dir():
         parser.error("--runs is not a directory")
     if args.sandbox is not None and not args.sandbox.is_dir():
         parser.error("--sandbox is not a directory")
-    result = run_gate(args.runs, args.root, args.sandbox, args.report)
+    if args.expect_runs is not None and args.expect_runs < 0:
+        parser.error("--expect-runs must not be negative")
+    result = run_gate(args.runs, args.root, args.sandbox, args.report, args.expect_runs)
     statuses = ", ".join(f"{k} {v}" for k, v in sorted(result.totals["statuses"].items())) or "none"
     print(f"stage 1 gate: {result.totals['folders']} run folders ({statuses}); report written")
     for f in result.failures:

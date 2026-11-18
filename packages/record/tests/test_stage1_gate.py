@@ -144,3 +144,27 @@ def test_parity_survives_rows_without_status_and_a_failing_side(
         raise KeyError("status")
 
     assert gate._parity(log, run_id, folder, SimpleNamespace(build_timeline=broken)) == "FAILED (sandbox error: KeyError)"
+
+
+def test_a_stored_run_that_imports_again_fails_the_gate(gate: ModuleType, runs_dir: Path, tmp_path: Path) -> None:
+    """A second run must find every run it already stored ``already_imported``. Here the
+    stored run lacks the folder's last item row (the folder grew after the first run): the
+    import appends it and says ``imported``, which fails the gate (finding 10)."""
+    items = runs_dir / "ar-gate-r00" / "items.jsonl"
+    whole = items.read_bytes()
+    items.write_bytes(whole[: whole.rstrip(b"\n").rfind(b"\n") + 1])
+    root, report = tmp_path / "store", tmp_path / "report.md"
+    assert gate.main(_args(runs_dir, root, report)) == 0
+    items.write_bytes(whole)
+    assert gate.main(_args(runs_dir, root, report)) == 1
+    text = report.read_text()
+    assert "| ar-gate-r00 | imported |" in text
+    assert "- FAILED: ar-gate-r00: already stored before this gate run, but imported again" in text
+
+
+def test_expect_runs_checks_the_folder_count(gate: ModuleType, runs_dir: Path, tmp_path: Path) -> None:
+    report = tmp_path / "report.md"
+    assert gate.main(_args(runs_dir, tmp_path / "s1", report, "--expect-runs", "3")) == 0
+    assert "Run folders: 3 (expected 3)" in report.read_text()
+    assert gate.main(_args(runs_dir, tmp_path / "s2", report, "--expect-runs", "15")) == 1
+    assert "- FAILED: found 3 run folders, expected 15" in report.read_text()
