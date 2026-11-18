@@ -25,8 +25,8 @@ warns ``text_unchecked``). ``strict=False`` loads such a set for inspection only
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -106,6 +106,15 @@ class LabelSet:
     profile: ClientProfile
     report: QualityReport
     _documents: tuple[DocumentLabels, ...]
+    _by_id: Mapping[str, DocumentLabels] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        # Built once: ``document()`` is a lookup, not a scan. The first document with an id
+        # wins, as the scan it replaces did.
+        index: dict[str, DocumentLabels] = {}
+        for doc in self._documents:
+            index.setdefault(doc.document_id, doc)
+        object.__setattr__(self, "_by_id", MappingProxyType(index))
 
     @property
     def snapshot_id(self) -> str:
@@ -122,7 +131,7 @@ class LabelSet:
     def document(self, document_id: str) -> DocumentLabels | None:
         """One resolved document, or None when no snapshot names it (list and dict values
         are copies)."""
-        found = next((d for d in self._documents if d.document_id == document_id), None)
+        found = self._by_id.get(document_id)
         return None if found is None else _detached(found)
 
     def snapshot_refs(self) -> tuple[dict[str, str], ...]:
