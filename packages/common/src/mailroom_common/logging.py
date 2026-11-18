@@ -12,11 +12,14 @@ exception), and does not leak between threads or between asyncio tasks.
 
 Redaction runs on everything a handler built here writes: the message, the exception and
 stack text, bound context and ``extra`` fields. A value whose key names a credential
-(``api_key``, ``token``, ``secret``, ``password``, ``authorization``, ``cookie``, matched
-as a whole word segment in any case, so ``access_token`` and ``apiKey`` match but
-``input_tokens`` does not) is replaced by ``[REDACTED]``, at any depth of nested mappings
-and lists. Inside text, ``Bearer <token>``, ``sk-…``/``key-…`` style secrets and
-``password=…``-style pairs are masked. Redaction is idempotent.
+(``api_key``, ``token``, ``secret``, ``password``, ``authorization``, ``cookie``,
+``credential(s)``, ``private_key``, ``passphrase``, matched as a whole word segment in any
+case, so ``access_token`` and ``apiKey`` match but ``input_tokens`` does not; a key ending
+in ``count``, ``budget``, ``limit``, ``size``, ``total`` or ``ratio`` is a number and stays)
+is replaced by ``[REDACTED]``, at any depth of nested mappings and lists, and so is the
+second item of a two-item pair whose first item names a credential (header tuples). Text
+is masked by :func:`redact_text`. Redaction is idempotent, and the filter never raises
+into the logging call.
 """
 
 from __future__ import annotations
@@ -66,13 +69,30 @@ _STANDARD_ATTRS = frozenset(logging.LogRecord("", 0, "", 0, "", (), None).__dict
 }
 _BASE_KEYS = ("ts", "level", "logger", "event")
 
-_SENSITIVE_WORDS = r"api[_-]?key|apikey|token|secret|password|passwd|authorization|cookie"
+_SENSITIVE_WORDS = (
+    r"api[_-]?key|apikey|token|secret|password|passwd|authorization|cookie"
+    r"|credentials?|private[_-]?key|passphrase"
+)
 # A key is sensitive when one of its _-./ separated segments is a sensitive word.
 _SENSITIVE_KEY = re.compile(rf"(?:^|[_\-./ ])(?:{_SENSITIVE_WORDS})(?:$|[_\-./ ])")
+_KEY_SEPARATORS = re.compile(r"[_\-./ ]")
+# A key ending in one of these names a number about a credential, not the credential.
+_NUMERIC_SUFFIXES = frozenset({"count", "budget", "limit", "size", "total", "ratio"})
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _TEXT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+"), f"Bearer {REDACTED}"),
-    (re.compile(r"\b(?:sk|key)-[A-Za-z0-9_-]{8,}"), REDACTED),
+    # An authorization header value is masked whole, up to the end of the line or quote.
+    (
+        re.compile(
+            r"(?i)\b((?:proxy-)?authorization)(['\"]?\s*[=:]\s*)(['\"]?)(?!\[REDACTED\])[^\s'\"][^\r\n'\"]*"
+        ),
+        rf"\1\2\3{REDACTED}",
+    ),
+    (re.compile(r"(?i)\bbearer\s+(?!\[REDACTED\])[A-Za-z0-9._~+/=-]+"), f"Bearer {REDACTED}"),
+    (re.compile(r"\bsk-[A-Za-z0-9_-]{8,}"), REDACTED),
+    (re.compile(r"\bkey-(?=[A-Za-z]*[0-9])[A-Za-z0-9]{16,}(?![A-Za-z0-9_-])"), REDACTED),
+    (re.compile(r"\b(?:hf_|gh[pousr]_)[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}"), REDACTED),
+    # URL userinfo: scheme://user:password@host
+    (re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^\s/?#@:]*:[^\s/?#@]+@"), rf"\1{REDACTED}@"),
     (
         re.compile(
             rf"(?i)\b([\w.-]*?(?:{_SENSITIVE_WORDS}))\b(['\"]?\s*[=:]\s*)(['\"]?)(?!\[REDACTED\]|bearer\s)[^\s'\",;&]+"
@@ -83,11 +103,20 @@ _TEXT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 
 
 def _is_sensitive_key(key: str) -> bool:
-    return _SENSITIVE_KEY.search(_CAMEL_BOUNDARY.sub("_", key).lower()) is not None
+    normalized = _CAMEL_BOUNDARY.sub("_", key).lower()
+    if _KEY_SEPARATORS.split(normalized)[-1] in _NUMERIC_SUFFIXES:
+        return False
+    return _SENSITIVE_KEY.search(normalized) is not None
 
 
 def redact_text(text: str) -> str:
-    """Mask bearer tokens, ``sk-``/``key-`` style secrets and ``secret=value`` pairs in ``text``."""
+    """Mask credentials in ``text``.
+
+    Masked: an ``Authorization``/``Proxy-Authorization`` value (whole, to the end of the
+    line or quote), ``Bearer <token>``, ``sk-…``, Mailgun-style ``key-…`` (16+ letters and
+    digits, at least one digit), ``hf_``/``ghp_``-style and ``github_pat_`` tokens, URL
+    userinfo (``scheme://user:pass@``) and ``<sensitive word>=value`` pairs.
+    """
     for pattern, replacement in _TEXT_PATTERNS:
         text = pattern.sub(replacement, text)
     return text
@@ -99,16 +128,42 @@ def redact(value: Any, key: str | None = None) -> Any:
     Mappings and sequences are copied recursively; strings are scanned with
     :func:`redact_text`; numbers, booleans and ``None`` pass through; any other object is
     rendered with ``str`` and then scanned. ``key`` is the name the value is stored under.
+    A two-item list or tuple whose first item is a string naming a credential (a header
+    pair such as ``("Authorization", "Basic …")``) is treated as a key and its value.
     """
     if key is not None and _is_sensitive_key(key):
         return REDACTED
     if isinstance(value, Mapping):
         return {str(k): redact(v, str(k)) for k, v in value.items()}
+    if isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], str):
+        return [redact_text(value[0]), redact(value[1], value[0])]
     if isinstance(value, (list, tuple, set, frozenset)):
         return [redact(item) for item in value]
     if value is None or isinstance(value, (bool, int, float)):
         return value
-    return redact_text(value if isinstance(value, str) else str(value))
+    return redact_text(value if isinstance(value, str) else _safe_str(value))
+
+
+def _safe_str(value: object) -> str:
+    """``str(value)``, or a placeholder naming the type if ``__str__`` raises."""
+    try:
+        return str(value)
+    except Exception:
+        return f"<unprintable {type(value).__name__}>"
+
+
+def _render_message(record: logging.LogRecord) -> str:
+    """The record's message; if ``msg % args`` fails, the format and the argument types.
+
+    Argument values are left out on purpose: apart from the format, a bare secret has no
+    ``token=`` beside it for redaction to recognise.
+    """
+    try:
+        return record.getMessage()
+    except Exception as exc:
+        args = record.args if isinstance(record.args, tuple) else (record.args,)
+        types = ", ".join(type(arg).__name__ for arg in args)
+        return f"{_safe_str(record.msg)} [unformattable: {type(exc).__name__}; argument types: {types}]"
 
 
 def current_context() -> dict[str, Any]:
@@ -118,7 +173,13 @@ def current_context() -> dict[str, Any]:
 
 @contextmanager
 def bind_context(**fields: Any) -> Iterator[None]:
-    """Add ``fields`` to every record logged inside the block; inner bindings win."""
+    """Add ``fields`` to every record logged inside the block; inner bindings win.
+
+    asyncio tasks copy the context when they are created, so they inherit the bindings.
+    A plain ``threading.Thread`` or a thread-pool worker starts with an empty context; to
+    carry the bindings into one, submit ``contextvars.copy_context().run`` with the
+    function, for example ``executor.submit(contextvars.copy_context().run, fn, arg)``.
+    """
     token = _CONTEXT.set(MappingProxyType({**_CONTEXT.get(), **fields}))
     try:
         yield
@@ -149,10 +210,14 @@ class RedactionFilter(logging.Filter):
 
     The message is rendered and its arguments dropped; exception and stack text are
     rendered and masked; context and ``extra`` fields are replaced by redacted copies.
+
+    It never raises into the logging call: a message whose ``%`` arguments do not fit is
+    rendered as its format plus the (redacted) arguments, and an object whose ``__str__``
+    raises is shown as ``<unprintable TypeName>``.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        record.msg = redact_text(record.getMessage())
+        record.msg = redact_text(_render_message(record))
         record.args = None
         if record.exc_info and not record.exc_text:
             record.exc_text = logging.Formatter().formatException(record.exc_info)
@@ -173,7 +238,7 @@ def _payload(record: logging.LogRecord) -> dict[str, Any]:
         "ts": datetime.fromtimestamp(record.created, UTC).isoformat(timespec="milliseconds"),
         "level": record.levelname,
         "logger": record.name,
-        "event": record.getMessage(),
+        "event": _render_message(record),
     }
     fields = {**getattr(record, _CONTEXT_ATTR, {}), **_extras(record)}
     # The base keys always win over a field of the same name.

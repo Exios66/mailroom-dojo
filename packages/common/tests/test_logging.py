@@ -91,12 +91,43 @@ def test_extra_overrides_bound_context_of_same_name() -> None:
 def test_unserializable_field_is_rendered_as_text() -> None:
     class Thing:
         def __str__(self) -> str:
-            return f"Thing(key-{SECRET})"
+            return f"Thing(sk-{SECRET})"
 
     stream = configured()
     get_logger("t").info("x", extra={"thing": Thing()})
     (record,) = lines(stream)
     assert record["thing"] == f"Thing({REDACTED})"
+
+
+def only_our_handler() -> io.StringIO:
+    """Configure, then drop pytest's capture handlers, which would raise on a bad record first."""
+    stream = configured()
+    root = logging.getLogger()
+    root.handlers[:] = [h for h in root.handlers if getattr(h, "_mailroom_owned", False)]
+    return stream
+
+
+def test_a_bad_format_argument_never_raises_into_the_caller() -> None:
+    stream = only_our_handler()
+    get_logger("t").warning("count %d for token=%s", "x", SECRET)
+    (record,) = lines(stream)
+    assert record["level"] == "WARNING"
+    assert record["event"] == (
+        f"count %d for token={REDACTED} [unformattable: TypeError; argument types: str, str]"
+    )
+    assert SECRET not in stream.getvalue()
+
+
+def test_an_extra_whose_str_raises_never_raises_into_the_caller() -> None:
+    class Boom:
+        def __str__(self) -> str:
+            raise RuntimeError("str failed")
+
+    stream = only_our_handler()
+    get_logger("t").warning("obj %s", Boom(), extra={"thing": Boom()})
+    (record,) = lines(stream)
+    assert record["thing"] == "<unprintable Boom>"
+    assert record["event"] == "obj %s [unformattable: RuntimeError; argument types: Boom]"
 
 
 def test_level_filters_records() -> None:
@@ -251,7 +282,7 @@ def test_redacts_nested_payloads_in_context_and_extra() -> None:
 def test_redacts_secrets_in_message_text_and_args() -> None:
     stream = configured()
     get_logger("t").info(
-        "calling with Authorization: Bearer %s and key sk-%s; api_key=%s, input_tokens=7",
+        "calling with key sk-%s; api_key=%s, input_tokens=7, Authorization: Bearer %s",
         SECRET,
         SECRET,
         SECRET,
@@ -259,9 +290,54 @@ def test_redacts_secrets_in_message_text_and_args() -> None:
     (record,) = lines(stream)
     assert SECRET not in stream.getvalue()
     assert record["event"] == (
-        f"calling with Authorization: Bearer {REDACTED} and key {REDACTED}; "
-        f"api_key={REDACTED}, input_tokens=7"
+        f"calling with key {REDACTED}; api_key={REDACTED}, input_tokens=7, Authorization: {REDACTED}"
     )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Authorization: Basic dXNlcjpwYXNz", f"Authorization: {REDACTED}"),
+        ("authorization=Token abc def\nnext line", f"authorization={REDACTED}\nnext line"),
+        ("Proxy-Authorization: Digest user=x, nonce=y", f"Proxy-Authorization: {REDACTED}"),
+        ('{"Authorization": "Basic abc def", "n": 1}', f'{{"Authorization": "{REDACTED}", "n": 1}}'),
+        ("hf_AbCdEfGhIjKlMnOpQrStUvWxYz123456 loaded", f"{REDACTED} loaded"),
+        ("pat ghp_AbCdEfGhIjKlMnOpQrStUvWxYz1234567890", f"pat {REDACTED}"),
+        ("pat github_pat_11ABCDEFG0123456789_abcdefghijklmnop", f"pat {REDACTED}"),
+        ("GET https://user:hunter2@host.example/x", f"GET https://{REDACTED}@host.example/x"),
+        ("dsn postgres://:pw0rd@db:5432/x", f"dsn postgres://{REDACTED}@db:5432/x"),
+        ("credentials=abc123 passphrase: open-sesame", f"credentials={REDACTED} passphrase: {REDACTED}"),
+        ("private_key=-----BEGIN", f"private_key={REDACTED}"),
+        ("mailgun key-3ax6xnjp29jd6fds4gc373sgvjxteol0", f"mailgun {REDACTED}"),
+    ],
+)
+def test_redacts_credential_shapes_in_text(text: str, expected: str) -> None:
+    assert redact_text(text) == expected
+    assert redact_text(expected) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "key-value store",
+        "key-phrase-extraction",
+        "doc_class=key-dates-schedule",
+        "max_tokens=4096 input_tokens=10",
+        "token_count: 5",
+        "see https://host.example/a:b@c",
+    ],
+)
+def test_ordinary_text_is_not_redacted(text: str) -> None:
+    assert redact_text(text) == text
+
+
+def test_header_pairs_with_a_sensitive_name_are_redacted_as_key_and_value() -> None:
+    headers = [("Authorization", "Basic dXNlcjpwYXNz"), ("Accept", "json"), ["X-Api-Key", "abc"]]
+    assert redact({"headers": headers}) == {
+        "headers": [["Authorization", REDACTED], ["Accept", "json"], ["X-Api-Key", REDACTED]]
+    }
+    assert redact(("token", "abc")) == ["token", REDACTED]
+    assert redact(("token", "abc", "def")) == ["token", "abc", "def"]
 
 
 def test_redacts_exception_text_and_chained_causes() -> None:
@@ -321,6 +397,18 @@ def test_other_handlers_see_the_redacted_record_after_ours() -> None:
         ("set-cookie", True),
         ("db.password", True),
         ("client_secret", True),
+        ("credentials", True),
+        ("gcpCredential", True),
+        ("private_key", True),
+        ("privateKey", True),
+        ("passphrase", True),
+        ("token_budget", False),
+        ("prompt_token_count", False),
+        ("cookie_jar_size", False),
+        ("api_key_limit", False),
+        ("secret_total", False),
+        ("token_ratio", False),
+        ("max_tokens", False),
         ("input_tokens", False),
         ("cached_tokens", False),
         ("tokenizer", False),
@@ -355,6 +443,21 @@ def test_property_bearer_and_sk_tokens_never_survive_in_text(secret: str, prefix
 
 @given(st.text())
 def test_property_redaction_is_idempotent(text: str) -> None:
+    once = redact_text(text)
+    assert redact_text(once) == once
+
+
+_FRAGMENTS = st.sampled_from(
+    [
+        "Authorization", "Proxy-Authorization", "authorization", ":", "=", " ", "  ", "'", '"', "\n",
+        "Basic", "Bearer", "abc123", "[REDACTED]", "https://", "u", "@", "/", "key-", "sk-",
+        "hf_", "ghp_", "github_pat_", "AbCdEfGhIjKlMnOpQrStUvWxYz123456", "password", "token_count",
+    ]
+)  # fmt: skip
+
+
+@given(st.lists(_FRAGMENTS, max_size=14).map("".join))
+def test_property_redaction_of_credential_shapes_is_idempotent(text: str) -> None:
     once = redact_text(text)
     assert redact_text(once) == once
 

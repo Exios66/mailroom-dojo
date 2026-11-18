@@ -46,6 +46,15 @@ def test_run_id_uses_utc_whatever_the_clock_zone() -> None:
     assert new_run_id(clock, random.Random(0)).startswith("20261118T084200Z-")
 
 
+def test_run_id_refuses_a_clock_that_returns_a_naive_datetime() -> None:
+    class NaiveClock:
+        def now(self) -> datetime:
+            return datetime(2026, 1, 1, 0, 0, 0)
+
+    with pytest.raises(ValueError, match="clock returned a naive datetime"):
+        new_run_id(NaiveClock(), random.Random(0))
+
+
 def test_run_id_default_sources_work() -> None:
     assert RUN_ID_SHAPE.fullmatch(new_run_id())
     assert len({new_run_id() for _ in range(50)}) == 50

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import copy
+import io
 import json
+import logging
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import pytest
@@ -14,6 +17,7 @@ from pydantic import ValidationError
 
 from mailroom_common.config import ConfigModel, config_hash, deep_merge, load_config, load_layered
 from mailroom_common.errors import ConfigError
+from mailroom_common.logging import configure_logging
 
 
 class Mode(StrEnum):
@@ -113,6 +117,35 @@ def test_validation_message_does_not_echo_values(tmp_path: Path) -> None:
     assert "hunter2-secret" not in str(info.value)
 
 
+def test_validation_error_does_not_chain_the_interpolated_secret_into_a_logged_traceback(
+    tmp_path: Path,
+) -> None:
+    secret = "zq-interp-7c1d0e9b"  # no credential shape, so log redaction cannot be what hides it
+    path = _file(tmp_path, "p.yaml", "name: x\nlimits: {max_pages: '${DB_PASSWORD}'}\n")
+    stream = io.StringIO()
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    try:
+        configure_logging("DEBUG", stream=stream)
+        try:
+            load_config(path, Profile, env={"DB_PASSWORD": secret})
+        except ConfigError as exc:
+            error = exc
+            logging.getLogger("test.config").exception("config failed")
+    finally:
+        root.handlers[:] = handlers
+        root.setLevel(level)
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    assert dict(error.context) == {"source": str(path), "problems": 1}
+    assert "limits.max_pages: Input should be a valid integer" in str(error)
+    output = stream.getvalue()
+    assert "Traceback" in output
+    assert "config failed" in output
+    assert secret not in output
+    assert "ValidationError" not in output
+
+
 @pytest.mark.parametrize("name", ["p.toml", "p.txt", "p", "p.yaml.bak"])
 def test_unknown_extension_is_refused(tmp_path: Path, name: str) -> None:
     path = _file(tmp_path, name, BASE_YAML)
@@ -177,18 +210,28 @@ def test_invalid_yaml_is_a_config_error_with_line(tmp_path: Path) -> None:
     [
         ("name: x\nlimits: {max_pages: 1, threshold: .nan}\n", "NaN and infinity", "limits.threshold"),
         ("name: x\nlimits: {max_pages: 1, threshold: -.inf}\n", "NaN and infinity", "limits.threshold"),
-        ("name: !!binary aGk=\nlimits: {max_pages: 1}\n", "type bytes cannot be represented", "name"),
-        (
-            "name: x\ntags: !!set {a: null}\nlimits: {max_pages: 1}\n",
-            "type set cannot be represented",
-            "tags",
-        ),
     ],
 )
 def test_yaml_values_json_cannot_hold_are_refused(tmp_path: Path, text: str, match: str, key: str) -> None:
     with pytest.raises(ConfigError, match=match) as info:
         load_config(_file(tmp_path, "p.yaml", text), Profile)
     assert info.value.context["key"] == key
+
+
+@pytest.mark.parametrize(
+    ("text", "tag", "line"),
+    [
+        ("name: !!binary aGk=\nlimits: {max_pages: 1}\n", "binary", 1),
+        ("name: x\ntags: !!set {a: null}\nlimits: {max_pages: 1}\n", "set", 2),
+    ],
+)
+def test_yaml_binary_and_set_are_refused_by_the_loader(
+    tmp_path: Path, text: str, tag: str, line: int
+) -> None:
+    path = _file(tmp_path, "p.yaml", text)
+    with pytest.raises(ConfigError, match=f"!!{tag} is not allowed") as info:
+        load_config(path, Profile)
+    assert info.value.context == {"source": str(path), "line": line}
 
 
 def test_yaml_dates_become_iso_strings(tmp_path: Path) -> None:
@@ -218,6 +261,14 @@ def test_interpolation_replaces_defaults_and_escapes(tmp_path: Path) -> None:
     assert profile.name == "acme"
     assert profile.endpoint == "https://localhost:9000/v1"
     assert profile.tags == ("cost $5", "acme-acme", "plain $HOME", "lone $")
+
+
+def test_interpolation_yields_strings_only_and_never_coerces(tmp_path: Path) -> None:
+    path = _file(tmp_path, "p.yaml", "name: '${PAGES}'\nlimits: {max_pages: '${PAGES}'}\n")
+    with pytest.raises(ConfigError, match="limits.max_pages: Input should be a valid integer"):
+        load_config(path, Profile, env={"PAGES": "12"})
+    path = _file(tmp_path, "q.yaml", "name: '${PAGES}'\nlimits: {max_pages: 12}\n")
+    assert load_config(path, Profile, env={"PAGES": "12"}).name == "12"
 
 
 def test_default_applies_to_empty_variables_but_plain_reference_keeps_empty(tmp_path: Path) -> None:
@@ -275,6 +326,17 @@ def test_deep_merge_rules() -> None:
         "c": None,
         "d": 4,
     }
+
+
+def test_deep_merge_accepts_read_only_mappings_at_any_depth() -> None:
+    base = MappingProxyType({"a": MappingProxyType({"x": 1, "l": [MappingProxyType({"k": 1})]}), "b": 2})
+    overlay = MappingProxyType({"a": MappingProxyType({"y": 2}), "c": MappingProxyType({"z": 3})})
+    merged = deep_merge(base, overlay)
+    assert merged == {"a": {"x": 1, "l": [{"k": 1}], "y": 2}, "b": 2, "c": {"z": 3}}
+    assert type(merged["a"]) is dict
+    assert type(merged["a"]["l"][0]) is dict
+    assert type(merged["c"]) is dict
+    assert deep_merge({"only": MappingProxyType({"x": 1})}, {}) == {"only": {"x": 1}}
 
 
 def test_deep_merge_never_mutates_or_aliases_its_inputs() -> None:

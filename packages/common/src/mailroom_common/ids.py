@@ -63,8 +63,15 @@ class ParsedRunId:
 
 
 def new_run_id(clock: Clock | None = None, rng: RandomSource | None = None) -> str:
-    """A new run id from ``clock`` (default: the system clock) and ``rng`` (default: OS randomness)."""
-    now = (clock or SystemClock()).now().astimezone(UTC)
+    """A new run id from ``clock`` (default: the system clock) and ``rng`` (default: OS randomness).
+
+    A clock whose ``now()`` is naive raises ``ValueError``: ``astimezone`` would read it
+    as local time and stamp the id with a zone-dependent second.
+    """
+    current = (clock or SystemClock()).now()
+    if current.tzinfo is None or current.utcoffset() is None:
+        raise ValueError(f"clock returned a naive datetime ({current.isoformat()}); it must be aware")
+    now = current.astimezone(UTC)
     bits = (rng or secrets.SystemRandom()).getrandbits(32)
     return (
         f"{now.year:04d}{now.month:02d}{now.day:02d}T{now.hour:02d}{now.minute:02d}{now.second:02d}Z"

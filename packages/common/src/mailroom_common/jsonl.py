@@ -12,8 +12,11 @@ Reading is strict about JSON (:func:`parse_json`): a duplicated object key or a 
 from __future__ import annotations
 
 import contextlib
+import errno
+import fcntl
 import json
 import os
+import stat
 import tempfile
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
@@ -64,25 +67,39 @@ def _encode_line(obj: Any) -> bytes:
 def append_jsonl(path: str | Path, obj: Any, *, fsync: bool = False) -> None:
     """Append ``obj`` as one canonical line, creating the file if needed.
 
-    The line is written with a single ``os.write`` on an ``O_APPEND`` descriptor, so
-    concurrent appenders (threads or processes on a local filesystem) never interleave
-    within a line. With ``fsync=True`` the line is on disk when this returns. A short
-    write raises :class:`IntegrityError` (the partial bytes stay; :func:`iter_jsonl`
-    reports them as a bad line or truncated tail). ``TypeError``/``ValueError`` from
+    The line is written on an ``O_APPEND`` descriptor while holding an exclusive
+    ``flock`` on the file, so concurrent callers of this function (threads or processes
+    on a local filesystem) never interleave within a line, and each sees the previous
+    caller's line complete. In the common case the line goes out in a single
+    ``os.write``. With ``fsync=True`` the line is on disk when this returns.
+
+    If the file does not end in ``\\n`` (a writer died mid-append and left a torn line),
+    nothing is written and :class:`IntegrityError` is raised with ``path`` in its
+    context: appending would glue the new row onto the torn bytes and lose both. The
+    file must be repaired first (for example rewritten with :func:`write_jsonl_atomic`
+    from the rows :func:`iter_jsonl` can still read).
+
+    A short write (rare: a signal, a full disk) is continued with the remaining bytes
+    under the same lock. A write that makes no progress raises ``OSError`` and leaves a
+    torn line, which the next append refuses. ``TypeError``/``ValueError`` from
     canonical encoding (non-string keys, NaN) and ``OSError`` (disk full, fsync error)
     propagate, and nothing is written in the encoding case.
     """
     line = _encode_line(obj)
-    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    fd = os.open(path, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o644)
     try:
-        written = os.write(fd, line)
-        if written != len(line):
+        fcntl.flock(fd, fcntl.LOCK_EX)  # released by close()
+        size = os.fstat(fd).st_size
+        if size and os.pread(fd, 1, size - 1) != b"\n":
             raise IntegrityError(
-                "short write while appending a JSONL line",
-                path=str(path),
-                written=written,
-                expected=len(line),
+                "JSONL file ends in a torn line and must be repaired before appending", path=str(path)
             )
+        view = memoryview(line)
+        while view:
+            written = os.write(fd, view)
+            if written == 0:
+                raise OSError(errno.EIO, "write made no progress while appending a JSONL line", str(path))
+            view = view[written:]
         if fsync:
             os.fsync(fd)
     finally:
@@ -105,13 +122,26 @@ def write_jsonl_atomic(path: str | Path, rows: Iterable[Any]) -> int:
     survives a crash. If anything fails before the rename (a row that cannot be encoded,
     an exception from ``rows``, a write or fsync error) the temporary file is removed,
     the old file is left exactly as it was, and the error propagates.
+
+    The new file keeps the permission bits of the file it replaces (``0o644`` when
+    ``path`` does not exist yet). If ``path`` is a symbolic link, the file it points to
+    is replaced and the link is kept.
+
+    A rewrite needs exclusive access to the file: a row that another process appends
+    (:func:`append_jsonl`) while the rewrite runs is lost, because it goes to the file
+    being replaced. Stop the writers, or hold a lock of your own, around a rewrite.
     """
-    target = Path(path)
+    target = Path(os.path.realpath(path))
     directory = target.parent
+    try:
+        mode = stat.S_IMODE(os.stat(target).st_mode)
+    except FileNotFoundError:
+        mode = 0o644
     fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{target.name}.", suffix=".tmp")
     count = 0
     try:
         with os.fdopen(fd, "wb") as handle:
+            os.fchmod(handle.fileno(), mode)
             for row in rows:
                 handle.write(_encode_line(row))
                 count += 1
