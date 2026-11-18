@@ -200,6 +200,9 @@ labels.snapshot_refs()      # [{snapshot_id, kind, manifest_hash}, ...]
 labels.label_snapshot_ids() # Run.label_snapshot_ids: ["<snapshot_id>@<manifest_hash>", ...]
 ```
 
+`documents()` and `document(id)` hand out copies of list and dict values, so changing a
+value you were given never changes the label set.
+
 `load_label_set` verifies every manifest, runs the quality gate and raises
 `QualityGateFailed` (with the full report) when it finds an error or a warning that the
 snapshot raising it does not accept: it is strict by default, the same rule as

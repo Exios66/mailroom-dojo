@@ -3,7 +3,9 @@
 ``load_label_set(directories, profile)`` is what the Dojo codes against. It loads every
 snapshot (manifest verification first), runs the quality gate, refuses the set when the
 gate finds an error (``QualityGateFailed``, which carries the report), and resolves every
-document once. The result is immutable:
+document once. The result is immutable: its own fields are frozen, and every resolved
+value it hands out (``documents()``, ``document()``) is a fresh copy of any list or dict,
+so a caller that changes the value it was given never changes the labels:
 
 - ``snapshot_id``: the member snapshot ids, sorted and joined with ``+`` (deterministic,
   readable, and different for any other membership);
@@ -26,11 +28,13 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
+from typing import Any
 
 from mailroom_labels.errors import LabelsError, ManifestMismatch
 from mailroom_labels.findings import finding
 from mailroom_labels.layers import corpus_index, read_layers
-from mailroom_labels.models import DocumentLabels
+from mailroom_labels.models import DocumentLabels, FieldLabel, LayerFact
 from mailroom_labels.profile import ClientProfile
 from mailroom_labels.quality import QualityReport, check_dirs, verify
 from mailroom_labels.resolve import resolve
@@ -55,6 +59,45 @@ class QualityGateFailed(LabelsError):
         )
 
 
+def _thawed(value: Any) -> Any:
+    """A deep copy of a JSON value's lists and dicts (scalars are immutable and shared)."""
+    if isinstance(value, list):
+        return [_thawed(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _thawed(v) for k, v in value.items()}
+    return value
+
+
+def _fact_copy(fact: LayerFact) -> LayerFact:
+    if not isinstance(fact.value, (list, dict)):
+        return fact
+    return fact.model_copy(update={"value": _thawed(fact.value)})
+
+
+def _label_copy(label: FieldLabel) -> FieldLabel:
+    seen = tuple(_fact_copy(f) for f in label.layers_seen)
+    if not isinstance(label.value, (list, dict)) and all(
+        a is b for a, b in zip(seen, label.layers_seen, strict=True)
+    ):
+        return label
+    return label.model_copy(update={"value": _thawed(label.value), "layers_seen": seen})
+
+
+def _detached(doc: DocumentLabels) -> DocumentLabels:
+    """``doc`` with every list or dict value copied, so the caller cannot reach the stored
+    one. Frozen models and scalars are shared; only what could be mutated is copied."""
+    fields = {name: _label_copy(label) for name, label in doc.fields.items()}
+    untrusted = {name: tuple(_fact_copy(f) for f in facts) for name, facts in doc.untrusted.items()}
+    if all(fields[n] is doc.fields[n] for n in fields) and all(
+        a is b for n, facts in untrusted.items() for a, b in zip(facts, doc.untrusted[n], strict=True)
+    ):
+        return doc
+    # model_copy does not re-run validators: keep the read-only views ourselves.
+    return doc.model_copy(
+        update={"fields": MappingProxyType(fields), "untrusted": MappingProxyType(untrusted)}
+    )
+
+
 @dataclass(frozen=True)
 class LabelSet:
     """A verified, quality-checked and resolved set of snapshots (see the module doc)."""
@@ -73,12 +116,14 @@ class LabelSet:
         return hash_obj([[s.snapshot_id, s.manifest_hash] for s in self.snapshots])
 
     def documents(self) -> Iterator[DocumentLabels]:
-        """Every resolved document, sorted by document id."""
-        return iter(self._documents)
+        """Every resolved document, sorted by document id (list and dict values are copies)."""
+        return (_detached(d) for d in self._documents)
 
     def document(self, document_id: str) -> DocumentLabels | None:
-        """One resolved document, or None when no snapshot names it."""
-        return next((d for d in self._documents if d.document_id == document_id), None)
+        """One resolved document, or None when no snapshot names it (list and dict values
+        are copies)."""
+        found = next((d for d in self._documents if d.document_id == document_id), None)
+        return None if found is None else _detached(found)
 
     def snapshot_refs(self) -> tuple[dict[str, str], ...]:
         """What a run records about the labels it was scored against."""

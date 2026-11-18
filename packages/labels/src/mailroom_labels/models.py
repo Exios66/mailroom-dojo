@@ -212,7 +212,9 @@ class DocumentLabels(BaseModel):
     @field_validator("fields", "untrusted", mode="after")
     @classmethod
     def _read_only(cls, value: Mapping[str, Any]) -> Mapping[str, Any]:
-        """A read-only view, so nobody can change resolved labels after the gate passed."""
+        """A read-only view, so nobody can add, drop or replace a resolved label after the
+        gate passed. A list or dict ``value`` stays a plain JSON value; ``LabelSet`` hands
+        out copies of those, so a caller cannot change the stored one either."""
         return MappingProxyType(dict(value))
 
     @field_serializer("fields", "untrusted")

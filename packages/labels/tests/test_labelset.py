@@ -8,10 +8,11 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from labels_testkit import make_snapshot, near_gold_row, profile, standard_set
-from mailroom_labels import LabelSet, QualityGateFailed, load_label_set
+from labels_testkit import hub_row, interim_row, make_snapshot, near_gold_row, profile, standard_set
+from mailroom_labels import LabelSet, QualityGateFailed, corpus_index, load_label_set, read_layers, resolve
 from mailroom_labels.models import DocumentLabels
-from mailroom_labels.snapshot import load_snapshot
+from mailroom_labels.quality import QualityReport
+from mailroom_labels.snapshot import load_snapshot, load_snapshot_set
 from mailroom_record.hashing import hash_obj
 from mailroom_record.models import Run
 
@@ -174,3 +175,56 @@ def test_a_manifest_replaced_after_the_gate_raises_the_documented_error(
         load_label_set(dirs, profile())
     assert info.value.report.errors[0].kind == "manifest_mismatch"
     assert "near_gold-test" in (info.value.report.errors[0].location or "")
+
+
+def _scribble(value: object) -> None:
+    """Change a JSON container in place, at every depth."""
+    if isinstance(value, list):
+        for item in value:
+            _scribble(item)
+        value.append("MALLORY")
+        value.reverse()
+    elif isinstance(value, dict):
+        for item in value.values():
+            _scribble(item)
+        value["mallory"] = True
+        value.pop(next(iter(value)))
+
+
+def _every_value(doc: DocumentLabels) -> list[object]:
+    facts = [f for fl in doc.fields.values() for f in fl.layers_seen]
+    facts += [f for seen in doc.untrusted.values() for f in seen]
+    return [fl.value for fl in doc.fields.values()] + [f.value for f in facts]
+
+
+def test_nested_values_handed_out_cannot_change_the_stored_labels(tmp_path: Path) -> None:
+    """A caller that mutates a list or dict it was given changes its own copy, never the
+    label set: ``documents()`` and ``document()`` hand out the same values every time."""
+    gated = load_label_set(standard_set(tmp_path / "std"), profile())  # D3.signers is a list
+    # A dict value cannot pass the gate (no field type holds one), so build that set from
+    # resolve() directly: a nested dict, a dict in a list, and an untrusted dict.
+    root = tmp_path / "dicts"
+    hub = make_snapshot(
+        root, "hub", [hub_row("D1", fields={"amount": {"currency": "XTS", "parts": [1, {"n": 2}]}})]
+    )
+    interim = make_snapshot(root, "interim", [interim_row("D1", {"sent_on": ("disputed", {"a": [1]})})])
+    read = read_layers(load_snapshot_set([hub, interim]))
+    built = LabelSet(
+        snapshots=(),
+        profile=profile(),
+        report=QualityReport(()),
+        _documents=resolve(read.records, profile(), corpus_index(read.corpus)),
+    )
+    for ls, doc_id in ((gated, "D3"), (built, "D1")):
+        before = [d.model_dump(mode="json") for d in ls.documents()]
+        values = [v for d in ls.documents() for v in _every_value(d)]
+        assert any(isinstance(v, list) for v in values) or ls is built
+        assert any(isinstance(v, dict) for v in values) or ls is gated
+        for v in values:
+            _scribble(v)
+        one = ls.document(doc_id)
+        assert one is not None
+        for v in _every_value(one):
+            _scribble(v)
+        assert [d.model_dump(mode="json") for d in ls.documents()] == before
+        assert ls.document(doc_id).model_dump(mode="json") in before
