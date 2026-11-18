@@ -91,13 +91,24 @@ _StrictSafeLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG
 
 
 def _read_yaml(path: Path) -> Any:
-    """Parse a YAML file with :class:`_StrictSafeLoader`; a syntax error is a :class:`ProfileError`."""
-    text = path.read_text(encoding="utf-8")
+    """Parse a YAML file with :class:`_StrictSafeLoader`.
+
+    A file that is not UTF-8, a syntax error, a value PyYAML cannot build and nesting
+    deeper than the interpreter allows are each a :class:`ProfileError`; a missing
+    file still raises ``FileNotFoundError``.
+    """
     try:
+        text = path.read_text(encoding="utf-8")
         return yaml.load(text, Loader=_StrictSafeLoader)  # noqa: S506 - a SafeLoader subclass
     except ProfileError:
         raise
-    except (yaml.YAMLError, ValueError) as error:  # ValueError: an integer over Python's digit limit
+    except UnicodeDecodeError as error:
+        raise ProfileError("", f"{path.name} is not UTF-8 text: {error}") from None
+    except RecursionError:
+        problem = f"{path.name} is not valid YAML: nested deeper than the interpreter allows"
+        raise ProfileError("", problem) from None
+    # ValueError: an integer over Python's digit limit, or a timestamp no calendar holds (2020-13-01)
+    except (yaml.YAMLError, ValueError) as error:
         raise ProfileError("", f"{path.name} is not valid YAML: {error}") from None
 
 
