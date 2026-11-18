@@ -2,8 +2,8 @@ version: 2.1
 
 jobs:
   test:
-    # The package declares requires-python >= 3.11, so the suite runs on the oldest
-    # supported Python and on the one the project develops against.
+    # The package declares requires-python >= 3.11, so the suite runs on every supported
+    # minor version: 3.11 (the oldest), 3.12, and 3.13 (the one local development uses).
     parameters:
       python:
         type: string
@@ -61,5 +61,5 @@ workflows:
       - test:
           matrix:
             parameters:
-              python: ["3.11.14", "3.12.7"]
+              python: ["3.11.14", "3.12.7", "3.13.9"]
       - no-session-links
