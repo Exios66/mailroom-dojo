@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -351,6 +352,45 @@ def test_seal_guard_is_the_lock_seal_run_takes(env: SimpleNamespace) -> None:
         assert not done.is_set()
     t.join(10)
     assert done.is_set()
+
+
+def test_seal_guard_creates_the_seals_directory_durably(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``seal_run`` fsyncs the run directory only when it creates ``seals/`` itself, so the
+    guard must do it when it creates the directory first: ``seals/`` and the run directory
+    are fsynced after the ``mkdir`` and before the lock is taken, on every call. What a test
+    cannot show is the durability itself (that needs a power cut); this pins the calls."""
+    import mailroom_desk.lock as lock_module
+
+    run_dir = env.root / "runs" / "r1"
+    seals = run_dir / "seals"
+    assert not seals.exists()
+    synced: list[tuple[str, bool]] = []
+    real_fsync = os.fsync
+
+    def spy_fsync(fd: int) -> None:
+        path = Path(os.readlink(f"/proc/self/fd/{fd}"))
+        synced.append((str(path.relative_to(env.root)), seals.is_dir()))
+        real_fsync(fd)
+
+    monkeypatch.setattr(lock_module.os, "fsync", spy_fsync)
+    with seal_guard(env.root, "r1", timeout=1):
+        pass
+    assert synced == [("runs/r1/seals", True), ("runs/r1", True)]
+    synced.clear()
+    with seal_guard(env.root, "r1", timeout=1):  # an existing directory is fsynced again
+        pass
+    assert synced == [("runs/r1/seals", True), ("runs/r1", True)]
+    monkeypatch.undo()
+    assert env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    seal_within(env.log, "r1")
+    verify_ok(env)
+
+
+def test_seal_guard_on_a_missing_run_directory_creates_nothing(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        with seal_guard(tmp_path, "nope", timeout=0):
+            pass
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_seal_lock_held_too_long_times_out(env: SimpleNamespace) -> None:

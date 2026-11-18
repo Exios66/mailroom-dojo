@@ -16,7 +16,9 @@ seconds pass, then raises ``DeskLockTimeout``.
 ``seal_guard`` takes the record's own seal lock (``runs/<run_id>/seals/.lock``, the file
 ``mailroom_record.seal.seal_run`` holds for a whole seal, documented in that module's
 layout) the same way, so a seal cannot land between the desk's "is this run closed?" check
-and its append (see ``desk.py``).
+and its append (see ``desk.py``). It makes ``seals/`` durable first (creates it if missing,
+then fsyncs it and the run directory, on every call), because ``seal_run`` skips those
+fsyncs for a directory that already exists.
 """
 
 from __future__ import annotations
@@ -85,15 +87,40 @@ def desk_lock(root: Path, run_id: str, timeout: float = DEFAULT_LOCK_TIMEOUT) ->
         yield
 
 
+def _fsync_dir(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _seals_dir_durable(seals: Path) -> None:
+    """Make ``seals/`` exist durably: create it if missing, then fsync it and the run
+    directory that holds its entry.
+
+    ``seal_run`` creates ``seals/`` the same way, but skips the fsyncs when the directory
+    already exists. So if the desk created it with a plain ``mkdir`` (and the machine lost
+    power before the run directory reached the disk), a later seal written into it could
+    vanish with the directory. The fsyncs run on every call, not only on creation, so a
+    desk killed between its ``mkdir`` and its fsync is repaired by the next call; an fsync
+    of a directory with nothing new to write is cheap.
+    """
+    with contextlib.suppress(FileExistsError):
+        seals.mkdir()
+    _fsync_dir(seals)
+    _fsync_dir(seals.parent)
+
+
 @contextlib.contextmanager
 def seal_guard(root: Path, run_id: str, timeout: float = DEFAULT_LOCK_TIMEOUT) -> Iterator[None]:
     """Hold the record's seal lock of ``run_id`` (``seal_run`` waits while it is held).
 
-    Creates ``seals/`` if it is missing, as ``seal_run`` itself does; the run directory
-    must exist.
+    Creates ``seals/`` if it is missing, durably (see ``_seals_dir_durable``), as
+    ``seal_run`` itself does; the run directory must exist (``FileNotFoundError``).
     """
     timeout = check_timeout(timeout)
     path = seal_lock_path(root, run_id)
-    path.parent.mkdir(exist_ok=True)
+    _seals_dir_durable(path.parent)
     with _flock(path, run_id, timeout, "seal", 0o644):
         yield
