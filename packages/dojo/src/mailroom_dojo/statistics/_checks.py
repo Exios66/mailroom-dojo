@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import numbers
+import operator
 from typing import Any
 
 
@@ -25,16 +26,22 @@ def validate_confidence(confidence: Any, name: str = "confidence") -> float:
     return value
 
 
-def validate_resampling(n_boot: Any, alpha: Any, seed: Any) -> None:
-    """A bootstrap needs at least one resample, an ``alpha`` inside ``(0, 1)`` and an integer seed."""
+def validate_resampling(n_boot: Any, alpha: Any, seed: Any) -> tuple[int, int]:
+    """A bootstrap needs at least one resample, an ``alpha`` inside ``(0, 1)`` and an integer seed.
+
+    Returns ``(n_boot, seed)`` as plain ints (``operator.index``), so a NumPy integer
+    seeds ``random.Random`` and its result serialises to JSON.
+    """
     if isinstance(n_boot, bool) or not isinstance(n_boot, numbers.Integral):
         raise TypeError("n_boot must be an integer")
-    if n_boot < 1:
+    count = operator.index(n_boot)
+    if count < 1:
         raise ValueError(f"n_boot must be at least 1; got {n_boot!r}")
     if isinstance(alpha, bool) or not isinstance(alpha, numbers.Real) or not 0.0 < float(alpha) < 1.0:
         raise ValueError(f"alpha must be in (0, 1); got {alpha!r}")
     if isinstance(seed, bool) or not isinstance(seed, numbers.Integral):
         raise TypeError("seed must be an integer")
+    return count, operator.index(seed)
 
 
 def is_non_finite(value: Any) -> bool:

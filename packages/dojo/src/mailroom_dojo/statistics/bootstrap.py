@@ -169,7 +169,7 @@ def bootstrap_ci(
     cleaned = scores_as_floats(values)
     if len(cleaned) < 2:
         return None
-    validate_resampling(n_boot, alpha, seed)
+    n_boot, seed = validate_resampling(n_boot, alpha, seed)
     means = resample_means(cleaned, n_boot, random.Random(seed))
     means.sort()
     lo_index, hi_index = percentile_indices(n_boot, alpha)
@@ -201,7 +201,7 @@ def delta_significance(
     b = scores_as_floats(values_b, "values_b")
     if len(a) < 2 or len(b) < 2:
         return None
-    validate_resampling(n_boot, alpha, seed)
+    n_boot, seed = validate_resampling(n_boot, alpha, seed)
     rng = random.Random(seed)
     mean_a = sum(a) / len(a)
     mean_b = sum(b) / len(b)
