@@ -54,7 +54,13 @@ Rules
   ``UnpackConflict`` and nothing is changed; equal files are left alone, missing ones are
   hard-linked into place (blobs first, ``run.json`` last), so a second unpack is a no-op and
   an unpack interrupted part way is finished by the next. A blob already present or
-  tombstoned in the target is never replaced. From taking blobs from the target until
+  tombstoned in the target is never replaced, so before anything is placed each one the run
+  names is checked (its content must hash to its name, its tombstone must be its hash's
+  record): a damaged one is ``UnpackVerifyFailed`` (an ``UnpackConflict``) and nothing is
+  placed. After placing, still under the lock, ``verify_run`` runs on the run in the target;
+  if it fails, ``UnpackVerifyFailed`` names the problem kinds (the run's files stay, and a
+  pruned run keeps its ``prune.json``). So a returned ``unpack_run`` means the run verifies
+  where it was placed. From taking blobs from the target until
   ``run.json`` is placed, it holds the maintenance lock shared, as a writer does (waiting
   up to ``lock_timeout`` seconds while a prune holds it: ``StoreBusy``), so a concurrent
   ``prune_run`` of another run cannot delete a blob this unpack relies on before the
@@ -102,7 +108,7 @@ from mailroom_record.hashing import canonical_json
 from mailroom_record.log import MAINTENANCE_LOCK, MAX_LINE, PACK_RECORD, PRUNE_RECORD, EventLog
 from mailroom_record.models import _RUN_ID_RE
 from mailroom_record.seal import list_seals
-from mailroom_record.verify import verify_run
+from mailroom_record.verify import _VANISHED, _blob_damage, _tombstone_damage, verify_run
 
 __all__ = [
     "MAX_BLOB",
@@ -118,6 +124,7 @@ __all__ = [
     "RunNotSealed",
     "StoreBusy",
     "UnpackConflict",
+    "UnpackVerifyFailed",
     "pack_run",
     "prune_run",
     "unpack_run",
@@ -161,6 +168,11 @@ class PackCorrupt(ValueError):
 
 class UnpackConflict(FileExistsError):
     """The target root holds a different file where the archive's run would go."""
+
+
+class UnpackVerifyFailed(UnpackConflict):
+    """The target store would not hold the run whole: a blob it already holds is damaged, or
+    the placed run does not verify there. Names the problems; ``verify`` says more."""
 
 
 class PruneRefused(RuntimeError):
@@ -734,6 +746,7 @@ def _place(read: _Read, staging: Path, root: Path) -> str:
         dst = root / rel
         if dst.exists() and not (dst.is_file() and _same_bytes(dst, staging / rel)):
             raise UnpackConflict(f"runs/{run_id}: {rel.split('/', 2)[2]} differs from the archive's")
+    _check_target_blobs(target, sorted(named), run_id)
 
     for rel in blob_rel:
         m = _BLOB_MEMBER.fullmatch(rel)
@@ -763,11 +776,38 @@ def _place(read: _Read, staging: Path, root: Path) -> str:
         placed_dirs.add(dst.parent)
     for d in sorted(placed_dirs):
         _fsync_dir(d)
+    report = verify_run(*_open_store(root), run_id)  # what was placed, as the target holds it
+    if not report.ok:
+        kinds = sorted({p.kind for p in report.problems if p.fails})
+        raise UnpackVerifyFailed(
+            f"runs/{run_id}: placed, but the run does not verify in this store ({', '.join(kinds)}); "
+            "run verify, repair the store and unpack again"
+        )
     prune_record = root / "runs" / run_id / _PRUNE_RECORD
     if prune_record.exists():  # the run is whole again
         prune_record.unlink()
         _fsync_dir(prune_record.parent)
     return run_id
+
+
+def _check_target_blobs(target: BlobStore, shas: list[str], run_id: str) -> None:
+    """``UnpackVerifyFailed`` if a blob the run names is already in the target but damaged:
+    content that is not its hash's (bit rot), or a tombstone that is not its hash's record.
+    Unpack never replaces a blob the target holds, so such a blob would stay damaged under
+    the restored run."""
+    for sha in shas:
+        tomb, content = target.tombstone_path(sha), target.content_path(sha)
+        why: str | None = None
+        if tomb.exists() or tomb.is_symlink():
+            why = _tombstone_damage(tomb, sha)
+        elif content.exists():
+            found = _blob_damage(content, sha)
+            why = None if found is _VANISHED else found
+        if why is not None:
+            raise UnpackVerifyFailed(
+                f"runs/{run_id}: the target's blob {sha} is damaged ({why}); unpack never replaces a "
+                "blob, so nothing was placed: run verify on the runs that name it and repair it first"
+            )
 
 
 # --- prune ------------------------------------------------------------------------

@@ -161,7 +161,10 @@ manifest; `MAX_BLOB`, 4 GiB, for a blob; `MAX_TOMBSTONE`, 64 KiB), and `pack_run
 write a larger one (`PackRefused`). The archive is decompressed a few zstd blocks at a time
 (at most 4 MiB per step), so a decompression bomb costs time, not memory. Only blobs the
 run's events name reach `root`, each checked against its name (a `.zst` must hash to it, a
-tombstone must be that hash's record); any other blob member is `PackCorrupt`. A second unpack
+tombstone must be that hash's record); any other blob member is `PackCorrupt`. A blob the
+target already holds is never replaced, so a damaged one there is `UnpackVerifyFailed` before
+anything is placed, and after placing the run is verified in `root` (`UnpackVerifyFailed`
+naming the problems if it fails): `unpack` prints "it verifies" only then. A second unpack
 is a no-op; an interrupted one is finished by the next. While it places files it holds the
 store's maintenance lock shared, as a writer does, so a prune cannot delete a blob it relies on. `prune_run(root, run_id, *,
 keep_columns=True)` then removes the run's segments and seals (and Parquet files with

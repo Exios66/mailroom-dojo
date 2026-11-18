@@ -615,7 +615,7 @@ def unpack(archive: ArchiveArg, root: Root, as_json: AsJson = False) -> None:
         if as_json:
             _print_json({"run_id": rid})
         else:
-            _echo(f"unpacked run {rid}: it verifies")
+            _echo(f"unpacked run {rid}: it verifies in this store")  # unpack_run verified it there
         return 0
 
     _guard(body)

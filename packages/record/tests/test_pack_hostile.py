@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -17,15 +18,20 @@ from record_testkit import (
     archive_members,
     blob_member,
     build_sealed_store,
+    flip_byte,
     forge_archive,
     peak_bytes,
+    run_cli,
     store_tree,
     zero_bomb,
 )
 
 import mailroom_record.pack as pack_module
+from mailroom_record.blobs import BlobStore
 from mailroom_record.hashing import canonical_json
-from mailroom_record.pack import PackCorrupt, PackRefused, pack_run, unpack_run
+from mailroom_record.log import EventLog
+from mailroom_record.pack import PackCorrupt, PackRefused, UnpackVerifyFailed, pack_run, unpack_run
+from mailroom_record.verify import Problem, VerifyReport
 
 MiB = 1 << 20
 
@@ -190,3 +196,47 @@ def test_a_blob_bomb_is_refused_at_its_cap(tmp_path: Path, monkeypatch: pytest.M
     with pytest.raises(PackCorrupt, match="more than"):
         unpack_run(forge_archive(tmp_path / "x.tar.zst", forged), root)
     assert store_tree(root) == before
+
+
+# --- finding 5: "it verifies" must be true of the target ---------------------------------------
+
+
+def test_a_damaged_target_blob_is_refused_before_anything_is_placed(tmp_path: Path) -> None:
+    """The reviewer's claim.py: the target already holds one of the archive's blobs, bit-rotted.
+    Unpack used to skip it as present and print "it verifies" over a run that does not."""
+    archive, _ = _packed(tmp_path)
+    t = build_sealed_store(tmp_path / "target", run_id="r5")  # the same synthetic originals as r1
+    rotten = sorted((t.root / "blobs").rglob("*.zst"))[0]
+    flip_byte(rotten, rotten.stat().st_size // 2)
+    before = store_tree(t.root)
+    with pytest.raises(UnpackVerifyFailed, match="damaged") as info:
+        unpack_run(archive, t.root)
+    assert rotten.name.split(".")[0] in str(info.value)
+    assert store_tree(t.root) == before
+    res = run_cli("unpack", str(archive), root=t.root)
+    assert res.exit_code == 1 and "UnpackVerifyFailed" in res.stderr and "it verifies" not in res.stdout
+    assert store_tree(t.root) == before
+
+
+def test_the_placed_run_is_verified_in_the_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fault injection: whatever the target makes of the placed run, a failing verify there is
+    UnpackVerifyFailed naming the problems, and the CLI never says "it verifies"."""
+    archive, _ = _packed(tmp_path)
+    root = tmp_path / "target"
+    real = pack_module.verify_run
+    calls: list[Path] = []
+
+    def judged_in_target(log: EventLog, blobs: BlobStore, run_id: str) -> VerifyReport:
+        calls.append(Path(log.root))
+        report = real(log, blobs, run_id)
+        if Path(log.root) != root:
+            return report
+        injected = Problem("missing_blob", "d1", 0, "injected for the test")
+        return replace(report, ok=False, problems=[*report.problems, injected])
+
+    monkeypatch.setattr(pack_module, "verify_run", judged_in_target)
+    with pytest.raises(UnpackVerifyFailed, match="missing_blob"):
+        unpack_run(archive, root)
+    assert root in calls  # the target itself was verified, after the staging store
+    res = run_cli("unpack", str(archive), root=root)
+    assert res.exit_code == 1 and "it verifies" not in res.stdout
