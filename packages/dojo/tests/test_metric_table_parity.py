@@ -95,9 +95,11 @@ _INTERVAL = (
     "a bootstrap interval of its metric (lo, hi, half, n, seed, n_boot): a Measure's ci and n, not a metric"
 )
 _SIDES = (
-    "the serving comparison's per-side copy (api, local, delta) of figures that are rows already "
-    "(ttft_seconds, e2e_latency_seconds, cost_per_document, estimated_cost_usd, ...), plus run settings: "
-    "a breakdown by serving side, D5"
+    "the serving comparison's per-side copy (api, local, delta): figures under row names, most of them "
+    "kept rows (ttft_seconds, e2e_latency_seconds, cost_per_document, estimated_cost_usd, ...), some "
+    "dropped serving telemetry (gpu_memory_used_gb, kv_cache_utilization, queue_time_seconds, "
+    "prompt_tokens_per_second: INTENDED_PARITY_DIFFERENCES), plus run settings and sample sizes; a "
+    "breakdown by serving side, D5"
 )
 _PER_FIELD = "a per-field breakdown of extraction rows (per_field_scores, the entity_list_* rows); D3b"
 #: Every nested block of a golden payload (the nested-breakdown rule in
@@ -114,7 +116,9 @@ BREAKDOWN_BLOCKS: Mapping[str, str] = MappingProxyType(
         "score.quality": _SIDES,
         "score.scorecard": _SIDES,
         "score.binary": (
-            "LegalBench's binary breakdown: accuracy, precision, recall, f1, f2 and counts of one task"
+            "LegalBench's binary breakdown of one task: accuracy, precision, recall, f1 and f2 (kept rows), "
+            "the confusion counts, and false_negative_rate and false_positive_rate, dropped rows whose "
+            "values are INTENDED_PARITY_DIFFERENCES"
         ),
         "score.confusion": "the confusion matrix (row confusion_matrix); its cells are counts",
         "score.doc_type_accuracy_ci": _INTERVAL,
@@ -350,6 +354,68 @@ def test_every_leaf_of_a_metric_block_maps_to_a_kept_row_or_a_reason(table: Metr
                 assert row.status != "not_ported", (block, leaf)
             else:
                 assert target.strip(), (block, leaf)
+
+
+#: The serving comparison's per-side blocks and LegalBench's binary block: their leaves carry
+#: values under row names, so each named row is kept, or its value is a listed difference.
+SIDE_AND_BINARY_BLOCKS = ("score.api", "score.local", "score.cost", "score.scorecard", "score.binary")
+_TELEMETRY = (
+    "serving telemetry of the old serving scorecard (vLLM and nvidia-smi readings) that the new engine "
+    "does not emit and no gate, report or projection reads"
+)
+_BINARY_RATE = "LegalBench's binary error rate: no gate, report or projection of the new system reads it"
+#: Golden values whose rows are not ported: the D3b golden-parity gate reports them as intended
+#: differences, each listed in docs/score-changelog.md.
+INTENDED_PARITY_DIFFERENCES: Mapping[str, str] = MappingProxyType(
+    {
+        "gpu_memory_used_gb": _TELEMETRY,
+        "kv_cache_utilization": _TELEMETRY,
+        "queue_time_seconds": _TELEMETRY,
+        "prompt_tokens_per_second": _TELEMETRY,
+        "false_negative_rate": _BINARY_RATE,
+        "false_positive_rate": _BINARY_RATE,
+    }
+)
+#: Not-ported rows named in those blocks that are no measurement: a run setting (a Measure's
+#: provenance) or a sample size (a Measure's n). Their status_reason says which.
+SIDE_SETTINGS_AND_SIZES = frozenset(
+    {
+        "base_url_host",
+        "dtype",
+        "gpu_count",
+        "max_model_len",
+        "prompt_version",
+        "quantization",
+        "tensor_parallel",
+        "n_docs",
+        "n_requests",
+    }
+)
+
+
+def test_every_row_a_side_or_binary_block_names_is_kept_or_a_listed_difference(table: MetricTable) -> None:
+    named: set[str] = set()
+    for block in SIDE_AND_BINARY_BLOCKS:
+        for leaf in OLD["golden"]["breakdowns"][block]["leaves"]:
+            if leaf not in table:
+                continue
+            named.add(leaf)
+            row = table.resolve(leaf)
+            if row.status != "not_ported":
+                continue
+            assert leaf in INTENDED_PARITY_DIFFERENCES or leaf in SIDE_SETTINGS_AND_SIZES, (block, leaf)
+    assert set(INTENDED_PARITY_DIFFERENCES) | SIDE_SETTINGS_AND_SIZES <= named, "a stale listing"
+    for leaf in SIDE_SETTINGS_AND_SIZES:
+        reason = str(table.get(leaf).status_reason)
+        assert reason.startswith(("Run metadata", "A sample size")), leaf
+
+
+def test_each_intended_parity_difference_is_dropped_and_in_the_score_changelog(table: MetricTable) -> None:
+    changelog = (PACKAGE_ROOT / "docs" / "score-changelog.md").read_text(encoding="utf-8")
+    section = changelog.split("## D2:", 1)[1]
+    for metric, reason in INTENDED_PARITY_DIFFERENCES.items():
+        assert table.get(metric).status == "not_ported" and reason.strip(), metric
+        assert f"`{metric}`" in section, f"{metric} is not listed in the score changelog's D2 section"
 
 
 def test_the_chained_composite_is_a_row(table: MetricTable) -> None:

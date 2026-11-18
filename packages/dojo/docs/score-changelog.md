@@ -188,6 +188,21 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   `_vs_gold` rows, and two tests keep it there: no row carried from the old registry or golden
   baseline states a derived-gold rule, and a view on `derived_gold` shows design rows only
   (also a loader rule).
+- **Six golden values are intended D3b golden-parity differences (review round 3).** The old
+  golden baseline emits them, but their rows are `not_ported`, so the D3b parity gate reports
+  them as intended differences, not as failures:
+  - `gpu_memory_used_gb`, `kv_cache_utilization`, `queue_time_seconds` and
+    `prompt_tokens_per_second` under `suites.local_vs_api.score.api` and `.local`: serving
+    telemetry of the old serving scorecard (vLLM and nvidia-smi readings) that the new engine
+    does not emit and nothing reads;
+  - `false_negative_rate` and `false_positive_rate` under
+    `task_kinds.legalbench.score.binary`: LegalBench's binary error rates, which no gate,
+    report or projection reads.
+
+  `tests/test_metric_table_parity.py` checks that every row a per-side or binary block names
+  is kept, one of these six, or a run setting or sample size (a Measure's provenance or `n`).
+  The earlier note that the per-side blocks hold only "figures that are rows already" was
+  wrong for these four.
 - **The intake clerk diagnostics are dropped** (owner decision): `intake_prep_completeness`,
   `intake_changed_rate`, `intake_messy_rate`, `intake_hyphen_unwraps` and
   `intake_collapsed_blanks` are `not_ported`. The old golden intake suite emits them, so D3b

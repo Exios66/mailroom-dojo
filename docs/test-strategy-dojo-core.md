@@ -100,6 +100,7 @@ Plan: `docs/plans/2026-11-18-dojo-d2-measures-plan.md`.
 | A `Measure` is valid when built | `test_measure.py`: finite values, `n == 0` has no value, a missing value needs a reason, unverified labels carry no value, closed vocabularies, interval rules, any integral `n` (numpy too, never bool), `missing()` unverified by default; hypothesis property tests both ways |
 | Only like is compared with like | `test_measure.py`: method, subject, cost basis, label status and each provenance key; `vary` keys present but free; `draw_seed` absent on both sides allowed; an unknown `vary` key raises |
 | The table keeps every old id and golden metric | `test_metric_table_parity.py`: 184 registry ids in the old order plus ten golden-only metrics, the old fields kept (units through `UNIT_NORMALISED`), the 28 nested golden blocks and the chained composite accounted for, the owner-dropped intake diagnostics listed, against the re-captured `old_metric_registry.json` |
+| Golden values of dropped rows are listed differences | `test_metric_table_parity.py::test_every_row_a_side_or_binary_block_names_is_kept_or_a_listed_difference` (per-side and binary blocks: kept, `INTENDED_PARITY_DIFFERENCES`, or a run setting or sample size), `test_each_intended_parity_difference_is_dropped_and_in_the_score_changelog` |
 | Design needs are planned rows with readers | `test_metric_table_parity.py::test_design_rows_are_planned_needs_with_a_named_reader`: the 27 `design` rows (eight of them `<old id>_vs_gold`), `dojo:<id>` ids, readers, paired keep-rule rows |
 | The loader refuses a broken table at its path | `test_metric_table.py`: fault cases for every column, duplicate YAML keys, the roster, default views and guards, label layers, pairing, alias, `same_as` and design ids; `check()` refuses a fractional count, an interval outside the unit range or not around the value, a negative value outside `utility`, and a measure filed under an alias |
 | Every live agent has a view; none for legacy or retired | `test_metric_table.py`: `test_every_live_agent_has_one_entry_and_no_legacy_or_retired_agent_has_one`, `test_no_default_or_guard_uses_a_directionless_or_dropped_metric`, `test_the_default_views_are_the_reviewed_ones` (views and roster against `fixtures/measures/default_views.json`); agent picks are read from the data, never named in code |
@@ -137,6 +138,7 @@ the file and prints its hash, turned the suite red.
 | one of `same_as`, `alias_of`, `pairing_note`, `readers`, `status`, a view's `label_layers` or `agent_families` dropped from the canonical form | 1 failed each |
 | "a default view or guard names its pairing" removed | 2 failed |
 | a reviewed name-lint exception renamed | 1 failed |
+| `INTENDED_PARITY_DIFFERENCES` emptied | 1 failed (`score.api`, `gpu_memory_used_gb`) |
 | "a run denominator has no pairing" removed from the loader | 2 failed (the two faults) |
 | `wrong_archive_rate` paired again with denominator gold | 3 failed (the reviewed run rows, the paired-row check, the "run denominator paired" fault) |
 | "a view on derived gold shows design rows" removed from the loader | 2 failed (the two faults) |

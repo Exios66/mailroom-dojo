@@ -109,6 +109,13 @@ behind the spend gate).
 11. **`judge_error_rate` is kept** for the archive gate, whose pass rule requires no
     `judge_error` document (local-mailroom-sandbox `job/gate.py`). Serving ids stay planned
     for D5.
+12. **Six golden values are intended D3b parity differences.** `gpu_memory_used_gb`,
+    `kv_cache_utilization`, `queue_time_seconds` and `prompt_tokens_per_second` (serving
+    telemetry the new engine does not emit, in `suites.local_vs_api.score.{api,local}`) and
+    `false_negative_rate` and `false_positive_rate` (LegalBench binary error rates with no
+    reader, in `task_kinds.legalbench.score.binary`) stay `not_ported`; the score changelog
+    lists them and a test checks that every row a per-side or binary block names is kept or
+    listed.
 
 ## Default views (provisional where not confirmed)
 
