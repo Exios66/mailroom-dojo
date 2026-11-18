@@ -101,7 +101,7 @@ checks them (spec line 9). Chunk numbers are those of section 6.
 | R3 classification with hand-off | D5, D6, E3 | Class accuracy, silent-wrong per 1,000 and cost per classification on v1 (100 of 100 reproduced); the hand-off's effect on extraction reported on v1 and r2 (r2 once supplied); `legacy` keeps sorter-to-specialist as its default shape (router replay) |
 | R4 new type by configuration | D3a, D3b, E2, E3, L1 | The synthetic-document-type test in labels, Dojo, engine and launcher: a new type added by profile entry, schema file, prompt and scorer config, no code edit |
 | R5 provider-agnostic, every launch path | E1, E6, L2, P4 | A test that finds no provider or model name in agents, prompts or policies; the HTTP API launch path: a mock upload through the E6 API writes a record that verifies (E6 gate), and the Compose backend's stage-4 mock run goes through that API (L2); the stage-4 mock run per backend (OpenRouter, Modal with vLLM, Compose, local); a prompt variant holds its gain on two worker models before it becomes the default |
-| R6 labels from the dataset and Claude labels | labels (project 2), D4 | D4 checks the Dojo's Protocols against the real `LabelSet`; every scored run names its snapshot's manifest hash; a content-hash mismatch is reported as unverified, never scored silently |
+| R6 labels from the dataset and Claude labels | labels (project 2), D4, R-H | D4 checks the Dojo's Protocols against the real `LabelSet`; every scored run names its label snapshot (the `Run` header's `label_snapshot_ids`, on `main`) and, once R-H lands (section 3), the client-profile hash and schema version it was scored under; a content-hash mismatch is reported as unverified, never scored silently |
 | R7 CLI, TUI, floor replay | record replay timeline (chunk 0), L3, L4 | L3: every sandbox command maps to a new command or a listed retirement (section 10); reloaded JS tests green; L4: the record timeline equals sandbox `build_timeline` on the same folder |
 | R8 tests that detect failure | every chunk; section 6.1 | Each chunk's PR shows its fault, property or stateful tests and one deliberate mutation turning a test red; each package has its own test strategy |
 | R9 layout and boundaries | section 3; every chunk | Each package's boundary test; `make boundaries` and `make layout`; a new folder has a map line first |
@@ -131,14 +131,29 @@ checks them (spec line 9). Chunk numbers are those of section 6.
  seam), mailroom_dictionaries (closed vocabularies) — importable by every package above record.
 ```
 
-Data flow for one run: the launcher resolves a run spec (client profile hash, policy hash, prompt
-set and overlays with hashes, label snapshot manifest hash, draw, backend, caps) and hands it to
-the engine; the engine writes every step, handoff, decision and model response to the record
+Data flow for one run: the launcher resolves a run spec (client profile hash, schema version and
+hash, policy hash, prompt set and overlays with hashes, label snapshot manifest hash, draw,
+backend, caps) and hands it to the engine; the engine writes every step, handoff, decision and model response to the record
 (blob first, then the event, then the index); the Dojo later reads the sealed record plus the
 label snapshot named in the run and writes reports. Nothing flows back from the Dojo to the engine
 except through a human or the autoresearch driver choosing the next policy or run-spec value (for
 example merger parking, P3b: a person or the driver sets the bar status in the policy or run spec
 from the Dojo's bar-check report; the engine never reads a report).
+
+**This needs a record change, R-H.** The `Run` header on `main` (`packages/record`,
+`mailroom_record/models.py`, `CURRENT_RUN_VERSION = 1` in `upgrade.py`) carries `policy_hash`,
+`prompt_set`, `prompt_hashes` and `label_snapshot_ids`, but no client-profile hash and no schema
+version or hash. R-H is a Run header version bump (to version 2, with an upgrader from
+version 1) that adds `client_profile_hash` and `schema_version` with its hash. It is a
+record-schema change, so tier 3 (three adversarial rounds), owned by a new chunk in the record
+build plan's follow-ups, not by any Dojo or launcher chunk. P2 and P5 wait for it (section 4.5).
+For an imported sandbox run, the importer takes the thresholds the run used from the sandbox's
+`spec.lock.json` `confidence` block, which preflight writes only when the run spec set one
+(`job/preflight.py` line 1141, at `93f298c`; without it the run used the taxonomy defaults that
+`job/routing_audit.py` `effective_thresholds` merges), and records the client-profile values and
+hash from them; the schema version of an imported run is the frozen `legacy` engine schema
+version (section 4.1). How the importer hashes those values into `client_profile_hash` is for
+the record work to verify.
 
 ### Package boundaries (the enforced rule)
 
@@ -169,19 +184,49 @@ alignment. Three copies drift. Design:
 config/clients/<client>/
 ├── profile.yaml        classes (key, status live|retired, sorter description, subclasses,
 │                       thresholds), label snapshot, hub revision; names each class's schema file
-├── schemas/<class>.yaml   the ONE field list: name, type (Dojo field types), vocabulary ref,
-│                          coverage rule, containment, accepted-unscored, variants (e.g. the CMS row variant)
-└── scoring.yaml        Dojo-only scoring rules (bands, audits, trace capture, list matching),
-                        no field lists
+├── schemas/<class>.yaml   one file per class, two sections (below): `scored` (labelled and
+│                          scored fields) and `extracted` (what a specialist returns, per
+│                          engine schema version)
+├── scoring.yaml        Dojo-only scoring rules (bands, audits, trace capture, list matching),
+│                       no field lists
+└── bars.yaml           the archive gate's bars: document quality bar, wrong-archive and
+                        review maxima, gated classes (D6; from the sandbox's
+                        `config/production/bars.yaml`)
 ```
+
+**Extracted and scored fields are separate sections.** The old code keeps two field tables, and
+they disagree, so no single list can equal both. Checked at the reference commits: for
+`corporate_record`, the old Dojo scores 40 fields (the 9 `doc_classes` fields plus the 31
+subclass entity fields of `corporate_record_schema`, at `23f8234`; the workspace profile
+`config/clients/mailroom-dataset/profile.yaml` has the same 40), while llm-mailroom's
+`EXTRACTION_SCHEMAS` (`src/schemas/documents.py` line 160, at `070663f`) asks for 9, and
+`acting_body` appears nowhere in llm-mailroom `src/`; for `contract`, the profile labels
+`cuad_clause_labels` (a never-scored annotation key in `scoring.yaml`), while llm-mailroom
+extracts `maud_clauses` and `merger_consideration`, which the Dojo accepts but never scores
+(`accepted_unscored_fields` in `scoring.yaml`). So each `schemas/<class>.yaml` has:
+
+- **`scored`**: the fields that are labelled and scored, each with its type (Dojo field types),
+  vocabulary ref, coverage rule, containment, scoring status (scored, accepted-unscored or
+  never-scored annotation key) and variants (e.g. the CMS row variant). Labels and the Dojo read
+  it.
+- **`extracted`**: the fields a specialist is asked to return, keyed by engine schema version.
+  The engine, the prompt sets and the alignment check (P1) read it. `legacy` pins a frozen engine
+  schema version whose extracted section equals llm-mailroom's `EXTRACTION_SCHEMAS` at the legacy
+  reference (`070663f`, re-checked against the 0.30.0 tag once X2 lands). A new engine schema
+  version (P2's merger questions, for example) is added beside it; the frozen one never changes.
+
+A field may sit in both sections or in one only; a field the Dojo scores and the `legacy`
+specialist never extracts (`acting_body`) is a known gap, reported, never an error.
 
 Labels, Dojo and engine each read `schemas/<class>.yaml` through their own small loader (no shared
 loader package needed; the file format is the contract, versioned with `schema_version`, and a
-workspace test loads it with all three). Old Python tables (`cuad_schema`, `maud_schema`,
-`corporate_record_schema`, `extraction_schemas`, `doc_classes`) become these files; an equality
-test compares the loaded YAML with a frozen JSON dump of the old tables, as chunk 1 did for field
-types. This is Dojo chunk D3a, and it unblocks the engine's specialists, the prompt sets and the
-merger schema (P2).
+workspace test loads it with all three). Old Python tables become these files, and the D3a gate
+names which old table each section must equal: the `scored` section equals a frozen JSON dump of
+the old Dojo's tables (`doc_classes`, `cuad_schema`, `maud_schema`, `corporate_record_schema`,
+`extraction_schemas` at `23f8234`), as chunk 1 did for field types; the `legacy` extracted
+section equals a frozen JSON dump of llm-mailroom's `EXTRACTION_SCHEMAS` at `070663f`. This is
+Dojo chunk D3a, and it unblocks the engine's specialists, the prompt sets and the merger schema
+(P2).
 
 ### 4.2 The Dojo's remaining layers
 
@@ -217,8 +262,11 @@ mailroom_dojo/
 └── reports/           report builders (registered), written by scripts under docs/reports/
 ```
 
-The price sheet is configuration at `config/prices/` (read by the launcher's spend gate and by
-the Dojo's cost layers; it needs a layout-map line before it is created).
+The price sheet is configuration at `config/prices/`. D5 creates it, with its layout-map line in
+the same PR, when the old Dojo's hard-coded token prices (`analysis/cost.py`) become a price sheet
+for the run layer's cost figures. Later readers use that same folder: the launcher's spend gate
+and price-sheet check (L6) and the Dojo's cost truth (D7). L6 adds the sandbox's
+`config/api_prices.yaml` entries to it; it does not create a second sheet.
 
 Key decisions:
 
@@ -236,13 +284,33 @@ Key decisions:
   new form is one flat, versioned metric table in configuration: each row is a metric id, its
   definition, unit, direction, aggregation, the layer and agents that produce it, and a `headline`
   flag (every old tier-0 id), so the dashboard view is a query over the table, not a tier system.
-  Each agent also has exactly one `default_view` metric, with its source: `f1_macro` for the sorter
-  and other classifiers ("the universal classifier headline", registry line 308);
-  `extraction_overall_score` for specialists, reporter and boss ("Specialist headline", line 326),
-  except `extraction_f2` for the insurance claims specialist ("insurance claims board number", line
-  344) and `content_topic_f1_macro` for the correspondence specialist ("the correspondence board
-  number", line 997). The registry names no default for the sorter reviewer;
-  `reviewer_class_accuracy` is proposed, for the owner to confirm (section 10). The serving ids are
+  `default_view` comes in two kinds. **Sourced**: the agents whose own tier-0 headline the
+  registry text names, each with exactly one `default_view` and its source line: `f1_macro` for
+  the classifiers, which here means the registry's `CLASSIFIER_AGENTS` (`sorter`, `judge`,
+  `sorter_reviewer`, registry lines 91 to 95) minus `sorter_reviewer`, so `sorter` and `judge`
+  ("the universal classifier headline", line 308); `extraction_overall_score` for specialists,
+  reporter and boss ("Specialist headline", line 326), except `extraction_f2` for the insurance
+  claims specialist ("insurance claims board number", line 344) and `content_topic_f1_macro` for
+  the correspondence specialist ("the correspondence board number", line 997). (`f1_macro` and
+  `accuracy` apply to `ALL`, so "has a tier-0 metric" alone would cover every agent; the gate
+  therefore means a tier-0 headline the registry names for that agent.) **Proposed, owner to
+  confirm** (section 10): every other agent in the registry's roster, each with one proposal
+  taken from the metrics its golden suite in `tests/fixtures/golden/scores.json` emits, never a
+  new id:
+  - `sorter_reviewer`: `reviewer_class_accuracy` (tier 0; the registry names no default);
+  - the auditors (`AUDITOR_AGENTS`, lines 79 to 89, which includes `arbiter`): `audit_resolution_rate`
+    (line 949, "the specialist adopts the audit pass correction"; emitted by their `audit`
+    suites);
+  - the transcribers (`pdf_transcriber`, `image_extractor`): `word_accuracy` (line 1051, the
+    registry's "transcription headline"; emitted by their `transcription` suites);
+  - `archivist`: `cost_per_document` (line 936; its `cost` suite names it);
+  - `intake`: `intake_prep_completeness` (line 1061; emitted by its `intake` suite; its tier-0
+    `bert_elapsed_ms` is `not_ported`, below);
+  - `local_vs_api`: `tokens_per_second` (tier 0, line 1100; emitted by its `serving` suite;
+    `ttft_seconds` stays a headline row).
+
+  `human_review` (the person at the review tray, named in three tier-1 rows) has no golden suite
+  and no proposal; whether it needs a `default_view` is for the owner (section 10). The serving ids are
   implemented, read by the run layer's serving figures (D5; spec line 285). `bert_elapsed_ms` is
   `not_ported`: the BERT intake path is dropped (section 7) and nothing else reads it. Improvements:
   every value is a `Measure` (below); each metric names its noise floor and its pairing rule for
@@ -258,7 +326,11 @@ Key decisions:
   includes tier-1 ids: each keeps its row and its meaning, but a tier-1 id with no reader and no
   golden suite emitting it is `not_ported`, not implemented. Per-field, per-class accuracy is a row,
   and the keep rule reads it (D7, R2). This is the master design's "a module survives only if a
-  gate, a report or a projection reads its output", applied to metrics.
+  gate, a report or a projection reads its output", applied to metrics. Each row says which it is:
+  `implemented` (a producer exists in the workspace, and a test checks that every `implemented`
+  row names its producing layer and function), `planned` (with the chunk that will produce it) or
+  `not_ported`. The D2 gate checks that the `implemented` and `planned` rows together are exactly
+  this scope.
 - **`Measure` replaces scorecard honesty.** The old 1,176-line `scorecard_honesty` module is
   imported by 11 modules. The master design replaces it with one rule: every number carries its
   sample size, cost basis and the status of the labels behind it. So D2 defines
@@ -267,7 +339,13 @@ Key decisions:
   kept as `label_status="unverified"` with `value=None`, never a silent zero.
 - **Golden parity is the D3b gate.** The old `tests/fixtures/golden/scores.json` (21 suites, 22
   task kinds) and the 89 sandbox document-scorer goldens are captured read-only from the old Dojo
-  and must be reproduced exactly. Intended differences go in `score-changelog.md` and
+  and must be reproduced exactly, the goldens **with the old Dojo's departures overlay applied**,
+  as the old Dojo's own parity tests do (`tests/conftest.py`, `doc_scorer_goldens` and
+  `archive_block_before`, at `23f8234`). The overlay is `tests/fixtures/doc_scorers/departures.json`
+  (dojo 0.28.1): deliberate score changes since capture (goldens at dojo 0.26.0, archive blocks
+  before 0.27.0), 35 `payload` cases over the 89 `goldens.json` cases and 65 `archive_block`
+  cases over the 89 `archive_block_before.json` cases. The raw captured goldens are not the target; they predate
+  0.28.0's intended changes. Intended differences go in `score-changelog.md` and
   `intended_differences.json`, as in chunk 1. One is known now: the `legalbench` task kind is
   not kept, because the master design drops LegalBench scoring; it is listed as an intended
   difference with that reason, so D3b reproduces all 21 suites (none of them is LegalBench) and
@@ -312,24 +390,27 @@ Key decisions:
 | API | Upload and review-resolve keep their shape; review resolution writes a new version (review station). Trace exporters optional, fed from record events. |
 
 **Legacy parity hazards** the engine plan must close first (from the inventory, checked against
-llm-mailroom `src/`):
+llm-mailroom `src/` at `070663f` and the sandbox at `93f298c`):
 
-- `langchain_agents/base_agent.py` (`augmented_system_prompt`, lines 146 to 161) appends three
-  things to every agent's system prompt: the 28 skill files, the rendered tool descriptions from
+- `langchain_agents/base_agent.py` at `070663f` (`augmented_system_prompt`, lines 146 to 161)
+  appends three things to every agent's system prompt: the 28 skill files, the rendered tool descriptions from
   `toolkit.py`, and the outcome memory. Skills and tool descriptions are static text and go into
   the hashed prompt set (P1).
 - **Outcome memory is on in `legacy`, scoped to one run and starting empty.**
   `langchain_agents/memory.py` has no enable flag: it is read into the system prompt
-  (`base_agent.py` line 140) and into the sorter and specialist retry prompts
-  (`graph/build_graph.py` lines 970 and 2162), and written on guardrail rejections (lines 916 and
-  2015). Its scope today depends on the launch path: the ledger is
+  (`base_agent.py` line 140, at `070663f`) and into the sorter and specialist retry prompts
+  (`graph/build_graph.py` lines 970 and 2162, at `070663f`), and written on guardrail rejections
+  (lines 916 and 2015, at `070663f`). Its scope today depends on the launch path: the ledger is
   `<MAILROOM_BASE_DIR>/memory/<agent>.jsonl` (or `MAILROOM_MEMORY_DIR`), and `recent_context`
   reads the last 5 rows for the agent and document type from whatever that file holds. The
-  sandbox's deploy path gives each run its own base folder (`job/deploy_env.py` line 133), so
-  memory starts empty per run; a local run defaults to the shared `./data` (`runtime.py` line
-  196), so memory leaks across runs. `legacy` takes the deploy path's behaviour: memory is per
-  run and starts empty. Every ledger row it writes and every context text it reads is a record
-  event of that run, so replay stays exact even when parallel workers interleave. Cross-run
+  sandbox's deploy path gives each run its own base folder (`job/deploy_env.py` line 133, at
+  `93f298c`), so memory starts empty per run; a local run defaults to the shared `./data`
+  (`runtime.py` line 196, at `93f298c`), so memory leaks across runs. `legacy` takes the deploy path's behaviour: memory is per
+  run and starts empty. Every ledger row it writes and every context text it reads is recorded
+  in that run, so replay stays exact even when parallel workers interleave. Like every model
+  input and output (data flow, section 3), the texts are stored as blobs, written first; the
+  event carries only the blob hashes, the agent, the document type and the row count, never the
+  text itself, so no document or model free text lands in an event payload. Cross-run
   memory, if wanted later, is derived from the record index and is an intended difference for
   the owner to sign off, as is switching memory off. For mock end-to-end parity (proof item 3
   below) the old side runs with `MAILROOM_MEMORY_DIR` set to a fresh empty folder per
@@ -337,6 +418,13 @@ llm-mailroom `src/`):
 - Most effective prompt text lives in code (`langchain_agents/prompts.py`, 3,198 lines), so the
   `deploy_v1` set is materialised to files and compared byte for byte with what the old code
   sends (P1, before the engine).
+- **The scoring family is an intended difference.** llm-mailroom's graph adds `score_common` and
+  one `score_<type>` node per scorer (`graph/scoring_nodes.py`, `add_scoring_nodes`, lines 166 to
+  176, wired in by `graph/build_graph.py` lines 3887 to 3889, at `070663f`): seven of its 22 nodes score
+  inside the run. The workspace scores only in the Dojo, from the record (section 7), so
+  `legacy` has no scoring nodes. Router replay and the drawn-graph comparison exclude the
+  scoring family, and the exclusion is listed as an intended difference with that reason; every
+  other node and edge must match.
 
 **Proof that `legacy` matches** (master design, "Proof that `legacy` matches" and the reviewer's
 calls, spec lines 425 to 427 and 584 to 585):
@@ -386,12 +474,12 @@ the Dojo.
 
 | Chunk | What it builds | Gate |
 | --- | --- | --- |
-| P1 prompt sets materialised | `config/prompts/deploy_v1/` (agent prompts, skills, tool descriptions, doctrine), `frozen_v1`, the catalog | rendered prompts byte-identical to what the old code sends, per agent and class, with an empty outcome memory; each prompt names every field of its schema and every allowed value of its closed vocabularies (the alignment check, spec line 372). The alignment check lives in the workspace `tests/` until the engine exists and moves into the engine's tests in E2, as spec line 372 says |
-| P2 merger schema and scoring | The merger schema (21 scored fields, version 2, plus MAUD clause answers) as closed, MAUD-style questions with fixed option lists, as a **new schema version** beside the frozen one D3a converted (the frozen file, and the D3b goldens that read it, stay unchanged); per-question scoring in the Dojo (spec lines 348 to 349). Waits for D3b so it never edits a schema file the goldens still read | each question maps to exactly one ground-truth label or is listed as unscored; the question list and mapping checked against the Dojo's MAUD schema and the EDA labels (spec line 353); coverage and precision reported separately per question, with a test where doubling the answers with no precision gain shows coverage up and precision flat (the v1 case); the 12-question clean subset scored |
-| P3a merger bar check (project 4) | A Dojo report that says whether merger extraction reaches the bar, from P2's per-question scores; it decides nothing and writes nothing the engine reads | planted scores just under and just over the bar give "unmet" and "met"; the report names its sample size and label status |
+| P1 prompt sets materialised | `config/prompts/deploy_v1/` (agent prompts, skills, tool descriptions, doctrine), `frozen_v1`, the catalog | rendered prompts byte-identical to what the old code sends, per agent and class, with an empty outcome memory; the reference is llm-mailroom `070663f`, re-checked against the 0.30.0 tag once X2 lands; each prompt names every field of its schema's `extracted` section and every allowed value of its closed vocabularies (the alignment check, spec line 372). The check also reports the `scored` fields a `legacy` prompt never asks for (such as `acting_body`, section 4.1) as **known gaps**, recorded with a reason in a gaps file as the old Dojo's `prompts/data/alignment_gaps.json` did (empty at `23f8234`, because it compared against `doc_classes` only), and fails on any change in either direction; it never edits a `legacy` prompt to close a gap (a closed gap is a new prompt set). The alignment check lives in the workspace `tests/` until the engine exists and moves into the engine's tests in E2, as spec line 372 says |
+| P2 merger schema and scoring | The merger schema (21 scored fields, version 2, plus MAUD clause answers) as closed, MAUD-style questions with fixed option lists, as a **new schema version** beside the frozen one D3a converted (the frozen file, and the D3b goldens that read it, stay unchanged); per-question scoring in the Dojo (spec lines 348 to 349). Waits for D3b so it never edits a schema file the goldens still read, and for R-H (section 6) so every run it scores names the schema version it used | each question maps to exactly one ground-truth label or is listed as unscored; the question list and mapping checked against the Dojo's MAUD schema and the EDA labels (spec line 353); coverage and precision reported separately per question, with a test where doubling the answers with no precision gain shows coverage up and precision flat (the v1 case); the 12-question clean subset scored |
+| P3a merger bar check (project 4) | A Dojo report that says whether merger extraction reaches the bar, from P2's per-question scores; it decides nothing and writes nothing the engine reads. The bar is the archive gate's document quality bar, the `quality` key of D6's `config/clients/<client>/bars.yaml` (taken from the sandbox's `config/production/bars.yaml` at `93f298c`, `quality: 0.90`), not a new number. Per-question scores map onto it per document, as the archive gate compares one document score with `quality` (sandbox `job/gate.py` line 234, at `93f298c`): a merger document's merger-question score (P2's document score over its labelled, scored questions) meets the bar when it is at or above `quality`; the report gives the share of merger documents that meet it, with bounds. The sandbox reports mergers but never gates them (`gated` in that file); P3a is a report, so that stays true. Waits for D6 (row 7), which creates `bars.yaml` | planted scores just under and just over the bar give "unmet" and "met"; the bar is read from `bars.yaml`, never written in code (a test changes the file and sees the verdict move); the report names its sample size and label status |
 | P3b merger parking (waits for E3) | An experiment-policy option that parks mergers for review with the answers attached as a prefill while the bar is unmet (spec line 351). The bar status is a policy or run-spec value, set by a person or the autoresearch driver from P3a's report; routing never reads a Dojo report (section 3, data flow) | a test with the value "unmet" gives "park, with prefill"; with "met", "route as usual". It is an experiment policy, not `legacy`, which must match today |
-| P4 prompt variants and the keep loop | Variants as overlays on a prompt set, one agent's prompt each; targets from the per-field miss table; specialists first, then oversight agents, sorter last | a variant becomes the default only when the D7 keep rule accepts it on the development pool (paired gain above the noise floor, no class worse, the R2 per-field guard), it holds its gain on at least two worker models from different providers (spec line 383), and its confidence is scored for how well it predicts its own field scores; slice-500 is never in a tuning draw (a test checks the draw). Transport to the current stack, as in P6: each variant is also a sandbox prompt file (`config/prompts/<file>.txt`, selected by a `PromptRef` with `source: local` in the sandbox's `job/spec.py`), added through a reviewed sandbox change, never patched from here; a variant's runs count only when the prompt sha256 its run recorded (`prompt.lock.json`, imported into the record) equals the hash of the workspace overlay |
-| P5 threshold refit | Confidence thresholds refit after a prompt change (spec line 373), with the D1 calibration and `confidence/` | the refit is stored as a new configuration version beside its calibration report: each class's sorter thresholds as a new client-profile version (`config/clients/<client>/`, spec line 58), routing thresholds as a new experiment-policy version under `config/policies/` (spec line 400; before E3 exists, the report carries the proposed routing values and E3 writes them into a policy); the Dojo flags a run whose prompt set is newer than the thresholds it used |
+| P4 prompt variants and the keep loop | Variants as overlays on a prompt set, one agent's prompt each; targets from the per-field miss table; specialists first, then oversight agents, sorter last | a variant becomes the default only when the D7 keep rule accepts it on the development pool (paired gain above the noise floor, no class worse, the R2 per-field guard), it holds its gain on at least two worker models from different providers (spec line 383), and its confidence is scored for how well it predicts its own field scores; slice-500 is never in a tuning draw (a test checks the draw). Transport to the current stack, as in P6: each variant is also a sandbox prompt file (`config/prompts/<file>.txt`, selected by a `PromptRef` with `source: local` in the sandbox's `job/spec.py`), added through a reviewed sandbox change, never patched from here; a variant's runs count only when the prompt sha256 its run recorded (`prompt.lock.json`, imported into the record) equals the hash of the workspace overlay, computed the way the sandbox computes it: the sha256 of the overlay's prompt text encoded as UTF-8 (`prompt_registry._sha` over `path.read_text(encoding="utf-8")` at `93f298c`, so Python's newline translation applies and a CRLF file hashes as LF); a test pins one overlay's hash against that function's output |
+| P5 threshold refit | Confidence thresholds refit after a prompt change (spec line 373), with the D1 calibration and `confidence/` | the refit is stored as a new configuration version beside its calibration report: each class's sorter thresholds as a new client-profile version (`config/clients/<client>/`, spec line 58), routing thresholds as a new experiment-policy version under `config/policies/` (spec line 400; before E3 exists, the report carries the proposed routing values and E3 writes them into a policy); the Dojo flags a run whose prompt set is newer than the thresholds it used, which needs the client-profile hash on the run header: P5 waits for R-H (section 6) |
 | P6 landing on the current shipping tree | Accepted prompts and the improved merger schema as a new prompt set and schema version (spec line 384; open question 6: both also land on the current tree) | the files the current tree takes are hash-equal to the workspace's; they land through that repository's own reviewed change, never patched from here |
 
 **Set E** ("cheapest safe handling of mergers": cost per document, clean-subset MAUD answers
@@ -419,26 +507,28 @@ Record (PR #2) and the shared leaves (PR #6) are merged to `main`.
 
 | # | Chunk | Waits for | Gate it must show |
 | --- | --- | --- | --- |
+| R-H | **Run header version 2** (record follow-up, section 3): `client_profile_hash`, `schema_version` and its hash | - | tier 3 (record schema): the upgrader reads every version-1 header unchanged in meaning (property test over generated headers); a version-2 header without the new fields is refused; the importer fills them for an imported sandbox run from `spec.lock.json` (section 3); one deliberate mutation turns a test red |
 | 0 | **Stage-1 gate** (the record work, another thread: importer, replay timeline, pack and prune) | X1 | master design stage 1 (spec line 457): v1 and slice-100 r2 import cleanly, every chain verifies, `trace run` and `trace doc` work, stored size reported against today's; plus the routing-input audit of each stored folder (spec line 585) |
 | 1 | D1 statistics | - | old tests and a differential corpus, identical |
-| 2 | D2 headline registry metrics in one flat table, and `Measure` | - | a row for every old registry id and every metric `scores.json` emits, each with the same meaning (or an intended change with a reason) and a status: implemented, planned (with its chunk) or `not_ported` (with a reason); implemented rows are exactly the scope in section 4.2; every old tier-0 id flagged `headline` (14, several per agent) and exactly one `default_view` per agent, each with its source line; provenance tests |
-| 3 | D3a one schema source per class | 2 | YAML equals frozen dump of old tables; labels, Dojo (and later engine) load the same files |
-| 4 | D3b tasks, suites, document scorers | 1 to 3 | `scores.json` (all 21 suites; 21 of 22 task kinds, `legalbench` an intended difference) and the 89 document-scorer goldens reproduced exactly |
+| 2 | D2 headline registry metrics in one flat table, and `Measure` | - | a row for every old registry id and every metric `scores.json` emits, each with the same meaning (or an intended change with a reason) and a status: implemented, planned (with its chunk) or `not_ported` (with a reason); implemented or planned rows are exactly the scope in section 4.2, and a test checks that every `implemented` row names a producer; every old tier-0 id flagged `headline` (14, several per agent); exactly one sourced `default_view`, with its source line, for each agent whose tier-0 headline the registry names (`sorter`, `judge`, the specialists, `reporter`, `boss`; section 4.2), and for every other agent one `default_view` marked "proposed, owner to confirm" with the proposal of section 4.2 until the owner confirms it; provenance tests |
+| 3 | D3a one schema source per class | 2 | each section equals its own old table, as frozen JSON dumps: the `scored` sections equal the old Dojo's `doc_classes` and per-class profile tables at `23f8234`; the `legacy` `extracted` sections equal llm-mailroom `EXTRACTION_SCHEMAS` at `070663f` (section 4.1); labels, Dojo (and later engine) load the same files |
+| 4 | D3b tasks, suites, document scorers | 1 to 3 | `scores.json` (all 21 suites; 21 of 22 task kinds, `legalbench` an intended difference) and the 89 document-scorer goldens with the old Dojo's departures overlay (`tests/fixtures/doc_scorers/departures.json`, dojo 0.28.1) applied, reproduced exactly (section 4.2) |
 | 5 | D4 label layer, Dojo joined to `mailroom_labels` | 3 | old label-policy cases; Protocols checked against the real `LabelSet` |
-| 6 | D5 run reader and run layer | 0, 1, 2, 4, 5 | old tests; numbers on imported runs; class accuracy 100 of 100 on v1; per-field, per-class accuracy and coverage table (D4 scorability, D3b scorers) |
-| 7 | D6 outcome and behaviour (archive gate, cause codes, wrong-archive and review rates, risk-coverage, routing audit, the eight slots, hand-off effect) | 4, 6 | old and sandbox tests; v1 outcome counts; wrong-archive and review rates with bounds; risk-coverage bounds checked against exact binomial bounds on planted data; per-slot reports on synthetic decision events with the R10 list (accuracy, override rate, silent-wrong per 1,000, cost per decision, risk-coverage with bounds), including a flagged cap breach; the archive gate's ranking power |
-| 8 | D7 comparison, keep rule, projections, stability, cost truth, log health | 6, 7 | planted-curve property tests; refusal rules; keep-rule tests, including a candidate with a utility gain reverted for one field's accuracy drop beyond noise, one reverted for one field's coverage drop beyond noise (R2), and a `guard_classes` narrower than the scored classes refused |
-| 9 | **Stage-2 gate** | 0 to 8, X1 | goldens unchanged; v1 and slice-100 r2 reproduced (r2: 40 of 55 wrong archives and 9 of 95 reviews, spec line 323); Sets A and C scored |
+| 6 | D5 run reader and run layer | 0, 1, 2, 4, 5 | old tests; numbers on imported runs; class accuracy 100 of 100 on v1; per-field, per-class accuracy and coverage table (D4 scorability, D3b scorers); creates `config/prices/` (the price sheet, with its layout-map line) and cost figures read from it, never from code |
+| 7 | D6 outcome and behaviour (archive gate, cause codes, wrong-archive and review rates, risk-coverage, routing audit, the eight slots, hand-off effect) | 4, 6 | old and sandbox tests; v1 outcome counts; wrong-archive and review rates with bounds; risk-coverage bounds checked against exact binomial bounds on planted data; per-slot reports on synthetic decision events with the R10 list (accuracy, override rate, silent-wrong per 1,000, cost per decision, risk-coverage with bounds), including a flagged cap breach; the archive gate's ranking power; creates `config/clients/<client>/bars.yaml` (with its layout-map line) equal to the sandbox's `config/production/bars.yaml` at `93f298c`, and the gate reads its bars from it |
+| 8 | D7 comparison, keep rule, projections, stability, cost truth, log health | 6, 7 | planted-curve property tests; refusal rules; keep-rule tests, including a candidate with a utility gain reverted for one field's accuracy drop beyond noise, one reverted for one field's coverage drop beyond noise (R2), and a `guard_classes` narrower than the scored classes refused; cost truth prices tokens from D5's `config/prices/` |
+| 9 | **Stage-2 gate** | 0 to 8, X1, X3 (Set A also X2) | goldens unchanged; v1 and slice-100 r2 reproduced (r2: 40 of 55 wrong archives and 9 of 95 reviews, spec line 323); Sets A and C scored |
 | 10 | P1 prompt sets | 3 | section 4.5 |
-| 11 | P2 merger schema and scoring | 3, 4, 5 | section 4.5 |
-| 12 | P3a merger bar check | 11 | section 4.5 |
+| 11 | P2 merger schema and scoring | 3, 4, 5, R-H | section 4.5 |
+| 12 | P3a merger bar check | 7, 11 | section 4.5 |
 | 13 | P4 variants and keep loop | 8, 10 | section 4.5 |
-| 14 | P5 threshold refit | 13 | section 4.5 |
+| 14 | P5 threshold refit | 13, R-H | section 4.5 |
 | 15 | P6 landing on the shipping tree | 11, 13, 14 | section 4.5 |
 | 16 | **Go or no-go** (owner) | 9 | the owner builds the engine or takes approach 3 (spec line 550) |
 | 17 | Routing capture run: one new recorded run on the 0.30.0 tag with every routing input captured, about 25 documents, **started by the owner** (spec line 584) | 0, X2 | imports cleanly and every chain verifies; it covers the routing inputs chunk 0's audit found missing |
-| 18 to 23 | E1 foundation (with the record's live follow, section 4.4), E2 agents and handoffs (the prompt alignment check moves in), E3 policy and compiler and `legacy`, E4 replay, E5 queue and workers, E6 API and exporters | 16 (E2 also 3 and 10; E4 also 17) | router replay identical on every stored document-run for the inputs present and on the capture run for the rest, time-boxed with the approach-3 fallback; mock end-to-end equal; at least 249 documents a minute; a mock upload through the E6 API writes a record that verifies |
-| 24 | Launcher before the engine: L1, L6, L3, L4 (section 8) | L1: 3; L6: L1; L3: 0, L1, L6; L4: 0, L3 | as in section 8 |
+| 18 to 23 | E1 foundation (with the record's live follow, section 4.4), E2 agents and handoffs (the prompt alignment check moves in), E3 policy and compiler and `legacy`, E4 replay, E5 queue and workers, E6 API and exporters | 16 (E2 also 3, 10 and X2; E3 also X2; E4 also 17) | router replay identical on every stored document-run for the inputs present and on the capture run for the rest (without X1, the stored runs are v1 and v2 only: r2's 95 document-runs stay unverified and the narrowed gate needs the owner's sign-off, as for rows 0 and 9), excluding the scoring family as an intended difference (section 4.3), time-boxed with the approach-3 fallback; mock end-to-end equal; at least 249 documents a minute; a mock upload through the E6 API writes a record that verifies |
+| P3b | P3b merger parking (section 4.5) | E3 (rows 18 to 23), 12 | the park and route tests: with the bar status "unmet", a merger is parked for review with its answers attached as a prefill; with "met", it routes as usual; the status is read from the policy or run spec, never from a Dojo report (a test with no report present); `legacy` routes unchanged (router replay) |
+| 24 | Launcher before the engine: L1, L6, L3, L4 (section 8) | L1: 3; L6: L1, 6 (D5 creates `config/prices/`); L3: 0, L1, L6; L4: 0, L3 | as in section 8 |
 | 25 | Launcher after the engine: L2, L7, L8, L9, then L5 with the review station (section 8) | 23, 24 | a mock run per backend with no spend; paid parity runs started by the owner |
 | 26 | Cutover: experiment policies B, D, E (Set E's routing arms include P3b, merger parking); Set F | all | Set F pass rule (approved 2026-11-17) |
 
@@ -451,10 +541,17 @@ External dependencies, outside this workspace:
   unverified and are listed as such in both gate reports, and passing a gate without r2 is a
   narrowed gate that needs the owner's sign-off. Nothing passes on r2 silently.
 - **X2, the `legacy` tag exists.** llm-mailroom #309 and #310 merged and the 0.30.0 tag cut
-  (spec line 583); the capture run is made on that tag.
+  (spec line 583); the capture run is made on that tag, and E2 and E3 check `legacy` against it.
+  Not met at `070663f`: llm-mailroom has no 0.30.0 tag yet.
+- **X3, Set A and C runs exist.** Set A and C runs made on the current stack by the owner (paid,
+  owner-started, through the sandbox's spend gate) and imported through the record importer.
+  The master design lets them start on the current stack (spec lines 146 and 474) and has stage 2
+  score them (spec line 458), so row 9 waits for X3. Set A also waits for X2, so that its
+  sorter-review runs are made on the `legacy` reference (the 0.30.0 tag) that the engine is
+  later checked against. No agent starts these runs.
 
 Rows 1 to 5 and 10 need no record work and start when their waits-for are met; 1 and 2 start
-now (11, P2, needs no record work either, and follows 4 and 5). **Approved deviation (owner,
+now (11, P2, follows 4 and 5 and also waits for the record change R-H). **Approved deviation (owner,
 2026-11-18, decision 5):** the master design builds the engine (project 5) before the launcher
 (project 6). Here the launcher chunks that need no engine (row 24: run spec and preflight, the
 spend gate and price sheet, the CLI over recorded runs, the floor) go ahead before the go or
@@ -473,6 +570,14 @@ mutation checks):
   states, spend cap at the boundary, replay mismatches, hostile model text across a handoff).
 - **Launcher:** `docs/test-strategy-launcher.md`, written in L1 (the preflight and spend-gate
   fault matrices, `kill -9` resume, timeline differential tests, CLI surface check).
+- **Labels, common and dictionaries:** no strategy document exists yet (only
+  `docs/test-strategy-record.md` and `docs/test-strategy-dojo-core.md` do), and their package
+  READMEs carry none. The next PR that changes each package writes
+  `docs/test-strategy-<package>.md` in the record's shape, starting from the tests it already has:
+  labels (snapshot and manifest hashing, precedence and the quality gate, importers, the real
+  snapshots), common (hashing, JSONL and YAML round trips, retry, redacting logs) and
+  dictionaries (versioned vocabularies, the lock, the glossary). The README's layout map says
+  which strategies exist today.
 
 ## 7. What is not ported
 
@@ -543,14 +648,14 @@ chunk waits for the engine (owner decision 5).
 | Chunk | What it ports | Depends on | Engine | Proof gate |
 |:---|:---|:---|:---|:---|
 | L1 run spec, draws, preflight | `job/spec.py`, `job/preflight.py`, draws and dataset locks; adds the policy hash and run kind the spec lacks | record header (on `main`), labels snapshot ids, client profile (D3a) | no | spec round-trip and hash property tests; every sandbox run YAML converts or is listed with a reason; preflight fault matrix, one exact refusal per fault |
-| L6 spend gate, caps, price sheet | `job/spend.py` (initials, 24 h receipt bound to a fingerprint), budgets, ledger, price sheet `--check` (`config/prices/`) | L1 | no | no paid action without a fresh receipt: each refusal path is a test; the signer lands on the Run |
+| L6 spend gate, caps, price sheet | `job/spend.py` (initials, 24 h receipt bound to a fingerprint), budgets, ledger, price sheet `--check` over `config/prices/` (created by D5; L6 adds the sandbox's `config/api_prices.yaml` entries) | L1, Dojo D5 (`config/prices/`) | no | no paid action without a fresh receipt: each refusal path is a test; the signer lands on the Run |
 | L3 CLI and TUI | sandbox CLI and TUI with the reloaded browser TUI as the base, over recorded runs | record index and trace (chunk 0; the tail over sealed and imported runs, section 4.4); L1, L6 | no | every sandbox command maps to a new one or a listed retirement (section 10); the reloaded JS tests green; run-start commands arrive with L7 |
 | L4 floor | sandbox floor server and digest, reloaded replay sessions | record replay timeline (chunk 0), L3 | no | the record timeline equals sandbox `build_timeline` on the same folder (differential test); it replaces The-Mailroom at cutover |
 | L2 backends | OpenRouter, Modal with vLLM, Compose (the producer image and the local serving services), local | L1, L6, engine E1 fake model and E6 API | yes | stage-4 gate, part 1: one mock run per backend with no spend, each writing a record that verifies |
 | L7 run driver | `job/runner.py`, eval runners | L1, L2, record writer, engine E2/E3 | yes | `kill -9` mid-run resumes without repeating a recorded call; pause and cancel |
 | L8 experiments and autoresearch driver | `autoresearch/loop.py`, levers, estimates, experiment matrix | L1, L6, L7; Dojo D6 utility and D7 keep rule | yes | the mock study runs at zero spend; re-deciding the stored rounds reproduces the old keep and revert decisions except where the R2 per-field guard reverts them, each such case listed |
 | L9 stage-4 gate | `scripts/smoke_campaign.py` | L1 to L8 | yes | mock run per backend, then one paid parity run per paid backend, started by the owner through the spend gate |
-| L5 operator desk | The-Mailroom operator desk; users and credentials in its own store | L4, review station | scheduled after L9 (section 6, row 25); it needs no engine code, so the owner may move it before the engine (not named in decision 5; position pending the owner) | as in the workspace port inventory |
+| L5 operator desk | The-Mailroom operator desk; users and credentials in its own store | L4, review station | scheduled after L9 (section 6, row 25); it needs no engine code, so the owner may move it before the engine (not named in decision 5; position pending the owner) | its own gate: (1) JWT auth refusal paths, each a test with the exact refusal: missing token, expired token, wrong role (The-Mailroom `operator_desk/auth.py`, at `40a0600`, refuses the first two with 401 and a role below `require_role` with 403, line 266); (2) no document text in desk logs: a log-scan test runs the desk over synthetic documents carrying a marker string and finds the marker in no log line; (3) the desk's store (users, credentials, sessions) is kept apart from the record index: the boundary test finds no desk table in the index and no import of the desk store from `mailroom_record`; (4) archive file access is read-only: the PDF is opened with `fitz` from the archive blob, and a test shows the blob's hash unchanged after every desk read |
 
 The sandbox's scoring code goes to the Dojo chunks it belongs to: D3b (the reference caller of the
 document scorers), D4 (scorability and the labelled count), D5 (run metrics, cards, serving parity,
@@ -595,7 +700,8 @@ Decided 2026-11-18:
    the trace exporter needs no span-name compatibility (answers master design open question 2).
 4. The headline registry metrics stay, improved on the new system, with consistent meanings.
    Headline means the old tier 0 (14 ids, several per agent), with one `default_view` metric
-   marked per agent. The metric table keeps a row for every old registry id; only headline
+   marked per agent: sourced from the registry where it names one, proposed for the owner
+   otherwise (section 4.2). The metric table keeps a row for every old registry id; only headline
    metrics with a reader, golden-emitted metrics and ids with a named reader are implemented, and
    the rest (tier 1 included, and `bert_elapsed_ms`) are `not_ported` with a reason (section
    4.2).
@@ -613,8 +719,11 @@ Still open, for the owner to confirm:
 - Outcome memory in `legacy`: on, per run, starting empty, as on the sandbox's deploy path
   (section 4.3). Cross-run memory (derived from the record index) or switching it off is an
   intended difference.
-- The sorter reviewer's `default_view` metric: the old registry names none;
-  `reviewer_class_accuracy` is proposed (section 4.2).
+- The `default_view` metrics the old registry does not name (section 4.2): `sorter_reviewer`
+  `reviewer_class_accuracy`; the auditors and `arbiter` `audit_resolution_rate`; the
+  transcribers `word_accuracy`; `archivist` `cost_per_document`; `intake`
+  `intake_prep_completeness`; `local_vs_api` `tokens_per_second`. Also whether `human_review`
+  (the person at the review tray) needs one.
 - If the slice-100 r2 folder is never supplied: sign off rows 0 and 9 narrowed to v1 and v2
   (section 6, X1).
 - R7 retirements, the native sandbox and reloaded features that do not move: the sandbox
