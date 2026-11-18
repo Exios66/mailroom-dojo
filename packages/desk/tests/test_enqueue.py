@@ -299,6 +299,45 @@ def test_seal_cannot_land_between_the_closed_check_and_the_append(env: SimpleNam
     verify_ok(env)
 
 
+def test_seal_landing_while_waiting_for_the_desk_lock_is_seen_under_the_lock(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The run is open at the first check, then sealed while the enqueue waits for the desk
+    lock (another desk action holds it; the seal lock is still free). The check repeated
+    under the locks must refuse it: nothing is appended to the sealed run."""
+    import mailroom_desk.desk as desk_module
+
+    engine_append(env.root, "r1", "d0")
+    waiting = threading.Event()
+    real_lock = desk_module.desk_lock
+
+    def announcing_lock(*args, **kwargs):  # called after the first check, before the wait
+        waiting.set()
+        return real_lock(*args, **kwargs)
+
+    monkeypatch.setattr(desk_module, "desk_lock", announcing_lock)
+    outcome: list[BaseException | object] = []
+
+    def enqueue() -> None:
+        try:
+            outcome.append(Desk(env.root, clock=env.clock, lock_timeout=30).enqueue(request("d1", "flag_low"), env.policy))
+        except BaseException as exc:  # noqa: BLE001 - asserted below
+            outcome.append(exc)
+
+    with desk_lock(env.root, "r1", timeout=1):
+        t = threading.Thread(target=enqueue, daemon=True)
+        t.start()
+        assert waiting.wait(10), "the enqueue never reached the desk lock"
+        seal_within(env.log, "r1")  # the enqueue holds no lock yet, so the seal proceeds
+        assert t.is_alive()  # still waiting for the desk lock held here
+        before = segment_files(env.root)
+    t.join(30)
+    assert len(outcome) == 1 and isinstance(outcome[0], RunClosed), outcome
+    assert segment_files(env.root) == before
+    assert review_events(env.root) == []
+    verify_ok(env)
+
+
 def test_seal_guard_is_the_lock_seal_run_takes(env: SimpleNamespace) -> None:
     """Pins the record layout the desk relies on: holding ``seals/.lock`` blocks seal_run."""
     engine_append(env.root, "r1", "d1")
