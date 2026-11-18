@@ -227,7 +227,10 @@ is `PackCorrupt`, and a different run already in place is `UnpackConflict`. Each
 a size cap, read from its tar header before a byte of it is written (`MAX_RUN_FILE`, 4 GiB,
 for a segment or column file; `MAX_SMALL_FILE`, 256 MiB, for `run.json`, a seal or the
 manifest; `MAX_BLOB`, 4 GiB, for a blob; `MAX_TOMBSTONE`, 64 KiB), and `pack_run` refuses to
-write a larger one (`PackRefused`). The archive is decompressed a few zstd blocks at a time
+write a larger one (`PackRefused`). The archive as a whole is capped the same way: at most
+`MAX_MEMBERS` (1,048,576) members, `manifest.json` included, and at most `MAX_STAGED_BYTES`
+(64 GiB) in all the members unpack stages (every one but `manifest.json`), each checked from
+the tar header before the member is staged; `pack_run` refuses a run past either. The archive is decompressed a few zstd blocks at a time
 (at most 4 MiB per step), so a decompression bomb costs time, not memory. Only blobs the
 run's events name reach `root`, each checked against its name (a `.zst` must hash to it, a
 tombstone must be that hash's record); any other blob member is `PackCorrupt`. A blob the

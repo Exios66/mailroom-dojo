@@ -40,7 +40,12 @@ Rules
   segment or column file, ``MAX_SMALL_FILE`` for ``run.json``, a seal or the manifest,
   ``MAX_BLOB`` for a blob, ``MAX_TOMBSTONE`` for a tombstone), read from its tar header
   before a byte of it is staged (``pack_run`` refuses to write such a member:
-  ``PackRefused``). The archive's zstd frame is decompressed a few whole blocks at a time,
+  ``PackRefused``). The archive as a whole is capped the same way, from the tar headers
+  before each member is staged: at most ``MAX_MEMBERS`` members (``manifest.json``
+  included) and at most ``MAX_STAGED_BYTES`` bytes in all its staged members (all but
+  ``manifest.json``); ``pack_run`` refuses a run past either (``PackRefused``). So unpack
+  stages at most ``MAX_STAGED_BYTES`` bytes from the archive, in fewer than ``MAX_MEMBERS``
+  files. The archive's zstd frame is decompressed a few whole blocks at a time,
   never more than 4 MiB per step, so a decompression bomb costs time, not memory. A blob
   member must be one the run names: a ``.zst`` member is decompressed as it streams and must
   hash to its name, a ``.tombstone`` member must be the record ``BlobStore.tombstone`` writes
@@ -120,8 +125,10 @@ from mailroom_record.verify import _VANISHED, _blob_damage, _tombstone_damage, _
 
 __all__ = [
     "MAX_BLOB",
+    "MAX_MEMBERS",
     "MAX_RUN_FILE",
     "MAX_SMALL_FILE",
+    "MAX_STAGED_BYTES",
     "MAX_TOMBSTONE",
     "PACK_FORMAT",
     "PackCorrupt",
@@ -151,6 +158,12 @@ MAX_RUN_FILE = 64 * MAX_LINE  # a segment or column file: 4 GiB, 64 lines of the
 MAX_SMALL_FILE = 256 * 1024 * 1024  # run.json, a seal, manifest.json
 MAX_BLOB = 4 * 1024 * 1024 * 1024  # a blob's zstd file, and the bytes it decompresses to
 MAX_TOMBSTONE = 64 * 1024  # a tombstone record (a hash, a reason and a time)
+# Whole-archive caps, checked the same way: the members of one archive, ``manifest.json``
+# included (each is a staged file), and the bytes of all its staged members (every member
+# but ``manifest.json``, which is read into memory under ``MAX_SMALL_FILE``). A run of the
+# whole corpus (a few thousand documents, a few blobs each) is far below both.
+MAX_MEMBERS = 1 << 20  # 1,048,576 members
+MAX_STAGED_BYTES = 16 * MAX_BLOB  # 64 GiB staged in all
 _HEX64 = re.compile(rb"[0-9a-f]{64}")
 _SHA = r"[0-9a-f]{64}"
 _RUN_MEMBER = re.compile(
@@ -431,6 +444,7 @@ def _read_archive(archive: Path, sink: Callable[[str, Iterator[bytes]], None]) -
     blob_shas: set[str] = set()
     run_id: str | None = None
     manifest_raw: bytes | None = None
+    count = staged = 0
     try:
         with archive.open("rb") as raw:
             f = _Hashing(raw)
@@ -446,6 +460,13 @@ def _read_archive(archive: Path, sink: Callable[[str, Iterator[bytes]], None]) -
                         raise PackCorrupt("a member appears twice")
                     if m.size > _cap(name):
                         raise PackCorrupt(f"a member is larger than its cap ({_cap(name)} bytes)")
+                    count += 1
+                    if count > MAX_MEMBERS:
+                        raise PackCorrupt(f"the archive has more than {MAX_MEMBERS} members")
+                    if name != _MANIFEST:
+                        staged += m.size
+                        if staged > MAX_STAGED_BYTES:
+                            raise PackCorrupt(f"the archive's members hold more than {MAX_STAGED_BYTES} bytes in all")
                     member_file = tar.extractfile(m)
                     if member_file is None:
                         raise PackCorrupt("a member has no data")
@@ -585,6 +606,11 @@ def _pack_locked(log: EventLog, blobs: BlobStore, run_id: str, out: Path, includ
                 if p.is_file():
                     files.append((str(p.relative_to(root)), p))
 
+    # The whole-archive caps unpack applies (the per-member caps are checked in _add_file).
+    if len(files) + 1 > MAX_MEMBERS:  # + manifest.json
+        raise PackRefused(f"run {run_id!r} needs more than {MAX_MEMBERS} archive members; an archive cannot hold it")
+    if sum(p.stat().st_size for _, p in files) > MAX_STAGED_BYTES:
+        raise PackRefused(f"run {run_id!r} holds more than {MAX_STAGED_BYTES} bytes; an archive cannot hold it")
     out.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=out.parent, prefix=f".{out.name}.", suffix=".tmp")
     tmp = Path(tmp_name)

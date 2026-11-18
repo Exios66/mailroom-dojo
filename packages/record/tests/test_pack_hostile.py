@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 
@@ -238,3 +239,58 @@ def test_the_placed_run_is_verified_in_the_target(tmp_path: Path, monkeypatch: p
     assert calls == [root]  # the target itself was verified (the staging store by verify_run)
     res = run_cli("unpack", str(archive), root=root)
     assert res.exit_code == 1 and "it verifies" not in res.stdout
+
+
+# --- pre-PR review, finding 3: the whole archive is capped, not only each member ----------------
+
+
+def _segments(count: int, size: int) -> list[tuple[str, bytes]]:
+    return [(f"runs/r1/segments/w{i}.jsonl", b"\0" * size) for i in range(count)]
+
+
+def _staged_sizes(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Record the bytes of every member unpack stages (resolved at call time)."""
+    sizes: list[int] = []
+    real = pack_module._write_staged
+
+    def counting(path: Path, chunks: Iterator[bytes]) -> None:
+        real(path, chunks)
+        sizes.append(path.stat().st_size)
+
+    monkeypatch.setattr(pack_module, "_write_staged", counting)
+    return sizes
+
+
+def test_the_total_staged_bytes_are_capped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Five 1 MiB members, each under its cap, against a 3 MiB total: refused from the tar
+    header of the member that would cross the total, before a byte of it is staged."""
+    archive = forge_archive(tmp_path / "wide.tar.zst", [*_segments(5, MiB), ("manifest.json", b"{}")])
+    monkeypatch.setattr(pack_module, "MAX_STAGED_BYTES", 3 * MiB)
+    staged = _staged_sizes(monkeypatch)
+    root = tmp_path / "target"
+    with pytest.raises(PackCorrupt, match="more than 3145728 bytes in all"):
+        unpack_run(archive, root)
+    assert sum(staged) <= 3 * MiB and len(staged) == 3
+    assert store_tree(root) == {} and not list(root.glob(".unpack-*"))
+
+
+def test_the_member_count_is_capped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    archive = forge_archive(tmp_path / "many.tar.zst", [*_segments(10, 1), ("manifest.json", b"{}")])
+    monkeypatch.setattr(pack_module, "MAX_MEMBERS", 4)
+    staged = _staged_sizes(monkeypatch)
+    root = tmp_path / "target"
+    with pytest.raises(PackCorrupt, match="more than 4 members"):
+        unpack_run(archive, root)
+    assert len(staged) == 4
+    assert store_tree(root) == {} and not list(root.glob(".unpack-*"))
+
+
+@pytest.mark.parametrize("cap", ["MAX_MEMBERS", "MAX_STAGED_BYTES"])
+def test_pack_refuses_an_archive_unpack_would_refuse_whole(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap: str
+) -> None:
+    s = build_sealed_store(tmp_path / "store")
+    monkeypatch.setattr(pack_module, cap, 2)
+    with pytest.raises(PackRefused, match="more than 2"):
+        pack_run(s.root, "r1", tmp_path / "r1.tar.zst")
+    assert not (tmp_path / "r1.tar.zst").exists()
