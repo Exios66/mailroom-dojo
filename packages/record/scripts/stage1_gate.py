@@ -159,14 +159,19 @@ def parquet_holds(path: Path, needle: str) -> bool:
 
 
 def load_sandbox_floor_replay(checkout: Path) -> ModuleType:
-    """The sandbox's ``tui/floor_replay.py``, loaded by path from a checkout."""
+    """The sandbox's ``tui/floor_replay.py``, loaded by path from a checkout.
+
+    The module is kept in ``sys.modules`` under a name derived from the file's resolved
+    path, so loading another checkout in the same process loads that checkout's file, never
+    the one loaded first."""
     for rel in ("src/mailroom_sandbox/tui/floor_replay.py", "tui/floor_replay.py"):
         path = checkout / rel
         if path.is_file():
             break
     else:
         raise FileNotFoundError("no tui/floor_replay.py in the sandbox checkout")
-    name = "stage1_gate_sandbox_floor_replay"
+    key = hashlib.sha256(str(path.resolve()).encode("utf-8", "surrogateescape")).hexdigest()[:16]
+    name = f"stage1_gate_sandbox_floor_replay_{key}"
     if name in sys.modules:
         return sys.modules[name]
     spec = importlib.util.spec_from_file_location(name, path)

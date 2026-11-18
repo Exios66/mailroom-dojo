@@ -88,6 +88,7 @@ def test_bad_arguments_exit_2(gate: ModuleType, tmp_path: Path) -> None:
     assert exc.value.code == 2
 
 
+@pytest.mark.usefixtures("loaded_replays")
 def test_floor_replay_parity_against_the_sandbox(gate: ModuleType, runs_dir: Path, tmp_path: Path) -> None:
     checkout = os.environ.get("MAILROOM_SANDBOX_CHECKOUT")
     if not checkout or not Path(checkout, "src", "mailroom_sandbox", "tui", "floor_replay.py").is_file():
@@ -231,6 +232,38 @@ def test_a_store_holding_other_runs_fails_the_gate(gate: ModuleType, runs_dir: P
     assert gate.main(_args(runs_dir, root, report)) == 0  # and the full folder still passes on the first
 
 
+@pytest.fixture
+def loaded_replays(request: pytest.FixtureRequest) -> None:
+    """Drop every module the test loads with ``load_sandbox_floor_replay`` when it ends, so
+    no fake ``build_timeline`` outlives it (whatever was in ``sys.modules`` before stays)."""
+    before = set(sys.modules)
+
+    def drop() -> None:
+        for name in set(sys.modules) - before:
+            if name.startswith("stage1_gate_sandbox_floor_replay"):
+                del sys.modules[name]
+
+    request.addfinalizer(drop)
+
+
+def _fake_checkout(root: Path, answer: str) -> Path:
+    (root / "tui").mkdir(parents=True)
+    (root / "tui" / "floor_replay.py").write_text(f"def build_timeline(folder):\n    return [], {{{answer!r}: 1}}\n")
+    return root
+
+
+@pytest.mark.usefixtures("loaded_replays")
+def test_each_checkout_loads_its_own_replay(gate: ModuleType, tmp_path: Path) -> None:
+    """The loaded module is the asked checkout's, whichever was loaded before it in the
+    process: the gate must never compare against another checkout's ``build_timeline``."""
+    first = _fake_checkout(tmp_path / "first", "first")
+    second = _fake_checkout(tmp_path / "second", "second")
+    assert gate.load_sandbox_floor_replay(first).build_timeline(first) == ([], {"first": 1})
+    assert gate.load_sandbox_floor_replay(second).build_timeline(second) == ([], {"second": 1})
+    assert gate.load_sandbox_floor_replay(first).build_timeline(first) == ([], {"first": 1})
+
+
+@pytest.mark.usefixtures("loaded_replays")
 def test_loading_the_sandbox_replay_writes_no_bytecode_into_the_checkout(
     gate: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -239,7 +272,6 @@ def test_loading_the_sandbox_replay_writes_no_bytecode_into_the_checkout(
     checkout = tmp_path / "sandbox"
     (checkout / "tui").mkdir(parents=True)
     (checkout / "tui" / "floor_replay.py").write_text("def build_timeline(folder):\n    return [], {}\n")
-    monkeypatch.delitem(sys.modules, "stage1_gate_sandbox_floor_replay", raising=False)
     monkeypatch.setattr(sys, "dont_write_bytecode", False)
     module = gate.load_sandbox_floor_replay(checkout)
     assert module.build_timeline(checkout) == ([], {})
