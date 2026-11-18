@@ -18,6 +18,10 @@ Writing
   they are and stay reported by ``torn_tails``. Every open fsyncs the segment directory
   (not only on create), so a segment whose creator crashed before its directory fsync
   becomes durable on the next open.
+- Every live writer holds the store's maintenance lock (``<root>/.maintenance.lock``,
+  ``MAINTENANCE_LOCK``) shared, from ``open_writer`` until ``close()``. ``prune_run`` takes
+  it exclusive, so no event can name a blob between prune's check of what other runs name
+  and its delete; a writer opened while a prune runs waits for it to finish.
 - ``LogWriter.append`` validates the event, sets ``seq``, ``prev_hash`` and ``hash`` itself,
   and serializes the line at once: canonical JSON of the validated model's JSON-mode dump,
   plus ``\\n``. So every stored line satisfies ``event_hash(json.loads(line)) == hash``.
@@ -156,6 +160,7 @@ __all__ = [
     "InvalidEvent",
     "LocatedEvent",
     "LogWriter",
+    "MAINTENANCE_LOCK",
     "MAX_LINE",
     "OverlongLine",
     "RawLine",
@@ -172,6 +177,9 @@ _MAX_RUNS = 1024
 
 # Pass two keeps at most this many segment files open (RunScan.events).
 _MAX_OPEN_SEGMENTS = 32
+
+# The store's maintenance lock file, under the root: writers hold it shared, prune exclusive.
+MAINTENANCE_LOCK = ".maintenance.lock"
 
 # The longest event line (newline excluded) a writer stores and ``verify_run`` reads.
 MAX_LINE = 64 * 1024 * 1024
@@ -809,6 +817,21 @@ class _DiskHeads:
                 self._offsets[seg.name] = offset + len(data) + 1
 
 
+def _shared_maintenance_lock(root: Path) -> Any:
+    """Open ``<root>/.maintenance.lock`` and take it shared (waits while a prune holds it).
+
+    Returns the open file; closing it (or its garbage collection) releases the lock.
+    """
+    fd = os.open(Path(root) / MAINTENANCE_LOCK, os.O_RDWR | os.O_CREAT, 0o644)
+    f = os.fdopen(fd, "r+b", buffering=0)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_SH)
+    except BaseException:
+        f.close()
+        raise
+    return f
+
+
 class LogWriter:
     """Appends events for one run to one segment. Thread-safe; one live instance per id."""
 
@@ -824,7 +847,12 @@ class LogWriter:
         self._closed = False
         self._failed: BaseException | None = None
         self._root_key = os.path.realpath(log.root)
-        self._file, self.segment = self._open_segment()
+        self._maintenance = _shared_maintenance_lock(log.root)
+        try:
+            self._file, self.segment = self._open_segment()
+        except BaseException:
+            self._maintenance.close()  # releases the shared lock
+            raise
 
     # --- segment ownership ----------------------------------------------------------
 
@@ -1003,7 +1031,10 @@ class LogWriter:
                     self._flush_locked()
             finally:
                 self._closed = True
-                self._file.close()
+                try:
+                    self._file.close()
+                finally:
+                    self._maintenance.close()  # releases the shared maintenance lock
                 for doc_id in list(self._heads):
                     self._release(doc_id)
 

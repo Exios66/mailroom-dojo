@@ -10,6 +10,9 @@ Commands (each takes ``--root``, the store root, and ``--json`` for machine-read
     mailroom-record versions <run> <doc>  a document's version chain in one run
     mailroom-record import sandbox-run <folder>   import a sandbox run folder (creates --root)
     mailroom-record audit sandbox-run <folder>    which routing inputs a folder carries (no --root)
+    mailroom-record pack <run> <archive>  pack a sealed run and its blobs into a .tar.zst
+    mailroom-record unpack <archive>      restore a packed run (creates --root)
+    mailroom-record prune <run>           remove a packed run's segments, seals and unshared blobs
 
 Exit codes: 0 done (for ``verify``: the run is ok); 1 the record is not ok or an operation
 was refused or failed (``verify`` found a failing problem, ``seal`` refused a damaged log,
@@ -48,6 +51,17 @@ from mailroom_record.importer.audit import audit_sandbox_run
 from mailroom_record.importer.sandbox_run import ImportConflict, SandboxFolderInvalid, import_sandbox_run
 from mailroom_record.index import ApplyRefused, Index, IndexUnavailable
 from mailroom_record.log import CorruptLine, EventLog, ForkedChain
+from mailroom_record.pack import (
+    PackCorrupt,
+    PackRefused,
+    PruneRefused,
+    RunNotSealed,
+    StoreBusy,
+    UnpackConflict,
+    pack_run,
+    prune_run,
+    unpack_run,
+)
 from mailroom_record.seal import SealCorrupt, SealRefused, seal_run
 from mailroom_record.trace import Digest, DocSummary, Noted, RunHeader, Step, trace_doc, trace_run
 from mailroom_record.verify import verify_run
@@ -75,6 +89,7 @@ Root = Annotated[Path, typer.Option("--root", help="The store root (holds runs/ 
 AsJson = Annotated[bool, typer.Option("--json", help="Print JSON instead of text.")]
 RunArg = Annotated[str, typer.Argument(help="The run id.")]
 FolderArg = Annotated[Path, typer.Argument(help="The sandbox run folder.")]
+ArchiveArg = Annotated[Path, typer.Argument(help="The .tar.zst archive.")]
 DocArg = Annotated[str, typer.Argument(help="The document id.")]
 
 
@@ -154,7 +169,21 @@ def _describe(exc: BaseException) -> str:
         return f"CorruptLine: {str(exc).split(':', 1)[0]} is not a valid event or not JSON; run verify"
     if isinstance(
         exc,
-        (SealRefused, ForkedChain, IndexUnavailable, ApplyRefused, FileNotFoundError, SandboxFolderInvalid, ImportConflict),
+        (
+            SealRefused,
+            ForkedChain,
+            IndexUnavailable,
+            ApplyRefused,
+            FileNotFoundError,
+            SandboxFolderInvalid,
+            ImportConflict,
+            PackCorrupt,
+            PackRefused,
+            PruneRefused,
+            RunNotSealed,
+            StoreBusy,
+            UnpackConflict,
+        ),
     ):
         return f"{type(exc).__name__}: {exc}"
     return type(exc).__name__
@@ -534,6 +563,84 @@ def audit_sandbox_run_cmd(folder: FolderArg, as_json: AsJson = False) -> None:
         _echo(f"absent: {', '.join(a.absent) or 'nothing'}")
         _echo("nodes: " + ", ".join(f"{k} {v}" for k, v in a.nodes_seen.items()))
         _echo("decisions: " + ", ".join(f"{k} {v}" for k, v in a.decisions_seen.items()))
+        return 0
+
+    _guard(body)
+
+
+@app.command()
+def pack(
+    run_id: RunArg,
+    archive: ArchiveArg,
+    root: Root,
+    no_blobs: Annotated[bool, typer.Option("--no-blobs", help="Leave the blobs out of the archive.")] = False,
+    as_json: AsJson = False,
+) -> None:
+    """Pack a sealed run (and the blobs it names) into a new archive; refused unless sealed."""
+
+    def body() -> int:
+        s = _Store(root)
+        rid = require_run(s.log, run_id)
+        m = pack_run(root, rid, archive, include_blobs=not no_blobs)
+        if as_json:
+            _print_json(
+                {
+                    "run_id": m.run_id,
+                    "archive": str(m.path),
+                    "archive_sha256": m.archive_sha256,
+                    "last_seal": {"n": m.last_seal_n, "hash": m.last_seal_hash},
+                    "include_blobs": m.include_blobs,
+                    "members": len(m.members),
+                    "blobs": len(m.blobs),
+                }
+            )
+        else:
+            _echo(
+                f"packed run {m.run_id}: {_n(len(m.members), 'member')}, seal {m.last_seal_n} "
+                f"(hash {m.last_seal_hash}), archive sha256 {m.archive_sha256}"
+            )
+        return 0
+
+    _guard(body)
+
+
+@app.command()
+def unpack(archive: ArchiveArg, root: Root, as_json: AsJson = False) -> None:
+    """Restore a packed run under the root after checking it whole (a second unpack is a no-op)."""
+
+    def body() -> int:
+        root.mkdir(parents=True, exist_ok=True)
+        rid = unpack_run(archive, root)
+        if as_json:
+            _print_json({"run_id": rid})
+        else:
+            _echo(f"unpacked run {rid}: it verifies")
+        return 0
+
+    _guard(body)
+
+
+@app.command()
+def prune(
+    run_id: RunArg,
+    root: Root,
+    drop_columns: Annotated[bool, typer.Option("--drop-columns", help="Remove the Parquet files too.")] = False,
+    as_json: AsJson = False,
+) -> None:
+    """Remove a packed run's segments and seals and the blobs no other run names."""
+
+    def body() -> int:
+        s = _Store(root)
+        rid = require_run(s.log, run_id)
+        r = prune_run(root, rid, keep_columns=not drop_columns)
+        if as_json:
+            _print_json(asdict(r))
+        else:
+            _echo(
+                f"pruned run {r.run_id}: {_n(r.segments_removed, 'segment')}, {_n(r.seals_removed, 'seal')}, "
+                f"{_n(r.columns_removed, 'column file')}, {_n(len(r.blobs_removed), 'blob')} removed; "
+                f"{_n(r.blobs_kept, 'shared blob')} kept"
+            )
         return 0
 
     _guard(body)

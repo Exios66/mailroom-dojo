@@ -4,6 +4,12 @@ The `mailroom_record` package: one append-only, hash-chained run record with a
 content-addressed blob store and a rebuildable index. It imports nothing from the
 other workspace packages.
 
+The public surface is `mailroom_record.__all__`, 19 names: `Run`, `Event`, `Seal`,
+`BlobRef`, `BlobStore`, `EventLog`, `Index`, `seal_run`, `verify_run`, `version_chain`,
+`trace_run`, `trace_doc`, `import_sandbox_run`, `audit_sandbox_run`, `replay_timeline`,
+`pack_run`, `unpack_run`, `prune_run` and `GENESIS` (`tests/test_public_surface.py`).
+Everything else is reached through its module.
+
 ## Verify
 
 `verify_run(log, blobs, run_id) -> VerifyReport` (`mailroom_record.verify`) checks a run on
@@ -123,6 +129,34 @@ finished by the next one; a different folder under the same run id raises `Impor
 routing inputs the `legacy` router replay needs are present or absent in a folder. The module
 docstrings state every mapping rule.
 
+## Floor replay
+
+`replay_timeline(log, run_id) -> (timeline, meta)` (`mailroom_record.replay`) rebuilds the
+floor replay of any stored or imported run from the record alone, under the contract of the
+sandbox's `tui/floor_replay.py:build_timeline`: a sorted list of `(at_seconds, event)` with
+`{"node": ...}`, `{"item": ...}` and `{"checkpoint": ...}` events, and a `meta` dict. A node
+start is played at its `started_ts`, its finish at the event's `ts`; a node in flight when
+the run stopped replays as `running`. The timeline holds no document text and no extracted
+value. `tests/test_replay.py` checks it against the sandbox's own `build_timeline` when
+`MAILROOM_SANDBOX_CHECKOUT` names a sandbox checkout, and skips that check otherwise.
+
+## Pack, unpack and prune
+
+`pack_run(root, run_id, out, *, include_blobs=True)` (`mailroom_record.pack`) writes a
+sealed run, and the blobs it names, to one `.tar.zst` archive with a `manifest.json` of
+every member's SHA-256 and the latest seal's hash. It refuses a run whose latest seal does
+not cover every flushed event (`RunNotSealed`: seal it first) or that does not verify
+(`PackRefused`), never overwrites `out`, and records the pack in `runs/<run>/pack.json`.
+`unpack_run(archive, root)` checks every member against the manifest and runs `verify_run`
+in a staging store before anything reaches `root`; a damaged, truncated or hostile archive
+is `PackCorrupt`, and a different run already in place is `UnpackConflict`. A second unpack
+is a no-op; an interrupted one is finished by the next. `prune_run(root, run_id, *,
+keep_columns=True)` then removes the run's segments and seals (and Parquet files with
+`keep_columns=False`) and every blob of its archive that no other run names, read from the
+other runs' logs. It needs a current pack, holds the store's maintenance lock exclusive
+(every live writer holds it shared, so it waits for them; `StoreBusy` after
+`lock_timeout`), and is resumable. Unpacking the archive restores a pruned run in place.
+
 ## Command line
 
 `pip install -e packages/record` installs `mailroom-record` (also `python -m mailroom_record`):
@@ -136,12 +170,31 @@ mailroom-record trace doc <doc> --root <store>
 mailroom-record versions <run> <doc> --root <store>
 mailroom-record import sandbox-run <folder> --root <store>   # creates <store> when missing
 mailroom-record audit sandbox-run <folder>                   # reads the folder only
+mailroom-record pack <run> <archive> --root <store>  # --no-blobs leaves the blobs out
+mailroom-record unpack <archive> --root <store>      # creates <store> when missing
+mailroom-record prune <run> --root <store>           # --drop-columns removes Parquet files too
 ```
 
 Every command takes `--json` for tools. Exit codes: 0 done (verify: ok); 1 the run is not ok,
-a seal was refused, a document has no readable event but unreadable lines may hold it, or an
+a seal, pack, unpack or prune was refused, a document has no readable event but unreadable lines may hold it, or an
 unexpected error; 2 a usage error (malformed run id, unknown run or document, a root that is
 not a directory, a bad option); 141 the output pipe closed (`| head`), nothing printed.
 Errors are one line on stderr, never a traceback. Output holds hashes, roles, node names,
 kinds and counts only; control, format and separator characters in stored ids are escaped
 (`\x1b`, `\u202e`) in text output.
+
+## Stage 1 gate
+
+```bash
+python packages/record/scripts/stage1_gate.py --runs <folder of sandbox run folders> --root <store> \
+    [--sandbox <sandbox checkout>] [--report <file>]
+```
+
+Imports every run folder under `--runs` into `--root`, audits and verifies each, rebuilds
+the index, and writes the report (default `docs/stage1-gate-report.md`; never edit it by
+hand): one row per run, source and store sizes, `original` blobs against document-runs, the
+absent routing inputs, a trace check, a leak scan of the report and every Parquet file
+(with a positive control), floor replay parity against the sandbox's `build_timeline` when
+`--sandbox` is given, and append throughput. Exit 0 when every condition holds, 1 otherwise.
+A second run with the same `--root` finds every run `already_imported`.
+`tests/test_stage1_gate.py` runs it on synthetic folders.

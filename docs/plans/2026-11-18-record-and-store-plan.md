@@ -543,7 +543,7 @@ Added 2026-11-18 (JJB: all floor replayability moves into this repo). The TUI an
 - Produces: `replay_timeline(log, run_id) -> tuple[list[tuple[float, dict]], dict]`, the same contract as the sandbox's `tui/floor_replay.py:build_timeline`: a sorted list of `(at_seconds, event)` where `event` is `{"node": {...}}`, `{"item": {...}}` or `{"checkpoint": {...}}`, plus a `meta` dict (`source_run_id`, `engine_kind`, `engine_model`, `node_records`, `item_records`, `duration_s`, `synthetic_timing`, `incomplete`, `source_state`, `warnings`). Node rows carry `doc`, `node`, `status`, `agent`, `model`, `step`, `stage`, `ms`, `decisions` (without `options` text); item rows carry the outcome fields from the final `output` event (no extracted values, no document text). A `running` start is emitted at `started_ts` and its finish at the event `ts`.
 - No document text and no extracted field values in the timeline.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```python
 def test_timeline_matches_fixture_folder(tmp_store, fixture_folder):
@@ -557,8 +557,8 @@ def test_timeline_has_no_document_text(tmp_store, fixture_folder): ...     # sen
 def test_native_run_replays(store_with_events): ...                        # a run written by LogWriter, not imported
 ```
 
-- [ ] **Step 2:** Run; expect import failure. **Step 3:** Implement. **Step 4:** Run; expect pass.
-- [ ] **Step 5:** Commit: `feat(record): floor replay timeline from the record`.
+- [x] **Step 2:** Run; expect import failure. **Step 3:** Implement. **Step 4:** Run; expect pass.
+- [x] **Step 5:** Commit: `feat(record): floor replay timeline from the record`.
 
 ### Task 11: Pack, unpack and prune
 
@@ -571,7 +571,7 @@ def test_native_run_replays(store_with_events): ...                        # a r
   - `prune_run(root: Path, run_id: str, *, keep_columns: bool = True) -> PruneReport` (removes segments and seals of a packed run; deletes a blob only when no other run names it, found by reading the other runs' logs, the authoritative record, never the index, which can lag a crash between flush and apply). It holds the store's exclusive maintenance lock, which writers take shared, so no append can name a blob between that check and the delete. Refuses unless a pack path is recorded for the run, and, like `pack_run`, unless the latest seal covers the latest event.
   - CLI: `pack`, `unpack`, `prune`.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```python
 def test_pack_unpack_roundtrip_verifies(sealed_store, tmp_path):
@@ -593,10 +593,10 @@ def test_corrupt_archive_is_refused(sealed_store, tmp_path):
         unpack_run(p, tmp_path / "other")
 ```
 
-- [ ] **Step 2:** Run; expect import failure.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run; expect 4 passed.
-- [ ] **Step 5:** Commit: `feat(record): pack, unpack and prune`.
+- [x] **Step 2:** Run; expect import failure.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** Run; expect 4 passed.
+- [x] **Step 5:** Commit: `feat(record): pack, unpack and prune`.
 
 ### Task 12: Stage gate on the real runs, and the public surface
 
@@ -606,15 +606,15 @@ def test_corrupt_archive_is_refused(sealed_store, tmp_path):
 - Consumes: everything above.
 - Produces: `mailroom_record.__all__` with exactly these names: `Run`, `Event`, `Seal`, `BlobRef`, `BlobStore`, `EventLog`, `Index`, `seal_run`, `verify_run`, `version_chain`, `trace_run`, `trace_doc`, `import_sandbox_run`, `audit_sandbox_run`, `replay_timeline`, `pack_run`, `unpack_run`, `prune_run`, `GENESIS` (19 names; `replay_timeline` added 2026-11-18). And `stage1_gate.py --runs <dir> --root <dir>`, which imports every run folder under `--runs`, verifies each, reindexes, and writes the report.
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```python
 def test_public_surface_is_exactly_this():
     assert sorted(mailroom_record.__all__) == sorted(EXPECTED_19_NAMES)
 ```
 
-- [ ] **Step 2:** Run; expect failure. Then set `__all__` and re-run; expect pass.
-- [ ] **Step 3:** Write `stage1_gate.py`. The report it writes has one row per run (documents, events, verify ok, absent fields) and these totals: source size on disk against store size on disk; count of `original` blobs against count of document-runs; and the union of `RoutingAudit.absent` across runs. The report holds counts, hashes and run ids only.
+- [x] **Step 2:** Run; expect failure. Then set `__all__` and re-run; expect pass.
+- [x] **Step 3:** Write `stage1_gate.py`. The report it writes has one row per run (documents, events, verify ok, absent fields) and these totals: source size on disk against store size on disk; count of `original` blobs against count of document-runs; and the union of `RoutingAudit.absent` across runs. The report holds counts, hashes and run ids only.
 - [ ] **Step 4:** Run it on the real data:
 
 ```bash
