@@ -526,6 +526,7 @@ def _measure(method: str, **overrides: Any) -> Measure:
         (lambda: _measure("accuracy", cost_basis="busy_window"), "not a cost"),
         (lambda: _measure("bert_elapsed_ms", value=3.0, label_status="none"), "not ported"),
         (lambda: _measure("judge_notes", value=1.0), "not ported"),
+        (lambda: _measure("log_chains_verified", value=0.5, label_status="none"), "a boolean value is 0 or 1"),
     ],
     ids=[
         "rate above 1",
@@ -541,6 +542,7 @@ def _measure(method: str, **overrides: Any) -> Measure:
         "not a cost",
         "dropped",
         "text",
+        "boolean not 0 or 1",
     ],
 )
 def test_check_refuses_a_measure_that_breaks_its_row(measure: Callable[[], Measure], expected: str) -> None:
@@ -573,6 +575,8 @@ def test_check_accepts_measures_that_keep_their_rows() -> None:
     )
     assert table.check(_measure("accuracy", value=0.5, ci=_ci(0.5, 1.0))).id == "accuracy"
     assert table.check(_measure("wer", value=1.7, ci=_ci(1.2, 2.4))).id == "wer"
+    for verdict in (0, 1, 0.0, 1.0):
+        assert table.check(_measure("log_chains_verified", value=verdict, label_status="none")).unit == "boolean"
     with pytest.raises(UnknownMetricError):
         table.check(_measure("not_a_metric"))
 
