@@ -37,7 +37,7 @@ desk.case("r1", "<doc sha256>")           # one document's case (its last episod
 | `reviewers.py` | `load_registry` / `parse_registry`: strict or open mode, roles, token identity, the registry hash |
 | `fold.py` | `fold_case`: a document's case from its events (episode, leases, deferrals, SLA) |
 | `lock.py` | `desk_lock` (per run, `<root>/desk/<run_id>.lock`) and `seal_guard` (the record's seal lock) |
-| `desk.py` | `Desk`: `enqueue`, `case`, `queue`, `run`, `is_closed` |
+| `desk.py` | `Desk`: `enqueue`, `case`, `queue`, `index_drift`, `run`, `is_closed` |
 | `errors.py` | one typed error per refusal (`AlreadyInReview`, `RunClosed`, `OutageNotReviewable`, ...) |
 
 ## Rules worth knowing
@@ -49,6 +49,10 @@ desk.case("r1", "<doc sha256>")           # one document's case (its last episod
   flushed and closed per action. For an experiment run the desk also holds the record's
   seal lock, so a seal cannot land between the "is this run closed?" check and the append.
 - A sealed experiment run is refused (`RunClosed`); a `service_period` run is never closed.
+- With an index, `queue()` checks run by run that the index's document heads equal the log's.
+  A run where they differ (or an unavailable index) is read from the log and a warning is
+  logged (logger `mailroom_desk`), so a stale index never hides a case;
+  `Desk.index_drift()` lists such runs and `Index.reindex` brings them back in step.
 - Outage tokens (`transient_exhausted`, `provider_unavailable`) are refused in policies and
   requests: an outage makes a document wait, never park (R1).
 - `enqueue` never raises after its event is durable. A failed write or fsync raises

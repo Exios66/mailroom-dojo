@@ -46,6 +46,7 @@ one-off unit tests.
 | Outage cause | `transient_exhausted`, `provider_unavailable`, as a token or a segment | `OutageNotReviewable` in requests; refused in a policy's catalog and rules | `test_outage_causes_are_refused`, `test_outage_tokens_are_refused_in_the_catalog_and_rules` |
 | Full disk on the flush | `os.write` raises `ENOSPC` for segment files (like the record's fault tests) | `RecordWriteFailed` with the `OSError` as `__cause__`; nothing in the segment; the lock is free; the next enqueue and `verify_run` succeed | `test_full_disk_on_flush_is_a_typed_error_and_leaves_the_record_usable` |
 | Time at the edges | A desk clock at 9999-12-31T23:00 (the SLA due time overflows); a record-valid far-future review event from another writer; a clock in year 5 | `enqueue` returns its durable event (never raises after the append); the due time saturates at `END_OF_TIME` with an anomaly; the queue still lists every case; a four-digit year is written | `test_enqueue_at_the_end_of_time_returns_its_event`, `test_one_far_future_event_does_not_take_down_the_queue`, `test_enqueue_at_the_start_of_time_writes_a_valid_timestamp` |
+| Index behind the log | A desk without the index enqueues, an engine writes a review event, both unseen by the index | `queue()` reads that run from the log (same result as a desk with no index), logs a warning naming the run, `index_drift()` lists it; after `reindex` the index path is used again and no warning is logged | `test_stale_index_never_hides_a_case` |
 | Index refuses the apply | A run created after the index was built | The event is durable; `index_error` names `unknown_run`; a reindex shows it | `test_index_refusal_is_reported_not_raised` |
 | Free text in a payload | Sentinel text in a shown blob | The sentinel is absent from every segment; the blob hash is present (positive control) | `test_payload_holds_no_free_text` |
 
@@ -91,6 +92,7 @@ duplicate YAML keys and the unknown-cause check.
 ## Known gaps
 
 - A crash between the desk's flush and the index apply leaves the index behind the log;
-  `index.drift` shows it and `reindex` repairs it (the record's rule), but no test kills a
+  `queue()` then reads that run from the log (tested with an index that was never given the
+  events), `Desk.index_drift()` names it and `reindex` repairs it, but no test kills a
   process at that exact point.
 - Multi-host writers are out of scope (ADR-0004): `flock` serialises one host only.

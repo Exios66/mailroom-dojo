@@ -530,6 +530,35 @@ def test_index_refusal_is_reported_not_raised(env: SimpleNamespace) -> None:
     assert [r.doc_id for r in index.review_queue("r2")] == ["d1"]
 
 
+def test_stale_index_never_hides_a_case(env: SimpleNamespace, caplog: pytest.LogCaptureFixture) -> None:
+    """An index behind the log (events it was never given) must not make the queue drop
+    a case: the desk reads that run from the log, logs why, and index_drift names it."""
+    import logging
+
+    make_run(env.root, "r2")
+    index = Index(env.root / "index.sqlite")
+    index.reindex(env.log)
+    indexed = Desk(env.root, index=index, clock=env.clock)
+    assert indexed.index_drift() == []
+    env.desk.enqueue(request("d1", "flag_low"), env.policy)  # a desk without the index
+    engine_append(env.root, "r1", "d2", "review", payload={"note": "parked elsewhere"})
+    indexed.enqueue(request("d3", "flag_high", run_id="r2"), env.policy)  # applied: r2 in sync
+    assert index.review_queue("r1") == []  # the index really is behind
+    with caplog.at_level(logging.WARNING, logger="mailroom_desk"):
+        cases = indexed.queue()
+    assert [(c.run_id, c.doc_id) for c in cases] == [("r1", "d2"), ("r2", "d3"), ("r1", "d1")]
+    assert [c.doc_id for c in indexed.queue("r1")] == ["d2", "d1"]
+    assert indexed.queue() == Desk(env.root, clock=env.clock).queue()
+    assert indexed.index_drift() == ["r1"] and indexed.index_drift("r2") == []
+    assert "r1" in caplog.text and "r2" not in caplog.text
+    index.reindex(env.log)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="mailroom_desk"):
+        assert [c.doc_id for c in indexed.queue("r1")] == ["d2", "d1"]
+    assert indexed.index_drift() == [] and caplog.text == ""
+    assert env.desk.index_drift() == []  # no index, nothing to drift
+
+
 def test_unavailable_index_falls_back_to_the_log(env: SimpleNamespace) -> None:
     env.desk.enqueue(request("d1", "flag_low"), env.policy)
     desk = Desk(env.root, index=Index(env.root / "never-built.sqlite"), clock=env.clock)
