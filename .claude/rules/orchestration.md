@@ -13,7 +13,7 @@ minimum for anything that needs judgement, and every review runs on Opus.
 |:---|:---|:---|:---|
 | Orchestrator | The main session | Opus | Plans, writes briefs, owns final verification, talks to the owner, and alone pushes, opens PRs and merges. |
 | `implementer` | `.claude/agents/implementer.md` | `opus`, effort `medium` or higher | Heavy lifting: design, multi-file implementation, debugging, root-causing a CI failure, an investigation write-up. |
-| Scoped worker | built-in `general-purpose` with `model: "sonnet"`, `effort: "high"` | `sonnet`, effort `high` | Only an excellently scoped, well-bounded task: named files, a known approach, a mechanical acceptance check. |
+| `scoped-worker` | `.claude/agents/scoped-worker.md` (or built-in `general-purpose` with `model: "sonnet"`, `effort: "high"`) | `sonnet`, effort `high` | Only an excellently scoped, well-bounded task: named files, a known approach, a mechanical acceptance check. |
 | `runner` | `.claude/agents/runner.md` | `haiku`, effort `high` | Basic fetches, searches, running commands or test suites, collecting output, simple mechanical edits. |
 | `adversarial-reviewer` | `.claude/agents/adversarial-reviewer.md` | `opus`, effort `high` | Tries to break a change before the orchestrator accepts it. Read-only. |
 | `pre-pr-reviewer` | `.claude/agents/pre-pr-reviewer.md` | `opus`, effort `high` | Fresh-context review of the final diff before anything is pushed for a PR. Read-only. |
@@ -22,15 +22,16 @@ minimum for anything that needs judgement, and every review runs on Opus.
 
 1. **Always pass the model and the effort explicitly.** Prefer the project agents (their
    frontmatter pins both). For a built-in type (`general-purpose`, `Explore`, `Plan`),
-   pass `model` and `effort` on every call. A subagent given neither inherits the main
-   session's model, and a `fork` always does, so do not fork delegated work.
+   pass `model` and `effort` on every call. If the Agent tool takes no per-call effort,
+   use the project agents, whose frontmatter sets it. A subagent given neither inherits
+   the main session's model, and a `fork` always does, so do not fork delegated work.
 2. **Pick the cheapest tier that can do the job well, and no cheaper.** If a task needs
    judgement (choosing an approach, reading unfamiliar code, explaining why something
    failed), it is Opus work. If a `runner` or scoped worker reports that the task was not
    as simple as briefed, re-brief it to an `implementer`; do not retry the same brief.
-3. **Anything Sonnet or Haiku produced gets a fresh, independent Opus review** of the full
-   diff and of every claim before it is merged or handed off. Fix the valid findings, then
-   re-verify the tests and CI on the final head.
+3. **Anything Sonnet or Haiku produced (`scoped-worker`, `runner`) gets a fresh,
+   independent Opus review** of the full diff and of every claim before it is merged or
+   handed off. Fix the valid findings, then re-verify the tests and CI on the final head.
 4. Do not delegate a lookup you can answer with one `Read` or `Grep`. Every subagent starts
    cold and re-reads context.
 5. Run independent subagents in parallel (one message, several calls) and dependent ones
@@ -46,15 +47,20 @@ minimum for anything that needs judgement, and every review runs on Opus.
 - No wide fan-outs: a few well-briefed subagents beat many vague ones.
 - No double passes: do not re-run a review or a suite on an unchanged commit.
 - No idle polling: do not loop on CI or a PR. Check once when the result is due.
-- Chunk big work into fresh threads, one chunk each. A chunk ends with a hand-off (branch,
-  last commit, state of the gates, the next plan) and stops.
+- Chunk big work into fresh threads, one chunk each. A thread finishes its chunk, writes
+  a hand-off, and stops; it does not start the next chunk.
+- **Where a hand-off goes:** a "Hand-off" section of the PR body, or a note in the
+  project files when there is no PR yet; never a GitHub comment. It carries the branch,
+  the head sha, the state (done, open, blocked), what is verified and how (commands and
+  exit codes), and the next plan. No links of any kind in it.
 
 ## Writing a brief
 
 A subagent sees only its brief. The `pre-pr-reviewer` is the exception: its brief is fixed
 by `.claude/rules/pr-flow.md` step 3. Every other brief includes:
 
-- **Goal:** the owner's request in your own summary, plus the slice this subagent owns.
+- **Goal:** the owner's request, quoted verbatim or summarised (internal briefs are not
+  public text), plus the slice this subagent owns.
 - **Context it cannot discover cheaply:** files and functions involved, decisions already
   made, rules from `CLAUDE.md` that apply, what was already tried.
 - **Boundaries:** files it may change, files it must not touch, commands it must not run.

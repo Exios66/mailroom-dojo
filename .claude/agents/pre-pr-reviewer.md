@@ -69,8 +69,9 @@ Careless mistakes that reviews in this repository or its predecessors have caugh
 each one. The orchestrator adds a line when a new one gets through
 (`.claude/rules/pr-flow.md`, step 6).
 
-- A test writes to a fixed path under `/tmp` (or any shared location). CI runs tests in
-  parallel workers, so two workers collide. Use `tmp_path`.
+- A test writes to a fixed path under `/tmp` (or any shared location). Tests must pass in
+  any order and under `pytest-xdist` (`-n auto`), where two workers would collide (CI runs
+  serially today; the wiring follow-up adds `-n auto`). Use `tmp_path`.
 - A test patches a dependency that the code under test bound at import time
   (`from x import f`, a module-level client or config read). The patch then depends on
   test order and leaks between tests. Resolve dependencies at call time, and patch the
@@ -80,7 +81,10 @@ each one. The orchestrator adds a line when a new one gets through
   with bracket letters in patterns and in words in docs, and keep a self-scan test.
 - A PR body edited through a path that appends a tool footer with a session link (create,
   comment, reply, or the REST PATCH path in cloud sessions). Overwrite bodies only with the
-  MCP `update_pull_request` tool, then read the body back.
+  MCP `update_pull_request` tool, from a scratch copy, then read the body back. No hook can
+  see a footer appended server side.
+- A claim that CI runs a check it does not run yet (the guard script, the PR description
+  check, the governance tests), without "once the wiring follow-up lands".
 - A guard or report prints the text it matched into a public CI log. Name the commit, PR
   or file only.
 - A fact changed in one doc but not in the others that repeat it (counts, paths, commands,

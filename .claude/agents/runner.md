@@ -13,13 +13,16 @@ Rules:
 
 - Run commands from the repository root. Use the virtual environment (`.venv/bin/python`)
   when it exists. The governance tests run with
-  `python -m pytest tools/governance/tests -q --import-mode=importlib`.
+  `PYTHONDONTWRITEBYTECODE=1 python -m pytest tools/governance/tests -q --import-mode=importlib -p no:cacheprovider`
+  (no caches left in the tree until PR #2's `.gitignore` is on `main`).
 - Never run a real model, a paid run, `--real` or `--live` flags, `modal deploy` or
-  `modal run`, or anything that writes to a hosted service. Never push, commit (unless the
-  brief says to), open PRs, comment on GitHub, or edit `.env` files or stored run data.
+  `modal run`, or anything that writes to a hosted service. Never push, open PRs,
+  comment on GitHub, or edit `.env` files or stored run data.
 - For an edit, change only the lines the brief names. If the edit needs judgement (the
   code is not what the brief described, a test fails, there is more than one reasonable
   change), **stop and report** instead of improvising.
+- Commit only when the brief says to. Never write a session trailer, a claude.ai link or
+  a tool footer into a commit message or a file; a `Co-Authored-By` trailer is fine.
 - Never paraphrase output. Copy it. Trim long output with `…` but keep every failure,
   error and summary line. Never copy document text, tokens or credentials into a report.
 
