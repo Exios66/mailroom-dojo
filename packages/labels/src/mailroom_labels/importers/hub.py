@@ -19,6 +19,9 @@ presence codes (``corpus.normalize_rows``: ``expected_fields`` is the parsed ``g
 - A key ``gt_presence`` lists becomes a field with that presence code and the raw
   ``gt_fields`` value. ``pending_annotation`` (the dataset's "not labelled yet") becomes
   ``unlabeled``, which yields no label (``hub_has`` treats it as unlabelled too).
+  A key ``gt_fields`` lacks gets the value null (counted in ``presence_without_value``),
+  except that a ``populated`` code with no value (missing or null) makes the row
+  unreadable: it is listed in ``unparseable_gt_fields`` and the import is refused.
 - A ``not_applicable`` key that is **not a field of the document's class in the profile**
   (the dataset carries every class's keys on every row as placeholders) is omitted:
   omitted means not_applicable. A ``not_applicable`` key the class does define is kept.
@@ -229,6 +232,16 @@ def _fields(row: dict[str, Any], profile: ClientProfile, tally: _Tally) -> dict[
             if code in _MAPPED_PRESENCE:
                 tally.mapped[f"{code}->{_MAPPED_PRESENCE[code]}"] += 1
                 code = _MAPPED_PRESENCE[code]
+            if code == "populated" and value is None:
+                # The reader refuses a populated null, so the row is never written: it is
+                # unreadable source data, like a gt_fields that is not an object.
+                tally.bad_gt_fields.append(
+                    {
+                        "document_id": row.get("document_id"),
+                        "reason": f"gt_presence says {key!r} is populated but gt_fields has no value",
+                    }
+                )
+                return None
             if key not in gt:
                 tally.presence_without_value[key] += 1
             if code == "not_applicable" and value in _EMPTY and value is not None:

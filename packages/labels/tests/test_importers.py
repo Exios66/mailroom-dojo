@@ -1691,3 +1691,39 @@ def test_review_refuses_two_sources_with_one_name_before_reading(tmp_path: Path,
         build_review(tmp_path / "gold-review-x", decisions=[(dpath, names[0])], desk=[(kpath, names[1])])
     assert not (tmp_path / "gold-review-x").exists()
     build_review(tmp_path / "gold-review-x", decisions=[(dpath, "d.jsonl")], desk=[(kpath, "k.jsonl")])
+
+
+@pytest.mark.parametrize("gt", [{}, {"sender": None}], ids=["key_missing", "value_null"])
+def test_hub_populated_presence_without_a_value_refuses_the_import(
+    tmp_path: Path, gt: dict[str, Any]
+) -> None:
+    """gt_presence says populated but gt_fields holds no value: the reader refuses that row
+    (a populated label is never null), so the importer never writes it. Like any other
+    unreadable gt_fields it refuses the import, and ``--allow-rejected`` lists it by
+    document and key without writing the row."""
+    bad = gt_row("D9", "letter", "email", "train", gt, {"sender": "populated"})
+    data = write_dataset(tmp_path / "data", extra=[bad])
+    with pytest.raises(ImportRefused, match="unparseable_gt_fields 1"):
+        hub_build(tmp_path / "hub-x", data)
+    manifest = hub_build(tmp_path / "hub-x", data, allow_rejected=True)
+    assert manifest.source["unparseable_gt_fields"] == [
+        {"document_id": "D9", "reason": "gt_presence says 'sender' is populated but gt_fields has no value"}
+    ]
+    assert "D9" not in hub_rows(tmp_path / "hub-x")
+    kinds = _gate_kinds(tmp_path, tmp_path / "hub-x")
+    assert "dropped_source_data" in kinds and "malformed_record" not in kinds
+
+
+@pytest.mark.parametrize("code", ["schema_documented_absence", "not_applicable", "pending_annotation"])
+def test_hub_absent_presence_without_a_value_is_kept_and_counted(tmp_path: Path, code: str) -> None:
+    """A presence that is not populated needs no value: the field is written with null,
+    counted in ``presence_without_value``, and the reader accepts it."""
+    row = gt_row(
+        "D9", "letter", "email", "train", {"sender": "Zed"}, {"sender": "populated", "recipient": code}
+    )
+    data = write_dataset(tmp_path / "data", extra=[row])
+    manifest = hub_build(tmp_path / "hub-x", data)
+    want = "unlabeled" if code == "pending_annotation" else code
+    assert hub_rows(tmp_path / "hub-x")["D9"]["fields"]["recipient"] == {"value": None, "presence": want}
+    assert manifest.source["presence_without_value"] == {"recipient": 1}
+    assert "malformed_record" not in _gate_kinds(tmp_path, tmp_path / "hub-x")
