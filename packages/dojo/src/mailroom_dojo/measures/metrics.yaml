@@ -94,6 +94,13 @@
 #                 a second name: the kept row it is reported under (same unit, direction
 #                 and aggregation). MetricTable.resolve(id) follows it; check() refuses a
 #                 Measure filed under the alias.
+#   same_as       default null; a duplicate that keeps its own row (it may be computed at
+#                 another level, or is kept for golden parity): the canonical row it
+#                 duplicates (same unit and direction; the target is itself canonical).
+#                 Groups: laziness_rate and contracteval_false_no_related ->
+#                 false_no_related_rate; schema_adherence -> schema_valid;
+#                 expected_field_presence -> field_presence (an alias).
+#                 audit_disagreement_rate is 1 - audit_resolution_rate (its status_reason).
 #   origin        registry | golden
 #
 # default_views (top level): the one number each agent's dashboard shows by default
@@ -943,7 +950,7 @@ metrics:
     metric_id: "registry:contracteval_false_no_related"
     layer: null
     status: "not_ported"
-    status_reason: "An alias of false_no_related_rate (old metric_meta.py lines 301-308 and tasks.contracteval_metrics: the same ContractEval no-related rate). The value is reported once, under false_no_related_rate, the name the golden baseline emits; this row keeps the registry name and meaning."
+    status_reason: "An alias of false_no_related_rate (old metric_meta.py lines 301-308 and tasks.contracteval_metrics: false no-related answers over positive pairs). The old note 'mirrors ContractEval no_related_rate' is wrong: no_related_rate divides by all pairs. The value is reported once, under false_no_related_rate, the name the golden baseline emits; this row keeps the registry name and meaning."
     alias_of: "false_no_related_rate"
     origin: "registry"
     old_source: "tasks.contracteval_metrics"
@@ -961,7 +968,8 @@ metrics:
     metric_id: "registry:laziness_rate"
     layer: null
     status: "not_ported"
-    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived. The golden baseline emits the ContractEval figures under their own names (false_no_related_rate and the rest)."
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived. It is the record-level form of false_no_related_rate (same_as), which the golden baseline emits and the table keeps."
+    same_as: "false_no_related_rate"
     origin: "registry"
     old_source: "tasks.said_no_related"
     citation: "Record-level alias of contracteval_false_no_related (tasks.said_no_related): empty/bail responses when content is expected."
@@ -1389,6 +1397,8 @@ metrics:
     layer: "D5"
     status: "planned"
     readers: ["golden_parity_gate", "run_report"]
+    status_reason: "A duplicate of schema_valid when the required keys match (old description); both stay for golden parity, and schema_valid is the canonical id."
+    same_as: "schema_valid"
     origin: "registry"
     old_source: "scorecard_honesty.score_format_layer"
     citation: "Required-key coverage after parse (scorecard_honesty.score_format_layer)."
@@ -1533,7 +1543,8 @@ metrics:
     metric_id: "registry:expected_field_presence"
     layer: null
     status: "not_ported"
-    status_reason: "An llm-mailroom emitter alias of field_presence (old registry notes); field_presence is the row that is kept."
+    status_reason: "An llm-mailroom emitter alias of field_presence (old registry notes); field_presence is the row that is kept and reported."
+    alias_of: "field_presence"
     origin: "registry"
     citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
     inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
@@ -1744,6 +1755,7 @@ metrics:
     layer: "D3b"
     status: "planned"
     readers: ["golden_parity_gate"]
+    status_reason: "Equals 1 - audit_resolution_rate (old citation: the complement of the same overall score), so it carries no information of its own; kept for golden parity only (the auditors are legacy)."
     origin: "registry"
     old_source: "suites.ScoringSuite._score_audit"
     citation: "Complement of typed extraction overall_score between auditor output and the reference dict (suites.ScoringSuite._score_audit). No new algorithm — 1 − score_extraction.overall_score."

@@ -172,6 +172,7 @@ _ROW_DEFAULTS: Mapping[str, Any] = MappingProxyType(
         "pairing": None,
         "pairing_note": None,
         "alias_of": None,
+        "same_as": None,
         "noise_floor": None,
         "old_source": None,
         "notes": "",
@@ -250,6 +251,7 @@ class MetricRow:
     pairing: str | None
     pairing_note: str | None
     alias_of: str | None
+    same_as: str | None
     noise_floor: float | None
     old_source: str | None
     notes: str
@@ -570,6 +572,9 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
     alias_of = None if spec["alias_of"] is None else _string(spec["alias_of"], f"{path}.alias_of")
     if alias_of is not None and status != "not_ported":
         raise _fail(f"{path}.alias_of", "an alias is reported under its target's id, so it is not_ported")
+    same_as = None if spec["same_as"] is None else _string(spec["same_as"], f"{path}.same_as")
+    if same_as is not None and alias_of is not None:
+        raise _fail(f"{path}.same_as", "an alias already names its target; same_as is for a second row")
     noise_floor = spec["noise_floor"]
     if noise_floor is not None and (
         isinstance(noise_floor, bool)
@@ -604,6 +609,7 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
         pairing=pairing,
         pairing_note=pairing_note,
         alias_of=alias_of,
+        same_as=same_as,
         noise_floor=None if noise_floor is None else float(noise_floor),
         old_source=None if spec["old_source"] is None else _string(spec["old_source"], f"{path}.old_source"),
         notes=_string(spec["notes"], f"{path}.notes", allow_empty=True),
@@ -639,6 +645,7 @@ def _row_canonical(row: MetricRow) -> dict[str, Any]:
         "pairing": row.pairing,
         "pairing_note": row.pairing_note,
         "alias_of": row.alias_of,
+        "same_as": row.same_as,
         "noise_floor": row.noise_floor,
         "old_source": row.old_source,
         "notes": row.notes,
@@ -689,8 +696,27 @@ def _view_metric(metric: Any, agent: str, by_id: Mapping[str, MetricRow], path: 
 
 
 def _check_aliases(rows: tuple[MetricRow, ...]) -> None:
-    """An alias names a kept row that is no alias, with the same unit, direction and aggregation."""
+    """An alias names a kept row that is no alias, with the same unit, direction and aggregation.
+
+    ``same_as`` marks a duplicate that keeps its own row (it may be computed at another
+    level): it names another row that is itself canonical (no alias, no ``same_as``), with
+    the same unit and direction.
+    """
     by_id = {row.id: row for row in rows}
+    for index, row in enumerate(rows):
+        if row.same_as is None:
+            continue
+        path = f"metrics[{index}] ({row.id}).same_as"
+        target = by_id.get(row.same_as)
+        if target is None or target.id == row.id:
+            raise _fail(path, f"{row.same_as!r} is not another metric in the table")
+        if target.alias_of is not None or target.same_as is not None:
+            raise _fail(path, f"{target.id!r} is itself a duplicate; name the canonical row")
+        for key in ("unit", "direction"):
+            if getattr(row, key) != getattr(target, key):
+                raise _fail(
+                    path, f"{key} {getattr(row, key)!r} differs from {target.id!r}'s {getattr(target, key)!r}"
+                )
     for index, row in enumerate(rows):
         if row.alias_of is None:
             continue

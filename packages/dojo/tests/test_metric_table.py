@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import importlib
+import re
 from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
@@ -700,3 +701,38 @@ def test_the_unit_vocabulary_is_closed() -> None:
             raw = _raw()
             _set("prompt_tokens", "unit", spelling)(raw)
             load_metric_table(raw)
+
+
+def test_the_duplicate_groups_name_their_canonical_row() -> None:
+    table = load_metric_table()
+    pointers = {row.id: row.alias_of or row.same_as for row in table.rows if row.alias_of or row.same_as}
+    assert pointers == {
+        "contracteval_false_no_related": "false_no_related_rate",
+        "laziness_rate": "false_no_related_rate",
+        "schema_adherence": "schema_valid",
+        "expected_field_presence": "field_presence",
+    }
+    assert "no_related_rate is wrong" not in str(table.get("contracteval_false_no_related").status_reason)
+    assert "divides by all pairs" in str(table.get("contracteval_false_no_related").status_reason)
+    assert "1 - audit_resolution_rate" in str(table.get("audit_disagreement_rate").status_reason)
+
+
+@pytest.mark.parametrize(
+    ("edit", "expected"),
+    [
+        (
+            _set("schema_adherence", "same_as", "nothing_here"),
+            "(schema_adherence).same_as: 'nothing_here' is not",
+        ),
+        (_set("schema_adherence", "same_as", "schema_adherence"), "is not another metric"),
+        (_set("schema_valid", "same_as", "laziness_rate"), "is itself a duplicate"),
+        (_set("laziness_rate", "same_as", "f1_macro"), "direction 'lower' differs from"),
+        (_set("expected_field_presence", "same_as", "schema_valid"), "an alias already names its target"),
+    ],
+    ids=["unknown", "itself", "chain", "different direction or unit", "alias and same_as"],
+)
+def test_a_broken_same_as_is_refused(edit: Callable[[dict[str, Any]], None], expected: str) -> None:
+    raw = _raw()
+    edit(raw)
+    with pytest.raises(MetricTableError, match=re.escape(expected)):
+        load_metric_table(raw)
