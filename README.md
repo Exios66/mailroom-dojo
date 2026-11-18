@@ -14,7 +14,10 @@ python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]
 ```
 mailroom-dojo/
 ├── README.md                  what this is, the layout, the test command
+├── Makefile                   every dev command: install, test, lint, typecheck, check (`make help`)
 ├── packages/                  one folder per package; each is installable alone
+│   ├── common/                mailroom_common: shared foundation (errors, hashing, IO, config, logging)
+│   ├── dictionaries/          mailroom_dictionaries: versioned vocabularies and the glossary
 │   ├── record/                mailroom_record: run record, blob store, index, verify, replay (project 1)
 │   ├── labels/                mailroom_labels: label snapshots and coverage (project 2)
 │   ├── dojo/                  mailroom_dojo: scoring, comparison, reports (project 3)
@@ -31,12 +34,27 @@ mailroom-dojo/
 │   ├── plans/                 one build plan per project, dated
 │   ├── adr/                   architecture decision records
 │   ├── test-strategy-*.md     one test strategy per package
-│   └── reports/               gate reports, written by scripts
+│   └── reports/               gate reports, written by scripts (created on first use)
+├── scripts/                   workspace checks: dependency boundaries, this layout map, session links
+├── tests/                     workspace-level tests (the dependency rule, the checks in scripts/)
 └── .circleci/                 CI (CircleCI only)
 ```
 
-Rules: dependencies point one way and a test enforces them: `labels` imports `record`; `dojo` imports `record` and `labels`; `engine` imports `record` (and reads client profiles from `config/`); `launcher` may import all of them; the Dojo never imports the engine, and `record` imports nothing of ours. Tuning lives in `config/` and `labels/`, never in code. A new folder needs a line in this map. Names say what a thing is, in full words; nesting goes from general to specific.
+Rules: dependencies point one way and a test enforces them (`tests/test_workspace_boundaries.py`, table in `scripts/check_boundaries.py`): every package may import `common`, which imports nothing of ours; `dictionaries` imports only `common`; `labels`, `dojo` and `engine` may also import `dictionaries`; `labels` imports `record`; `dojo` imports `record` and `labels`; `engine` imports `record` (and reads client profiles from `config/`); `launcher` may import all of them; the Dojo never imports the engine, and `record` imports nothing of ours (adopting `common` is a planned follow-up). Tuning lives in `config/` and `labels/`, never in code. A new folder needs a line in this map. Names say what a thing is, in full words; nesting goes from general to specific.
 
-Folders marked with a later project do not exist yet. Requirements behind this layout: `docs/specs/2026-11-18-lean-rewrite-design.md`, R9.
+Folders marked with a later project do not exist yet. Requirements behind this layout: `docs/specs/2026-11-18-lean-rewrite-design.md`, R9. `scripts/check_layout.py` checks this map against the real folders.
+
+## Development
+
+The `Makefile` is the one entry point, used the same way locally and in CI (`make help` lists every target):
+
+```bash
+make install     # .venv with every package (dependency order, dev extras) and the dev tools
+make test-fast   # pytest -x -q -n auto over every package and tests/
+make check       # every gate in CI order: lint, typecheck, spell, boundaries, layout, test
+make hooks       # install the pre-commit hooks (ruff, codespell, file hygiene, no session links)
+```
+
+`make format` applies ruff's fixes and formatting. Set `PY` to choose the interpreter that creates the venv, or `VENV` for its location.
 
 Commit messages follow `.gitmessage` (`git config commit.template .gitmessage`).
