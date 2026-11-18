@@ -79,7 +79,8 @@ failure, not just simple one-off unit tests." So, for every module:
 | Writer process killed mid-append | Fault injection | Child process appends in a loop, parent sends SIGKILL; reopen, every whole line verifies and the chain continues | 5 |
 | Parallel writers interleave or break chains | Concurrency | 8 threads, and separately 4 processes, each with their own writer and documents | 5 |
 | Edited, deleted or cut events go unnoticed | Fault injection | One test per `Problem.kind` (`test_every_problem_kind_is_produced_by_some_test`); each also asserts untouched documents still verify | 7 |
-| A seal commits over damage it did not check | Fault injection | Tamper an unsealed line, append, seal: verify still reports `bad_hash` / `broken_link` | 7 |
+| A seal commits over damage it did not check | Fault injection | Tamper an unsealed line (stale hash, or a recomputed hash that breaks the next link), append, seal: `seal_run` refuses naming the document and `seq`, and verify reports `bad_hash` / `broken_link` | 6, 7 |
+| A busy log is refused for a race | Concurrency | Four processes hand their documents between writers on every event while the sealer reads with 20 ms between segments: no seal is refused, a re-read happened, and a real gap is still refused | 6 |
 | Verify crashes or stops on damaged data | Property | `test_verify_never_raises_on_any_damage`: random delete, truncate, flip, garbage on any stored file | 7 |
 | A flipped byte goes unnoticed | Property | `test_clean_histories_verify_and_any_flipped_byte_is_caught`: random append/seal histories verify clean; any one-byte flip in a segment or seal fails, or lands in a reported torn tail | 7 |
 | Torn tail hides a crash on a finished run | Fault injection | Crash mid-append (injected short write + ENOSPC, and a real SIGKILL), reopen, append, seal: torn tail benign while live, failing once the experiment run is closed | 7 |

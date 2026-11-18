@@ -53,7 +53,7 @@ from mailroom_record.blobs import BlobStore
 from mailroom_record.hashing import canonical_json
 from mailroom_record.log import EventLog, ForkedChain
 from mailroom_record.models import GENESIS, Run, event_hash, seal_hash
-from mailroom_record.seal import EVENT_SCHEMA, seal_run
+from mailroom_record.seal import EVENT_SCHEMA, SealRefused, seal_run
 from mailroom_record.verify import PROBLEM_KINDS, Problem, verify_run
 
 TOTAL_EVENTS = 14  # d1: 5, d2: 3, d3: 3, d4: 3 (see build_sealed_store)
@@ -563,10 +563,9 @@ def test_huge_seal_number_is_cheap(sealed_store: SimpleNamespace) -> None:
 
 
 @pytest.mark.parametrize("recompute", [False, True])
-def test_damage_a_later_seal_committed_over_is_still_found(sealed_store: SimpleNamespace, recompute: bool) -> None:
-    # seal_run does not re-hash lines: tamper an unsealed event, append after it, seal.
-    # The new seal commits the damaged chain (its head and Parquet rows agree with the
-    # tampered lines); verify recomputes every hash and link, so the damage still shows.
+def test_seal_refuses_to_commit_over_damage_and_verify_reports_it(sealed_store: SimpleNamespace, recompute: bool) -> None:
+    # Tamper an unsealed event, append after it, seal: seal_run re-hashes and re-links the
+    # lines it seals, so it refuses instead of committing the damage; verify reports it.
     s = sealed_store
     with s.log.open_writer("r1", "w6") as w:
         w.append(doc_id="d4", node="a", kind="decision")
@@ -574,12 +573,13 @@ def test_damage_a_later_seal_committed_over_is_still_found(sealed_store: SimpleN
     rewrite_line(s, "d4", 3, recompute_hash=recompute, cause="tampered")
     with s.log.open_writer("r1", "w6") as w:
         w.append(doc_id="d4", node="c", kind="decision")
-    seal = seal_run(s.log, "r1")
-    assert seal.n == 3  # sealed without complaint
+    want_msg = r"'d4' seq 4 .*prev_hash" if recompute else r"'d4' seq 3 .*does not hash"
+    with pytest.raises(SealRefused, match=want_msg):
+        seal_run(s.log, "r1")
     r = verify(s)
     want = [("broken_link", "d4", 4)] if recompute else [("bad_hash", "d4", 3), ("broken_link", "d4", 4)]
     assert failing(r) == want
-    assert r.seals_checked == 4
+    assert r.seals_checked == 3
 
 
 def test_unsealed_events_after_the_last_seal_are_fine(sealed_store: SimpleNamespace) -> None:
@@ -600,10 +600,10 @@ def test_missing_column_file(sealed_store: SimpleNamespace) -> None:
     columns_path(sealed_store, 2).unlink()
     r = verify(sealed_store)
     assert [(p.kind, p.seal) for p in r.problems] == [("columns_missing", 1), ("columns_missing", 2)]
-    assert "seal_run rebuilds it" in r.problems[1].detail
-    # The rebuild the detail promises: the latest seal's file comes back and matches.
+    assert all("seal_run rebuilds it" in p.detail for p in r.problems)
+    # The rebuild the detail promises: every lost file comes back and matches the log.
     seal_run(sealed_store.log, "r1")
-    assert [(p.kind, p.seal) for p in verify(sealed_store).problems] == [("columns_missing", 1)]
+    assert verify(sealed_store).problems == []
 
 
 @pytest.mark.parametrize("damage", ["truncate", "zero_middle", "garbage"])

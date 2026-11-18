@@ -56,6 +56,15 @@ design), and every experiment run seals at its end, so stored runs have no windo
 - Harder: verify must merge segments and check seals; the seal must list documents, not only
   heads.
 - Revisit when: an external auditor needs inclusion proofs for single events.
+- Sealing re-hashes and re-links every line it exports, so a seal never commits over a
+  tampered or unlinked line (`SealRefused`); lines an earlier seal covered are checked by
+  verify, not re-hashed on every seal.
+- The seal file is written before its Parquet column file. A lost column file (of any
+  seal) is rebuilt from the log by the next `seal_run`. A column file whose seal file is
+  gone can only mean the seal was deleted, so `seal_run` refuses rather than re-sealing
+  under a new hash, and verify reports `seal_missing`. If both files of the latest seal are
+  deleted, nothing on disk shows it existed: only a copy of the seal hash kept elsewhere
+  (an index, a published report) can show that deletion.
 
 ## Action items
 

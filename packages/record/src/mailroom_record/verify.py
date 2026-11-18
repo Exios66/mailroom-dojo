@@ -535,8 +535,7 @@ def _check_columns(
     for n, info in sorted(seals.items()):
         path = _columns_path(log, run_id, n)
         if not path.is_file():
-            hint = "; seal_run rebuilds it" if n == max(seals) else ""
-            st.add("columns_missing", None, None, f"columns/events-{n}.parquet is missing{hint}", seal=n)
+            st.add("columns_missing", None, None, f"columns/events-{n}.parquet is missing; seal_run rebuilds it", seal=n)
             continue
         if n > 0 and n - 1 not in seals:
             continue  # no readable previous seal: the rows this seal added cannot be bounded

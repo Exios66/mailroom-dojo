@@ -559,3 +559,66 @@ def forge_event(store: Any, doc_id: str, seq: int, prev_hash: str, segment: str 
     with path.open("ab") as f:
         f.write(canonical_json(event.model_dump(mode="json")) + b"\n")
     return event
+
+
+# --- fix pass: busy logs, slowed readers, hand-made lines -----------------------------
+
+
+def handoff_until_stopped(root: str, run_id: str, doc_id: str, writer_ids: list[str], stop: Any, started: Any) -> int:
+    """Process target: own ``doc_id`` and hand it to the next writer id on every event.
+
+    Each event is one open, append, close, so consecutive events of the document land in
+    different segments (the hand-off a sealer must not mistake for a gap). Sets ``started``
+    after the third event and runs until ``stop`` is set. Returns the events written.
+    """
+    from pathlib import Path
+
+    from mailroom_record.blobs import BlobStore
+    from mailroom_record.log import EventLog
+
+    log = EventLog(Path(root), BlobStore(Path(root)))
+    i = 0
+    while not stop.is_set():
+        with log.open_writer(run_id, writer_ids[i % len(writer_ids)], flush_every=1) as w:
+            w.append(doc_id=doc_id, node="handoff", kind="handoff", payload={"i": i})
+        i += 1
+        if i == 3:
+            started.set()
+    return i
+
+
+def slow_segment_reads(monkeypatch: Any, log: Any, delay: float) -> list[int]:
+    """Slow ``log.iter_stored`` down by ``delay`` seconds at each segment boundary.
+
+    The sleep falls between the read of one segment and the next, which is the window in
+    which a concurrent hand-off shows a reader a ``seq`` gap that is not on disk. Works
+    whether the reader loads a segment whole or streams it. Returns a list that gets one
+    entry per full read of the log, so a test can count re-reads.
+    """
+    import time
+
+    original = log.iter_stored
+    reads: list[int] = []
+
+    def slow(run_id: str) -> Any:
+        reads.append(1)
+        last = None
+        for line in original(run_id):
+            if line.segment != last:
+                last = line.segment
+                time.sleep(delay)
+            yield line
+
+    monkeypatch.setattr(log, "iter_stored", slow)
+    return reads
+
+
+def hand_line(run_id: str, doc_id: str, seq: int, prev_hash: str, **fields: Any) -> dict[str, Any]:
+    """A stored event dict built by hand with a correct hash (edit it to make a bad one)."""
+    base = dict(
+        run_id=run_id, doc_id=doc_id, seq=seq, ts="2026-11-18T12:00:00Z", node="hand", agent=None,
+        attempt=0, kind="decision", model=None, prompt_id=None, tokens_in=None, tokens_out=None,
+        tokens_cached=None, price_basis=None, latency_ms=None, decision=None, cause=None,
+        inputs=[], outputs=[], payload={}, prev_hash=prev_hash,
+    )
+    return Event.build(**(base | fields)).model_dump(mode="json")
