@@ -148,7 +148,8 @@ def test_seal_file_is_write_once(store_with_events: SimpleNamespace, monkeypatch
     s1 = seal_run(store.log, "r1")
     kept = seal_file(store, 1).read_bytes()
     append_more(store, doc_id="d4", n=1)
-    monkeypatch.setattr(seal_module, "list_seals", lambda log, run_id: [s0])
+    raw0 = json.loads(seal_file(store, 0).read_bytes())
+    monkeypatch.setattr(seal_module, "_load_seals", lambda log, run_id: [(s0, raw0)])
     with pytest.raises(SealRefused, match="already exists"):
         seal_run(store.log, "r1")
     assert seal_file(store, 1).read_bytes() == kept and s1.n == 1
@@ -383,4 +384,181 @@ def test_seal_chain_gap_refuses_to_seal(store_with_events: SimpleNamespace) -> N
     seal_file(store, 0).unlink()
     append_more(store, doc_id="d4", n=1)
     with pytest.raises(SealRefused, match="gap"):
+        seal_run(store.log, "r1")
+
+
+# --- review fixes: a consistent snapshot of the log --------------------------------
+
+
+def _exported(store: SimpleNamespace) -> list[tuple[str, int]]:
+    return [(r["doc_id"], r["seq"]) for s in list_seals(store.log, "r1") for r in rows(store, s.n)]
+
+
+def test_handoff_during_the_read_is_not_sealed_over(store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Writer "a" hands d1 to writer "b" after the sealer read a.jsonl but before b.jsonl.
+    # The first read sees d1 seq 0,1,2,4 (seq 3 sits in a.jsonl, already read): sealing
+    # that would commit head 4 while exporting no seq 3. The sealer must re-read.
+    append_more(store, doc_id="d2", n=1, writer_id="b")  # b.jsonl exists, sorts after a.jsonl
+    append_more(store, doc_id="d1", n=3, writer_id="a")
+    wa = store.log.open_writer("r1", "a")
+    original = Path.read_bytes
+    fired: list[bool] = []
+
+    def read_bytes(self: Path) -> bytes:
+        data = original(self)
+        if self.name == "a.jsonl" and not fired:
+            fired.append(True)
+            wa.append(doc_id="d1", node="n", kind="output")  # seq 3 -> a.jsonl
+            wa.close()
+            append_more(store, doc_id="d1", n=1, writer_id="b")  # seq 4 -> b.jsonl
+        return data
+
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    s0 = seal_run(store.log, "r1")
+    monkeypatch.setattr(Path, "read_bytes", original)
+    assert fired
+    heads = store.log.doc_head_seqs("r1")
+    assert s0.event_count == sum(seq + 1 for seq, _ in heads.values()) == 6
+    assert s0.doc_heads == {d: h for d, (_, h) in heads.items()}
+    assert sorted(_exported(store)) == [("d1", i) for i in range(5)] + [("d2", 0)]
+
+
+def _write_gapped_chain(store: SimpleNamespace, doc_id: str, seqs: list[int]) -> None:
+    prev, lines = GENESIS, []
+    for seq in range(max(seqs) + 1):
+        e = Event.build(
+            run_id="r1", doc_id=doc_id, seq=seq, ts=TS, node="n", agent=None, attempt=0, kind="output",
+            model=None, prompt_id=None, tokens_in=None, tokens_out=None, tokens_cached=None,
+            price_basis=None, latency_ms=None, decision=None, cause=None, inputs=[], outputs=[],
+            payload={}, prev_hash=prev,
+        )
+        prev = e.hash
+        if seq in seqs:
+            lines.append(canonical_json(e.model_dump(mode="json")) + b"\n")
+    (store.root / "runs/r1/segments/gap.jsonl").write_bytes(b"".join(lines))
+
+
+def test_persistent_gap_on_disk_refuses_and_writes_nothing(store_with_events: SimpleNamespace) -> None:
+    store = store_with_events
+    _write_gapped_chain(store, "g1", [0, 1, 3])
+    with pytest.raises(SealRefused, match=r"'g1'.*seq 2.*verify"):
+        seal_run(store.log, "r1")
+    assert not seal_file(store, 0).exists() and not columns(store, 0).exists()
+
+
+def test_snapshot_rereads_are_bounded(store_with_events: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = store_with_events
+    _write_gapped_chain(store, "g1", [0, 2])
+    reads: list[int] = []
+    original = store.log.iter_stored
+
+    def counting(run_id: str):  # type: ignore[no-untyped-def]
+        reads.append(1)
+        return original(run_id)
+
+    monkeypatch.setattr(store.log, "iter_stored", counting)
+    with pytest.raises(SealRefused, match="verify"):
+        seal_run(store.log, "r1")
+    assert len(reads) == 2  # a stable gap: two agreeing reads, then refuse
+
+    # A log that changes on every read (a writer racing forever) still stops.
+    reads.clear()
+    n = [0]
+
+    def changing(run_id: str):  # type: ignore[no-untyped-def]
+        reads.append(1)
+        n[0] += 1
+        _write_gapped_chain(store, f"g{n[0] + 1}", [0, 2])  # a new gapped doc every read
+        return original(run_id)
+
+    (store.root / "runs/r1/segments/gap.jsonl").unlink()
+    monkeypatch.setattr(store.log, "iter_stored", changing)
+    with pytest.raises(SealRefused, match="verify"):
+        seal_run(store.log, "r1")
+    assert len(reads) == seal_module._SNAPSHOT_TRIES
+    assert not seal_file(store, 0).exists()
+
+
+def test_gap_below_a_sealed_head_refuses(store_with_events: SimpleNamespace) -> None:
+    # Sealing must not build on a log that lost an event an earlier seal covered.
+    store = store_with_events
+    seal_run(store.log, "r1")
+    seg = store.root / "runs/r1/segments/w0.jsonl"
+    kept = [l for l in seg.read_bytes().splitlines(keepends=True) if (json.loads(l)["doc_id"], json.loads(l)["seq"]) != ("d1", 0)]
+    seg.write_bytes(b"".join(kept))  # cut d1 seq 0; its sealed head (seq 1) stays
+    assert [e.seq for e in store.log.iter_events("r1", "d1")] == [1]
+    append_more(store, doc_id="d3", n=1)
+    with pytest.raises(SealRefused, match=r"'d1'.*seq 0"):
+        seal_run(store.log, "r1")
+    assert not seal_file(store, 1).exists()
+
+
+# --- review fixes: rows are validated before the seal is written ------------------
+
+
+def _hashed_line(**overrides: Any) -> bytes:
+    from mailroom_record.models import event_hash
+
+    raw = Event.build(
+        run_id="r1", doc_id="bad", seq=0, ts=TS, node="n", agent=None, attempt=0, kind="output",
+        model=None, prompt_id=None, tokens_in=None, tokens_out=None, tokens_cached=None,
+        price_basis=None, latency_ms=None, decision=None, cause=None, inputs=[], outputs=[],
+        payload={}, prev_hash=GENESIS,
+    ).model_dump(mode="json") | overrides
+    raw["hash"] = event_hash(raw)
+    return canonical_json(raw) + b"\n"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [{"kind": "bogus"}, {"attempt": -1}, {"schema_version": 99}, {"tokens_in": 2**70}],
+    ids=["unknown-kind", "bad-field", "newer-version", "int-too-big-for-parquet"],
+)
+def test_invalid_but_hashed_line_refuses_and_writes_nothing(
+    store_with_events: SimpleNamespace, overrides: dict[str, Any]
+) -> None:
+    from mailroom_record.log import CorruptLine
+
+    store = store_with_events
+    bad = store.root / "runs/r1/segments/bad.jsonl"
+    bad.write_bytes(_hashed_line(**overrides))
+    with pytest.raises(CorruptLine, match=r"bad.jsonl at byte 0"):
+        seal_run(store.log, "r1")
+    assert not seal_file(store, 0).exists() and not columns(store, 0).exists()
+    with pytest.raises(CorruptLine):  # still refused, never stuck half-written
+        seal_run(store.log, "r1")
+    bad.unlink()
+    s0 = seal_run(store.log, "r1")
+    assert s0.n == 0 and s0.event_count == 3 and len(rows(store, 0)) == 3
+
+
+# --- review fixes: seal chain hashes the stored form ------------------------------
+
+
+def test_older_version_seal_chains_on_its_stored_hash(
+    store_with_events: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A hypothetical v0 seal lacked document_ids; the upgrade derives it from doc_heads.
+    from mailroom_record import upgrade
+
+    def seal_0_to_1(raw: dict[str, Any]) -> dict[str, Any]:
+        raw["document_ids"] = sorted(raw["doc_heads"])
+        raw["schema_version"] = 1
+        return raw
+
+    monkeypatch.setattr(upgrade, "SEAL_STEPS", {0: seal_0_to_1})
+    store = store_with_events
+    seal_run(store.log, "r1")
+    v0 = json.loads(seal_file(store, 0).read_bytes())
+    del v0["document_ids"]
+    v0["schema_version"] = 0
+    v0["hash"] = seal_hash(v0)
+    seal_file(store, 0).write_bytes(canonical_json(v0))
+    append_more(store, doc_id="d3", n=1)
+    s1 = seal_run(store.log, "r1")
+    assert s1.n == 1 and s1.prev_seal_hash == v0["hash"] and s1.event_count == 4
+    # A tampered v0 seal is still caught on its stored form.
+    seal_file(store, 0).write_bytes(canonical_json(v0 | {"event_count": 7}))
+    append_more(store, doc_id="d4", n=1)
+    with pytest.raises(SealRefused, match="seal 0 does not hash"):
         seal_run(store.log, "r1")

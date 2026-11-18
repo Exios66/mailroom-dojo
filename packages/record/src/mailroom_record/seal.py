@@ -42,18 +42,34 @@ Rules
 - No new events: the previous seal is returned unchanged and nothing is written.
 - A run with no events at all gets seal 0 with no documents and ``event_count`` 0 (a
   commitment that the run was empty) and an empty Parquet file with the full schema.
+- The log is read as one consistent snapshot. Segments are read one at a time, so a
+  document handed from one writer to another during the read can show a ``seq`` gap (the
+  handed-over event sits in a segment already read, a later one in a segment read after).
+  Every document's chain must be gap-free from ``seq`` 0 to its head; if a read shows a
+  gap, the log is read again until a read is gap-free or two reads in a row agree (at most
+  ``_SNAPSHOT_TRIES`` reads). A gap that persists is a real loss on disk: ``SealRefused``
+  ("run verify"), and nothing is written.
+- Every row of the new Parquet file is built and validated before the seal file is
+  written. A whole line that hashes but is not a valid event (unknown ``kind``, a bad
+  field, a ``schema_version`` newer than this code, a value Parquet cannot hold) raises
+  ``CorruptLine`` naming its segment and byte offset, and nothing is written, so a bad line
+  never leaves a seal without its Parquet file.
 - A forked chain (two stored events with one ``(doc_id, seq)``) raises ``ForkedChain`` and
   nothing is written. A torn tail is not a failure: its bytes are not a whole event, so
   they are not sealed (``EventLog.torn_tails`` reports them).
 - A broken seal chain on disk (a gap in ``n``, a wrong ``prev_seal_hash``, a seal whose
   hash does not recompute) raises ``SealRefused``; an unreadable seal file raises
-  ``SealCorrupt``. Sealing never builds on a seal chain it cannot trust.
+  ``SealCorrupt``. Sealing never builds on a seal chain it cannot trust. Seal hashes are
+  checked on the stored dict as parsed from the file, never on the upgraded model, so a
+  seal stored at an older ``schema_version`` still chains (ADR-0005).
 
 Columns
 -------
 ``EVENT_COLUMNS`` is every ``Event`` field except ``payload``, in model order. Rows are
 the events as read through the upgrade path (``Event.from_stored``), except
-``schema_version``, which is the version the line was stored in. ``decision`` is its
+``schema_version``, which is the version the line was stored in. So a row of a line stored
+at an older version holds the upgraded values (for example ``tokens_cached`` null for a v0
+line) next to the stored ``schema_version``; the stored form itself is only in the log. ``decision`` is its
 canonical JSON string (``None`` stays null); ``inputs`` and ``outputs`` are lists of blob
 SHA-256s. The Arrow schema is explicit, so a column that is null in every row keeps its
 type. Rows are sorted by ``(doc_id, seq)``. No document text reaches this file: content
@@ -77,7 +93,7 @@ import pyarrow.parquet as pq
 
 from mailroom_record.blobs import _fsync_dir, _makedirs_durable, write_exclusive
 from mailroom_record.hashing import canonical_json
-from mailroom_record.log import EventLog, StoredLine, _Heads
+from mailroom_record.log import CorruptLine, EventLog, StoredLine, _Heads
 from mailroom_record.models import GENESIS, Event, Seal, seal_hash, utc_now
 
 __all__ = ["EVENT_COLUMNS", "SealCorrupt", "SealRefused", "list_seals", "seal_run"]
@@ -113,6 +129,7 @@ if set(_COLUMN_TYPES) != set(EVENT_COLUMNS):  # an Event field was added or remo
 EVENT_SCHEMA = pa.schema([(name, _COLUMN_TYPES[name]) for name in EVENT_COLUMNS])
 
 _SEAL_NAME_RE = re.compile(r"(0|[1-9][0-9]*)\.json")
+_SNAPSHOT_TRIES = 5
 
 
 class SealCorrupt(ValueError):
@@ -143,34 +160,41 @@ def list_seals(log: EventLog, run_id: str) -> list[Seal]:
     Raises ``SealCorrupt`` for a seal file that is not a valid seal of this run whose
     ``n`` matches its file name.
     """
+    return [seal for seal, _ in _load_seals(log, run_id)]
+
+
+def _load_seals(log: EventLog, run_id: str) -> list[tuple[Seal, dict[str, Any]]]:
+    """Every stored seal as ``(upgraded model, stored dict)``, ordered by ``n``."""
     d = _seals_dir(log, run_id)
     if not d.is_dir():
         return []
-    seals: list[Seal] = []
+    seals: list[tuple[Seal, dict[str, Any]]] = []
     for p in d.iterdir():
         m = _SEAL_NAME_RE.fullmatch(p.name)
         if not m or not p.is_file():
             continue
         try:
-            seal = Seal.from_stored(json.loads(p.read_bytes()))
+            raw = json.loads(p.read_bytes())
+            seal = Seal.from_stored(raw)
         except (ValueError, TypeError) as exc:  # bad JSON, failed validation, unknown version
             raise SealCorrupt(f"{p.name}: {exc}") from None
         if seal.n != int(m[1]) or seal.run_id != run_id:
             raise SealCorrupt(f"{p.name}: holds seal {seal.n} of run {seal.run_id!r}")
-        seals.append(seal)
-    return sorted(seals, key=lambda s: s.n)
+        seals.append((seal, raw))
+    return sorted(seals, key=lambda pair: pair[0].n)
 
 
-def _check_seal_chain(seals: Sequence[Seal]) -> None:
+def _check_seal_chain(seals: Sequence[tuple[Seal, dict[str, Any]]]) -> None:
+    """Check numbering, links and each seal's hash, hashing the stored dict (ADR-0005)."""
     prev = GENESIS
-    for i, s in enumerate(seals):
+    for i, (s, raw) in enumerate(seals):
         if s.n != i:
             raise SealRefused(f"seal chain has a gap: expected seal {i}, found {s.n}")
-        if s.prev_seal_hash != prev:
+        if raw.get("prev_seal_hash") != prev:
             raise SealRefused(f"seal {s.n} does not chain to seal {i - 1}")
-        if seal_hash(s.model_dump(mode="json")) != s.hash:
+        if seal_hash(raw) != raw.get("hash"):
             raise SealRefused(f"seal {s.n} does not hash to its stored hash")
-        prev = s.hash
+        prev = raw["hash"]
 
 
 def _head_seqs(seal: Seal | None, lines: Sequence[StoredLine], run_id: str) -> dict[str, int]:
@@ -193,6 +217,41 @@ def _head_seqs(seal: Seal | None, lines: Sequence[StoredLine], run_id: str) -> d
     return found
 
 
+def _first_gap(lines: Sequence[StoredLine]) -> tuple[str, int] | None:
+    """The first ``(doc_id, seq)`` missing between 0 and its document's head, if any."""
+    seqs: dict[str, set[int]] = {}
+    for s in lines:
+        seqs.setdefault(s.raw["doc_id"], set()).add(s.raw["seq"])
+    for doc in sorted(seqs):
+        have = seqs[doc]
+        if len(have) != max(have) + 1:
+            return doc, min(set(range(max(have) + 1)) - have)
+    return None
+
+
+def _snapshot(log: EventLog, run_id: str) -> tuple[list[StoredLine], _Heads]:
+    """A gap-free read of every stored line of the run (see "Rules" in the module doc)."""
+    previous: list[tuple[str, int, str]] | None = None
+    for _ in range(_SNAPSHOT_TRIES):
+        lines = list(log.iter_stored(run_id))
+        heads = _Heads()
+        for s in lines:
+            heads.add(s.raw, s)  # CorruptLine for a line without doc_id, seq or hash
+        heads.check_forks(run_id)
+        gap = _first_gap(lines)
+        if gap is None:
+            return lines, heads
+        key = [(s.segment, s.byte_offset, s.raw["hash"]) for s in lines]
+        if key == previous:
+            break  # two reads agree: the gap is on disk, not a race with a writer
+        previous = key
+    doc, seq = gap
+    raise SealRefused(
+        f"run {run_id!r}: document {doc!r} has no event with seq {seq} on disk although later "
+        "events exist; run verify before sealing"
+    )
+
+
 # --- writing ----------------------------------------------------------------------
 
 
@@ -206,8 +265,21 @@ def _seal_lock(seals_dir: Path) -> Iterator[None]:
         os.close(fd)  # releases the flock
 
 
+def _invalid(s: StoredLine, exc: Exception) -> CorruptLine:
+    # Name the fields and error types only: input values may hold document text.
+    errors = getattr(exc, "errors", None)
+    if callable(errors):
+        what = "; ".join(".".join(map(str, e["loc"])) + ": " + e["type"] for e in errors())
+    else:
+        what = f"{type(exc).__name__}: {exc}"
+    return CorruptLine(f"{s.segment} at byte {s.byte_offset}: not a valid event ({what})")
+
+
 def _row(s: StoredLine) -> dict[str, Any]:
-    ev = Event.from_stored(s.raw).model_dump(mode="json")
+    try:
+        ev = Event.from_stored(s.raw).model_dump(mode="json")
+    except ValueError as exc:  # pydantic ValidationError, UnknownSchemaVersion
+        raise _invalid(s, exc) from None
     row = {c: ev[c] for c in EVENT_COLUMNS}
     row["schema_version"] = s.raw["schema_version"]
     row["decision"] = None if ev["decision"] is None else canonical_json(ev["decision"]).decode("utf-8")
@@ -216,9 +288,21 @@ def _row(s: StoredLine) -> dict[str, Any]:
     return row
 
 
-def _write_columns(path: Path, lines: Sequence[StoredLine]) -> None:
-    rows = sorted((_row(s) for s in lines), key=lambda r: (r["doc_id"], r["seq"]))
-    table = pa.Table.from_pylist(rows, schema=EVENT_SCHEMA)
+def _table(lines: Sequence[StoredLine]) -> pa.Table:
+    """The Parquet table of ``lines``. Raises ``CorruptLine`` for a line that is not a valid event."""
+    pairs = sorted(((_row(s), s) for s in lines), key=lambda p: (p[0]["doc_id"], p[0]["seq"]))
+    try:
+        return pa.Table.from_pylist([r for r, _ in pairs], schema=EVENT_SCHEMA)
+    except (pa.ArrowException, OverflowError, TypeError, ValueError) as whole:
+        for r, s in pairs:  # find the offending line
+            try:
+                pa.Table.from_pylist([r], schema=EVENT_SCHEMA)
+            except (pa.ArrowException, OverflowError, TypeError, ValueError) as exc:
+                raise _invalid(s, exc) from None
+        raise whole
+
+
+def _write_columns(path: Path, table: pa.Table) -> None:
     directory = path.parent
     _makedirs_durable(directory)
     fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{path.name}.", suffix=".tmp")
@@ -254,8 +338,10 @@ def seal_run(log: EventLog, run_id: str, *, sealed_at: str | None = None) -> Sea
 
     Returns the new seal, or the previous seal unchanged when there is nothing new.
     Raises ``FileNotFoundError`` for an unknown run, ``ForkedChain`` for a forked document
-    chain, ``SealRefused`` when the log or the seal chain disagrees with the stored seals,
-    ``SealCorrupt`` for an unreadable seal file, and ``ValueError`` for a bad ``sealed_at``.
+    chain, ``SealRefused`` when the log or the seal chain disagrees with the stored seals or
+    a document's chain has a gap on disk, ``CorruptLine`` for a stored line that is not a
+    valid event, ``SealCorrupt`` for an unreadable seal file, and ``ValueError`` for a bad
+    ``sealed_at``.
     """
     sealed_at = utc_now() if sealed_at is None else sealed_at
     if not (log.run_dir(run_id) / "run.json").is_file():
@@ -263,27 +349,26 @@ def seal_run(log: EventLog, run_id: str, *, sealed_at: str | None = None) -> Sea
     seals_dir = _seals_dir(log, run_id)
     _makedirs_durable(seals_dir)
     with _seal_lock(seals_dir):
-        seals = list_seals(log, run_id)
-        _check_seal_chain(seals)
+        loaded = _load_seals(log, run_id)
+        _check_seal_chain(loaded)
+        seals = [seal for seal, _ in loaded]
         prev = seals[-1] if seals else None
 
-        lines = list(log.iter_stored(run_id))
-        heads = _Heads()
-        for s in lines:
-            heads.add(s.raw, s)
-        heads.check_forks(run_id)
+        lines, heads = _snapshot(log, run_id)
         prev_seqs = _head_seqs(prev, lines, run_id)
 
         if prev is not None:
             # The seal is the commit point; rebuild its Parquet file if a crash lost it.
             if not _columns_path(log, run_id, prev.n).exists():
                 before = _head_seqs(seals[-2], lines, run_id) if len(seals) > 1 else {}
-                _write_columns(_columns_path(log, run_id, prev.n), _between(lines, before, prev_seqs))
+                _write_columns(_columns_path(log, run_id, prev.n), _table(_between(lines, before, prev_seqs)))
             new = _between(lines, prev_seqs, None)
             if not new:
                 return prev
         else:
             new = lines
+
+        table = _table(new)  # validates every new row before anything is written
 
         doc_heads = {d: h for d, (_, h) in sorted(heads.heads.items())}
         seal = Seal.build(
@@ -297,5 +382,5 @@ def seal_run(log: EventLog, run_id: str, *, sealed_at: str | None = None) -> Sea
         )
         if not write_exclusive(seals_dir / f"{seal.n}.json", canonical_json(seal.model_dump(mode="json"))):
             raise SealRefused(f"run {run_id!r}: seal {seal.n} already exists; it is never replaced")
-        _write_columns(_columns_path(log, run_id, seal.n), new)
+        _write_columns(_columns_path(log, run_id, seal.n), table)
         return seal
