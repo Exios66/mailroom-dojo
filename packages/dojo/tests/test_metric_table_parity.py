@@ -197,6 +197,26 @@ def test_every_old_id_is_a_row_in_the_old_order(table: MetricTable) -> None:
     assert registry_rows == _old_ids()
 
 
+#: The old units the table writes differently, with the same meaning: one spelling of a unit
+#: (``usd`` is ``USD``, ``int`` is ``count``), and the rows whose value is a structure, which
+#: the old registry labelled ``float[0,1]``.
+UNIT_NORMALISED: Mapping[tuple[str, str], str] = MappingProxyType(
+    {
+        ("reviewer_cost_per_accepted_usd", "usd"): "USD",
+        ("reviewer_accept_rule_violations", "int"): "count",
+        ("confusion_matrix", "float[0,1]"): "structure",
+        ("per_class_stats", "float[0,1]"): "structure",
+        ("bootstrap_ci", "float[0,1]"): "structure",
+    }
+)
+
+
+def test_every_unit_normalisation_is_used(table: MetricTable) -> None:
+    for (metric, old_unit), unit in UNIT_NORMALISED.items():
+        assert OLD["metrics"][metric]["units"] == old_unit
+        assert table.get(metric).unit == unit
+
+
 @pytest.mark.parametrize("metric", _old_ids())
 def test_each_old_metric_keeps_its_meaning(table: MetricTable, metric: str) -> None:
     old = OLD["metrics"][metric]
@@ -205,7 +225,7 @@ def test_each_old_metric_keeps_its_meaning(table: MetricTable, metric: str) -> N
     assert list(row.expanded_agents) == old["applicable_agents"]
     assert row.ground_truth == (old["ground_truth"] or None)
     assert row.description == old["description"]
-    assert row.unit == old["units"]
+    assert row.unit == UNIT_NORMALISED.get((metric, old["units"]), old["units"])
     assert row.citation == old["citation"]
     assert row.inclusion == old["inclusion"]
     assert row.notes == old["notes"]

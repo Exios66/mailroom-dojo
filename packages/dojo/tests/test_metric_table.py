@@ -514,7 +514,7 @@ def _measure(method: str, **overrides: Any) -> Measure:
     [
         (lambda: _measure("accuracy", value=1.2), r"value 1.2 is outside \[0, 1\]"),
         (lambda: _measure("prompt_tokens", value=10.5), "a count is a whole number"),
-        (lambda: _measure("reviewer_accept_rule_violations", value=2.5), "a int is a whole number"),
+        (lambda: _measure("reviewer_accept_rule_violations", value=2.5), "a count is a whole number, got 2.5"),
         (lambda: _measure("accuracy", value=0.5, ci=_ci(0.6, 0.9)), "does not contain the value 0.5"),
         (lambda: _measure("accuracy", value=0.95, ci=_ci(0.9, 1.05)), r"ci.high 1.05 is outside \[0, 1\]"),
         (lambda: _measure("wer", value=0.1, ci=_ci(-0.2, 0.3)), "ci.low -0.2 is negative"),
@@ -529,7 +529,7 @@ def _measure(method: str, **overrides: Any) -> Measure:
     ids=[
         "rate above 1",
         "fractional count",
-        "fractional int",
+        "fractional former int",
         "interval misses value",
         "interval above 1",
         "interval below 0",
@@ -670,3 +670,33 @@ def test_an_alias_resolves_to_its_target_and_is_not_reported_itself() -> None:
     with pytest.raises(MeasureError, match="an alias of 'false_no_related_rate'"):
         table.check(_measure("contracteval_false_no_related", value=0.1))
     assert table.check(_measure("false_no_related_rate", value=0.1)).id == "false_no_related_rate"
+
+
+def test_the_unit_vocabulary_is_closed() -> None:
+    """One spelling per unit: a new unit is a reviewed change to this list and table.UNITS."""
+    from mailroom_dojo.measures.table import NON_NUMERIC_UNITS, UNITS
+
+    assert set(UNITS) == {
+        "float[0,1]",
+        "count",
+        "boolean",
+        "error_rate",
+        "seconds",
+        "milliseconds",
+        "days",
+        "USD",
+        "GB",
+        "tokens/s",
+        "req/s",
+        "docs/s",
+        "tag",
+        "text",
+        "structure",
+    }
+    assert set(NON_NUMERIC_UNITS) == {"tag", "text", "structure"}
+    assert {row.unit for row in load_metric_table().rows} <= set(UNITS)
+    for spelling in ("usd", "int"):
+        with pytest.raises(MetricTableError, match=f"'{spelling}' is not one of"):
+            raw = _raw()
+            _set("prompt_tokens", "unit", spelling)(raw)
+            load_metric_table(raw)
