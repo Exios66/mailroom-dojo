@@ -32,9 +32,13 @@ Writing
   durable until the next flush (``flush()``, ``close()`` or an automatic one); anything
   derived from events, such as the index (Task 8), must be written only after the flush
   that made them durable (write order: blob, event, index).
-- If a write or fsync fails the writer is marked failed and refuses further use: its
-  in-memory heads may be ahead of disk, so a new writer must take over. A failed fsync
-  does not mean the bytes are absent: they may sit in the page cache, visible to readers.
+- A short write is continued until every byte is written; a write that makes no progress
+  (returns 0) raises ``OSError``. If a write or fsync fails the writer is marked failed
+  and refuses further use: its in-memory heads may be ahead of disk, so a new writer must
+  take over. A write that fails part way leaves a torn line, reported by ``torn_tails``. If
+  the segment's directory fsync fails while opening a writer, the segment's ``flock`` is
+  released before the error propagates, so the writer id can be opened again. A failed
+  fsync does not mean the bytes are absent: they may sit in the page cache, visible to readers.
   A later writer may then chain onto those events, and if power is lost before the kernel
   writes them back, the later events survive while the earlier ones do not: a ``seq``
   gap that verification (Task 7) reports.
@@ -66,6 +70,7 @@ across segments; ``_run`` sorts like any other doc id.
 from __future__ import annotations
 
 import copy
+import errno
 import fcntl
 import json
 import os
@@ -365,12 +370,16 @@ class LogWriter:
             except BlockingIOError:
                 f.close()
                 raise WriterInUse(f"writer {self.writer_id!r} of run {self.run_id!r} is live") from None
-            # Every open, not only on create: the process that created the segment may
-            # have crashed before its directory fsync, leaving the entry undurable.
-            _fsync_dir(seg_dir)
-            size = os.fstat(fd).st_size
-            if size == 0 or _last_byte(path) == b"\n":
-                return f, path
+            try:
+                # Every open, not only on create: the process that created the segment may
+                # have crashed before its directory fsync, leaving the entry undurable.
+                _fsync_dir(seg_dir)
+                size = os.fstat(fd).st_size
+                if size == 0 or _last_byte(path) == b"\n":
+                    return f, path
+            except BaseException:
+                f.close()  # release the flock now, not when the traceback is collected
+                raise
             f.close()  # torn: leave it as it is, move to the next segment
             k += 1
 
@@ -482,8 +491,10 @@ class LogWriter:
         data = memoryview(b"".join(self._buffer))
         try:
             fd = self._file.fileno()
-            while data:
+            while data:  # a short write is continued until every byte is written
                 n = os.write(fd, data)
+                if n <= 0:  # no progress: fail loudly instead of retrying forever
+                    raise OSError(errno.EIO, f"os.write wrote 0 bytes to {self.segment.name}")
                 data = data[n:]
             os.fsync(fd)
         except BaseException as exc:

@@ -208,3 +208,177 @@ def seal_in_child(root: str, run_id: str, rounds: int) -> list[int]:
 
     log = EventLog(Path(root), BlobStore(Path(root)))
     return [seal_run(log, run_id).n for _ in range(rounds)]
+
+
+# --- fault injection (JJB's bar, the fault matrix) -----------------------------------
+
+
+def _make_raw_class() -> type:
+    import io
+    import os
+
+    class OsWriteRaw(io.RawIOBase):
+        """A raw file that writes through ``os.write`` exactly like ``FileIO`` does.
+
+        ``FileIO.write`` is a thin wrapper over write(2) that does not go through the
+        ``os`` module, so ``os.write`` patches would not reach it. Files opened with
+        ``os.fdopen(fd, "wb")`` under a faulted store get this raw layer under the usual
+        ``BufferedWriter``, so an injected short write or ``ENOSPC`` reaches the stack
+        (buffering, zstd, pyarrow) the way a real one would.
+        """
+
+        def __init__(self, fd: int) -> None:
+            self._fd = fd
+
+        def writable(self) -> bool:
+            return True
+
+        def seekable(self) -> bool:
+            return True
+
+        def fileno(self) -> int:
+            return self._fd
+
+        def write(self, b: Any) -> int:
+            return os.write(self._fd, b)
+
+        def seek(self, pos: int, whence: int = 0) -> int:
+            return os.lseek(self._fd, pos, whence)
+
+        def tell(self) -> int:
+            return os.lseek(self._fd, 0, os.SEEK_CUR)
+
+        def close(self) -> None:
+            if not self.closed:
+                try:
+                    os.close(self._fd)
+                finally:
+                    super().close()
+
+    return OsWriteRaw
+
+
+class Faults:
+    """Count, and on request fail, the syscalls the record makes under one store root.
+
+    Patches ``os.write``, ``os.fsync``, ``os.replace`` and ``os.link``; only calls that
+    touch a path under ``root`` are counted or faulted, so pytest's own I/O is untouched.
+    ``fail(name, k, action)`` makes the ``k``-th (1-based) such call of ``name`` run
+    ``action`` instead: ``"ENOSPC"`` or ``"EIO"`` (raise, nothing written), ``"short"``
+    (``os.write`` writes just over half and returns the count), ``"zero"`` (``os.write``
+    returns 0), or ``"short+ENOSPC"`` (a short write, then ENOSPC on the next write).
+    """
+
+    NAMES = ("write", "fsync", "replace", "link")
+
+    def __init__(self, monkeypatch: Any, root: Any) -> None:
+        import errno
+        import io
+        import os
+        from collections import Counter
+
+        self.root = os.path.realpath(root)
+        self.calls: Counter[str] = Counter()
+        self.plan: dict[tuple[str, int], str] = {}
+        self.fired: list[tuple[str, int, str]] = []
+        self._errno = {"ENOSPC": errno.ENOSPC, "EIO": errno.EIO}
+        self._real = {n: getattr(os, n) for n in self.NAMES}
+        real_fdopen = os.fdopen
+        raw_cls = _make_raw_class()
+        self._enospc_next = False
+
+        def under_root(path: str) -> bool:
+            return path == self.root or path.startswith(self.root + os.sep)
+
+        def ours_fd(fd: int) -> bool:
+            try:
+                return under_root(os.readlink(f"/proc/self/fd/{fd}"))
+            except OSError:
+                return False
+
+        def ours_path(p: Any) -> bool:
+            return under_root(os.path.realpath(os.fspath(p)))
+
+        def fault(name: str) -> str | None:
+            self.calls[name] += 1
+            action = self.plan.get((name, self.calls[name]))
+            if action is not None:
+                self.fired.append((name, self.calls[name], action))
+            return action
+
+        def raise_for(action: str, name: str) -> None:
+            code = self._errno[action]
+            raise OSError(code, f"injected {action} in os.{name}")
+
+        def write(fd: int, data: Any) -> int:
+            if not ours_fd(fd):
+                return self._real["write"](fd, data)
+            if self._enospc_next:
+                self._enospc_next = False
+                self.calls["write"] += 1
+                self.fired.append(("write", self.calls["write"], "ENOSPC"))
+                raise_for("ENOSPC", "write")
+            action = fault("write")
+            if action in ("ENOSPC", "EIO"):
+                raise_for(action, "write")
+            if action == "zero":
+                return 0
+            if action in ("short", "short+ENOSPC"):
+                view = memoryview(data).cast("B")
+                if action == "short+ENOSPC":
+                    self._enospc_next = True
+                # Just past half, so a buffer of equal lines is not cut on a line boundary.
+                cut = min(len(view) // 2 + 1, max(1, len(view) - 1))
+                return self._real["write"](fd, view[:cut])
+            return self._real["write"](fd, data)
+
+        def fsync(fd: int) -> None:
+            if ours_fd(fd):
+                action = fault("fsync")
+                if action in ("ENOSPC", "EIO"):
+                    raise_for(action, "fsync")
+            return self._real["fsync"](fd)
+
+        def two_paths(name: str) -> Any:
+            def call(src: Any, dst: Any, *args: Any, **kwargs: Any) -> None:
+                if ours_path(src) or ours_path(dst):
+                    action = fault(name)
+                    if action in ("ENOSPC", "EIO"):
+                        raise_for(action, name)
+                return self._real[name](src, dst, *args, **kwargs)
+
+            return call
+
+        def fdopen(fd: int, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+            if mode == "wb" and not args and not kwargs and ours_fd(fd):
+                return io.BufferedWriter(raw_cls(fd))
+            return real_fdopen(fd, mode, *args, **kwargs)
+
+        monkeypatch.setattr(os, "write", write)
+        monkeypatch.setattr(os, "fsync", fsync)
+        monkeypatch.setattr(os, "replace", two_paths("replace"))
+        monkeypatch.setattr(os, "link", two_paths("link"))
+        monkeypatch.setattr(os, "fdopen", fdopen)
+
+    def use_root(self, root: Any) -> None:
+        """Count and fault calls under ``root`` from now on (a fresh store per case)."""
+        import os
+
+        self.root = os.path.realpath(root)
+        self.reset()
+
+    def fail(self, name: str, k: int, action: str) -> None:
+        self.plan[(name, k)] = action
+
+    def reset(self) -> None:
+        self.calls.clear()
+        self.plan.clear()
+        self.fired.clear()
+        self._enospc_next = False
+
+
+def tmp_files(root: Any) -> list[str]:
+    """Every leftover temp file (``*.tmp``) under ``root``."""
+    from pathlib import Path
+
+    return sorted(str(p.relative_to(root)) for p in Path(root).rglob("*.tmp"))

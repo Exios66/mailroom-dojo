@@ -17,7 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 analysis = ["duckdb"]
-dev = ["pytest", "pytest-xdist"]
+dev = ["pytest", "pytest-xdist", "hypothesis"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
