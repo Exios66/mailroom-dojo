@@ -187,8 +187,11 @@ Key decisions:
   after cutover. What the master design drops is the machinery around them (tiers as a filter
   API, bundles, metric profiles), not the metrics. The new form is one flat, versioned metric
   table in configuration: each row is a metric id, its definition, unit, direction,
-  aggregation, the layer and agents that produce it, and a `headline` flag (one per agent), so
-  the dashboard view is a query over the table, not a tier system. Improvements: every value is
+  aggregation, the layer and agents that produce it, and a `headline` flag (the old tier 0), so
+  the dashboard view is a query over the table, not a tier system. Each live agent (the 16 of
+  llm-mailroom's taxonomy) has one `default_view` with a guard and the label layers its gold
+  comes from, or `null` with a reason; legacy auditors and retired specialists keep their rows
+  for golden parity but get no default (D2 plan, `docs/plans/2026-11-18-dojo-d2-measures-plan.md`). Improvements: every value is
   a `Measure` (below); each metric names its noise floor and its pairing rule for comparisons;
   per-class breakdowns are standard; new layers (behaviour, stability, cost truth, log health)
   add rows, never a parallel registry. Parity: every metric id the old registry and the golden
@@ -266,7 +269,7 @@ section, test strategy additions, one to three adversarial rounds and a fresh pr
 | --- | --- | --- | --- |
 | 0 | Land PRs #2, #6, #5, #7 (another thread) | - | their own gates |
 | 1 | D1 statistics | 0 | old tests and a differential corpus, identical |
-| 2 | D2 headline registry metrics in one flat table, and `Measure` | 0 | every old registry id and every metric `scores.json` emits is in the table with the same meaning (or an intended change); headline per agent kept; provenance tests |
+| 2 | D2 headline registry metrics in one flat table, and `Measure` | 0 | every old registry id and every metric `scores.json` emits is in the table with the same meaning (or an intended change); every live agent has a `default_view` or a null with a reason; provenance tests |
 | 3 | D3a one schema source per class | 2 | YAML equals frozen dump of old tables; labels, Dojo (and later engine) load the same files |
 | 4 | D3b tasks, suites, document scorers | 1 to 3 | `scores.json` and the 89 document-scorer goldens reproduced exactly |
 | 5 | D4 label layer, Dojo joined to `mailroom_labels` | 3 | old label-policy cases; Protocols checked against the real `LabelSet` |
@@ -335,6 +338,11 @@ Decided 2026-11-18:
    the trace exporter needs no span-name compatibility (answers master design open question 2).
 4. The headline registry metrics stay, improved on the new system, with consistent meanings
    (section 4.2).
+5. Per-agent defaults (2026-11-18): the boss is judged on wrong approvals; intake on the
+   accuracy of its triage class alone, the clerk diagnostics dropped; the transcribers are
+   deferred; gold is the interim and near_gold labels, the Hub ground truth and additional
+   generated gold, never waiting for human resolutions, and the decision agents' gold is
+   derived from those layers (D2 plan).
 
 Still open: confirm the placements of the capabilities in section 7 that the master design does
-not name.
+not name; confirm the D2 default views marked as proposals and the proposed metric directions.

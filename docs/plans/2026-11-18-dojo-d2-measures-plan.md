@@ -2,7 +2,9 @@
 
 Date: 2026-11-18. Package: `packages/dojo` (`mailroom_dojo.measures`). Branch: `port/d2-measures`.
 Chunk 2 of the workspace port design (`docs/plans/2026-11-18-workspace-port-design.md`, section 6):
-"D2 headline registry metrics in one flat table, and `Measure`".
+"D2 headline registry metrics in one flat table, and `Measure`". Gate: every old registry id and
+every metric the old `scores.json` emits is in the table with the same meaning (or an intended
+change), and every live agent has a `default_view` or a null with a reason.
 
 ## Scope
 
@@ -10,95 +12,129 @@ Chunk 2 of the workspace port design (`docs/plans/2026-11-18-workspace-port-desi
   subject (agent, document class, field), provenance (the old `PROVENANCE_KEYS` less
   `metric_id`), an optional interval and a reason when there is no value. Comparability is
   checked on method, subject, cost basis, label status and provenance.
-- `metrics.yaml`: one row per id of the old registry (184, old order) plus the ten metrics the
-  old golden baseline emits outside it (194 rows: 19 implemented, 93 planned, 82 not ported),
-  each with direction, pairing, readers and status; each agent's default view; the direction
-  overrides.
-- The loader and its rules (`table.py`), with every rule tested and a deliberate mutation shown
-  red for each.
+- `metrics.yaml`: one row per id of the old registry (184, old order), the ten metrics the old
+  golden baseline emits outside it, and 18 planned rows for needs the master design names that
+  no old metric meets: 212 rows (19 implemented, 107 planned, 86 not ported). Each row has a
+  direction, readers, status, pairing where it is compared, and a pointer to its canonical row
+  when it is a duplicate. An `agent_roster` and each live agent's default view.
+- The loader and its rules (`table.py`), each tested, with a deliberate mutation shown red.
 
 Out of scope: computing any metric (D3b and later), the label assessment (D4), serving, cost and
-completion (D5), failure causes (D6), comparison and the noise floor (D7).
+completion (D5), outcomes, behaviour and the archive gate (D6), comparison and the noise floor
+(D7), the transcribers (deferred by the owner) and generating additional gold (a paid run
+behind the spend gate).
 
 ## Decisions
 
-1. **Values are data, rules are code.** Default views and direction overrides live in
-   `metrics.yaml`; no agent or metric name is hard-coded in Python. The loader enforces the rules:
-   the derivation order of a direction; a keep-rule row or a confirmed default view never has
-   direction `none`; a `null` view needs a reason and is never confirmed; a confirmed view, or
-   the view of an agent that has headline metrics, uses a headline metric; every agent with a
-   kept headline metric has a view.
-2. **Direction** (`derive_direction`, owner to confirm). In order: an explicit override; unit
-   `error_rate` or an id containing `error`, `wrong`, `false_`, `violation`, `wasted`, `upper`,
-   `ece`, `brier`, `latency`, `seconds`, `cost`, `usd`, `_p50` or `_p95` gives `lower`; an id
-   containing `accuracy`, `f1`, `f2`, `precision`, `recall`, `completeness`, `similarity`,
-   `coverage` or `per_second` gives `higher`; otherwise `none`. `none` is for descriptive behaviour
-   rates and resource readings. Every value is frozen in
-   `packages/dojo/tests/fixtures/measures/metric_directions.json`. No row matches both the lower
-   and the higher words.
-3. **Pairing.** Every kept headline or keep-rule row names a pairing or a `pairing_note`.
+1. **Values are data, rules are code.** Default views, the roster and every direction live in
+   `metrics.yaml`; no agent or metric name is hard-coded in Python. The loader enforces the
+   rules below.
+2. **Direction is stated, not derived.** The `direction` column is the source of truth
+   (higher, lower or none; none for descriptive rates and readings). The old registry stated
+   none, so every value is proposed for the owner to confirm and frozen in
+   `packages/dojo/tests/fixtures/measures/metric_directions.json`. A test lints each direction
+   against the id's whole words (split on `_` and `-`, so `ece` never matches inside
+   `unnecessary`) and fails only on a disagreement that is not one of the reviewed
+   `name_rule_exceptions`, or on a stale exception. A keep-rule row, a default view and a guard
+   never have direction none.
+3. **Default views apply to live agents.** `agent_roster` lists every agent with a status:
+   `live` (the 16 agents of llm-mailroom `src/config/taxonomy.yaml`), `legacy` (the eight
+   auditors), `retired` (the due-diligence, compliance and court-opinions specialists),
+   `procedural`, `human`, `comparison` and `graph_node`. Every live agent has a view entry; a
+   legacy or retired agent has none. A view names its metric and an optional guard (both kept,
+   applying to the agent, with a direction) and the label layers its gold comes from; a `null`
+   view gives a reason. `confirmed` marks the owner's decisions; the rest are proposals.
+4. **Gold sources (owner decision, 2026-11-18).** Gold for evaluation is the generated interim
+   labels (`interim`, `near_gold`), the dataset ground truth (`hub`) and additional gold
+   generated to support the evaluations; it no longer waits for human resolutions. Each view
+   names its layers (`hub`, `interim`, `near_gold`, `gold_review`, or `derived` alone). The
+   decision agents (sorter reviewer, judge, arbiter, boss) read `derived` gold, computed
+   deterministically from the class and field labels in those layers; each of their rows states
+   the rule in `status_reason`, with the score bands taken from the scoring profile in
+   `config/`. No scoring code for it in D2. The planned row `fields_without_gold` is what the
+   future gold-generation step reads.
+5. **Pairing.** Every kept headline or keep-rule row names a pairing or a `pairing_note`.
    `paired_percentile_bootstrap` is D1's `paired_bootstrap_delta` (per document, same documents
    on both sides); `two_sample_percentile_bootstrap` is D1's `delta_significance`. `f1_macro`,
-   `content_topic_f1_macro` and `reviewer_wrong_accept_upper_95` are whole-set statistics, so a
-   per-document pairing does not apply; their notes say so and D7 decides their comparison.
-4. **Noise floor deferred to D7.** The keep rule's minimum meaningful difference per metric is a
-   comparison setting and lands with D7 in `config/`, not in this table.
-5. **Aliases.** `contracteval_false_no_related` is an alias of `false_no_related_rate` (same
-   unit, direction and aggregation; `not_ported`); `MetricTable.resolve()` follows it and
-   `check()` refuses a `Measure` filed under the alias.
-6. **`n == 0` gives no value.** New in D2 (see the score changelog): a measure over nothing is
+   `content_topic_f1_macro` and `reviewer_wrong_accept_upper_95` are whole-set statistics, so
+   their notes say why there is no per-document pairing; D7 decides their comparison.
+6. **Noise floor deferred to D7.** The keep rule's smallest meaningful difference is measured by
+   repeat runs and lands with D7 in `config/`, not in this table.
+7. **Duplicates point at the canonical row.** `alias_of` (a not-ported second name, same unit,
+   direction and aggregation) and `same_as` (a duplicate that keeps its own row, same unit and
+   direction): `contracteval_false_no_related` and `laziness_rate` point at
+   `false_no_related_rate` (the old note "mirrors no_related_rate" was wrong);
+   `schema_adherence` at `schema_valid`; `expected_field_presence` at `field_presence`.
+   `audit_disagreement_rate` is `1 - audit_resolution_rate`, said in its `status_reason`.
+8. **One spelling per unit.** The unit vocabulary is closed: `usd` is `USD`, `int` is `count`,
+   and `confusion_matrix`, `per_class_stats` and `bootstrap_ci` are `structure` (not a number).
+   New units for the design rows: `per_1000`, `docs/min`, `ratio`, and `utility` (the only unit
+   that may be negative).
+9. **`n == 0` gives no value.** New in D2 (see the score changelog): a measure over nothing is
    missing with a reason, never `0.0`. D3b applies it to the ported scorers.
-7. **`composite`** (the chained summary's weighted score, `tasks.chained_summary`) is a planned
-   row for D3b's golden parity gate.
+10. **Intake clerk diagnostics dropped (owner decision).** `intake_prep_completeness`,
+    `intake_changed_rate`, `intake_messy_rate`, `intake_hyphen_unwraps` and
+    `intake_collapsed_blanks` are `not_ported`; the old golden intake suite emits them, so
+    D3b lists them as intended parity differences.
+11. **`judge_error_rate` is kept** for the archive gate, whose pass rule requires no
+    `judge_error` document (local-mailroom-sandbox `job/gate.py`). Serving ids stay planned
+    for D5.
 
-## Default views (provisional; the owner is reviewing them)
+## Default views (provisional where not confirmed)
 
-Confirmed only where the old registry names the number; everything else is a proposal.
-`judge_verdict_accuracy` is the alternative the owner may prefer for `judge`. The auditors'
-`audit_resolution_rate` has direction `none`: a stopgap until D3b proposes a labelled measure
-("net fields corrected by audit"). Sources per entry are in `metrics.yaml` and frozen in
-`packages/dojo/tests/fixtures/measures/default_views.json`.
+| Agent | Status | Default view | Guard | Gold from | Confirmed |
+|:---|:---|:---|:---|:---|:---|
+| `sorter` | live | `f1_macro` | `accuracy` | hub, interim, near_gold, gold_review | yes |
+| `sorter_reviewer` | live | `reviewer_class_accuracy` | `reviewer_wrong_accept_upper_95` | derived | proposal |
+| `judge` | live | `judge_verdict_accuracy` | `judge_escalation_recall` | derived | proposal |
+| `arbiter` | live | `arbiter_decision_accuracy` | `arbiter_wrongful_accept_rate` | derived | proposal |
+| `boss` | live | `boss_wrongful_approve_rate` | `boss_needless_review_rate` | derived | yes |
+| `intake` | live | `accuracy` | none | hub, interim, near_gold, gold_review | yes |
+| `contracts_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, gold_review | proposal |
+| `merger_agreement_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, gold_review | proposal |
+| `corporate_records_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, gold_review | proposal |
+| `insurance_claims_specialist` | live | `extraction_f2` | `per_field_scores` | hub, interim, near_gold, gold_review | proposal |
+| `correspondence_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, gold_review | proposal |
+| `local_vs_api` | comparison | `tokens_per_second` | `cost_per_document` | no labels | proposal |
+| `pdf_transcriber` | live | none: deferred by owner decision | | | yes (owner) |
+| `image_extractor` | live | none: deferred by owner decision | | | yes (owner) |
+| `reporter` | live | none: procedural; no model decision to score | | | proposal |
+| `archivist` | procedural | none: procedural; no model decision to score | | | proposal |
+| `human_review` | human | none: humans are the gold source | | | yes (owner) |
+| `relations` | live | none: no metric yet: the old registry has none for relations and no reader needs one | | | proposal |
+| `gmail_triage` | live | none: no metric yet: mail intake ahead of the pipeline; the old registry has none and no reader needs one | | | proposal |
+| `classification_arbiter` | graph_node | none: the graph node of the arbiter agent; its decisions are scored under arbiter | | | proposal |
 
-| Agent | Default view | Status | Secondary or guard |
-|:---|:---|:---|:---|
-| `sorter` | `f1_macro` | confirmed |  |
-| `judge` | `f1_macro` | confirmed |  |
-| `contracts_specialist` | `extraction_overall_score` | confirmed |  |
-| `merger_agreement_specialist` | `extraction_overall_score` | confirmed |  |
-| `corporate_records_specialist` | `extraction_overall_score` | confirmed |  |
-| `due_diligence_specialist` | `extraction_overall_score` | confirmed |  |
-| `compliance_specialist` | `extraction_overall_score` | confirmed |  |
-| `court_opinions_specialist` | `extraction_overall_score` | confirmed |  |
-| `insurance_claims_specialist` | `extraction_f2` | confirmed |  |
-| `correspondence_specialist` | `content_topic_f1_macro` | confirmed |  |
-| `reporter` | `extraction_overall_score` | proposal |  |
-| `boss` | `extraction_overall_score` | proposal |  |
-| `sorter_reviewer` | `reviewer_class_accuracy` | proposal | `reviewer_wrong_accept_upper_95` |
-| `local_vs_api` | `tokens_per_second` | proposal | `ttft_seconds` |
-| `arbiter` | `arbiter_decision_accuracy` | proposal |  |
-| `audit_agent` | `audit_resolution_rate` | proposal |  |
-| `contract_auditor` | `audit_resolution_rate` | proposal |  |
-| `corporate_records_auditor` | `audit_resolution_rate` | proposal |  |
-| `due_diligence_auditor` | `audit_resolution_rate` | proposal |  |
-| `correspondence_auditor` | `audit_resolution_rate` | proposal |  |
-| `compliance_auditor` | `audit_resolution_rate` | proposal |  |
-| `court_opinions_auditor` | `audit_resolution_rate` | proposal |  |
-| `insurance_claims_auditor` | `audit_resolution_rate` | proposal |  |
-| `pdf_transcriber` | `word_accuracy` | proposal |  |
-| `image_extractor` | `word_accuracy` | proposal |  |
-| `intake` | `intake_prep_completeness` | proposal |  |
-| `human_review` | `review_tray_wasted_review_rate` | proposal |  |
-| `archivist` | none (procedural; judged by archive-gate checks, not a metric) | proposal |  |
+No default view (rows kept for golden parity and history): legacy `audit_agent`, `contract_auditor`, `corporate_records_auditor`, `due_diligence_auditor`, `correspondence_auditor`, `compliance_auditor`, `court_opinions_auditor`, `insurance_claims_auditor`; retired `due_diligence_specialist`, `compliance_specialist`, `court_opinions_specialist`.
 
-## Direction overrides (derived, owner to confirm)
+Notes on the proposals: `judge_verdict_accuracy` replaces `f1_macro` for the judge, which has no
+class gold in the new system. The correspondence default is `extraction_overall_score`, not
+`content_topic_f1_macro`: the live correspondence schema has no `content_topic` field, so a
+perfect extraction would score 0.0; that row stays for eval-lineage runs. `local_vs_api` is a
+serving comparison kept for continuity; the backend is a column of the run, not an agent.
+Wasted review is attributed to the routing policy (`review_tray_wasted_review_rate`), not to
+`human_review`.
 
-Overrides set a direction the name does not show:
+## Planned design rows
 
-- **higher (27):** `amount_exactness`, `arbiter_retry_usefulness`, `bert_sorter_agreement`, `class_correct`, `classification_correct`, `classification_quality`, `composite`, `determination_consistency`, `exact_match`, `expected_field_presence`, `extraction_category_presence`, `extraction_correctness`, `extraction_field_score`, `extraction_overall_score`, `field_presence`, `jaccard_median`, `mailroom-pipeline-judge`, `mailroom-pipeline-quality`, `maud_clause_presence`, `maud_valid_class_rate`, `parse_ok`, `per_field_scores`, `schema_adherence`, `schema_valid`, `stage_completed`, `stage_correct`, `success_rate`.
-- **lower (9):** `bert_elapsed_ms`, `boss_needless_review_rate`, `date_mae_days`, `duration_mae_days`, `extraction_hallucination_rate`, `hallucination_rate`, `laziness_rate`, `ml_intake_selective_risk`, `run_aborted`.
-- **none (16):** `audit_disagreement_rate`, `audit_resolution_rate`, `completeness_label`, `completion_tokens`, `gpu_memory_used_gb`, `gpu_utilization`, `intake_changed_rate`, `intake_collapsed_blanks`, `intake_hyphen_unwraps`, `intake_messy_rate`, `kv_cache_utilization`, `prompt_tokens`, `review_tray_correction_rate`, `review_tray_reject_rate`, `reviewer_routed_to_human_review_rate`, `serving_kind`.
+`silent_wrong_per_1000`, `wrong_archive_rate`, `wrong_archive_upper95` (Wilson 95% upper bound,
+the sandbox gate's name), `review_rate`, `correct_archive_rate`, `document_utility`,
+`slot_override_rate`, `slot_cap_use`, `slot_cap_breaches`, `cost_per_decision`,
+`outcome_flip_rate`, `cost_per_classification`, `cost_per_1000_documents`,
+`documents_per_minute`, `log_complete_step_rate`, `log_chains_verified`,
+`cost_estimate_to_billed_ratio` and `fields_without_gold`. Each is `origin: design`, metric id
+`dojo:<id>`, and names its reader (archive gate, reports, keep rule, run comparison, cost
+projection, log health or gold generation) and its build chunk (D4 to D7).
 
-Rows with direction none: 51, of which 18 are kept (implemented or planned): `reviewer_routed_to_human_review_rate`, `audit_disagreement_rate`, `audit_resolution_rate`, `intake_changed_rate`, `intake_messy_rate`, `intake_hyphen_unwraps`, `intake_collapsed_blanks`, `gpu_utilization`, `prompt_tokens`, `completion_tokens`, `confusion_matrix`, `per_class_stats`, `bootstrap_ci`, `llm_call_count`, `total_tokens`, `classification_attempts`, `extraction_attempts`, `no_related_rate`. The other 33 are `not_ported`.
+## Directions (proposed, owner to confirm)
+
+Directions: 100 higher, 58 lower, 54 none, over 212 rows. The 17 kept rows with direction none: `reviewer_routed_to_human_review_rate`, `audit_disagreement_rate`, `audit_resolution_rate`, `gpu_utilization`, `prompt_tokens`, `completion_tokens`, `confusion_matrix`, `per_class_stats`, `bootstrap_ci`, `llm_call_count`, `total_tokens`, `classification_attempts`, `extraction_attempts`, `no_related_rate`, `slot_override_rate`, `slot_cap_use`, `cost_estimate_to_billed_ratio`.
+
+Name-lint exceptions (48), each a row whose direction differs from what its id's words suggest:
+
+- **higher (32):** `extraction_overall_score`, `arbiter_retry_usefulness`, `field_presence`, `determination_consistency`, `amount_exactness`, `schema_valid`, `parse_ok`, `schema_adherence`, `success_rate`, `classification_correct`, `class_correct`, `stage_correct`, `extraction_correctness`, `expected_field_presence`, `mailroom-pipeline-judge`, `mailroom-pipeline-quality`, `maud_clause_presence`, `maud_valid_class_rate`, `per_field_scores`, `extraction_field_score`, `extraction_category_presence`, `classification_quality`, `stage_completed`, `bert_sorter_agreement`, `exact_match`, `jaccard_median`, `composite`, `correct_archive_rate`, `document_utility`, `documents_per_minute`, `log_complete_step_rate`, `log_chains_verified`.
+- **lower (14):** `ml_intake_selective_risk`, `arbiter_unnecessary_escalation_rate`, `boss_needless_review_rate`, `laziness_rate`, `extraction_hallucination_rate`, `date_mae_days`, `duration_mae_days`, `hallucination_rate`, `run_aborted`, `bert_elapsed_ms`, `review_rate`, `slot_cap_breaches`, `outcome_flip_rate`, `fields_without_gold`.
+- **none (2):** `completeness_label`, `cost_estimate_to_billed_ratio`.
 
 ## The old `scorecard_honesty.py`
 
@@ -157,7 +193,9 @@ The old tests, `tests/test_v018_scorecard_honesty.py` (13 test functions):
 | `test_completion_and_cost_basis` (269) | D5 (completion, ITT, cost basis per record); "never mix cost bases" is D2: `cost_basis_mismatch` |
 | `test_modal_serving_kind_not_local` (308) | D5 |
 
-## Review findings, round 1
+## Review findings
+
+Round 1:
 
 | Finding | Change |
 |:---|:---|
@@ -166,12 +204,25 @@ The old tests, `tests/test_v018_scorecard_honesty.py` (13 test functions):
 | 3 `scorecard_honesty` disposition | The tables above, repeated in the score changelog; `measure.py` docstring narrowed |
 | 4 Subject and provenance | `Subject`, `Provenance`, `comparability_problems(..., vary=...)` |
 | 5 Pairing, noise floor | `pairing` or `pairing_note` on every kept headline or keep-rule row; noise floor to D7 |
-| 6 Directions | Rule in code, overrides in data, all values in a fixture; name-pattern tests |
+| 6 Directions | Every value in a fixture; name-pattern tests |
 | 7 Capture | Nested golden blocks (28) and `chained_summary` captured; fixture re-captured byte for byte |
 | 8 Plan and test strategy | This file; D2 section in `docs/test-strategy-dojo-core.md` |
 | 9 `n == 0` | Score changelog entry (D3b applies it), and the earlier commit wording corrected there |
 | 10 Alias | `alias_of` column; `contracteval_false_no_related` |
 | 11 `check()` | Whole counts, interval in the unit range and around the value, `missing()` unverified by default, integer `n` of any integral type |
 | 12 Serving ids | Left `planned` for D5 |
+
+Review of the provisional defaults, and the owner's decisions:
+
+| Point | Change |
+|:---|:---|
+| Direction derived from names | The column is the source of truth; the name rule is a whole-word lint with 48 reviewed exceptions |
+| Defaults for non-live agents | `agent_roster`; auditors legacy, three specialists retired, no views for them |
+| Per-agent defaults and guards | The table above; boss and intake per the owner |
+| Gold sources | `label_layers` on every view; derived-gold rules in the decision rows |
+| Design needs without rows | 18 planned `design` rows with readers |
+| `judge_error_rate` "no reader" | Planned for the archive gate |
+| Units and duplicates | Closed unit vocabulary; `same_as` and `alias_of` pointers |
+| Port design and plan | Section 4.2, section 6 row 2 and section 10 updated; this plan |
 
 Mutation evidence: `docs/test-strategy-dojo-core.md`, "D2".

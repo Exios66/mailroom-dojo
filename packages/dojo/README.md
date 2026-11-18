@@ -96,19 +96,29 @@ the expected values are not ground truth (comparing two model outputs).
 ## The metric table
 
 `src/mailroom_dojo/measures/metrics.yaml` has one row for every id of the old Dojo's metric
-registry (184, in the old order) plus ten metrics the old golden baseline emits outside
-it. Each row keeps the old description, unit, aggregation, agents, ground truth,
-inclusion and citation; tiers are replaced by `headline` (exactly the old tier-0 ids), a
-`layer`, a `status` and the `readers` (gate, report or projection) that use it. A row is
-`implemented` or `planned` only when a named reader uses it; every other id stays as a
-`not_ported` row with its reason, so it can be revived without changing its meaning.
-`default_views` names each agent's one default number (the old tier 0, "ONE number per
-agent"): the loader requires one for every agent named by a kept headline row, and only
-the views the old registry names (classifiers and specialists) are `confirmed`; the rest
-are proposals for the owner. `direction` is derived (owner to confirm) and frozen in
-`tests/fixtures/measures/metric_directions.json`. `noise_floor` is unset (D7 measures it). The header of the
-file documents every column, reader and rule. `MetricTable.content_hash` is the sha256 of the
-table's canonical JSON form, so a run can record which table it was scored against.
+registry (184, in the old order), ten metrics the old golden baseline emits outside it,
+and 18 planned rows (`origin: design`) for numbers the master design needs that no old
+metric gives (wrong-archive and review rates, utility, silent-wrong per 1,000, per-slot
+summaries, cost per classification and per 1,000 documents, throughput, log health, cost
+truth, and the gaps a future gold-generation step fills). Each old row keeps the old
+description, aggregation, agents, ground truth, inclusion and citation, and its unit
+(normalised to one spelling per unit); tiers are replaced by `headline` (exactly the old
+tier-0 ids), a `layer`, a `status` and the `readers` (gate, report or projection) that use
+it. A row is `implemented` or `planned` only when a named reader uses it; every other id
+stays as a `not_ported` row with its reason, so it can be revived without changing its
+meaning. Duplicates point at their canonical row (`alias_of`, `same_as`).
+
+`agent_roster` lists every agent with a status: the 16 `live` agents of llm-mailroom, the
+`legacy` auditors and `retired` specialists (rows kept for golden parity, no default view),
+and the entries that are not model agents. `default_views` gives every live agent one
+default number and a guard, with the label layers its gold comes from (`hub`, `interim`,
+`near_gold`, `gold_review`, or `derived` from them for the decision agents), or `null`
+with a reason; `confirmed` marks the owner's decisions, the rest are proposals.
+`direction` is stated per row (the source of truth), frozen in
+`tests/fixtures/measures/metric_directions.json`, and a test lints it against the id's
+words. `noise_floor` is unset (D7 measures it). The header of the file documents every
+column, reader and rule. `MetricTable.content_hash` is the sha256 of the table's canonical
+JSON form, so a run can record which table it was scored against.
 
 `tests/test_metric_table_parity.py` checks the table against
 `tests/fixtures/measures/old_metric_registry.json`, which

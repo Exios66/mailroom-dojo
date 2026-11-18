@@ -169,6 +169,26 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
 - **`composite`** (the chained summary's weighted score) is a table row; the old registry had
   no id for it, though the golden baseline emits it.
 
+- **Gold for the decision agents is derived, not human-only.** `boss_wrongful_approve_rate`
+  and `boss_needless_review_rate` were "human outcome only"; the judge's and arbiter's gold
+  verdicts used a human resolution first. By the owner's decision (2026-11-18) gold no longer
+  waits for human resolutions: each of these rows (and the sorter reviewer's) states in its
+  `status_reason` how its gold is derived from the class and field labels, with the bands from
+  the scoring profile. No scorer is ported in D2; D3b and D6 apply the rule.
+- **The intake clerk diagnostics are dropped** (owner decision): `intake_prep_completeness`,
+  `intake_changed_rate`, `intake_messy_rate`, `intake_hyphen_unwraps` and
+  `intake_collapsed_blanks` are `not_ported`. The old golden intake suite emits them, so D3b
+  lists them as intended differences of the parity gate.
+- **Units have one spelling.** `usd` is written `USD` and `int` `count`; `confusion_matrix`,
+  `per_class_stats` and `bootstrap_ci` are `structure`, not `float[0,1]`. The meaning is
+  unchanged; a `structure` row is never reported as one number.
+- **Duplicates name their canonical row** (`same_as`, `alias_of`). The old note on
+  `contracteval_false_no_related`, "mirrors ContractEval no_related_rate", is wrong: it is
+  `false_no_related_rate` (positive pairs), not `no_related_rate` (all pairs). The note keeps
+  its old text; the row's `status_reason` corrects it.
+- **18 planned design rows** (`origin: design`, ids `dojo:<id>`) add numbers the old Dojo never
+  had; none changes an old number.
+
 ### Correction
 
 Commit `56a5a5e` said "No score-changelog entry: no metric's meaning changed", and `ab609ff`
