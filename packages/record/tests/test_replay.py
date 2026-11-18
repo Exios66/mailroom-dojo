@@ -350,6 +350,25 @@ UNTIMED_CASES = {
             (2.0, ("checkpoint", "done", 2, 2)),
         ],
     ),
+    "stepped": (  # a finish that names its step pairs with the start of that step, as in the sandbox
+        1,
+        [
+            _node(D0, "intake", "running", T0, step=1),  # 0.0
+            _node(D0, "intake", "done", step=1, ms=50.0),  # untimed, paired by step: 0.0 + 0.05
+            _node(D0, "classify", "running", T0 + 1.0, step=2),  # 1.0
+            _node(D0, "classify", "done", ms=750.0),  # untimed, names no step: not paired, 1.0 + 0.1
+        ],
+        [_item(D0)],  # its last finish, 1.1
+        [
+            (0.0, ("checkpoint", "running", 0, 1)),
+            (0.0, ("node", D0, "intake", "running")),
+            (0.05, ("node", D0, "intake", "done")),
+            (1.0, ("node", D0, "classify", "running")),
+            (1.1, ("node", D0, "classify", "done")),
+            (1.1, ("item", D0)),
+            (1.6, ("checkpoint", "done", 1, 1)),
+        ],
+    ),
     "synthetic": (
         3,
         [
@@ -411,6 +430,15 @@ def _untime(folder: Path, variant: str) -> None:
     elif variant == "untimed-run":
         for row in [*nodes, *items]:
             row.pop("ts")
+    elif variant == "untimed-stepped":  # finishes name their start's step, as a sandbox row may
+        steps: dict[tuple[str, str], int] = {}
+        for row in nodes:
+            if row["status"] == "running":
+                steps[(row["doc"], row["node"])] = row["step"]
+            else:
+                row["step"] = steps[(row["doc"], row["node"])]
+        nodes[1].pop("ts")
+        nodes[3].pop("ts")
     elif variant == "untimed-unstepped":  # starts without a step pair with their untimed finishes
         for row in nodes:
             row.pop("step", None)
@@ -421,7 +449,8 @@ def _untime(folder: Path, variant: str) -> None:
 
 
 UNTIMED_VARIANTS = (
-    "untimed-start", "untimed-finish", "untimed-both", "untimed-items", "untimed-run", "untimed-unstepped"
+    "untimed-start", "untimed-finish", "untimed-both", "untimed-items", "untimed-run", "untimed-unstepped",
+    "untimed-stepped",
 )
 
 

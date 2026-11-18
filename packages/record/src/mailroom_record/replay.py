@@ -33,7 +33,12 @@ Rows are put in the source's order by ``payload.order`` (``started_order`` for a
 the importer records it; rows without one (a native run) follow by time, then document and
 ``seq``. From there the timing rules are the sandbox's own, step for step: a row's time
 places it when known; an event marked ``ts_absent`` has no time, and a run with no time at
-all falls back to document order, labelled ``synthetic_timing``. Only ``done`` and
+all falls back to document order, labelled ``synthetic_timing``. An untimed start lands at
+the latest row; an untimed finish lands at its start plus ``ms`` when the two pair by
+``(doc, node, step)``, the finish's step being its own row's (``payload.finish_step``) or
+none, as in the sandbox, which writes ``step`` on running rows only; else 0.1 s after the
+latest row. An untimed item lands at its document's last finish, else 0.5 s after the
+latest row. Only ``done`` and
 ``failed`` final states count as complete; ``cancelled`` replays as ``failed``.
 
 No document text and no extracted value is in the timeline: rows are built from a fixed
@@ -86,7 +91,8 @@ class _Rows:
     """Node and item rows rebuilt from events, each with its time (or ``None``) and order key."""
 
     def __init__(self) -> None:
-        self.nodes: list[tuple[tuple[Any, ...], float | None, dict[str, Any], str]] = []
+        # (order key, time, row, doc id, the step the timing pairs it by)
+        self.nodes: list[tuple[tuple[Any, ...], float | None, dict[str, Any], str, Any]] = []
         self.items: list[tuple[tuple[Any, ...], float | None, dict[str, Any], str]] = []
         self.checkpoint: dict[str, Any] = {}
         self.source: dict[str, str] = {}
@@ -125,14 +131,15 @@ class _Rows:
         base = {"doc": e.doc_id, "node": e.node, "agent": e.agent, "model": e.model, "step": p.get("step")}
         if status == "running":
             t = self._time(e)
-            self.nodes.append((self._key(p.get("order"), e, t), t, base | {"status": "running"}, e.doc_id))
+            self.nodes.append((self._key(p.get("order"), e, t), t, base | {"status": "running"}, e.doc_id, base["step"]))
             return
         if "started_ts" in p or "started_order" in p:
             started = p.get("started_ts")
             st = _seconds(started) if isinstance(started, str) else None
             if st is None:
                 self.untimed += 1
-            self.nodes.append((self._key(p.get("started_order"), e, st), st, base | {"status": "running"}, e.doc_id))
+            start = base | {"status": "running"}
+            self.nodes.append((self._key(p.get("started_order"), e, st), st, start, e.doc_id, base["step"]))
         t = self._time(e)
         row = base | {
             "status": status,
@@ -140,7 +147,10 @@ class _Rows:
             "ms": e.latency_ms,
             "decisions": _decisions(e.decision),
         }
-        self.nodes.append((self._key(p.get("order"), e, t), t, row, e.doc_id))
+        # The sandbox pairs a finish with its start by (doc, node, step), and writes ``step``
+        # on running rows only: a finish pairs by step only when its own row named one.
+        pair_step = base["step"] if p.get("finish_step") is True else None
+        self.nodes.append((self._key(p.get("order"), e, t), t, row, e.doc_id, pair_step))
 
     def _item(self, e: Event) -> None:
         p = e.payload
@@ -168,11 +178,11 @@ def replay_timeline(log: EventLog, run_id: str) -> tuple[list[tuple[float, dict[
     def doc(doc_id: str) -> str:
         return rows.source.get(doc_id, doc_id)
 
-    nodes = [(t, r | {"doc": doc(d)}) for _, t, r, d in sorted(rows.nodes, key=lambda x: x[0])]
+    nodes = [(t, r | {"doc": doc(d)}, s) for _, t, r, d, s in sorted(rows.nodes, key=lambda x: x[0])]
     items = [(t, r | {"item_id": doc(d), "doc": doc(d)}) for _, t, r, d in sorted(rows.items, key=lambda x: x[0])]
 
     # From here on: the sandbox's build_timeline rules, applied to the rebuilt rows.
-    times = [t for t, _ in [*nodes, *items] if t is not None]
+    times = [t for t, *_ in [*nodes, *items] if t is not None]
     synthetic = not times
     t0 = min(times) if times else 0.0
     cursor = 0.0
@@ -180,11 +190,9 @@ def replay_timeline(log: EventLog, run_id: str) -> tuple[list[tuple[float, dict[
     events: list[tuple[float, int, dict[str, Any]]] = []
     running: dict[tuple[str, str, Any], float] = {}
     last_done: dict[str, float] = {}
-    for stamp, row in nodes:
+    for stamp, row, pair_step in nodes:
         status = row["status"]
-        # The sandbox writes ``step`` on running rows only, so it pairs a finish with its start
-        # by (doc, node, step) and the finish's missing step; the same key is used here.
-        key = (row["doc"], row["node"], row["step"] if status == "running" else None)
+        key = (row["doc"], row["node"], pair_step)
         if stamp is not None and not synthetic:
             at = max(0.0, stamp - t0)
         elif status == "running":

@@ -33,7 +33,8 @@ Mapping
   of the same ``(doc, node)`` in file order (and the same ``step`` when the finishing row
   names one; the sandbox writes ``step`` on ``running`` rows only). It is not an event of
   its own: its time is kept on the finishing event as ``payload.started_ts`` and its step
-  as ``payload.step``. A ``running`` row with no finish (in flight when the run stopped)
+  as ``payload.step`` (``payload.finish_step`` is ``true`` when the finishing row named the
+  step itself). A ``running`` row with no finish (in flight when the run stopped)
   becomes one ``handoff`` event with ``payload.status="running"``. Every node event keeps
   ``status``, ``step`` and ``stage`` when present, and ``order`` (its row's 0-based place
   in ``nodes.jsonl``; ``started_order`` for the paired start), so the timeline can be
@@ -402,6 +403,8 @@ def _node_events(rows: list[tuple[int, dict[str, Any]]], doc_for: Any) -> None:
         payload: dict[str, Any] = {"floor": "node", "status": status, "order": order}
         step = row.get("step") if row.get("step") is not None else (start[2].get("step") if start else None)
         _put_if(payload, "step", scrub(step))
+        if row.get("step") is not None:  # the finish named its step: the replay pairs by it, as the sandbox does
+            payload["finish_step"] = True
         _put_if(payload, "stage", scrub(row.get("stage")))
         if start is not None:
             payload["started_order"] = start[0]
