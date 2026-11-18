@@ -82,7 +82,7 @@ whose segments came from somewhere untrusted.
 
 Streaming means a strict reader can fail part way. ``iter_stored`` yields the lines before a
 corrupt one and then raises ``CorruptLine``; ``iter_events`` (pass two) yields the valid
-events before an invalid one and then raises its validation error. A caller that commits
+events before an invalid one and then raises ``InvalidEvent``. A caller that commits
 something derived from what it read (``seal_run``, an export) must therefore read
 everything first (``list(...)``) and act only once the read has finished, never while it is
 still yielding.
@@ -96,7 +96,14 @@ passes. Pass one streams every segment and keeps only ``(seq, segment, offset, l
 per event, packed in one ``array`` per document (32 bytes per event); pass two walks each
 document's rows in order without copying them (they are a few ascending runs, one per
 hand-over, merged lazily; ``RunScan._ordered``), seeks to each line and parses it. Pass one parses every line, so a corrupt line raises ``CorruptLine`` before the
-first event is yielded; an event that fails validation raises when pass two reaches it.
+first event is yielded; an event that fails validation raises ``InvalidEvent`` when pass
+two reaches it (pass one raises it for a line with no usable ``doc_id`` or ``seq``).
+
+Error text never quotes stored content. ``CorruptLine`` and ``InvalidEvent`` (both
+``ValueError``) name the segment, byte offset, field locations and error types; pydantic's
+``ValidationError``, whose text quotes the stored input, never leaves a reader, and neither
+does ``RecursionError`` from a line nested too deep. ``read_run`` likewise raises a
+``ValueError`` naming fields only for an invalid ``run.json``.
 The tolerant mode (``strict=False``, for the index) records such lines as ``BadLine`` and
 skips them instead. ``spans`` limits a scan to byte ranges of named segments (the index's
 per-document locations, Task 8), so a per-document read need not read the whole run.
@@ -136,6 +143,7 @@ __all__ = [
     "DocumentInUse",
     "EventLog",
     "ForkedChain",
+    "InvalidEvent",
     "LocatedEvent",
     "LogWriter",
     "OverlongLine",
@@ -175,6 +183,16 @@ class DocumentInUse(RuntimeError):
 
 class CorruptLine(ValueError):
     """A whole segment line is not a JSON object."""
+
+
+class InvalidEvent(ValueError):
+    """A whole segment line is a JSON object but not a valid event (strict readers).
+
+    Raised in place of pydantic's ``ValidationError`` (and the upgrade's errors), whose text
+    quotes the stored input: the message names the segment, the byte offset, field
+    locations and error types only, never a stored value or an unknown stored key (see
+    ``models.validation_detail``). A ``ValueError``, so callers catching that still do.
+    """
 
 
 class ForkedChain(RuntimeError):
@@ -379,6 +397,8 @@ class RunScan:
 
     def _bad(self, segment: str, offset: int, kind: Literal["corrupt_line", "invalid_event"], exc: BaseException) -> None:
         if self.strict:
+            if kind == "invalid_event":  # never the validator's own text: it quotes stored input
+                raise InvalidEvent(f"{segment} at byte {offset}: {_safe_detail(exc)}") from None
             raise exc
         self.bad.append(BadLine(segment, offset, kind, _safe_detail(exc)))
 
@@ -569,14 +589,21 @@ class EventLog:
 
     def read_run(self, run_id: str) -> Run:
         """The run header. ``FileNotFoundError`` for an unknown run; ``ValueError`` or
-        ``TypeError`` for a damaged ``run.json`` (never ``RecursionError``)."""
+        ``TypeError`` for a damaged ``run.json`` (never ``RecursionError``), naming field
+        locations and error types, never stored values."""
         try:
             raw = json.loads((self.run_dir(run_id) / "run.json").read_bytes())
         except FileNotFoundError:
             raise FileNotFoundError(f"no run {run_id!r} under {self.root}") from None
         except RecursionError:
             raise ValueError(f"run.json of run {run_id!r} nests deeper than the JSON parser allows") from None
-        return Run.from_stored(raw)
+        try:
+            return Run.from_stored(raw)
+        except ValueError as exc:
+            detail = validation_detail(exc)  # the validator's own text quotes stored input
+            if detail is None:
+                raise
+            raise ValueError(f"run.json of run {run_id!r} is not a valid run header: {detail}") from None
 
     # --- writers --------------------------------------------------------------------
 

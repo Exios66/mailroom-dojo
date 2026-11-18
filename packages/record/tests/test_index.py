@@ -728,7 +728,7 @@ def test_an_invalid_line_of_the_document_is_never_dropped_by_the_index(store: Si
     idx = built(store, tmp_path / "i.sqlite")
     assert "invalid_event" in [p.kind for p in idx.problems()]  # plus a seq_gap when it is not the last
     log_says, index_says = _both(store, idx, "d1")
-    assert log_says == index_says == "ValidationError"
+    assert log_says == index_says == "InvalidEvent"
     # Documents without the bad line still read, and equal the log, through the index.
     for doc in ("d0", "d2"):
         assert _both(store, idx, doc)[1] == [(e.seq, e.hash) for e in store.log.iter_events("r1", doc)]

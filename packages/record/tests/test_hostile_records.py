@@ -10,6 +10,7 @@ real on-disk store and drives every reader over it.
 from __future__ import annotations
 
 import json
+import traceback
 from types import SimpleNamespace
 
 import pytest
@@ -27,7 +28,7 @@ from record_testkit import (
 
 from mailroom_record.hashing import canonical_json
 from mailroom_record.index import Index
-from mailroom_record.log import CorruptLine
+from mailroom_record.log import CorruptLine, InvalidEvent
 from mailroom_record.models import GENESIS, event_hash
 from mailroom_record.seal import SealCorrupt, list_seals, seal_run
 
@@ -252,3 +253,68 @@ def test_a_decision_nested_too_deep_is_an_invalid_event_for_every_reader(store_w
         list(s.log.iter_events("r1"))
     assert not isinstance(strict.value, UNEXPECTED)
     assert ("invalid_event", "d9", 0) in [(p.kind, p.doc_id, p.seq) for p in verify(s).problems]
+
+
+# --- strict readers name fields, never stored values -----------------------------------
+
+_LEAKY_FIELDS = {
+    "kind": {"kind": SENTINEL},
+    "ts": {"ts": SENTINEL},
+    "tokens_in": {"tokens_in": SENTINEL},
+    "cause_list": {"cause": [SENTINEL]},
+    "inputs_key": {"inputs": [{"sha256": "b" * 64, "role": "original", "size": 1, LEAKY_KEY: SENTINEL}]},
+    "decision_nan": {"decision": {LEAKY_KEY: float("nan")}},
+    "extra_key": {LEAKY_KEY: SENTINEL},
+}
+
+
+def _leaky_line(store: SimpleNamespace, segment: str, fields: dict) -> int:
+    """Append a line for D2 seq 0 carrying ``fields`` (NaN allowed); returns its offset."""
+    raw = hand_line("r1", "D2", 0, GENESIS) | fields
+    path = store.root / "runs/r1/segments" / segment
+    at = path.stat().st_size if path.exists() else 0
+    with path.open("ab") as f:
+        f.write(json.dumps(raw, sort_keys=True, separators=(",", ":")).encode() + b"\n")
+    return at
+
+
+def _leak_free(exc: BaseException) -> str:
+    text = "".join(traceback.format_exception(exc))
+    _assert_no_sentinel(str(exc), repr(exc), text)
+    return str(exc)
+
+
+@pytest.mark.parametrize("case", sorted(_LEAKY_FIELDS))
+def test_every_strict_read_names_an_invalid_event_without_its_stored_values(
+    store_with_events: SimpleNamespace, case: str
+) -> None:
+    s = store_with_events
+    idx = _index(s)
+    idx.reindex(s.log)  # built before the damage: the read of D2 checks unindexed bytes
+    at = _leaky_line(s, "w9.jsonl", _LEAKY_FIELDS[case])
+    reads = {
+        "iter_events": lambda: list(s.log.iter_events("r1")),
+        "iter_events(D2)": lambda: list(s.log.iter_events("r1", "D2")),
+        "scan().events()": lambda: list(s.log.scan("r1").events()),
+        "scan(D2).events()": lambda: list(s.log.scan("r1", "D2").events()),
+        "Index.iter_events (stale)": lambda: list(idx.iter_events(s.log, "r1", "D2")),
+        "Index.iter_events (rebuilt)": lambda: (idx.reindex(s.log), list(idx.iter_events(s.log, "r1", "D2"))),
+    }
+    for name, read in reads.items():
+        with pytest.raises(InvalidEvent) as caught:
+            read()
+        assert isinstance(caught.value, ValueError), name  # callers catching ValueError still do
+        msg = _leak_free(caught.value)
+        assert msg.startswith(f"w9.jsonl at byte {at}: invalid event: "), (name, msg)
+
+
+def test_a_run_header_is_named_without_its_stored_values(store: SimpleNamespace) -> None:
+    path = store.root / "runs/r1/run.json"
+    raw = json.loads(path.read_bytes())
+    raw["kind"] = SENTINEL
+    raw[LEAKY_KEY] = SENTINEL
+    path.write_bytes(canonical_json(raw))
+    with pytest.raises(ValueError) as caught:
+        store.log.read_run("r1")
+    msg = _leak_free(caught.value)
+    assert "<key>: extra_forbidden" in msg and "kind:" in msg
