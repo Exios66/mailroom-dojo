@@ -399,16 +399,25 @@ def test_hostile_ids_cannot_forge_text_output(docs: list[str], node: str, agent:
             assert outs["hostile"].count("\n") == outs["benign"].count("\n"), (args, outs["hostile"])
 
 
+def test_escaping_covers_every_unsafe_category() -> None:
+    assert cli._printable("ok d1 caf\u00e9") == "ok d1 caf\u00e9"
+    assert cli._printable("a\nb\rc\x1b[31m\x00\x85\u202e\u2028\u2029\ufeff\ud800\U000e0001") == (
+        "a\\x0ab\\x0dc\\x1b[31m\\x00\\x85\\u202e\\u2028\\u2029\\ufeff\\ud800\\U000e0001"
+    )
+
+
 def test_a_lone_surrogate_id_is_escaped_not_a_crash(tmp_path: Path) -> None:
-    """A hand-written line can hold an id the writer could never encode (a lone surrogate)."""
+    """A hand-written line can hold an id no writer could store (a lone surrogate): it is not a
+    valid event, so it shows as invalid_event, and an id like it on the command line is escaped."""
     from mailroom_record.models import GENESIS
-    from record_testkit import hand_line, write_lines
+    from record_testkit import hand_line
 
     blobs = BlobStore(tmp_path)
     EventLog(tmp_path, blobs).create_run(Run(**run_fields()))
-    line = hand_line("r1", "d\ud800‮", 0, GENESIS)
-    seg = tmp_path / "runs" / "r1" / "segments" / "w0.jsonl"
-    seg.write_bytes(json.dumps(line).encode() + b"\n")  # ensure_ascii: stored as \ud800 escapes
+    text = json.dumps(hand_line("r1", "dX", 0, GENESIS)).replace('"dX"', '"d\\ud800\\u202e"')
+    (tmp_path / "runs" / "r1" / "segments" / "w0.jsonl").write_bytes(text.encode() + b"\n")
     res = run_cli("trace", "run", "r1", root=tmp_path)
-    assert res.exit_code == 0, res.stderr
-    assert "document d\\ud800\\u202e" in res.stdout and _unsafe_chars(res.stdout) == []
+    assert res.exit_code == 0 and "invalid_event" in res.stdout, res.stderr
+    assert _unsafe_chars(res.stdout + res.stderr) == []
+    res = run_cli("trace", "doc", "d\ud800\u202e\x1b[31m", root=tmp_path)
+    assert res.exit_code == 2 and res.stderr.count("\n") == 1 and _unsafe_chars(res.stderr) == []

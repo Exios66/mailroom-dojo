@@ -15,7 +15,9 @@ an unexpected error); 2 a usage error (a malformed run id, an unknown run or doc
 root that is not a directory, a missing or unknown option). Errors are one line on stderr,
 never a traceback.
 
-Output prints hashes, roles, node names, kinds, counts and the details ``verify`` and
+Text output escapes every control, format, separator and surrogate character of a stored id
+(``_printable``), so an id cannot start a line, recolour or reorder text; ``--json`` output
+is ASCII-escaped. Output prints hashes, roles, node names, kinds, counts and the details ``verify`` and
 ``reindex`` report (which name segments, offsets and error types). It never prints blob
 content, payloads, or the values inside a decision or cause (a trace shows their digest:
 shape, field names, size, SHA-256). ``trace`` and ``versions`` make the index ready first
@@ -28,6 +30,7 @@ from __future__ import annotations
 
 import json
 import sys
+import unicodedata
 from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
@@ -78,8 +81,42 @@ class _Store:
         self.index = Index(root / INDEX_FILE)
 
 
+# Unicode categories a terminal may act on rather than show: controls (C0, C1, ESC and so
+# ANSI CSI/OSC sequences, newlines), format characters (bidi overrides such as U+202E,
+# zero-width characters, BOM), line and paragraph separators, and lone surrogates.
+_UNSAFE_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp", "Cs"})
+
+
+def _printable(text: str) -> str:
+    """``text`` with every character of an unsafe category escaped as ``\\xNN``/``\\uNNNN``.
+
+    Stored ids (document ids, node and agent names, decision field names) reach text output,
+    and a hostile one could otherwise start a new line, recolour or hide text, or reorder it
+    (a forged "run r1: ok" inside a failing report). Every text line goes through here;
+    ``--json`` output is already ASCII-escaped by ``json.dumps``.
+    """
+    if all(unicodedata.category(c) not in _UNSAFE_CATEGORIES for c in text):
+        return text
+    out = []
+    for c in text:
+        if unicodedata.category(c) not in _UNSAFE_CATEGORIES:
+            out.append(c)
+        elif ord(c) < 0x100:
+            out.append(f"\\x{ord(c):02x}")
+        elif ord(c) < 0x10000:
+            out.append(f"\\u{ord(c):04x}")
+        else:
+            out.append(f"\\U{ord(c):08x}")
+    return "".join(out)
+
+
+def _echo(line: str) -> None:
+    """Print one line of text output, escaped (``_printable``)."""
+    typer.echo(_printable(line))
+
+
 def _err(message: str) -> None:
-    typer.echo(" ".join(message.split()), err=True)  # one line
+    typer.echo(_printable(message), err=True)  # one line: newlines are escaped
 
 
 def _describe(exc: BaseException) -> str:
@@ -224,8 +261,8 @@ def verify(run_id: RunArg, root: Root, as_json: AsJson = False) -> None:
         else:
             failing = sum(p.fails for p in report.problems)
             state = "ok" if report.ok else f"NOT OK ({failing} failing problem{'s' if failing != 1 else ''})"
-            typer.echo(f"run {rid}: {state}")
-            typer.echo(
+            _echo(f"run {rid}: {state}")
+            _echo(
                 f"checked {report.events_checked} events, {report.documents_checked} documents, "
                 f"{report.seals_checked} seals; {report.tombstoned_blobs} tombstoned blobs; "
                 f"{'closed' if report.closed else 'open'} run"
@@ -239,7 +276,7 @@ def verify(run_id: RunArg, root: Root, as_json: AsJson = False) -> None:
                     ]
                 )
                 note = "" if p.fails else " (does not fail)"
-                typer.echo(f"  {p.kind}{note}{where}: {p.detail}")
+                _echo(f"  {p.kind}{note}{where}: {p.detail}")
         return 0 if report.ok else 1
 
     _guard(body)
@@ -258,12 +295,12 @@ def seal(run_id: RunArg, root: Root, as_json: AsJson = False) -> None:
         if as_json:
             _print_json({"run_id": rid, "new": new, "seal": sealed.model_dump(mode="json")})
         elif new:
-            typer.echo(
+            _echo(
                 f"sealed run {rid}: seal {sealed.n}, {sealed.event_count} events in total, "
                 f"{len(sealed.document_ids)} documents, hash {sealed.hash}"
             )
         else:
-            typer.echo(f"run {rid}: no new events; the latest seal is {sealed.n} (hash {sealed.hash})")
+            _echo(f"run {rid}: no new events; the latest seal is {sealed.n} (hash {sealed.hash})")
         return 0
 
     _guard(body)
@@ -279,7 +316,7 @@ def reindex(root: Root, as_json: AsJson = False) -> None:
         if as_json:
             _print_json(asdict(stats))
             return 0
-        typer.echo(
+        _echo(
             f"reindexed {s.index.path}: {stats.runs} runs, {stats.documents} documents, {stats.events} events, "
             f"{stats.seals} seals, {stats.torn_tails} torn tails, {len(stats.problems)} problems"
         )
@@ -291,7 +328,7 @@ def reindex(root: Root, as_json: AsJson = False) -> None:
                     f" byte {p.byte_offset}" if p.byte_offset is not None else "",
                 ]
             )
-            typer.echo(f"  {p.kind} run {p.run_id}{where}: {p.detail}")
+            _echo(f"  {p.kind} run {p.run_id}{where}: {p.detail}")
         return 0
 
     _guard(body)
@@ -307,19 +344,19 @@ def trace_run_cmd(run_id: RunArg, root: Root, as_json: AsJson = False) -> None:
         if as_json:
             _print_json({**asdict(t), "damaged": t.damaged})
             return 0
-        typer.echo(f"run {t.run_id}: {_header_text(t.header)}")
-        typer.echo(
+        _echo(f"run {t.run_id}: {_header_text(t.header)}")
+        _echo(
             f"{_n(len(t.documents), 'document')}, {_n(t.events, 'event')}, {t.in_review} in review, "
             f"{_n(t.seal_files, 'seal file')}; index {t.index}"
         )
         for d in t.documents:
-            typer.echo(f"document {d.doc_id}")
+            _echo(f"document {d.doc_id}")
             for line in _summary_lines(d, "  "):
-                typer.echo(line)
+                _echo(line)
         if t.damage:
-            typer.echo("run damage:")
+            _echo("run damage:")
             for line in _damage_lines(t.damage, "  "):
-                typer.echo(line)
+                _echo(line)
         return 0
 
     _guard(body)
@@ -337,21 +374,21 @@ def trace_doc_cmd(doc_id: DocArg, root: Root, as_json: AsJson = False) -> None:
         if as_json:
             _print_json({**asdict(t), "damaged": t.damaged})
             return 0
-        typer.echo(f"document {t.doc_id}: {_n(len(t.runs), 'run')}; index {t.index}")
+        _echo(f"document {t.doc_id}: {_n(len(t.runs), 'run')}; index {t.index}")
         for r in t.runs:
-            typer.echo(f"run {r.run_id}: {_header_text(r.header)} (read from the {r.source})")
+            _echo(f"run {r.run_id}: {_header_text(r.header)} (read from the {r.source})")
             for line in _summary_lines(r.summary, "  "):
-                typer.echo(line)
-            typer.echo("  steps:")
+                _echo(line)
+            _echo("  steps:")
             for st in r.steps:
-                typer.echo(_step_line(st, "    "))
-            typer.echo(f"  versions ({len(r.versions)}):")
+                _echo(_step_line(st, "    "))
+            _echo(f"  versions ({len(r.versions)}):")
             for v in r.versions:
-                typer.echo(_version_line(v, "    "))
+                _echo(_version_line(v, "    "))
             if r.damage:
-                typer.echo("  run damage:")
+                _echo("  run damage:")
                 for line in _damage_lines(r.damage, "    "):
-                    typer.echo(line)
+                    _echo(line)
         return 0
 
     _guard(body)
@@ -382,16 +419,16 @@ def versions(run_id: RunArg, doc_id: DocArg, root: Root, as_json: AsJson = False
                 }
             )
             return 0
-        typer.echo(
+        _echo(
             f"run {rid}, document {doc_id}: {_n(len(chain), 'version')} over {_n(len(read.events), 'event')} "
             f"(read from the {read.source})"
         )
         for v in chain:
-            typer.echo(_version_line(v, "  "))
+            _echo(_version_line(v, "  "))
         if read.damage:
-            typer.echo("damage:")
+            _echo("damage:")
             for line in _damage_lines(read.damage, "  "):
-                typer.echo(line)
+                _echo(line)
         return 0
 
     _guard(body)
