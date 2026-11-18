@@ -1,0 +1,6 @@
+{
+  "description": "Intended differences between mailroom_dojo and llm-dojo-scoring 0.30.1 (commit 23f8234c) on the golden fixtures. Each entry: fixture (file name in this directory), case (boundary call index or corpus case id), function, reason, new_outcome ({\"result\": ...} or {\"raises\": type, \"message\": text}). The parity tests fail on a difference not listed here and on a listed one that no longer occurs. See packages/dojo/docs/golden-parity.md.",
+  "old_commit": "23f8234c3c548bdc203033388bb316e52e588a2c",
+  "old_version": "0.30.1",
+  "differences": []
+}
