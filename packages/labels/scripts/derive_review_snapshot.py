@@ -13,13 +13,21 @@ and adds ``source.derived_from``: the source snapshot id, its ``manifest_hash``,
 come from ``--known-warnings`` under the new snapshot id, as for an import.
 
     python packages/labels/scripts/derive_review_snapshot.py \\
-        --source <directory holding gold-review-2026-11-18> \\
+        --source <the gold-review-2026-11-18 snapshot directory> \\
         --out labels/gold-review-2026-11-18-r2 \\
         --known-warnings config/clients/mailroom-dataset/known-warnings.yaml   # --check: compare only
 
-The source snapshot is not kept beside its derivation; for ``--check``, extract it from the
-history of the branch that added it (``git archive <commit> labels/gold-review-2026-11-18``)
-and pass that directory. A different source changes ``derived_from`` and so the manifest.
+``--source`` is the snapshot directory itself (the one holding its ``manifest.json``).
+The source snapshot is not kept beside its derivation; for ``--check``, extract it from
+commit ``4ca36109f8a2098b530bfdc52fd802fb620bd81b``, which holds it exactly as it was added
+(reachable from ``refs/pull/5/head``; ``git fetch origin refs/pull/5/head`` when it is not
+local):
+
+    mkdir <scratch> && git archive 4ca36109f8a2098b530bfdc52fd802fb620bd81b \\
+        labels/gold-review-2026-11-18 | tar -x -C <scratch>
+
+and pass ``--source <scratch>/labels/gold-review-2026-11-18``. A different source changes
+``derived_from`` and so the manifest.
 Exit 0: written (or identical under ``--check``); 1: refused or different; 2: usage.
 """
 
