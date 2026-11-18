@@ -29,7 +29,13 @@ def _check_keys(obj: Any) -> None:
 
 
 def canonical_json(obj: Any) -> bytes:
-    """Encode ``obj`` as canonical JSON bytes."""
+    """Encode ``obj`` as canonical JSON bytes.
+
+    This is a frozen storage format, not a style choice: every stored event and seal is
+    hashed over it, and verify reports a line whose bytes differ from it as
+    ``corrupt_line`` (a seal file as ``seal_corrupt``). Changing anything here (key order,
+    separators, escaping, float rendering) makes every stored line in every run corrupt.
+    """
     # json.dumps runs first so a cyclic object raises instead of looping in _check_keys.
     text = json.dumps(
         obj,

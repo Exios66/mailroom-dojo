@@ -9,7 +9,13 @@ executors:
 
 jobs:
   test:
-    executor: python
+    # The package declares requires-python >= 3.11, so the suite runs on every supported
+    # minor version: 3.11 (the oldest), 3.12, and 3.13 (the one local development uses).
+    parameters:
+      python:
+        type: string
+    docker:
+      - image: cimg/python:<< parameters.python >>
     steps:
       - checkout
       - run:
@@ -57,6 +63,9 @@ jobs:
 workflows:
   checks:
     jobs:
-      - test
+      - test:
+          matrix:
+            parameters:
+              python: ["3.11.14", "3.12.7", "3.13.9"]
       - lint
       - no-session-links

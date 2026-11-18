@@ -37,18 +37,64 @@ Rules
   place, directory fsynced); if ``<n>.json`` already exists the call fails instead of
   replacing it.
 - The seal file is the commit point; the Parquet file is derived. It is written after the
-  seal (temp file, fsync, rename, directory fsync). If a crash leaves the latest seal
-  without its Parquet file, the next ``seal_run`` rebuilds it from the log.
-- No new events: the previous seal is returned unchanged and nothing is written.
+  seal (temp file, fsync, rename, directory fsync). Any seal whose Parquet file is missing
+  (the latest, after a crash between the two writes; any other, after a deletion) or
+  damaged has it rebuilt from the log by the next ``seal_run`` (temp file and rename, so
+  the damaged file is replaced whole), from the rows between that seal's heads and the
+  previous seal's, checked like new rows (below). Every seal's file, the latest included,
+  is checked cheaply: it must open with ``EVENT_SCHEMA`` and hold the row count its seal
+  implies (the Parquet footer only), so a seal with nothing new costs the same whatever
+  the size of the last export. A missing, truncated or unreadable file is rebuilt; damage
+  that keeps a file readable with the right count is verify's to find
+  (``columns_mismatch``). The column directory is fsynced on every call, so an export
+  whose rename is visible but was never synced (its call crashed first) is made durable
+  before a seal builds on it.
+- Visible is not durable. Under the lock, the seals directory is fsynced before the stored
+  seals are trusted, and every segment holding a line about to be sealed is fsynced
+  before the seal file is written. That covers a line a live writer has written but not
+  yet fsynced: a seal never commits a line that is in the page cache only because nobody
+  synced it yet. It does not cover a write whose fsync already failed. On Linux a
+  writeback error is reported once, the failed pages can be dropped or marked clean, and
+  a later fsync on a fresh descriptor (this one) can return success although those bytes
+  never reached the disk; the same holds for a directory whose fsync failed. A writer
+  whose fsync fails refuses further use (``log.py``), but its lines stay visible and
+  ``seal_run`` cannot tell them from durable ones. After an fsync failure in the store
+  (an I/O error, a full disk), do not seal until the machine has rebooted (or the file
+  system was remounted), so that only what is on disk is visible, and ``verify_run`` has
+  run: a lost line that a later line chained onto shows as a
+  ``seq_gap``; a lost tail of a chain leaves no trace, and sealing after the restart
+  commits only what survived.
+- Every line about to be sealed must name this run (``run_id``); a line of another run (a
+  segment restored into the wrong run) raises ``SealRefused`` naming its segment and byte
+  offset, and nothing is written.
+- Because the seal file always comes first, a column file ``events-<m>.parquet`` with no
+  ``seals/<m>.json`` (``m`` above the latest seal) is never a crash state: the seal file was
+  deleted. ``seal_run`` refuses (``SealRefused``) instead of sealing ``m`` again with a new
+  hash, which would hide the deletion; verify reports it as ``seal_missing``. If both files
+  of the latest seal are deleted nothing on disk shows the seal existed, so ``seal_run``
+  seals again; only a copy of the old seal hash held elsewhere can show that deletion.
+- No new events: the previous seal is returned unchanged and nothing is written (apart
+  from rebuilding lost Parquet files).
 - A run with no events at all gets seal 0 with no documents and ``event_count`` 0 (a
   commitment that the run was empty) and an empty Parquet file with the full schema.
 - The log is read as one consistent snapshot. Segments are read one at a time, so a
   document handed from one writer to another during the read can show a ``seq`` gap (the
   handed-over event sits in a segment already read, a later one in a segment read after).
-  Every document's chain must be gap-free from ``seq`` 0 to its head; if a read shows a
-  gap, the log is read again until a read is gap-free or two reads in a row agree (at most
-  ``_SNAPSHOT_TRIES`` reads). A gap that persists is a real loss on disk: ``SealRefused``
-  ("run verify"), and nothing is written.
+  Every document's chain must be gap-free from ``seq`` 0 to its head. A read that shows
+  no gap is the snapshot. If it shows one, the log is read once more and only lines up to
+  the first read's per-document heads are kept: an owner writes a document's events in
+  ``seq`` order, so every event at or below a head the first read saw was on disk before
+  that read ended, and the second read holds it. A gap still there is a real loss on disk:
+  ``SealRefused`` ("run verify"), and nothing is written. So the log is read at most
+  twice, a busy log is never refused for a race, and events the first read did not see
+  go into the next seal. A head the first read saw that the second does not is refused
+  too (the log lost a line while it was read).
+- Every line about to go into a Parquet file (new, or rebuilt) is hashed once, on its
+  stored dict (ADR-0005), and its ``prev_hash`` is checked against the stored hash of the
+  event before it (``GENESIS`` for ``seq`` 0). A line that does not hash to its stored
+  hash, or does not link, raises ``SealRefused`` naming the document, ``seq``, segment and
+  byte offset, and nothing is written: a seal never commits over a tampered line. Lines
+  covered by earlier seals are not re-hashed (verify checks them).
 - Every row of the new Parquet file is built and validated before the seal file is
   written. A whole line that hashes but is not a valid event (unknown ``kind``, a bad
   field, a ``schema_version`` newer than this code, a value Parquet cannot hold) raises
@@ -91,10 +137,10 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from mailroom_record.blobs import _fsync_dir, _makedirs_durable, write_exclusive
+from mailroom_record.blobs import _fsync_dir, _makedirs_durable, _open_fd_for_write, write_exclusive
 from mailroom_record.hashing import canonical_json
-from mailroom_record.log import CorruptLine, EventLog, StoredLine, _Heads
-from mailroom_record.models import GENESIS, Event, Seal, seal_hash, utc_now
+from mailroom_record.log import CorruptLine, EventLog, StoredLine, _Heads, _safe_detail
+from mailroom_record.models import GENESIS, Event, Seal, event_hash, seal_hash, utc_now, validation_detail
 
 __all__ = ["EVENT_COLUMNS", "SealCorrupt", "SealRefused", "list_seals", "seal_run"]
 
@@ -129,7 +175,7 @@ if set(_COLUMN_TYPES) != set(EVENT_COLUMNS):  # an Event field was added or remo
 EVENT_SCHEMA = pa.schema([(name, _COLUMN_TYPES[name]) for name in EVENT_COLUMNS])
 
 _SEAL_NAME_RE = re.compile(r"(0|[1-9][0-9]*)\.json")
-_SNAPSHOT_TRIES = 5
+_COLUMNS_NAME_RE = re.compile(r"events-(0|[1-9][0-9]*)\.parquet")
 
 
 class SealCorrupt(ValueError):
@@ -176,8 +222,8 @@ def _load_seals(log: EventLog, run_id: str) -> list[tuple[Seal, dict[str, Any]]]
         try:
             raw = json.loads(p.read_bytes())
             seal = Seal.from_stored(raw)
-        except (ValueError, TypeError) as exc:  # bad JSON, failed validation, unknown version
-            raise SealCorrupt(f"{p.name}: {exc}") from None
+        except (ValueError, TypeError, RecursionError) as exc:  # bad JSON, failed validation, unknown version, deep nesting
+            raise SealCorrupt(f"{p.name}: {_safe_detail(exc)}") from None
         if seal.n != int(m[1]) or seal.run_id != run_id:
             raise SealCorrupt(f"{p.name}: holds seal {seal.n} of run {seal.run_id!r}")
         seals.append((seal, raw))
@@ -197,18 +243,23 @@ def _check_seal_chain(seals: Sequence[tuple[Seal, dict[str, Any]]]) -> None:
         prev = raw["hash"]
 
 
-def _head_seqs(seal: Seal | None, lines: Sequence[StoredLine], run_id: str) -> dict[str, int]:
-    """``doc_id -> seq`` of each head ``seal`` committed, found in the log by its hash."""
+def _head_seqs(seal: Seal | None, where: dict[tuple[str, str], int], run_id: str) -> dict[str, int]:
+    """``doc_id -> seq`` of each head ``seal`` committed, found in the log by its hash.
+
+    ``where`` maps ``(doc_id, hash)`` to ``seq`` for every line of the snapshot.
+    """
     if seal is None:
         return {}
-    wanted = dict(seal.doc_heads)
     found: dict[str, int] = {}
-    for s in lines:
-        doc = s.raw["doc_id"]
-        if wanted.get(doc) == s.raw["hash"]:
-            found[doc] = s.raw["seq"]
-    lost = sorted(set(wanted) - set(found))
+    lost: list[str] = []
+    for doc, h in seal.doc_heads.items():
+        seq = where.get((doc, h))
+        if seq is None:
+            lost.append(doc)
+        else:
+            found[doc] = seq
     if lost:
+        lost.sort()
         raise SealRefused(
             f"run {run_id!r}: the log no longer holds the head that seal {seal.n} committed for "
             f"document {lost[0]!r}" + (f" (and {len(lost) - 1} more)" if len(lost) > 1 else "")
@@ -218,38 +269,91 @@ def _head_seqs(seal: Seal | None, lines: Sequence[StoredLine], run_id: str) -> d
 
 
 def _first_gap(lines: Sequence[StoredLine]) -> tuple[str, int] | None:
-    """The first ``(doc_id, seq)`` missing between 0 and its document's head, if any."""
-    seqs: dict[str, set[int]] = {}
+    """The first ``(doc_id, seq)`` missing between 0 and its document's head, if any.
+
+    Walks each document's sorted stored seqs, so one line with a huge ``seq`` costs nothing.
+    """
+    seqs: dict[str, list[int]] = {}
     for s in lines:
-        seqs.setdefault(s.raw["doc_id"], set()).add(s.raw["seq"])
+        seqs.setdefault(s.raw["doc_id"], []).append(s.raw["seq"])
     for doc in sorted(seqs):
-        have = seqs[doc]
-        if len(have) != max(have) + 1:
-            return doc, min(set(range(max(have) + 1)) - have)
+        expected = 0
+        for seq in sorted(seqs[doc]):
+            if seq > expected:
+                return doc, expected
+            expected = max(expected, seq + 1)
     return None
 
 
+def _index(lines: Sequence[StoredLine], run_id: str) -> _Heads:
+    heads = _Heads()
+    for s in lines:
+        heads.add(s.raw, s)  # CorruptLine for a line without doc_id, seq or hash
+    heads.check_forks(run_id)
+    return heads
+
+
 def _snapshot(log: EventLog, run_id: str) -> tuple[list[StoredLine], _Heads]:
-    """A gap-free read of every stored line of the run (see "Rules" in the module doc)."""
-    previous: list[tuple[str, int, str]] | None = None
-    for _ in range(_SNAPSHOT_TRIES):
-        lines = list(log.iter_stored(run_id))
-        heads = _Heads()
-        for s in lines:
-            heads.add(s.raw, s)  # CorruptLine for a line without doc_id, seq or hash
-        heads.check_forks(run_id)
-        gap = _first_gap(lines)
-        if gap is None:
-            return lines, heads
-        key = [(s.segment, s.byte_offset, s.raw["hash"]) for s in lines]
-        if key == previous:
-            break  # two reads agree: the gap is on disk, not a race with a writer
-        previous = key
-    doc, seq = gap
-    raise SealRefused(
-        f"run {run_id!r}: document {doc!r} has no event with seq {seq} on disk although later "
-        "events exist; run verify before sealing"
-    )
+    """A gap-free read of the run's stored lines (see "Rules" in the module doc).
+
+    One read that shows no gap is a snapshot. A read that shows one may have raced a
+    hand-off, so the log is read once more and only the lines up to the first read's
+    heads are kept: every event at or below a head the first read saw was on disk before
+    that read ended (an owner writes a document's events in ``seq`` order), so the second
+    read holds all of them, and a gap still there is on disk.
+    """
+    lines = list(log.iter_stored(run_id))
+    heads = _index(lines, run_id)
+    if _first_gap(lines) is None:
+        return lines, heads
+    bound = dict(heads.heads)
+    again = list(log.iter_stored(run_id))
+    _index(again, run_id)  # a malformed or forked line anywhere is refused, not skipped
+    lines = [s for s in again if s.raw["doc_id"] in bound and s.raw["seq"] <= bound[s.raw["doc_id"]][0]]
+    heads = _index(lines, run_id)
+    gap = _first_gap(lines)
+    if gap is not None:
+        doc, seq = gap
+        raise SealRefused(
+            f"run {run_id!r}: document {doc!r} has no event with seq {seq} on disk although later "
+            "events exist; run verify before sealing"
+        )
+    changed = sorted(d for d, h in bound.items() if heads.heads.get(d) != h)
+    if changed:  # a line seen by the first read is gone from the second
+        raise SealRefused(
+            f"run {run_id!r}: the head of document {changed[0]!r} at seq {bound[changed[0]][0]} "
+            "disappeared from the log while it was read; run verify before sealing"
+        )
+    return lines, heads
+
+
+def _check_links(
+    export: Sequence[StoredLine], by_key: dict[tuple[str, int], StoredLine], run_id: str
+) -> None:
+    """Every line about to be exported hashes to its stored hash and links to its predecessor.
+
+    Each line is hashed once, on the stored dict as parsed (ADR-0005). The predecessor's
+    stored hash is what a link must equal; the predecessor itself was checked when the
+    seal that covers it was made (or is checked here, if it is exported too).
+    """
+    for s in export:
+        doc, seq, raw = s.raw["doc_id"], s.raw["seq"], s.raw
+        where = f"run {run_id!r}: document {doc!r} seq {seq} ({s.segment} at byte {s.byte_offset})"
+        try:
+            ok = event_hash(raw) == raw["hash"]
+        except (TypeError, ValueError, RecursionError):  # NaN, a non-str key, nesting too deep
+            ok = False
+        if not ok:
+            raise SealRefused(f"{where} does not hash to its stored hash; run verify before sealing")
+        if raw.get("run_id") != run_id:
+            raise SealRefused(f"{where}: the line belongs to another run; run verify before sealing")
+        if seq == 0:
+            if raw.get("prev_hash") != GENESIS:
+                raise SealRefused(f"{where}: prev_hash is not GENESIS; run verify before sealing")
+            continue
+        pred = by_key.get((doc, seq - 1))
+        if pred is None or raw.get("prev_hash") != pred.raw["hash"]:
+            raise SealRefused(f"{where}: prev_hash is not the hash of seq {seq - 1}; run verify before sealing")
 
 
 # --- writing ----------------------------------------------------------------------
@@ -267,22 +371,25 @@ def _seal_lock(seals_dir: Path) -> Iterator[None]:
 
 def _invalid(s: StoredLine, exc: Exception) -> CorruptLine:
     # Name the fields and error types only: input values may hold document text.
-    errors = getattr(exc, "errors", None)
-    if callable(errors):
-        what = "; ".join(".".join(map(str, e["loc"])) + ": " + e["type"] for e in errors())
-    else:
-        what = f"{type(exc).__name__}: {exc}"
+    detail = validation_detail(exc)  # stored keys become <key>, values never appear
+    if detail is not None:
+        what = detail
+    elif type(exc).__name__ == "UnknownSchemaVersion":
+        what = "schema_version: UnknownSchemaVersion"
+    else:  # the type only: Arrow and upgrade messages can quote the stored value
+        what = type(exc).__name__
     return CorruptLine(f"{s.segment} at byte {s.byte_offset}: not a valid event ({what})")
 
 
 def _row(s: StoredLine) -> dict[str, Any]:
     try:
         ev = Event.from_stored(s.raw).model_dump(mode="json")
-    except ValueError as exc:  # pydantic ValidationError, UnknownSchemaVersion
+        decision = None if ev["decision"] is None else canonical_json(ev["decision"]).decode("utf-8")
+    except (ValueError, TypeError, RecursionError) as exc:  # ValidationError, UnknownSchemaVersion, nesting
         raise _invalid(s, exc) from None
     row = {c: ev[c] for c in EVENT_COLUMNS}
     row["schema_version"] = s.raw["schema_version"]
-    row["decision"] = None if ev["decision"] is None else canonical_json(ev["decision"]).decode("utf-8")
+    row["decision"] = decision
     row["inputs"] = [r["sha256"] for r in ev["inputs"]]
     row["outputs"] = [r["sha256"] for r in ev["outputs"]]
     return row
@@ -302,13 +409,13 @@ def _table(lines: Sequence[StoredLine]) -> pa.Table:
         raise whole
 
 
-def _write_columns(path: Path, table: pa.Table) -> None:
+def _write_columns(path: Path, table: pa.Table, root: Path) -> None:
     directory = path.parent
-    _makedirs_durable(directory)
+    _makedirs_durable(directory, root)
     fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{path.name}.", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
-        with os.fdopen(fd, "wb") as f:
+        with _open_fd_for_write(fd, tmp.name) as f:
             pq.write_table(table, f, compression="zstd")
             f.flush()
             os.fsync(f.fileno())
@@ -318,6 +425,31 @@ def _write_columns(path: Path, table: pa.Table) -> None:
             tmp.unlink()
         raise
     _fsync_dir(directory)
+
+
+def _columns_look_whole(path: Path, n_rows: int) -> bool:
+    """A cheap check of an older seal's column file: it opens, has the schema and row count."""
+    try:
+        f = pq.ParquetFile(path)
+        return f.metadata.num_rows == n_rows and f.schema_arrow.equals(EVENT_SCHEMA)
+    except (OSError, pa.ArrowException, ValueError):  # missing, truncated, not Parquet
+        return False
+
+
+def _fsync_segments(log: EventLog, run_id: str, names: set[str]) -> None:
+    """fsync each named segment, so lines nobody has synced yet are on disk before a seal commits them.
+
+    A read-only descriptor is enough: fsync writes back the file's dirty pages whoever wrote
+    them. It cannot vouch for pages whose earlier writeback failed (see "Visible is not
+    durable" in the module doc).
+    """
+    seg_dir = log.segment_dir(run_id)
+    for name in sorted(names):
+        fd = os.open(seg_dir / name, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
 
 
 def _between(lines: Sequence[StoredLine], after: dict[str, int], upto: dict[str, int] | None) -> list[StoredLine]:
@@ -333,42 +465,74 @@ def _between(lines: Sequence[StoredLine], after: dict[str, int], upto: dict[str,
     return out
 
 
+def _orphan_columns(log: EventLog, run_id: str, latest: int) -> list[int]:
+    """Numbers above ``latest`` that have a column file: their seal file was deleted."""
+    d = log.run_dir(run_id) / "columns"
+    if not d.is_dir():
+        return []
+    found = (_COLUMNS_NAME_RE.fullmatch(p.name) for p in d.iterdir())
+    return sorted(n for n in (int(m[1]) for m in found if m) if n > latest)
+
+
 def seal_run(log: EventLog, run_id: str, *, sealed_at: str | None = None) -> Seal:
     """Seal every flushed event of ``run_id`` not covered by an earlier seal (see module doc).
 
     Returns the new seal, or the previous seal unchanged when there is nothing new.
     Raises ``FileNotFoundError`` for an unknown run, ``ForkedChain`` for a forked document
-    chain, ``SealRefused`` when the log or the seal chain disagrees with the stored seals or
-    a document's chain has a gap on disk, ``CorruptLine`` for a stored line that is not a
-    valid event, ``SealCorrupt`` for an unreadable seal file, and ``ValueError`` for a bad
-    ``sealed_at``.
+    chain, ``SealRefused`` when the log or the seal chain disagrees with the stored seals,
+    a document's chain has a gap on disk, a line to be sealed does not hash to its stored
+    hash or does not link to its predecessor, or a column file outlives its seal file;
+    ``CorruptLine`` for a stored line that is not a valid event, ``SealCorrupt`` for an
+    unreadable seal file, and ``ValueError`` for a bad ``sealed_at``.
     """
     sealed_at = utc_now() if sealed_at is None else sealed_at
     if not (log.run_dir(run_id) / "run.json").is_file():
         raise FileNotFoundError(f"no run {run_id!r} under {log.root}")
     seals_dir = _seals_dir(log, run_id)
-    _makedirs_durable(seals_dir)
+    _makedirs_durable(seals_dir, log.root)
     with _seal_lock(seals_dir):
+        _fsync_dir(seals_dir)  # a visible seal file may not be durable yet (its writer's fsync failed)
         loaded = _load_seals(log, run_id)
         _check_seal_chain(loaded)
         seals = [seal for seal, _ in loaded]
         prev = seals[-1] if seals else None
+        orphans = _orphan_columns(log, run_id, -1 if prev is None else prev.n)
+        if orphans:
+            raise SealRefused(
+                f"run {run_id!r}: columns/events-{orphans[0]}.parquet exists but seals/{orphans[0]}.json "
+                "does not; a seal file was deleted (the seal is always written first); run verify"
+            )
 
         lines, heads = _snapshot(log, run_id)
-        prev_seqs = _head_seqs(prev, lines, run_id)
+        where = {(s.raw["doc_id"], s.raw["hash"]): s.raw["seq"] for s in lines}
+        by_key = {(s.raw["doc_id"], s.raw["seq"]): s for s in lines}
+        prev_seqs = _head_seqs(prev, where, run_id)
 
-        if prev is not None:
-            # The seal is the commit point; rebuild its Parquet file if a crash lost it.
-            if not _columns_path(log, run_id, prev.n).exists():
-                before = _head_seqs(seals[-2], lines, run_id) if len(seals) > 1 else {}
-                _write_columns(_columns_path(log, run_id, prev.n), _table(_between(lines, before, prev_seqs)))
-            new = _between(lines, prev_seqs, None)
-            if not new:
-                return prev
-        else:
-            new = lines
+        # The seal is the commit point and its Parquet file is derived: rebuild any a crash
+        # (the latest) or a deletion (any) lost, from the same log the seals committed.
+        rebuilt: list[tuple[Seal, pa.Table]] = []
+        for s in seals:
+            path = _columns_path(log, run_id, s.n)
+            added = s.event_count - (seals[s.n - 1].event_count if s.n > 0 else 0)
+            if _columns_look_whole(path, added):
+                continue
+            upto = prev_seqs if s is prev else _head_seqs(s, where, run_id)
+            before = _head_seqs(seals[s.n - 1], where, run_id) if s.n > 0 else {}
+            part = _between(lines, before, upto)
+            _check_links(part, by_key, run_id)
+            rebuilt.append((s, _table(part)))
+        for s, table in rebuilt:
+            _write_columns(_columns_path(log, run_id, s.n), table, log.root)
+        columns_dir = log.run_dir(run_id) / "columns"
+        if columns_dir.is_dir():
+            _fsync_dir(columns_dir)  # an existing export's rename may not be durable yet
 
+        new = lines if prev is None else _between(lines, prev_seqs, None)
+        if prev is not None and not new:
+            return prev
+        _check_links(new, by_key, run_id)
         table = _table(new)  # validates every new row before anything is written
+        _fsync_segments(log, run_id, {s.segment for s in new})
 
         doc_heads = {d: h for d, (_, h) in sorted(heads.heads.items())}
         seal = Seal.build(
@@ -380,7 +544,7 @@ def seal_run(log: EventLog, run_id: str, *, sealed_at: str | None = None) -> Sea
             event_count=(0 if prev is None else prev.event_count) + len(new),
             prev_seal_hash=GENESIS if prev is None else prev.hash,
         )
-        if not write_exclusive(seals_dir / f"{seal.n}.json", canonical_json(seal.model_dump(mode="json"))):
+        if not write_exclusive(seals_dir / f"{seal.n}.json", canonical_json(seal.model_dump(mode="json")), log.root):
             raise SealRefused(f"run {run_id!r}: seal {seal.n} already exists; it is never replaced")
-        _write_columns(_columns_path(log, run_id, seal.n), table)
+        _write_columns(_columns_path(log, run_id, seal.n), table, log.root)
         return seal
