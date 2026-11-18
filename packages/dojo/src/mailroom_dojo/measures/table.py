@@ -406,7 +406,8 @@ class MetricTable:
         ``count`` value is not a whole number (unless the row's aggregation
         is ``mean``: a mean of counts need not be whole); a ``boolean`` is not 0 or 1;
         the interval leaves the unit's range or does not contain the value; a metric
-        that needs labels claims ``label_status="none"``; or the cost basis does not
+        that needs labels, or whose ground truth is not stated (null, unknown), claims
+        ``label_status="none"``; or the cost basis does not
         match the row (a cost needs a basis; any other metric has ``none``).
         """
         row = self.get(measure.method)
@@ -435,6 +436,11 @@ class MetricTable:
                 )
         if row.ground_truth == "required" and measure.label_status == "none":
             raise MeasureError(f"{row.id}: needs labels, so label_status cannot be 'none'")
+        if row.ground_truth is None and measure.label_status == "none":
+            raise MeasureError(
+                f"{row.id}: its ground truth is not stated, so it may need labels; "
+                "label_status cannot be 'none' until the row says ground_truth none or structural"
+            )
         if row.cost and measure.cost_basis == "none":
             raise MeasureError(f"{row.id}: a cost needs a cost basis")
         if not row.cost and measure.cost_basis != "none":
@@ -444,6 +450,10 @@ class MetricTable:
         return row
 
 
+#: ``ground_truth`` values that need labels, and those that need none. ``null`` is neither:
+#: the old registry left it unset, so it may need labels.
+_NEEDS_LABELS = frozenset({"required", "optional"})
+_NEEDS_NO_LABELS = frozenset({"structural", "none"})
 #: Units whose values are whole numbers.
 _WHOLE_UNITS = frozenset({"count"})
 #: Units whose values may be negative.
@@ -867,10 +877,10 @@ def _default_views(
             _choice(layer, LABEL_LAYERS, f"{path}.label_layers[{index}]")
         if len(set(layers_raw)) != len(layers_raw):
             raise _fail(f"{path}.label_layers", "lists a layer twice")
-        needs_labels = row.ground_truth in ("required", "optional")
-        if needs_labels and not layers_raw:
+        # ground_truth null is unknown (the old registry left it unset): layers or none.
+        if row.ground_truth in _NEEDS_LABELS and not layers_raw:
             raise _fail(f"{path}.label_layers", f"{metric!r} needs labels; name the layers they come from")
-        if not needs_labels and layers_raw:
+        if row.ground_truth in _NEEDS_NO_LABELS and layers_raw:
             raise _fail(f"{path}.label_layers", f"{metric!r} needs no labels, so it reads no label layer")
         if _DERIVED_LAYER in layers_raw and len(layers_raw) > 1:
             raise _fail(

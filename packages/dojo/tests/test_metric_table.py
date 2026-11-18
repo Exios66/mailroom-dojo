@@ -597,6 +597,33 @@ def test_label_layers_are_the_labels_package_layers_and_derived_gold() -> None:
     assert used <= set(LABEL_LAYERS) and "derived_gold" in used
 
 
+def test_an_unstated_ground_truth_is_unknown_not_label_free() -> None:
+    """``ground_truth: null`` (the old registry left it unset) may need labels: never assume not."""
+    raw = _raw()
+    _set("f1_macro", "ground_truth", None)(raw)
+    table = load_metric_table(raw)
+    assert table.get("f1_macro").ground_truth is None
+    assert table.default_view("sorter").label_layers  # a null metric may name its layers
+    with pytest.raises(MeasureError, match="ground truth is not stated"):
+        table.check(_measure("f1_macro", label_status="none"))
+    assert table.check(_measure("f1_macro")).id == "f1_macro"
+    _view("sorter", label_layers=[])(raw)
+    assert load_metric_table(raw).default_view("sorter").label_layers == ()
+
+
+def test_every_kept_number_states_its_ground_truth() -> None:
+    """A kept numeric row says whether it needs labels; null stays only where no Measure is filed."""
+    table = load_metric_table()
+    unstated = [
+        row.id
+        for row in table.rows
+        if row.status != "not_ported" and row.numeric and row.ground_truth is None
+    ]
+    assert unstated == []
+    assert table.get("per_field_scores").ground_truth == "required"
+    assert table.check(_measure("total_tokens", value=120, label_status="none")).id == "total_tokens"
+
+
 def test_dashboard_queries_leave_out_dropped_rows_unless_asked() -> None:
     """A not_ported headline (bert_elapsed_ms, dropped with the BERT fast path) is no dashboard number."""
     table = load_metric_table()

@@ -184,6 +184,16 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   7), so the row is `not_ported`. The dashboard queries (`headline_rows`, `rows_for_agent`,
   `headlines_by_agent`) leave `not_ported` rows out unless called with
   `include_not_ported=True`, so intake shows no headline from the old tier 0.
+- **An unstated ground truth is unknown, not "no labels".** The old registry left
+  `ground_truth` unset on some rows. The table writes that as `null` and reads it as unknown:
+  a default view whose metric has a `null` ground truth may name label layers, and
+  `MetricTable.check` refuses `label_status="none"` for it. The nine kept numeric rows with
+  no stated ground truth (unset in the old registry, or a golden-baseline row it never
+  listed: `no_related_rate`) now state it: `maud_category_accuracy`, `character_accuracy`,
+  `per_field_scores` and `extraction_category_presence` are `required` (scores against
+  gold); `llm_call_count`, `total_tokens`, `classification_attempts`,
+  `extraction_attempts` and `no_related_rate` are `none` (counts and a behaviour rate over
+  every pair). No value changes; only the label rule a measure of them must keep.
 - **Units have one spelling.** `usd` is written `USD` and `int` `count`; `confusion_matrix`,
   `per_class_stats` and `bootstrap_ci` are `structure`, not `float[0,1]`. The meaning is
   unchanged; a `structure` row is never reported as one number.

@@ -211,6 +211,35 @@ UNIT_NORMALISED: Mapping[tuple[str, str], str] = MappingProxyType(
 )
 
 
+#: Kept numeric rows whose ground truth the old registry left unset or never listed (null,
+#: unknown; ``no_related_rate`` is a golden-baseline row), stated
+#: here so ``check`` knows whether ``label_status="none"`` is honest: scores against gold
+#: need labels; counts of calls, tokens and attempts and the share of pairs answered "no
+#: related clause" (a behaviour rate over every pair) do not.
+GROUND_TRUTH_STATED: Mapping[str, str] = MappingProxyType(
+    {
+        "maud_category_accuracy": "required",
+        "character_accuracy": "required",
+        "per_field_scores": "required",
+        "extraction_category_presence": "required",
+        "llm_call_count": "none",
+        "total_tokens": "none",
+        "classification_attempts": "none",
+        "extraction_attempts": "none",
+        "no_related_rate": "none",
+    }
+)
+
+
+def test_every_stated_ground_truth_was_unset_in_the_old_registry(table: MetricTable) -> None:
+    for metric, ground_truth in GROUND_TRUTH_STATED.items():
+        if metric in OLD["metrics"]:
+            assert not OLD["metrics"][metric]["ground_truth"], metric
+        else:  # a golden-baseline row: the old registry had no entry at all
+            assert table.get(metric).origin == "golden", metric
+        assert table.get(metric).ground_truth == ground_truth
+
+
 def test_every_unit_normalisation_is_used(table: MetricTable) -> None:
     for (metric, old_unit), unit in UNIT_NORMALISED.items():
         assert OLD["metrics"][metric]["units"] == old_unit
@@ -223,7 +252,7 @@ def test_each_old_metric_keeps_its_meaning(table: MetricTable, metric: str) -> N
     row: MetricRow = table.get(metric)
     assert row.aggregation == old["aggregation"]
     assert list(row.expanded_agents) == old["applicable_agents"]
-    assert row.ground_truth == (old["ground_truth"] or None)
+    assert row.ground_truth == GROUND_TRUTH_STATED.get(metric, old["ground_truth"] or None)
     assert row.description == old["description"]
     assert row.unit == UNIT_NORMALISED.get((metric, old["units"]), old["units"])
     assert row.citation == old["citation"]

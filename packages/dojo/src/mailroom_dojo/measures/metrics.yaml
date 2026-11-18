@@ -13,7 +13,11 @@
 #   id            the old registry name, unchanged
 #   description, unit, aggregation, ground_truth, citation, inclusion, notes
 #                 verbatim from the old registry (citation and inclusion merged from the
-#                 old metric_meta.py); ground_truth null = the old registry left it unset.
+#                 old metric_meta.py); ground_truth null = the old registry left it unset,
+#                 read as unknown (it may need labels: check() refuses label_status none
+#                 for it). The nine kept numeric rows it left unset or never listed state it
+#                 here (tests/test_metric_table_parity.py, GROUND_TRUTH_STATED); null stays
+#                 on structure rows and dropped rows.
 #                 Units are a closed vocabulary (table.UNITS), the old ones normalised:
 #                 usd is USD, int is count, and the three structure rows
 #                 (confusion_matrix, per_class_stats, bootstrap_ci) are structure, not
@@ -2013,7 +2017,7 @@ metrics:
     direction: "higher"
     aggregation: "mean"
     agents: ["contracts_specialist", "merger_agreement_specialist"]
-    ground_truth: null
+    ground_truth: "required"
     headline: false
     metric_id: "registry:maud_category_accuracy"
     layer: "D3b"
@@ -2078,7 +2082,7 @@ metrics:
     direction: "higher"
     aggregation: "mean"
     agents: ["TRANSCRIBERS"]
-    ground_truth: null
+    ground_truth: "required"
     headline: false
     metric_id: "registry:character_accuracy"
     layer: "D3b"
@@ -2791,7 +2795,7 @@ metrics:
     direction: "higher"
     aggregation: "none"
     agents: ["SPECIALISTS"]
-    ground_truth: null
+    ground_truth: "required"
     headline: false
     metric_id: "registry:per_field_scores"
     layer: "field_scoring"
@@ -2825,7 +2829,7 @@ metrics:
     direction: "higher"
     aggregation: "mean"
     agents: ["contracts_specialist"]
-    ground_truth: null
+    ground_truth: "required"
     headline: false
     metric_id: "cuad.clause_presence.micro_f1"
     layer: "field_scoring"
@@ -3068,7 +3072,7 @@ metrics:
     direction: "none"
     aggregation: "sum"
     agents: ["ALL"]
-    ground_truth: null
+    ground_truth: "none"
     headline: false
     metric_id: "registry:llm_call_count"
     layer: "D5"
@@ -3084,7 +3088,7 @@ metrics:
     direction: "none"
     aggregation: "sum"
     agents: ["ALL"]
-    ground_truth: null
+    ground_truth: "none"
     headline: false
     metric_id: "registry:total_tokens"
     layer: "D5"
@@ -3196,7 +3200,7 @@ metrics:
     direction: "none"
     aggregation: "sum"
     agents: ["sorter"]
-    ground_truth: null
+    ground_truth: "none"
     headline: false
     metric_id: "registry:classification_attempts"
     layer: "D5"
@@ -3211,7 +3215,7 @@ metrics:
     direction: "none"
     aggregation: "sum"
     agents: ["SPECIALISTS"]
-    ground_truth: null
+    ground_truth: "none"
     headline: false
     metric_id: "registry:extraction_attempts"
     layer: "D5"
@@ -3400,7 +3404,7 @@ metrics:
     direction: "none"
     aggregation: "mean"
     agents: ["contracts_specialist", "judge"]
-    ground_truth: null
+    ground_truth: "none"
     headline: false
     metric_id: "registry:no_related_rate"
     layer: "D3b"
