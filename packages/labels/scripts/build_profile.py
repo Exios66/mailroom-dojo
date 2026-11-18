@@ -24,6 +24,8 @@ fields alone.
         --covers labels/interim-2026-11-01 labels/near-gold-2026-11-17 \
         --out config/clients/mailroom-dataset/profile.yaml          # --check: compare only
 
+``manifest.txt`` and the ground_truth shards must carry the sha256 pinned for the dataset
+revision in ``--pins`` (default ``config/clients/mailroom-dataset/hub-revisions.yaml``).
 Exit 0: written (or identical under ``--check``); 1: a source problem or a difference; 2: usage.
 """
 
@@ -31,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -38,8 +41,8 @@ from typing import Any
 
 import yaml
 
-from mailroom_labels.importers.common import file_sha256
-from mailroom_labels.importers.hub import SPLITS, parse_dataset_manifest, shard_path
+from mailroom_labels.importers.common import ImportRefused, file_sha256
+from mailroom_labels.importers.hub import SPLITS, load_hub_pins, parse_dataset_manifest, shard_path
 from mailroom_labels.profile import parse_profile
 from mailroom_labels.snapshot import load_snapshot
 
@@ -90,16 +93,22 @@ class BuildError(Exception):
     pass
 
 
-def _hub_rows(hub_dir: Path) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+def _hub_rows(hub_dir: Path, pinned: dict[str, str]) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """The ground_truth rows, after checking manifest.txt and every shard against the hashes
+    pinned for the dataset revision (``hub-revisions.yaml``) and manifest.txt itself: a
+    self-consistent download of another revision is refused."""
     import pyarrow.parquet as pq
 
+    manifest_digest = file_sha256(hub_dir / "manifest.txt")
+    if pinned.get("manifest.txt") != manifest_digest:
+        raise BuildError(f"manifest.txt: sha256 {manifest_digest} is not the one pinned for {DATASET['revision']}")
     listed = parse_dataset_manifest((hub_dir / "manifest.txt").read_text(encoding="utf-8"))
     rows, files = [], []
     for split in SPLITS:
         rel = shard_path("ground_truth", split)
         digest = file_sha256(hub_dir / rel)
-        if listed.get(rel) != digest:
-            raise BuildError(f"{rel}: sha256 {digest} is not the one manifest.txt lists")
+        if listed.get(rel) != digest or pinned.get(rel) != digest:
+            raise BuildError(f"{rel}: sha256 {digest} is not the one manifest.txt lists and the pins record")
         files.append({"path": rel, "sha256": digest})
         rows += pq.read_table(hub_dir / rel).to_pylist()
     return rows, files
@@ -120,10 +129,10 @@ def _hub_facts(rows: list[dict[str, Any]]) -> tuple[dict[str, set[str]], dict[st
     return subclasses, labelled
 
 
-def build(eda_dir: Path, eda_commit: str, hub_dir: Path, covers: list[Path]) -> str:
+def build(eda_dir: Path, eda_commit: str, hub_dir: Path, covers: list[Path], pinned: dict[str, str]) -> str:
     registry = yaml.safe_load((eda_dir / FIELDS_YAML).read_text(encoding="utf-8"))
     dojo = json.loads((eda_dir / DOJO_SCHEMAS).read_text(encoding="utf-8"))
-    rows, hub_files = _hub_rows(hub_dir)
+    rows, hub_files = _hub_rows(hub_dir, pinned)
     subclasses, hub_labelled = _hub_facts(rows)
     problems: list[str] = []
     comments: list[str] = []
@@ -219,14 +228,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--eda-commit", required=True)
     parser.add_argument("--hub-dir", type=Path, required=True, help="fetch_hub.py output (manifest.txt + parquet)")
     parser.add_argument("--covers", type=Path, nargs="*", default=[], help="snapshots whose fields must be covered")
+    parser.add_argument("--pins", type=Path, default=Path("config/clients/mailroom-dataset/hub-revisions.yaml"),
+                        help="hub-revisions.yaml: the file hashes pinned for the dataset revision")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--check", action="store_true", help="compare with --out instead of writing")
     args = parser.parse_args(argv)
-    if len(args.eda_commit) != 40:
+    if not re.fullmatch(r"[0-9a-f]{40}", args.eda_commit):
         print("--eda-commit must be the full 40-hex commit", file=sys.stderr)
         return 2
     try:
-        text = build(args.eda_dir, args.eda_commit, args.hub_dir, args.covers)
+        pinned = load_hub_pins(args.pins).get(DATASET["revision"])
+    except (ImportRefused, OSError, yaml.YAMLError) as exc:
+        print(f"--pins {args.pins}: {exc}", file=sys.stderr)
+        return 2
+    if not pinned:
+        print(f"--pins {args.pins} has no entry for revision {DATASET['revision']}", file=sys.stderr)
+        return 2
+    try:
+        text = build(args.eda_dir, args.eda_commit, args.hub_dir, args.covers, pinned)
     except BuildError as exc:
         print(f"profile not built: {exc}", file=sys.stderr)
         return 1

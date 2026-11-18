@@ -909,3 +909,33 @@ def test_fetch_hub_refuses_a_stream_cut_off_mid_file(tmp_path: Path, monkeypatch
     monkeypatch.setattr(fetch.urllib.request, "urlopen", lambda url, timeout: Truncated())
     assert fetch.fetch(tmp_path / "out", ["parquet/x.parquet"], revision="0" * 40) == 1
     assert not (tmp_path / "out" / "manifest.txt").exists()
+
+
+# --- build_profile.py: pinned Hub files and a hex commit ---------------------------------------
+
+
+def _load_build_profile():
+    spec = importlib.util.spec_from_file_location("build_profile_under_test", SCRIPTS / "build_profile.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("commit", ["g" * 40, "A" * 40, "0" * 39, "0" * 40 + "\n"])
+def test_build_profile_requires_a_lowercase_40_hex_eda_commit(tmp_path: Path, commit: str) -> None:
+    bp = _load_build_profile()
+    assert bp.main(["--eda-dir", str(tmp_path), "--eda-commit", commit, "--hub-dir", str(tmp_path),
+                    "--out", str(tmp_path / "p.yaml")]) == 2
+
+
+@pytest.mark.parametrize("rel", ["manifest.txt", "parquet/ground_truth/train/train-00000-of-00001.parquet"])
+def test_build_profile_refuses_hub_files_that_are_not_the_pinned_ones(tmp_path: Path, rel: str) -> None:
+    bp = _load_build_profile()
+    data = write_dataset(tmp_path / "data")
+    pinned = pins_for(data)["0" * 40]
+    rows, _ = bp._hub_rows(data, pinned)
+    assert rows
+    pinned[rel] = "e" * 64  # a self-consistent download of another revision
+    with pytest.raises(bp.BuildError, match="pinned|pins record"):
+        bp._hub_rows(data, pinned)
