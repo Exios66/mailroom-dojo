@@ -111,8 +111,23 @@ class WilsonInterval:
     z: float
 
     def to_dict(self) -> dict[str, Any]:
-        """The old Dojo's dictionary (``lo``, ``hi``, ``half``, ``n``, ``p``, ``z``)."""
-        return {"lo": self.lo, "hi": self.hi, "half": self.half, "n": self.n, "p": self.p, "z": self.z}
+        """The old Dojo's dictionary (``lo``, ``hi``, ``half``, ``n``, ``p``, ``z``).
+
+        ``z`` is given as a plain number so the dictionary is JSON: an integer (a NumPy
+        one included, not a bool) as an ``int``, any other real number (a NumPy float, a
+        ``Fraction``) as a ``float``. The interval itself was computed with ``z`` as given.
+        """
+        z = _plain_z(self.z)
+        return {"lo": self.lo, "hi": self.hi, "half": self.half, "n": self.n, "p": self.p, "z": z}
+
+
+def _plain_z(z: Any) -> Any:
+    """``z`` as a built-in ``int`` or ``float`` when it is a real number; a bool as it is."""
+    if isinstance(z, bool) or not isinstance(z, numbers.Real):
+        return z
+    if isinstance(z, numbers.Integral):
+        return int(z)
+    return float(z)
 
 
 def scores_as_floats(values: Iterable[Any], name: str = "values") -> list[float]:

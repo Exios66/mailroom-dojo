@@ -221,6 +221,10 @@ the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
 - **`required_samples` names "confidence" for a bad `risk`** (`confidence must be in (0, 1);
   got 1.0`), because the old code validated both with one helper. The message is kept.
 - **`wilson_ci` keeps `z` as given** (an integer `2` stays `2`) and rounds `p` to 4 places.
+  The interval is computed with that `z`; `to_dict()` alone gives a NumPy or `Fraction` `z`
+  as a plain `int` (an integer) or `float`, so the dictionary is JSON (the old one held the
+  NumPy value). A NumPy `float32` or `float16` `z` still makes `lo`, `hi` and `half` NumPy
+  values of that type, as in the old Dojo, so that dictionary is still not JSON.
 - **The cross-fit shuffle and the bootstrap resampler are `random.Random(seed)`**, as in the
   old Dojo, so the same seed gives the same numbers across Python 3.12 and 3.13 (the corpus
   was captured with 3.12 and is replayed with 3.13).
