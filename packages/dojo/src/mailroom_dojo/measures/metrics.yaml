@@ -224,10 +224,10 @@ default_views:
     label_layers: ["derived_gold"]
     source: "Owner decision, 2026-11-18: the boss is judged on wrong approvals. Not extraction_overall_score, which grades the specialist. Gold derived (rule in the row's status_reason)."
   intake:
-    metric: "accuracy"
+    metric: "intake_class_accuracy"
     confirmed: true
     label_layers: ["hub", "interim", "near_gold", "review"]
-    source: "Owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class against the gold class, with no guard; the clerk diagnostics are not needed to judge intake."
+    source: "Owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class against the gold class, with no guard; the clerk diagnostics are not needed to judge intake. Its own row, because the shared ids keep their old meaning: the old intake suite's accuracy is the exact match of the cleaned text and its f1_macro the token F1 (llm_dojo_scoring/pipeline/intake.py at 23f8234c, _score_one)."
   contracts_specialist:
     metric: "extraction_overall_score"
     confirmed: false
@@ -3780,3 +3780,20 @@ metrics:
     origin: "design"
     citation: "Owner decision, 2026-11-18: gold for evaluation is the interim and near_gold labels, the Hub ground truth, and additional gold generated to support the evaluations."
     inclusion: "Fields the scoring profile scores, over the evaluation set."
+  - id: "intake_class_accuracy"
+    description: "Share of documents whose intake triage class equals the gold class"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["intake"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:intake_class_accuracy"
+    layer: "D6"
+    status: "planned"
+    readers: ["classification_report"]
+    status_reason: "Reader: classification_report (class accuracy per agent) and intake's default view (owner decision, 2026-11-18: intake is judged only by its triage class against the gold class, no guard). A row of its own: the old intake suite's accuracy (exact match of the cleaned text against the clerk's gold) and f1_macro (token F1) keep their meaning (llm_dojo_scoring/pipeline/intake.py at 23f8234c, _score_one)."
+    pairing: "paired_percentile_bootstrap"
+    origin: "design"
+    citation: "Owner decision, 2026-11-18 (intake simplified to what is absolutely necessary: triage-class accuracy, no guard)."
+    inclusion: "Documents with a gold class in the named label layers (hub, interim, near_gold, review; precedence unchanged); none for an empty set."

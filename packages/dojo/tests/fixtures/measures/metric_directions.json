@@ -455,6 +455,7 @@
   "log_complete_step_rate": "higher",
   "log_chains_verified": "higher",
   "cost_estimate_to_billed_ratio": "none",
-  "fields_without_gold": "lower"
+  "fields_without_gold": "lower",
+  "intake_class_accuracy": "higher"
  }
 }

@@ -179,6 +179,13 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   `intake_changed_rate`, `intake_messy_rate`, `intake_hyphen_unwraps` and
   `intake_collapsed_blanks` are `not_ported`. The old golden intake suite emits them, so D3b
   lists them as intended differences of the parity gate.
+- **Intake is judged on its own row, `intake_class_accuracy`; `accuracy` keeps its meaning.**
+  By the owner's decision intake is judged only by its triage class against the gold class,
+  with no guard. In the old intake suite `accuracy` is the exact match of the cleaned text
+  against the clerk's gold and `f1_macro` the token F1 (`pipeline/intake.py` `_score_one`;
+  golden `suites.intake.score.accuracy = 1.0`), so the class accuracy is a new planned row
+  (`dojo:intake_class_accuracy`, direction higher, unit proportion, gold from the class
+  layers) and intake's default view. The old suite numbers stay as they are.
 - **The headline `bert_elapsed_ms` is dropped with the BERT fast path.** It was an old tier-0
   (headline) metric of intake; the port design drops llm-mailroom's BERT intake gate (section
   7), so the row is `not_ported`. The dashboard queries (`headline_rows`, `rows_for_agent`,
@@ -201,7 +208,7 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   `contracteval_false_no_related`, "mirrors ContractEval no_related_rate", is wrong: it is
   `false_no_related_rate` (positive pairs), not `no_related_rate` (all pairs). The note keeps
   its old text; the row's `status_reason` corrects it.
-- **18 planned design rows** (`origin: design`, ids `dojo:<id>`) add numbers the old Dojo never
+- **19 planned design rows** (`origin: design`, ids `dojo:<id>`) add numbers the old Dojo never
   had; none changes an old number.
 
 ### Correction

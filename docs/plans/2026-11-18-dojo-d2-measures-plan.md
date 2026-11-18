@@ -13,8 +13,8 @@ change), and every live agent has a `default_view` or a null with a reason.
   `metric_id`), an optional interval and a reason when there is no value. Comparability is
   checked on method, subject, cost basis, label status and provenance.
 - `metrics.yaml`: one row per id of the old registry (184, old order), the ten metrics the old
-  golden baseline emits outside it, and 18 planned rows for needs the master design names that
-  no old metric meets: 212 rows (19 implemented, 107 planned, 86 not ported). Each row has a
+  golden baseline emits outside it, and 19 planned rows for needs the master design names that
+  no old metric meets: 213 rows (19 implemented, 108 planned, 86 not ported). Each row has a
   direction, readers, status, pairing where it is compared, and a pointer to its canonical row
   when it is a duplicate. An `agent_roster` and each live agent's default view.
 - The loader and its rules (`table.py`), each tested, with a deliberate mutation shown red.
@@ -85,7 +85,12 @@ behind the spend gate).
 10. **Intake clerk diagnostics dropped (owner decision).** `intake_prep_completeness`,
     `intake_changed_rate`, `intake_messy_rate`, `intake_hyphen_unwraps` and
     `intake_collapsed_blanks` are `not_ported`; the old golden intake suite emits them, so
-    D3b lists them as intended parity differences.
+    D3b lists them as intended parity differences. Intake's default view is the planned design
+    row `intake_class_accuracy` (its triage class against the gold class, direction higher,
+    unit proportion, gold from the class layers, no guard), not `accuracy`: the shared ids keep
+    their old meaning, and in the old intake suite `accuracy` is the exact match of the cleaned
+    text against the clerk's gold and `f1_macro` the token F1 (old `pipeline/intake.py`
+    `_score_one`). The old suite's numbers stay as they are for the parity gate.
 11. **`judge_error_rate` is kept** for the archive gate, whose pass rule requires no
     `judge_error` document (local-mailroom-sandbox `job/gate.py`). Serving ids stay planned
     for D5.
@@ -99,7 +104,7 @@ behind the spend gate).
 | `judge` | live | `judge_verdict_accuracy` | `judge_escalation_recall` | derived_gold | proposal |
 | `arbiter` | live | `arbiter_decision_accuracy` | `arbiter_wrongful_accept_rate` | derived_gold | proposal |
 | `boss` | live | `boss_wrongful_approve_rate` | `boss_needless_review_rate` | derived_gold | yes |
-| `intake` | live | `accuracy` | none | hub, interim, near_gold, review | yes |
+| `intake` | live | `intake_class_accuracy` | none | hub, interim, near_gold, review | yes |
 | `contracts_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, review | proposal |
 | `merger_agreement_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, review | proposal |
 | `corporate_records_specialist` | live | `extraction_overall_score` | `per_field_scores` | hub, interim, near_gold, review | proposal |
@@ -132,13 +137,13 @@ the sandbox gate's name), `review_rate`, `correct_archive_rate`, `document_utili
 `slot_override_rate`, `slot_cap_use`, `slot_cap_breaches`, `cost_per_decision`,
 `outcome_flip_rate`, `cost_per_classification`, `cost_per_1000_documents`,
 `documents_per_minute`, `log_complete_step_rate`, `log_chains_verified`,
-`cost_estimate_to_billed_ratio` and `fields_without_gold`. Each is `origin: design`, metric id
+`cost_estimate_to_billed_ratio`, `fields_without_gold` and `intake_class_accuracy`. Each is `origin: design`, metric id
 `dojo:<id>`, and names its reader (archive gate, reports, keep rule, run comparison, cost
 projection, log health or gold generation) and its build chunk (D4 to D7).
 
 ## Directions (proposed, owner to confirm)
 
-Directions: 100 higher, 58 lower, 54 none, over 212 rows. The 17 kept rows with direction none: `reviewer_routed_to_human_review_rate`, `audit_disagreement_rate`, `audit_resolution_rate`, `gpu_utilization`, `prompt_tokens`, `completion_tokens`, `confusion_matrix`, `per_class_stats`, `bootstrap_ci`, `llm_call_count`, `total_tokens`, `classification_attempts`, `extraction_attempts`, `no_related_rate`, `slot_override_rate`, `slot_cap_use`, `cost_estimate_to_billed_ratio`.
+Directions: 101 higher, 58 lower, 54 none, over 213 rows. The 17 kept rows with direction none: `reviewer_routed_to_human_review_rate`, `audit_disagreement_rate`, `audit_resolution_rate`, `gpu_utilization`, `prompt_tokens`, `completion_tokens`, `confusion_matrix`, `per_class_stats`, `bootstrap_ci`, `llm_call_count`, `total_tokens`, `classification_attempts`, `extraction_attempts`, `no_related_rate`, `slot_override_rate`, `slot_cap_use`, `cost_estimate_to_billed_ratio`.
 
 Name-lint exceptions (48), each a row whose direction differs from what its id's words suggest:
 
@@ -230,7 +235,7 @@ Review of the provisional defaults, and the owner's decisions:
 | Defaults for non-live agents | `agent_roster`; auditors legacy, three specialists retired, no views for them |
 | Per-agent defaults and guards | The table above; boss and intake per the owner |
 | Gold sources | `label_layers` on every view; derived-gold rules in the decision rows |
-| Design needs without rows | 18 planned `design` rows with readers |
+| Design needs without rows | 19 planned `design` rows with readers |
 | `judge_error_rate` "no reader" | Planned for the archive gate |
 | Units and duplicates | Closed unit vocabulary; `same_as` and `alias_of` pointers |
 | Port design and plan | Section 4.2, section 6 row 2 and section 10 updated; this plan |

@@ -634,6 +634,25 @@ def test_every_kept_number_states_its_ground_truth() -> None:
     assert table.check(_measure("total_tokens", value=120, label_status="none")).id == "total_tokens"
 
 
+def test_intake_is_judged_on_its_own_class_accuracy_and_accuracy_keeps_its_meaning() -> None:
+    """Intake's default is its triage class against the gold class, in its own row.
+
+    The shared ids keep their old meaning: in the old intake suite ``accuracy`` is the exact
+    match of the cleaned text with the clerk's gold and ``f1_macro`` the token F1 (old
+    ``pipeline/intake.py`` ``_score_one``), so intake's class accuracy cannot be filed under them.
+    """
+    table = load_metric_table()
+    view = table.default_view("intake")
+    assert view is not None and view.metric == "intake_class_accuracy" and view.confirmed
+    assert view.guard is None and view.label_layers == ("hub", "interim", "near_gold", "review")
+    row = table.get("intake_class_accuracy")
+    assert row.origin == "design" and row.metric_id == "dojo:intake_class_accuracy"
+    assert (row.unit, row.direction, row.ground_truth) == ("float[0,1]", "higher", "required")
+    assert row.expanded_agents == ("intake",) and row.pairing == "paired_percentile_bootstrap"
+    accuracy = table.get("accuracy")
+    assert accuracy.description == "Overall exact-match accuracy" and accuracy.agents == ("ALL",)
+
+
 def test_dashboard_queries_leave_out_dropped_rows_unless_asked() -> None:
     """A not_ported headline (bert_elapsed_ms, dropped with the BERT fast path) is no dashboard number."""
     table = load_metric_table()

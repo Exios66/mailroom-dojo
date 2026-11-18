@@ -97,10 +97,10 @@ the expected values are not ground truth (comparing two model outputs).
 
 `src/mailroom_dojo/measures/metrics.yaml` has one row for every id of the old Dojo's metric
 registry (184, in the old order), ten metrics the old golden baseline emits outside it,
-and 18 planned rows (`origin: design`) for numbers the master design needs that no old
+and 19 planned rows (`origin: design`) for numbers the master design needs that no old
 metric gives (wrong-archive and review rates, utility, silent-wrong per 1,000, per-slot
 summaries, cost per classification and per 1,000 documents, throughput, log health, cost
-truth, and the gaps a future gold-generation step fills). Each old row keeps the old
+truth, the gaps a future gold-generation step fills, and intake's class accuracy). Each old row keeps the old
 description, aggregation, agents, ground truth, inclusion and citation, and its unit
 (normalised to one spelling per unit); tiers are replaced by `headline` (exactly the old
 tier-0 ids), a `layer`, a `status` and the `readers` (gate, report or projection) that use

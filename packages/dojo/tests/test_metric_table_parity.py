@@ -303,6 +303,7 @@ DESIGN_ROWS = frozenset(
         "outcome_flip_rate",
         "cost_per_classification",
         "cost_per_1000_documents",
+        "intake_class_accuracy",
         "documents_per_minute",
         "log_complete_step_rate",
         "log_chains_verified",
@@ -425,6 +426,6 @@ def test_counts(table: MetricTable) -> None:
     assert len(table.headline_rows()) == 13  # bert_elapsed_ms is not ported
     assert {status: statuses.count(status) for status in set(statuses)} == {
         "implemented": 19,
-        "planned": 107,
+        "planned": 108,
         "not_ported": 86,
     }
