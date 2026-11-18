@@ -427,22 +427,31 @@ def test_two_profiles_in_threads_never_see_each_others_rules():
     }
     assert len(set(answers.values())) == 2
     failures: list[str] = []
+    errors: list[str] = []
+    finished: list[int] = []
 
     def work(profile):
-        """Score repeatedly and record any answer that is not this profile's."""
-        for _ in range(150):
-            if (
-                canonical(score_extraction(profile, "contract", predicted, expected).to_dict())
-                != answers[id(profile)]
-            ):
-                failures.append(profile.client)
+        """Score repeatedly; record any answer that is not this profile's and any exception raised."""
+        try:
+            for _ in range(150):
+                if (
+                    canonical(score_extraction(profile, "contract", predicted, expected).to_dict())
+                    != answers[id(profile)]
+                ):
+                    failures.append(profile.client)
+        except BaseException as error:  # join() does not re-raise a worker's exception
+            errors.append(f"{type(error).__name__}: {error}")
+            return
+        finished.append(1)
 
     threads = [threading.Thread(target=work, args=((lenient, strict)[index % 2],)) for index in range(8)]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join()
+    assert errors == []
     assert failures == []
+    assert len(finished) == len(threads)
 
 
 def test_scoring_the_extraction_corpus_opens_no_socket(monkeypatch):
