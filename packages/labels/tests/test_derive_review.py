@@ -189,3 +189,23 @@ def test_out_and_source_must_not_contain_each_other(tmp_path: Path, nesting: str
         script.derive(src, out, None)
     assert script.main(["--source", str(src), "--out", str(out)]) == 1
     assert _tree(src) == before and not (src / "review-src-r2").exists()
+
+
+@pytest.mark.parametrize("problem", ["missing", "directory"])
+def test_an_unreadable_known_warnings_file_is_a_usage_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], problem: str
+) -> None:
+    script = _script()
+    src = _source(tmp_path, ROWS[:1])
+    known = tmp_path / "known.yaml"
+    if problem == "directory":
+        known.mkdir()
+    out = tmp_path / "review-src-r2"
+    for extra in ([], ["--check"]):
+        assert (
+            script.main(["--source", str(src), "--out", str(out), "--known-warnings", str(known), *extra])
+            == 2
+        )
+        err = capsys.readouterr().err
+        assert len(err.strip().splitlines()) == 1 and "--known-warnings" in err
+    assert not out.exists()

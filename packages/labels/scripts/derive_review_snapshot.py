@@ -31,7 +31,8 @@ local):
 
 and pass ``--source <scratch>/labels/gold-review-2026-11-18``. A different source changes
 ``derived_from`` and so the manifest.
-Exit 0: written (or identical under ``--check``); 1: refused or different; 2: usage.
+Exit 0: written (or identical under ``--check``); 1: refused or different; 2: usage (a
+missing or unreadable ``--known-warnings`` file, with a one-line message).
 """
 
 from __future__ import annotations
@@ -152,6 +153,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--known-warnings", type=Path, help="known-warnings YAML, read under the new id")
     parser.add_argument("--check", action="store_true", help="compare a fresh derivation with --out")
     args = parser.parse_args(argv)
+    if args.known_warnings is not None:
+        try:
+            args.known_warnings.read_bytes()
+        except OSError as exc:
+            print(f"--known-warnings {args.known_warnings}: cannot read: {exc.strerror}", file=sys.stderr)
+            return 2
     try:
         if args.check:
             result = check_snapshot(args.out, lambda out: derive(args.source, out, args.known_warnings))
