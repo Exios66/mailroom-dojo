@@ -62,7 +62,7 @@ def parse_confidence(value: object) -> float | None:
         return None
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: an integer too large for a float
         return None
     if number != number:
         return None

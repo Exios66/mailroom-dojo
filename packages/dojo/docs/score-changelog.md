@@ -144,3 +144,12 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
 - **Found, not changed:** the `catalog` fold's normalizer maps a mixed-case or punctuated catalog key only through
   the key, the aliases or the label prefix, as the old `normalize_corpus_subclass` did; `fold` and `normalize`
   can therefore differ for such a key. Differential parity covers the old behaviour, so it stays.
+
+## Review fixes, round 4
+
+- `parse_confidence` reads an integer too large for a float as no confidence; the old Dojo raised
+  `OverflowError` out of trace capture.
+- **Found, not changed:** `date_phrase_contained` tests the year-month pattern `\d{4}-\d{1,2}` against a key whose
+  hyphens were already turned into spaces, so that branch of `explicit_month` never matches (the old Dojo is the
+  same). Changing it would score some contained year-month dates differently, which is a scoring change for the
+  Dojo owner to make first, not a port.

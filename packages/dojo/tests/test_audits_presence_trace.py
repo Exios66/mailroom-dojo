@@ -272,3 +272,12 @@ def test_a_span_covering_exactly_the_coverage_share_matches(mailroom_profile):
     short = {"clauses": ["alpha bravo charlie delta echo foxtrot"]}
     assert score_category_presence(mailroom_profile, covering, expectation)[0] == 1.0
     assert score_category_presence(mailroom_profile, short, expectation)[0] == 0.0
+
+
+def test_an_enormous_integer_confidence_is_no_confidence_instead_of_a_crash():
+    """float() of an integer too large for a float raised OverflowError (also in the old Dojo); it reads as absent."""
+    from mailroom_dojo.field_scoring.trace_capture import parse_confidence
+
+    assert parse_confidence(10**400) is None
+    assert parse_confidence({"confidence": -(10**400)}) is None
+    assert parse_confidence(0.5) == 0.5
