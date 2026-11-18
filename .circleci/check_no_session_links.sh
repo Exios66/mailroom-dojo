@@ -36,8 +36,9 @@ set -euo pipefail
 export LC_ALL=C
 
 # Dot between "claude" and the top-level domain: plain, markdown-escaped, an HTML entity
-# or percent-encoded. Separators inside a footer: spaces, hyphens and markdown emphasis.
-PATTERN='https?://([[:alnum:]-]+(\.|\\\.|&#0*46;|&#x0*2e;|%2e))*claude(\.|\\\.|&#0*46;|&#x0*2e;|%2e)a[i]|claude(\.|\\\.|&#0*46;|&#x0*2e;|%2e)a[i](/|%2f)[[:alnum:]]|claude(\.|\\\.|&#0*46;|&#x0*2e;|%2e)co[m](/|%2f)(claude-code|code|session|project|chat|artifact|share)|Claude[-_ ][S]ession[[:space:]]*:|[s]ession_[[:alnum:]]{20,}|G[e]nerated[-_*[:space:]]+(with|by|using)[-_*[:space:]]+\[?[*_]*Claude[-_*[:space:]]+Code'
+# or percent-encoded. Separators inside a footer: spaces, hyphens and markdown emphasis,
+# bounded ({1,8}) so the Python hook cannot backtrack for long on a hostile run.
+PATTERN='https?://([[:alnum:]-]+(\.|\\\.|&#0*46;|&#x0*2e;|%2e))*claude(\.|\\\.|&#0*46;|&#x0*2e;|%2e)a[i]|claude(\.|\\\.|&#0*46;|&#x0*2e;|%2e)a[i](/|%2f)[[:alnum:]]|claude(\.|\\\.|&#0*46;|&#x0*2e;|%2e)co[m](/|%2f)(claude-code|code|session|project|chat|artifact|share)|Claude[-_ ][S]ession[[:space:]]*:|[s]ession_[[:alnum:]]{20,}|G[e]nerated[-_*[:space:]]{1,8}(with|by|using)[-_*[:space:]]{1,8}\[?[*_]{0,4}Claude[-_*[:space:]]{1,8}Code'
 status=0
 
 # 0. A shallow clone hides history: unshallow it or stop.

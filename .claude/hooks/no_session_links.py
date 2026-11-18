@@ -33,7 +33,7 @@ from typing import Any
 
 _DOT = r"(\.|\\\.|&#0*46;|&#x0*2e;|%2e)"
 _WS = r"[ \t\r\f\v]"  # grep's [[:space:]] within one line, ASCII only
-_SEP = r"[-_* \t\r\f\v]+"
+_SEP = r"[-_* \t\r\f\v]{1,8}"  # bounded: no catastrophic backtracking
 
 PATTERN = re.compile(
     rf"https?://([a-z0-9-]+{_DOT})*claude{_DOT}a[i]"
@@ -41,7 +41,7 @@ PATTERN = re.compile(
     rf"|claude{_DOT}co[m](/|%2f)(claude-code|code|session|project|chat|artifact|share)"
     rf"|Claude[-_ ][S]ession{_WS}*:"
     r"|[s]ession_[a-z0-9]{20,}"
-    rf"|G[e]nerated{_SEP}(with|by|using){_SEP}\[?[*_]*Claude{_SEP}Code",
+    rf"|G[e]nerated{_SEP}(with|by|using){_SEP}\[?[*_]{{0,4}}Claude{_SEP}Code",
     re.IGNORECASE | re.ASCII,
 )
 

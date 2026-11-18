@@ -150,6 +150,24 @@ def test_no_session_links_blocks_deeply_nested_input() -> None:
     assert result.returncode == 2, result.stderr[-300:]
 
 
+def test_no_session_links_footer_pattern_cannot_be_made_to_backtrack() -> None:
+    """A long run of separators after the footer's first words must not stall the hook."""
+    import time
+
+    hostile = "Gene" + "rated with " + "_" * 200_000 + " no name here"
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": hostile}})
+    start = time.monotonic()
+    try:
+        result = subprocess.run(
+            ["python3", str(NO_LINKS_HOOK)], input=payload, capture_output=True, text=True, timeout=10
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail("hook still running after 10s: the footer pattern backtracks")
+    elapsed = time.monotonic() - start
+    assert result.returncode == 0, result.stderr
+    assert elapsed < 3.0, f"hook took {elapsed:.1f}s"
+
+
 # --- guard_paths.py --------------------------------------------------------------
 
 
@@ -220,6 +238,22 @@ def test_guard_paths_blocks_stored_runs_and_env_outside_repo(tmp_path: Path, pat
 def test_guard_paths_allows_source(tmp_path: Path, rel: str) -> None:
     result = run_hook(GUARD_PATHS_HOOK, {"tool_name": "Write", "tool_input": {"file_path": rel}}, root=tmp_path)
     assert result.returncode == 0, (rel, result.stderr)
+
+
+@pytest.mark.parametrize(
+    ("rel", "blocked"),
+    [
+        ("docs/reports/README.md", False),
+        ("docs/reports/sub/README.md", True),
+        ("docs/reports/README.md.bak", True),
+        ("docs/reports/xREADME.md", True),
+        ("docs/reports/README.mdx", True),
+        ("docs/reports/README", True),
+    ],
+)
+def test_guard_paths_readme_exception_is_exactly_the_reports_readme(tmp_path: Path, rel: str, blocked: bool) -> None:
+    result = run_hook(GUARD_PATHS_HOOK, {"tool_name": "Write", "tool_input": {"file_path": rel}}, root=tmp_path)
+    assert (result.returncode == 2) is blocked, rel
 
 
 def test_guard_paths_sees_through_a_symlinked_folder(tmp_path: Path) -> None:

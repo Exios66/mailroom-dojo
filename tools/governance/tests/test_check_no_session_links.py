@@ -106,6 +106,24 @@ def test_each_forbidden_form_fails(repo: Repo, bad_text: str) -> None:
     assert_no_leak(result)
 
 
+def test_script_matches_in_the_c_locale_like_the_hook(repo: Repo) -> None:
+    """The script exports LC_ALL=C, so a caller's UTF-8 locale cannot widen [[:alnum:]].
+
+    Under C.UTF-8, grep counts non-ASCII letters as alphanumeric and would call this a
+    session id; the hook (re.ASCII) does not. Both must agree that it is clean.
+    """
+    probe = subprocess.run(
+        ["grep", "-ciE", "x[[:alnum:]]"], input="x\u00e9\n", capture_output=True, text=True,
+        env={**os.environ, "LC_ALL": "C.UTF-8"},
+    )
+    if probe.stdout.strip() != "1":
+        pytest.skip("no C.UTF-8 locale with Unicode character classes here")
+    on_branch(repo)
+    repo.commit("docs: x\n\nsession" + "_" + "\u00e9" * 24 + "\n")
+    result = repo.run_guard({"LC_ALL": "C.UTF-8", "LANG": "C.UTF-8"})
+    assert result.returncode == 0, result.stderr
+
+
 def test_windows_line_endings_are_still_caught(repo: Repo) -> None:
     on_branch(repo)
     repo.commit("fix: x\r\n\r\nWhy: y.\r\n\r\n" + BARE_TRAILER + "\r\n")
@@ -166,6 +184,22 @@ def test_main_checks_every_commit_a_merge_brought_in(repo: Repo) -> None:
     assert "HEAD --not HEAD^1" in result.stderr
     named = re.findall(r"^  ([0-9a-f]{7,})$", result.stderr, flags=re.M)
     assert named == [bad]
+    assert_no_leak(result)
+
+
+def test_main_checks_a_merge_commits_own_message(repo: Repo) -> None:
+    repo.git("switch", "--quiet", "-c", "side")
+    repo.commit(CLEAN_MESSAGE, rel="side.txt")
+    repo.git("switch", "--quiet", "main")
+    repo.commit(CLEAN_MESSAGE)
+    msg = repo.path.parent / "merge-message.txt"
+    msg.write_text("Merge branch side\n\n" + BARE_TRAILER + "\n", encoding="utf-8")
+    repo.git("merge", "--quiet", "--no-ff", "--cleanup=verbatim", "-F", str(msg), "side")
+    merge = repo.git("rev-parse", "--short", "HEAD").strip()
+    result = repo.run_guard({"CIRCLE_BRANCH": "main"})
+    assert result.returncode == 1, result.stdout
+    named = re.findall(r"^  ([0-9a-f]{7,})$", result.stderr, flags=re.M)
+    assert named == [merge]
     assert_no_leak(result)
 
 
