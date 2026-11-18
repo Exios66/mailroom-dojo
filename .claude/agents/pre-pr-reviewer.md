@@ -27,7 +27,8 @@ Work through:
    secrets.
 4. **Repository rules:** the one-way package boundaries; tuning in `config/` or `labels/`
    rather than code; no real model call in tests; no hand-edited stored runs or reports;
-   no linter or type checker claimed or added.
+   `make lint`, `make typecheck` and `make spell` exit 0, and no claim goes beyond what they
+   cover (mypy runs only over the packages in `[tool.mypy] files`).
 5. **Tests:** every behaviour change has a test that would fail without it; bug fixes have
    a regression test; tests can detect failure (fault, property, stateful where it
    matters); no test was skipped, deleted or loosened to get green.

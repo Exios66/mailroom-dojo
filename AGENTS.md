@@ -182,8 +182,11 @@ each later package writes its own.
   the tree:
   `PYTHONDONTWRITEBYTECODE=1 python -m pytest tools/governance/tests -q --import-mode=importlib -p no:cacheprovider`.
 
-No linter or type checker is configured. The record plan allows `ruff` with correctness
-rules only if one is ever added; that is its own PR, never part of an unrelated change.
+Lint, type and spelling gates (owner decision, 2026-11-18): `make lint` (ruff check and
+format check, rules in the root `pyproject.toml`), `make typecheck` (mypy `--strict` over the
+packages in `[tool.mypy] files`; `record`, `labels` and `dojo` join it in follow-ups) and
+`make spell` (codespell). `make check` runs every gate in CI order. Rule changes and new
+ignore entries are their own commit, with the reason in the message.
 
 ## 7. Commits
 

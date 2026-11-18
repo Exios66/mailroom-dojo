@@ -59,8 +59,11 @@ output for the PR (`.claude/rules/evidence-contract.md`).
 | A stage gate | the gate script on the stored runs; numbers with method and sample size |
 | Anything going to a PR | `bash .circleci/check_no_session_links.sh` |
 
-**No linter or type checker is configured.** Say "not configured"; never claim lint or
-type cleanliness, and do not add one inside an unrelated PR.
+**Lint, type and spelling gates** (owner decision, 2026-11-18): `make lint` (ruff check and
+format check), `make typecheck` (mypy `--strict`, only over the packages listed in
+`[tool.mypy] files`: today `common`, `dictionaries`, `scripts/` and `tests/`) and `make spell`
+(codespell). Quote each one's exit code and last line. Claim only what ran: "ruff clean" and
+"mypy strict on <the listed packages>", never "type-safe" for a package mypy does not cover.
 
 ## Hard rules
 
