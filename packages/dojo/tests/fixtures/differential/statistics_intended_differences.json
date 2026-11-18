@@ -1,0 +1,1780 @@
+{
+ "description": "Intended differences between mailroom_dojo.statistics and llm-dojo-scoring 0.30.1 (commit 23f8234c) on statistics_cases.jsonl. Each entry: case (corpus case id), function, reason, new_outcome ({\"result\": ...} or {\"raises\": type, \"message\": text}). Every entry is an invalid input. test_differential_statistics_parity.py fails on a difference not listed here and on a listed one that no longer occurs or now gives another outcome. See packages/dojo/docs/score-changelog.md.",
+ "differences": [
+  {
+   "case": "35723bcb0c5fc43d",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "values[1] is not a finite number: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "a5e85b01c6aada76",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "values[1] is not a finite number: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "7028493667dbad13",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "values[0] is not a finite number: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "97a785c984db734e",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "values[0] is not a finite number: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "d348ad49165a37be",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "values[1] is not a finite number: inf",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "8c916b7f98b6d6e7",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "values[1] is not a finite number: inf",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "235fe4cc9f2bba14",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "values[0] is not a finite number: -inf",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "f99aa1bf77362a77",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "values[0] is not a finite number: -inf",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "31210e27f104153f",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "values[1] is not a finite number: 'nan'",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "94b3a7bdb137aa87",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "values[1] is not a finite number: 'nan'",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "c1ea12b45b62679a",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "n_boot must be at least 1; got 0",
+    "raises": "ValueError"
+   },
+   "reason": "n_boot below 1 is a ValueError; the old Dojo raised IndexError from inside the resampler."
+  },
+  {
+   "case": "e19175b643c17cb1",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "n_boot must be at least 1; got -5",
+    "raises": "ValueError"
+   },
+   "reason": "n_boot below 1 is a ValueError; the old Dojo raised IndexError from inside the resampler."
+  },
+  {
+   "case": "576fc1dc8e93cb3d",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "alpha must be in (0, 1); got 0.0",
+    "raises": "ValueError"
+   },
+   "reason": "An alpha outside (0, 1) is a ValueError; the old Dojo returned a degenerate or inverted interval (alpha 1.5 gave lo above hi) or raised from int(round(nan))."
+  },
+  {
+   "case": "a1b2e1ad88787056",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "alpha must be in (0, 1); got 1.0",
+    "raises": "ValueError"
+   },
+   "reason": "An alpha outside (0, 1) is a ValueError; the old Dojo returned a degenerate or inverted interval (alpha 1.5 gave lo above hi) or raised from int(round(nan))."
+  },
+  {
+   "case": "2940a3d8221d38d5",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "alpha must be in (0, 1); got -0.2",
+    "raises": "ValueError"
+   },
+   "reason": "An alpha outside (0, 1) is a ValueError; the old Dojo returned a degenerate or inverted interval (alpha 1.5 gave lo above hi) or raised from int(round(nan))."
+  },
+  {
+   "case": "169930fee7bcc540",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "alpha must be in (0, 1); got 1.5",
+    "raises": "ValueError"
+   },
+   "reason": "An alpha outside (0, 1) is a ValueError; the old Dojo returned a degenerate or inverted interval (alpha 1.5 gave lo above hi) or raised from int(round(nan))."
+  },
+  {
+   "case": "b1048fa39dd57807",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "alpha must be in (0, 1); got nan",
+    "raises": "ValueError"
+   },
+   "reason": "An alpha outside (0, 1) is a ValueError; the old Dojo returned a degenerate or inverted interval (alpha 1.5 gave lo above hi) or raised from int(round(nan))."
+  },
+  {
+   "case": "6a95d49b9d13725e",
+   "function": "delta_significance",
+   "new_outcome": {
+    "message": "values_b[1] is not a finite number: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "dffdc66e4bdc5614",
+   "function": "delta_significance",
+   "new_outcome": {
+    "message": "values_b[0] is not a finite number: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "631d091ed61d63a1",
+   "function": "delta_significance",
+   "new_outcome": {
+    "message": "values_a[1] is not a finite number: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "17ad28f7f246fed8",
+   "function": "delta_significance",
+   "new_outcome": {
+    "message": "values_b[1] is not a finite number: inf",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "977cf786a6a06872",
+   "function": "delta_significance",
+   "new_outcome": {
+    "message": "values_a[1] is not a finite number: 'nan'",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "ef44acb77ac07f72",
+   "function": "delta_significance",
+   "new_outcome": {
+    "message": "values_a[1] is not a finite number: inf",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "fb885956af6744ba",
+   "function": "delta_significance",
+   "new_outcome": {
+    "message": "values_b[0] is not a finite number: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "9348e912847b27dc",
+   "function": "delta_significance",
+   "new_outcome": {
+    "message": "values_b[1] is not a finite number: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused (ValueError naming its position). The old Dojo turned it into a NaN or infinite interval, or for a short other side returned None."
+  },
+  {
+   "case": "ea19f5f172b800ae",
+   "function": "delta_significance",
+   "new_outcome": {
+    "message": "n_boot must be at least 1; got 0",
+    "raises": "ValueError"
+   },
+   "reason": "n_boot below 1 is a ValueError; the old Dojo raised IndexError from inside the resampler."
+  },
+  {
+   "case": "9719006e2f4979d4",
+   "function": "delta_significance",
+   "new_outcome": {
+    "message": "alpha must be in (0, 1); got 0.0",
+    "raises": "ValueError"
+   },
+   "reason": "An alpha outside (0, 1) is a ValueError; the old Dojo returned a degenerate or inverted interval (alpha 1.5 gave lo above hi) or raised from int(round(nan))."
+  },
+  {
+   "case": "837de917072cf600",
+   "function": "delta_significance",
+   "new_outcome": {
+    "message": "alpha must be in (0, 1); got 1.0",
+    "raises": "ValueError"
+   },
+   "reason": "An alpha outside (0, 1) is a ValueError; the old Dojo returned a degenerate or inverted interval (alpha 1.5 gave lo above hi) or raised from int(round(nan))."
+  },
+  {
+   "case": "5ecc00485cfc3b10",
+   "function": "delta_significance",
+   "new_outcome": {
+    "message": "alpha must be in (0, 1); got 2.0",
+    "raises": "ValueError"
+   },
+   "reason": "An alpha outside (0, 1) is a ValueError; the old Dojo returned a degenerate or inverted interval (alpha 1.5 gave lo above hi) or raised from int(round(nan))."
+  },
+  {
+   "case": "b210c9aa2486ce14",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "be74284298d0062a",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "ffb1d65168b575b4",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "bcaf68278ed047a5",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "0aae517c8e09309e",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "bf007f3ffd89871a",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "d408a367dec4526e",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "d23d29181390c0f3",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "623bcccc95ba4051",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "83524938ba377fc4",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "66cb5addcf1d8222",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "efd2d21778da326b",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "761b2d9e40a6ecbb",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "78fffec305cff81c",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "656958b203cfb5bf",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "4b83ce7cb94f5099",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "f1476518575e04da",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "b30f9006cbdbbf63",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "6a9ae9f1ad264349",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "2f4d340fcbfe3891",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "451f1e119811c33a",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "82a9209c39cffbc4",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "236e0a7cc11461be",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "275d50ee5b12aa80",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "f367ba536f2bc7b3",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "c807bcac256810aa",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "e5b72cabb1810400",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "91fb5cf90580339d",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "0f802682e4ec291d",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "e76e3ab942ac77f5",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "892868dadb781575",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "edb8311cd396edc3",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "7701cdcf71c24aad",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "1a50b9b31c8f3259",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "9331d8640b8a4299",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "20df5b9bff4053be",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "74f13871540468e8",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "8c22c24c05775c96",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "36933d30da904fca",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "d4cbe96d22da1998",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "5fe38036ec7d0972",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "6170722088a4f92f",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "b6cb7bdd49556362",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "61fb0c37e7f22abe",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "0dc3c62b0479815f",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "ede09f2dd3f86249",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got -0.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "5371f7e6d999aa6a",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "55a4c215e2624408",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "c0f454e9c0eb6b4c",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "7b43c27227cf51ae",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "4da479fd2ec939ac",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "c3763b96f96f5cf0",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "035456d34886307f",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "fb24fa09ee349017",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "2b81d3451befc249",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "170fb249ba5230d0",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "44bfe1f697673e02",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "d9227940ac06438f",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "fc30a7b266f459f1",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "b035fb6258b866bd",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "41e6f2ecfda80bf7",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "55cf94fdf6942741",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "e8f76ba6ac89ddd6",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "356c904e4cc06535",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 1.1",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "10603ddfd530d243",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "535e84e715d0eb62",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "55ebbba63a53b759",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "e1e8f14fb53fe600",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "662b74f3798c45ba",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "6c449c69f6a55660",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "35c545e6e1877bbc",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "11200fc2eabad7e4",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "c24575a2f1997a84",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "45d74f4647915670",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "7c05d8781a5dba50",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "e8641e20faa40a5b",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "39a609309f2c4f58",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "2d0cb03ae58cd66b",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "d8b5dcc0de41dc88",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "1633a48192c6aa91",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "48ca6c8fbcdc35c0",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "f1f5fa18d6398bf7",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got 3.0",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "65d3fa660e7dc70e",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "aff85da225df4079",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "aad06df2c729bf0d",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "cbff881feef2df0b",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "915121d530255607",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "87140975541a3fbb",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "1dd20c497c40e6be",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "0983067f806dde25",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "88e01bd1ec1afc73",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "2702fd0e9728fd27",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "daed4a0c20a831f8",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "631caf90e52c18b7",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "be5f801a16505c00",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "ac41ecd7bceceaaa",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "7866475d8023cd51",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "0d00aa85ad07939e",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "a23af33fae0072bc",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "13d3b0aac27bd08f",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got nan",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "bee1dc50a5c2f5e7",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "7c0f4889d3dff48c",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "f6bd8b4efa4c7d44",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "5cf5c2e45e3496b6",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "6af94cc7a724145c",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "98182b50fd2c7030",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "ba33dd0ff57c261d",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "f0c22aefae482366",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "df8c13c96a0307b8",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "393b24fd4b99fbbf",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "465db294218ea094",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "d6cc3cc56c21c635",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "11ddcd797fd9f672",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "3de07b4d45df5af3",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "a51da6f07f64eeb4",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "79fefd8b1a07a786",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "2e2beed4a587ebb0",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "df79625c689f8638",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a rate in [0, 1]; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "A rate outside [0, 1], NaN or infinite is a ValueError; the old Dojo returned bounds for an impossible rate (NaN gave [0, 1]) or raised TypeError comparing a complex number."
+  },
+  {
+   "case": "b07c12f154e85b12",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "5fd1bf2e8f627c4e",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "dbc709272bccd549",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "d60c6e47e511682f",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "463a8f888c48023c",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "34d3033687effa7f",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "5ad89480c4c4ac83",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "9d86ae975b2b24a5",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "a04d80b0d55582cb",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "9f4422531ba3f943",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "a611718445315b4a",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "cb85d8a5a54117e6",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "f88bd44c5b815b93",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "e8a06264e784317c",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "796dc435066f46a9",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "64cd2ad6305a184c",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "12f7e65d727f43ed",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "ec27d03d4c2a807a",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a real number; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A bool rate is a TypeError (a bool is a label, not a rate); the old Dojo read True as 1.0."
+  },
+  {
+   "case": "4ef532f4892502ec",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "6a184b664ad3743d",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "f2e7456f7d06be4b",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "d475cfee0d7b1944",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "b8621aaf068ab286",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "535b4f5abc24e8fa",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "e4e8035b6bf243b2",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "0ed858135c255dd2",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError; the old Dojo computed with 2.5 trials and reported n=2, and read True as one trial. An integer-valued float such as 10.0 is accepted, as before."
+  },
+  {
+   "case": "44d044ce58875ad3",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "z must be finite; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "An infinite z is a ValueError; the old Dojo returned the interval [0, 1]."
+  },
+  {
+   "case": "149fe9513f4f50a5",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "z must be finite; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "An infinite z is a ValueError; the old Dojo returned the interval [0, 1]."
+  },
+  {
+   "case": "84d230ceca6c78ea",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "z must be finite; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "An infinite z is a ValueError; the old Dojo returned the interval [0, 1]."
+  },
+  {
+   "case": "7a4d10153bf832d2",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "z must be finite; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "An infinite z is a ValueError; the old Dojo returned the interval [0, 1]."
+  },
+  {
+   "case": "e15aa767210aa51f",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "z must be finite; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "An infinite z is a ValueError; the old Dojo returned the interval [0, 1]."
+  },
+  {
+   "case": "bcb59a5bfd130fc8",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "z must be finite; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "An infinite z is a ValueError; the old Dojo returned the interval [0, 1]."
+  },
+  {
+   "case": "32f2350e26769cb5",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "z must be finite; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "An infinite z is a ValueError; the old Dojo returned the interval [0, 1]."
+  },
+  {
+   "case": "dd8a798661377ed7",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "z must be finite; got inf",
+    "raises": "ValueError"
+   },
+   "reason": "An infinite z is a ValueError; the old Dojo returned the interval [0, 1]."
+  },
+  {
+   "case": "685699ede3d4c3a1",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "n must be at least 1; got 0",
+    "raises": "ValueError"
+   },
+   "reason": "wilson_bounds with n=0 is a ValueError; the old Dojo raised ZeroDivisionError."
+  },
+  {
+   "case": "c64124a0458e9cbd",
+   "function": "cutoff_at_target",
+   "new_outcome": {
+    "message": "rows[1] has a non-finite confidence: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite confidence is refused in a cutoff search (ValueError naming the row). The old Dojo sorted it to an arbitrary place and returned a cutoff that depended on where it landed."
+  },
+  {
+   "case": "c6705c4bba31f4b2",
+   "function": "cutoff_at_target",
+   "new_outcome": {
+    "message": "rows[1] has a non-finite confidence: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite confidence is refused in a cutoff search (ValueError naming the row). The old Dojo sorted it to an arbitrary place and returned a cutoff that depended on where it landed."
+  },
+  {
+   "case": "f13b9f3e1acc9391",
+   "function": "cutoff_at_target",
+   "new_outcome": {
+    "message": "rows[1] has a non-finite confidence: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite confidence is refused in a cutoff search (ValueError naming the row). The old Dojo sorted it to an arbitrary place and returned a cutoff that depended on where it landed."
+  },
+  {
+   "case": "8fca62290d76a224",
+   "function": "cutoff_at_target",
+   "new_outcome": {
+    "message": "rows[1] has a non-finite confidence: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite confidence is refused in a cutoff search (ValueError naming the row). The old Dojo sorted it to an arbitrary place and returned a cutoff that depended on where it landed."
+  },
+  {
+   "case": "f9d1fa8065e9812f",
+   "function": "cross_fit_cutoffs",
+   "new_outcome": {
+    "message": "rows[1] has a non-finite confidence: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite confidence is refused in a cutoff search (ValueError naming the row). The old Dojo sorted it to an arbitrary place and returned a cutoff that depended on where it landed."
+  },
+  {
+   "case": "6adea6015e9493c0",
+   "function": "cross_fit_cutoffs",
+   "new_outcome": {
+    "message": "rows[1] has a non-finite confidence: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite confidence is refused in a cutoff search (ValueError naming the row). The old Dojo sorted it to an arbitrary place and returned a cutoff that depended on where it landed."
+  },
+  {
+   "case": "893d368c70b5ba11",
+   "function": "cutoff_for_precision",
+   "new_outcome": {
+    "message": "scores[1] is not a finite number: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused in a cutoff search (ValueError naming its position). The old Dojo put NaN among the candidate cutoffs and returned a cutoff that depended on where it sorted."
+  },
+  {
+   "case": "f0fba4312082c9fc",
+   "function": "cutoff_for_precision",
+   "new_outcome": {
+    "message": "scores[1] is not a finite number: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused in a cutoff search (ValueError naming its position). The old Dojo put NaN among the candidate cutoffs and returned a cutoff that depended on where it sorted."
+  },
+  {
+   "case": "00d924aea07d1a00",
+   "function": "cutoff_for_precision",
+   "new_outcome": {
+    "message": "scores[1] is not a finite number: nan",
+    "raises": "ValueError"
+   },
+   "reason": "A NaN or infinite score is refused in a cutoff search (ValueError naming its position). The old Dojo put NaN among the candidate cutoffs and returned a cutoff that depended on where it sorted."
+  },
+  {
+   "case": "3a0a736c5b63ec35",
+   "function": "wilson_bounds",
+   "new_outcome": {
+    "message": "p must be a real number; got Decimal('0.5')",
+    "raises": "TypeError"
+   },
+   "reason": "wilson_bounds does not convert a Decimal rate: still a TypeError, as in the old Dojo (which raised from Decimal + float arithmetic); only the message differs. wilson_ci converts it, as before."
+  },
+  {
+   "case": "1b51647e034a8b23",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "p must be a real number; got '0.5'",
+    "raises": "TypeError"
+   },
+   "reason": "A text rate is a TypeError (wilson_ci reads numbers, a Decimal included, not text); the old Dojo converted '0.5' with float()."
+  },
+  {
+   "case": "fd0a63be9521a361",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got 2.5",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError even without a rate; the old Dojo returned None for p=None before looking at n."
+  },
+  {
+   "case": "d7e8588e91098095",
+   "function": "wilson_ci",
+   "new_outcome": {
+    "message": "n must be an integer; got True",
+    "raises": "TypeError"
+   },
+   "reason": "A support that is not a whole number (2.5, True) is a TypeError even without a rate; the old Dojo returned None for p=None before looking at n."
+  },
+  {
+   "case": "9cbfe0174ee21c80",
+   "function": "bootstrap_ci",
+   "new_outcome": {
+    "message": "seed must be an integer",
+    "raises": "TypeError"
+   },
+   "reason": "A seed that is not an integer is a TypeError; the old Dojo seeded random.Random with the text ('abc') and returned an interval."
+  },
+  {
+   "case": "ddcbfb2988c17344",
+   "function": "delta_significance",
+   "new_outcome": {
+    "message": "seed must be an integer",
+    "raises": "TypeError"
+   },
+   "reason": "A seed that is not an integer is a TypeError; the old Dojo seeded random.Random with the text ('abc') and returned an interval."
+  }
+ ],
+ "old_commit": "23f8234c3c548bdc203033388bb316e52e588a2c",
+ "old_version": "0.30.1"
+}

@@ -4,7 +4,7 @@ What the Dojo core must prove, how each claim is tested and where the test lives
 is `docs/plans/2026-11-18-dojo-scoring-core-plan.md`; the port inventory is
 `docs/plans/2026-11-18-dojo-scoring-port-inventory.md`. This file covers task A (profile,
 values, normalization, scalar scorers, scorer registry, similarity backend, CMS plug-in);
-tasks B and C add their sections.
+tasks B and C and chunk D1 (statistics) add their sections.
 
 ## Principles
 
@@ -91,6 +91,34 @@ order, flag stripping, empty class, rate defaults, one-sided length check, scora
 verified filters, status check, pending annotation, annotation keys, placeholder spans,
 subclass token): all 23 caught. Fixtures and their regeneration: `packages/dojo/docs/golden-parity.md`.
 
+## Chunk D1: statistics (bootstrap, calibration, paired tests)
+
+`mailroom_dojo.statistics` ports the old `analysis/bootstrap.py` and
+`analysis/calibration.py` and adds the paired comparisons the design's "Comparing runs"
+layer names. The plan is section 6 of `docs/plans/2026-11-18-workspace-port-design.md`
+(chunk 1, D1); its gate is "old tests and a differential corpus, identical".
+
+| Claim | Test |
+|:---|:---|
+| Same numbers as the old Dojo on every valid input | `test_differential_statistics_parity.py`: 2,000 cases over the 16 old public functions (12 from the old golden run, 445 from eleven old test files, 1,543 seeded, 21 of them added by `--supplement`), results as canonical JSON, exceptions by type and message; every golden-run and old-test case is identical; the 197 differences are all invalid inputs, each listed with its reason and new outcome in `statistics_intended_differences.json` (an unlisted, stale or changed entry fails, with a positive control) |
+| The old tests still hold | `test_statistics_old_cases.py`: the 6 cases of the old `test_bootstrap.py` and the 19 of `test_calibration.py`, same expected values, read through the new result types |
+| Invalid input is refused with an exact error, or answered exactly | `test_statistics_faults.py`: empty and too-small input (None), NaN and infinities (refused naming the position, or dropped where the old Dojo dropped them), mismatched lengths, one-class populations (AUROC None), bad parameters and types, NumPy scalars; each error's type and full message |
+| Invariants over random input | `test_statistics_properties.py` (hypothesis): the bootstrap interval holds the mean of symmetric data and narrows with nine times the documents; Wilson bounds hold the rate, shrink with more trials and are rounded outward; ECE and Brier in [0, 1] and the ECE is the bins' weighted gap; AUROC in [0, 1] and reverses with the scores; Spearman bounded and symmetric; the Clopper-Pearson bound is above the observed rate and loosens with confidence; `required_samples` is the smallest clearing size; `cutoff_at_target` equals a brute-force search; a seed fixes every result whatever ran in between |
+| The new comparisons and per-group confidence are right | `test_statistics_comparison.py`: constant differences give a point interval; the paired interval equals `bootstrap_ci` on the per-document differences; pairing detects a 0.03 gain the unpaired test misses; runs are paired by document id (a document missing or `None` in one run is refused, or with `allow_unpaired=True` left out and named), and the result does not depend on mapping order; exact McNemar p-values by hand and against `scipy.stats.binomtest` up to 2,001 flips, symmetric in the runs, `p == alpha` not significant; `calibration_by_group` by hand (agent and class keys, dropped rows, one-class groups; correctness read strictly: text or a number is a `TypeError` naming the row, `None` is dropped; NumPy confidences read) and equal to the population functions on random rows; exact errors for empty input, NaN, text, mismatched lengths and bad parameters; seed determinism, delta and p-value invariants (hypothesis) |
+| The corpus is what the capture script generates | `test_statistics_capture_script.py`: the generator's cases at the header's seed and the corpus's generated cases are the same set, the supplement is recorded in the header, Decimal arguments round-trip through the tagged JSON; the script refuses an old checkout at another commit and an `llm_dojo_scoring` imported from outside the checkout, before anything runs |
+| No global state, network or environment | `test_boundaries.py` and `test_no_global_state.py` cover the new modules automatically (AST walk and fresh-interpreter import) |
+
+Mutation check (D1): dropping the `- 1` from the lower percentile index in
+`bootstrap.py` turns `test_new_code_reproduces_every_old_output[bootstrap_ci]` and
+`[delta_significance]` red; taking the larger flip count's tail in `paired.py` (`max` for
+`min`) turns tests red (hand-computed p-values, the scipy cross-check, the alpha test); iterating documents in mapping order instead of sorted id order turns `test_paired_results_do_not_depend_on_mapping_order` red, and `p_value <= alpha` for `<` turns `test_a_p_value_equal_to_alpha_is_not_significant` red.
+Both restored. `packages/dojo/scripts/capture_old_dojo_statistics_cases.py` regenerates
+the corpus's case lines byte for byte on Python 3.12, the version in its header; on 3.13
+the old code sorts NaN differently and three `bootstrap_ci` cases with a NaN score differ
+(all three are listed refusals in the new code). The header's `supplements` record (21
+generated cases added with `--supplement`, old modules loaded by path, Python 3.13) is not
+rewritten by a full run.
+
 ## Running
 
 ```bash
@@ -98,5 +126,5 @@ subclass token): all 23 caught. Fixtures and their regeneration: `packages/dojo/
 HYPOTHESIS_PROFILE=thorough .venv/bin/python -m pytest packages/dojo/tests -q -n 4   # ten times more examples
 ```
 
-The capture script `packages/dojo/scripts/capture_old_dojo_scalar_cases.py` needs an old
-Dojo checkout and its environment; it is a maintenance tool and never runs in CI.
+The capture scripts (`packages/dojo/scripts/capture_old_dojo_*.py`) need an old Dojo
+checkout and its environment; they are maintenance tools and never run in CI.

@@ -153,3 +153,73 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   hyphens were already turned into spaces, so that branch of `explicit_month` never matches (the old Dojo is the
   same). Changing it would score some contained year-month dates differently, which is a scoring change for the
   Dojo owner to make first, not a port.
+
+## Intended differences (D1, statistics)
+
+`mailroom_dojo.statistics` gives the old `analysis/bootstrap.py` and
+`analysis/calibration.py` numbers on every valid input of the statistics corpus (2,000
+cases, among them every call of the old golden run and of eleven old test files). The 197
+cases that differ are all invalid inputs; each is listed with its new outcome in
+`tests/fixtures/differential/statistics_intended_differences.json`. No golden score moves:
+the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
+
+- **A NaN or infinite score is refused.** `bootstrap_ci` and `delta_significance` raise
+  `ValueError` naming the position (`values[1] is not a finite number: nan`); the old Dojo
+  returned a NaN or infinite interval, a `significant` flag decided by where NaN sorted, or
+  `None` when the other side was short. The text `"nan"` is read as NaN, so it is refused too.
+- **A NaN or infinite confidence or score in a cutoff search is refused**
+  (`cutoff_at_target`, `cross_fit_cutoffs`, `cutoff_for_precision`); the old Dojo sorted it
+  to an arbitrary place and returned a cutoff that depended on where it landed. ECE, Brier,
+  reliability bins, AUROC and Spearman still drop such values, as before.
+- **Resampling parameters are checked.** `n_boot` must be an integer of at least 1
+  (`n_boot=0` raised `IndexError` inside the old resampler), `alpha` must be in `(0, 1)`
+  (`alpha=1.5` gave an interval with `lo` above `hi`), and `seed` must be an integer (the
+  old Dojo seeded `random.Random` with text such as `"abc"` and returned an interval). As in
+  the old Dojo, fewer than two usable values give `None` first, so `bootstrap_ci([0.5],
+  n_boot=0)` and `delta_significance([0.5], [0.1, 0.2], alpha=nan)` are still `None`; with
+  enough values a bad parameter raises.
+- **A Wilson rate must be a rate.** `wilson_ci` and `wilson_bounds` refuse a `p` outside
+  `[0, 1]`, NaN or infinite (`ValueError`), a bool `p` and a text `p` such as `"0.5"`
+  (`TypeError`). The old Dojo answered `[0, 1]` for NaN, gave bounds for `p = 1.1`, raised
+  `TypeError` comparing a complex number for `p = 3.0`, and read `"0.5"` with `float()`.
+  A `decimal.Decimal` rate is read by `wilson_ci` as before; `wilson_bounds` still refuses
+  it with a `TypeError` (the old one raised from `Decimal + float`), with another message.
+- **A Wilson support must be a whole number.** `n = 2.5` or `True` is a `TypeError`, also
+  when `p` is `None` (the old Dojo returned `None` there before looking at `n`, computed
+  with 2.5 trials and reported `n = 2`, and read `True` as one trial). An integer-valued
+  float (`10.0`, NumPy's `float64(10.0)`, as workbook rows arrive) is ten trials, as
+  before. `wilson_bounds(p, 0)` is a `ValueError` (it was `ZeroDivisionError`);
+  `wilson_ci` still returns `None` for `n < 1`.
+- **An infinite `z` is refused** (it gave the interval `[0, 1]`).
+- **Results are frozen dataclasses** (`BootstrapInterval`, `DeltaInterval`,
+  `WilsonInterval`, `CrossFitResult`, `ReliabilityBin`, `PrecisionCutoff`); `to_dict()` is
+  the old dictionary, key for key. Not a score change.
+
+## Found, not changed (D1, statistics)
+
+- **Scores are coerced as before.** `bootstrap_ci` and `delta_significance` drop `None` and
+  anything `float()` cannot read (`"abc"`, `{}`), read booleans as 1.0 and 0.0 and numeric
+  text (`" 0.5 "`) as numbers; `n` counts what was kept. An integer too large for a float
+  raises `OverflowError`. The new paired functions are strict instead: numbers and booleans
+  only.
+- **`required_samples` names "confidence" for a bad `risk`** (`confidence must be in (0, 1);
+  got 1.0`), because the old code validated both with one helper. The message is kept.
+- **`wilson_ci` keeps `z` as given** (an integer `2` stays `2`) and rounds `p` to 4 places.
+- **The cross-fit shuffle and the bootstrap resampler are `random.Random(seed)`**, as in the
+  old Dojo, so the same seed gives the same numbers across Python 3.12 and 3.13 (the corpus
+  was captured with 3.12 and is replayed with 3.13).
+
+## New (D1, statistics)
+
+Not in the old Dojo, so not a difference: `paired_bootstrap_delta` (paired percentile
+bootstrap of per-document score differences, B minus A), `outcome_flip_test` (exact
+two-sided McNemar test on outcome flips; significant when `p < alpha`) and `calibration_by_group` (ECE, Brier and AUROC
+per agent, class or both). These are the design's "Comparing runs" and "Confidence" needs.
+The paired functions take `{document id: value}` mappings and pair by id, in sorted id
+order; a document missing or `None` in one run is a `ValueError` naming it, unless the
+caller passes `allow_unpaired=True`, which leaves it out and returns it in `unpaired_ids`.
+`calibration_by_group` reads correctness strictly (a bool, NumPy's included, or `None`,
+which is dropped and counted; text such as `"no"` or a number is a `TypeError` naming the
+row) and reads NumPy confidences (`float32`, integers) as numbers. The ported ECE, Brier
+and reliability functions keep the old lenient reading (`bool(correct)`, and only `int` or
+`float` confidences), for parity.
