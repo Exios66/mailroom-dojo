@@ -31,8 +31,8 @@ events at a time. With an index it also compares each undamaged document's head 
 ``trace_doc`` makes the index ready (``Index.ensure``), then reads the document from every
 run through ``Index.iter_events``, which reads only the document's byte ranges plus what
 was written since the last rebuild; ``Index.runs_for_document`` gives the runs the index
-already knows hold it, so a run the index lists but whose log no longer holds the document
-is reported (``missing_from_log``). Without a usable index (none given, or it cannot be
+already knows hold it, so a run the index lists but whose log no longer holds the document,
+or whose run directory is gone, is reported (``missing_from_log``). Without a usable index (none given, or it cannot be
 built: a read-only store) every run is scanned from the log, and the ``index`` note says so.
 
 Neither raises on damaged data: corrupt and invalid lines, gaps, forks, broken links, torn
@@ -321,14 +321,20 @@ def _index_note(log: EventLog, index: Index | None, run_id: str, docs: list[DocS
 def trace_doc(log: EventLog, index: Index | None, doc_id: str) -> DocTrace:
     """Every run that touched ``doc_id``, with its steps and version chain (module doc)."""
     usable, note = open_index(log, index)
-    listed: set[str] = set()
+    listed: dict[str, str] = {}  # run id -> created_at, as the index has it
     if usable is not None:
         try:
-            listed = {r.run_id for r in usable.runs_for_document(doc_id)}
+            listed = {r.run_id: r.created_at for r in usable.runs_for_document(doc_id)}
         except (IndexUnavailable, OSError, ValueError) as exc:
             usable, note = None, f"unavailable ({type(exc).__name__}), read from the log"
     found: list[tuple[tuple[int, str, str], DocRun]] = []
-    for rid in run_ids(log):
+    on_disk = run_ids(log)
+    for rid in sorted(set(listed) - set(on_disk)):
+        # The index lists the run, but its directory is gone (deleted after the rebuild).
+        lost = Damage("missing_from_log", doc_id, None, "the index lists this run, but its run directory is gone")
+        doc_run = DocRun(rid, None, _summary(doc_id, (), [lost]), (), (), (), "index")
+        found.append(((0, listed[rid], rid), doc_run))
+    for rid in on_disk:
         read = read_document(log, usable, rid, doc_id)
         doc_damage = [d for d in read.damage if d.doc_id == doc_id]
         run_damage = [d for d in read.damage if d.doc_id != doc_id]

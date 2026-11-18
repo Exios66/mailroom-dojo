@@ -482,3 +482,17 @@ def test_a_skipped_line_the_log_no_longer_holds_is_not_reported(review_store: Si
     dt = trace_doc(review_store.log, idx, "d1")
     assert (dt.runs[0].source, dt.runs[0].damage, dt.damaged) == ("index", (), False)
     assert read_document(review_store.log, idx, "r1", "d2").damage == ()
+
+
+def test_a_run_directory_deleted_after_indexing_is_reported(two_run_store: SimpleNamespace, tmp_path: Path) -> None:
+    import shutil
+
+    idx = built_index(two_run_store, tmp_path)
+    shutil.rmtree(two_run_store.log.run_dir("r2"))
+    t = trace_doc(two_run_store.log, idx, "d1")
+    assert [r.run_id for r in t.runs] == ["r1", "r2"]
+    gone = t.runs[1]
+    assert (gone.header, gone.steps, gone.versions, gone.source) == (None, (), (), "index")
+    assert _kinds(gone.summary.damage) == {"missing_from_log"} and t.damaged
+    res = run_cli("trace", "doc", "d1", root=two_run_store.root)  # the CLI's own index, built before
+    assert res.exit_code == 0
