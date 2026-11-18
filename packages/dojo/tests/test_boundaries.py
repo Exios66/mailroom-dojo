@@ -166,6 +166,8 @@ def test_the_source_tree_is_found():
         "mailroom_dojo/labels_interface/__init__.py",
         "mailroom_dojo/profile/loading.py",
         "mailroom_dojo/field_scoring/extraction.py",
+        "mailroom_dojo/statistics/bootstrap.py",
+        "mailroom_dojo/statistics/calibration.py",
     ):
         assert expected in names
     assert len(SOURCE_FILES) >= 30

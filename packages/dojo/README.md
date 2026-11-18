@@ -33,6 +33,7 @@ from `llm_dojo_scoring`.
 | `field_scoring/trace_capture.py` | `capture_trace`: model-emitted `confidence` and `reasoning`, captured for the run log under the profile's `TraceCaptureOptions`, never scored. |
 | `field_scoring/extraction.py` | `score_extraction(profile, class_key, predicted, expected, ...)` → `ExtractionScoreResult` (field scores, overall score, judge-review fields, list scores, audits, trace). A plug-in scorer that returns anything but a finite number in `[0, 1]` raises `ScorerResultError`. |
 | `classification/` | `ClassLabelSet.from_profile(profile)` and the classification metrics: `normalize_label`, `exact_match`, `accuracy`, `fbeta`, `per_class_stats`, `macro_accuracy`, `macro_prf`, `confusion_matrix`, `top_confusions`, `binary_metrics`, `class_distribution`. The class set, its match order and retired classes come from the profile. |
+| `statistics/` | `bootstrap_ci`, `delta_significance` (unpaired), `wilson_ci`, `wilson_bounds`; calibration and risk: `clopper_pearson_upper`, `required_samples`, `cutoff_at_target`, `cross_fit_cutoffs`, `cutoff_for_precision`, `expected_calibration_error`, `brier_score`, `reliability_bins`, `auroc` (ranking power) and `spearman`. Seeds are arguments; results are frozen dataclasses whose `to_dict()` is the old Dojo's dictionary. |
 | `labels_interface/` | structural Protocols (`LabelSource`, `ExpectedDocument`, `PresenceExpectation`) that the labels package satisfies, `expected_values(...)` (keeps scorable fields only; refuses or flags unverified documents), and `hub_rows.py`, a reference adapter for Hub rows that is meant to move to `mailroom_labels`. |
 
 ## The scoring profile
@@ -104,3 +105,10 @@ holds the old golden run's `score_extraction` calls, tied to the old `scores.jso
 path and hash, the calls the old tests make into the extraction layers, and seeded
 generated inputs, many under non-default settings that the replay builds into a profile.
 `scripts/capture_old_dojo_extraction_cases.py` regenerates it byte for byte.
+
+The statistics corpus (`tests/fixtures/differential/statistics_cases.jsonl`, 1,979 cases)
+holds every call the old golden run and eleven old test files made into the old bootstrap
+and calibration modules, plus seeded inputs. Every valid input gives the old number; the
+209 invalid inputs that now raise are listed with reasons in
+`statistics_intended_differences.json` and in `docs/score-changelog.md`.
+`scripts/capture_old_dojo_statistics_cases.py` regenerates the corpus byte for byte.

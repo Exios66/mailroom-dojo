@@ -153,3 +153,48 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   hyphens were already turned into spaces, so that branch of `explicit_month` never matches (the old Dojo is the
   same). Changing it would score some contained year-month dates differently, which is a scoring change for the
   Dojo owner to make first, not a port.
+
+## Intended differences (D1, statistics)
+
+`mailroom_dojo.statistics` gives the old `analysis/bootstrap.py` and
+`analysis/calibration.py` numbers on every valid input of the statistics corpus (1,979
+cases, among them every call of the old golden run and of eleven old test files). The 209
+cases that differ are all invalid inputs; each is listed with its new outcome in
+`tests/fixtures/differential/statistics_intended_differences.json`. No golden score moves:
+the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
+
+- **A NaN or infinite score is refused.** `bootstrap_ci` and `delta_significance` raise
+  `ValueError` naming the position (`values[1] is not a finite number: nan`); the old Dojo
+  returned a NaN or infinite interval, a `significant` flag decided by where NaN sorted, or
+  `None` when the other side was short. The text `"nan"` is read as NaN, so it is refused too.
+- **A NaN or infinite confidence or score in a cutoff search is refused**
+  (`cutoff_at_target`, `cross_fit_cutoffs`, `cutoff_for_precision`); the old Dojo sorted it
+  to an arbitrary place and returned a cutoff that depended on where it landed. ECE, Brier,
+  reliability bins, AUROC and Spearman still drop such values, as before.
+- **Resampling parameters are checked.** `n_boot` must be an integer of at least 1
+  (`n_boot=0` raised `IndexError` inside the old resampler), `alpha` must be in `(0, 1)`
+  (`alpha=1.5` gave an interval with `lo` above `hi`), and `seed` must be an integer.
+- **A Wilson rate must be a rate.** `wilson_ci` and `wilson_bounds` refuse a `p` outside
+  `[0, 1]`, NaN or infinite (`ValueError`) and a bool `p` (`TypeError`). The old Dojo
+  answered `[0, 1]` for NaN, gave bounds for `p = 1.1`, and raised `TypeError` comparing a
+  complex number for `p = 3.0`.
+- **A Wilson support must be an integer.** `n = 2.5`, `10.0` or `True` is a `TypeError`;
+  the old Dojo computed with 2.5 trials and reported `n = 2`. `wilson_bounds(p, 0)` is a
+  `ValueError` (it was `ZeroDivisionError`); `wilson_ci` still returns `None` for `n < 1`.
+- **An infinite `z` is refused** (it gave the interval `[0, 1]`).
+- **Results are frozen dataclasses** (`BootstrapInterval`, `DeltaInterval`,
+  `WilsonInterval`, `CrossFitResult`, `ReliabilityBin`, `PrecisionCutoff`); `to_dict()` is
+  the old dictionary, key for key. Not a score change.
+
+## Found, not changed (D1, statistics)
+
+- **Scores are coerced as before.** `bootstrap_ci` and `delta_significance` drop `None` and
+  anything `float()` cannot read (`"abc"`, `{}`), read booleans as 1.0 and 0.0 and numeric
+  text (`" 0.5 "`) as numbers; `n` counts what was kept. An integer too large for a float
+  raises `OverflowError`.
+- **`required_samples` names "confidence" for a bad `risk`** (`confidence must be in (0, 1);
+  got 1.0`), because the old code validated both with one helper. The message is kept.
+- **`wilson_ci` keeps `z` as given** (an integer `2` stays `2`) and rounds `p` to 4 places.
+- **The cross-fit shuffle and the bootstrap resampler are `random.Random(seed)`**, as in the
+  old Dojo, so the same seed gives the same numbers across Python 3.12 and 3.13 (the corpus
+  was captured with 3.12 and is replayed with 3.13).
