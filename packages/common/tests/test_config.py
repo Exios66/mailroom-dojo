@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import copy
+import io
 import json
+import logging
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -14,6 +16,7 @@ from pydantic import ValidationError
 
 from mailroom_common.config import ConfigModel, config_hash, deep_merge, load_config, load_layered
 from mailroom_common.errors import ConfigError
+from mailroom_common.logging import configure_logging
 
 
 class Mode(StrEnum):
@@ -111,6 +114,35 @@ def test_validation_message_does_not_echo_values(tmp_path: Path) -> None:
     with pytest.raises(ConfigError) as info:
         load_config(_file(tmp_path, "p.yaml", text), Profile)
     assert "hunter2-secret" not in str(info.value)
+
+
+def test_validation_error_does_not_chain_the_interpolated_secret_into_a_logged_traceback(
+    tmp_path: Path,
+) -> None:
+    secret = "zq-interp-7c1d0e9b"  # no credential shape, so log redaction cannot be what hides it
+    path = _file(tmp_path, "p.yaml", "name: x\nlimits: {max_pages: '${DB_PASSWORD}'}\n")
+    stream = io.StringIO()
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    try:
+        configure_logging("DEBUG", stream=stream)
+        try:
+            load_config(path, Profile, env={"DB_PASSWORD": secret})
+        except ConfigError as exc:
+            error = exc
+            logging.getLogger("test.config").exception("config failed")
+    finally:
+        root.handlers[:] = handlers
+        root.setLevel(level)
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    assert dict(error.context) == {"source": str(path), "problems": 1}
+    assert "limits.max_pages: Input should be a valid integer" in str(error)
+    output = stream.getvalue()
+    assert "Traceback" in output
+    assert "config failed" in output
+    assert secret not in output
+    assert "ValidationError" not in output
 
 
 @pytest.mark.parametrize("name", ["p.toml", "p.txt", "p", "p.yaml.bak"])

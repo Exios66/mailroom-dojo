@@ -156,15 +156,21 @@ def _read_layer(path: Path, env: Mapping[str, str] | None) -> dict[str, Any]:
 
 
 def _validate(data: dict[str, Any], model: type[ModelT], source: str | list[str]) -> ModelT:
+    """Validate, or raise a ConfigError holding only value-free facts.
+
+    pydantic's ``ValidationError`` renders each ``input_value``, which may be an
+    interpolated secret, so it is neither chained nor left as ``__context__``: the
+    ConfigError is raised outside the ``except`` block and carries only paths and messages.
+    """
     try:
         return model.model_validate_json(canonical_json(data), strict=True)
     except ValidationError as exc:
         problems = [f"{_dotted(error['loc'])}: {error['msg']}" for error in exc.errors()]
-        raise ConfigError(
-            f"config does not match {model.__name__}: " + "; ".join(problems),
-            source=source,
-            problems=len(problems),
-        ) from exc
+    raise ConfigError(
+        f"config does not match {model.__name__}: " + "; ".join(problems),
+        source=source,
+        problems=len(problems),
+    )
 
 
 def load_config(path: str | Path, model: type[ModelT], *, env: Mapping[str, str] | None = None) -> ModelT:
