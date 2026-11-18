@@ -111,6 +111,12 @@ def review_row(doc: str, field: str, value: Any, *, human: bool = False, verdict
     }
 
 
+def _with_text_check(kind: str, source: dict[str, Any]) -> dict[str, Any]:
+    """A synthetic Hub snapshot says its text check ran, as a real import with
+    ``--default-dir`` does, unless the test sets ``text_check`` itself."""
+    return {"text_check": {"run": True}, **source} if kind == "hub" else source
+
+
 def make_snapshot(root: Path, kind: str, rows: list[dict[str, Any]], *, snapshot_id: str | None = None,
                   file: str = "rows.jsonl", source: dict[str, Any] | None = None,
                   known_warnings: tuple = ()) -> Path:
@@ -123,7 +129,7 @@ def make_snapshot(root: Path, kind: str, rows: list[dict[str, Any]], *, snapshot
         snapshot_id=sid,
         kind=kind,
         layer_schema=CURRENT_LAYER_SCHEMA[kind],
-        source=source or {"repository": "synthetic"},
+        source=_with_text_check(kind, source or {"repository": "synthetic"}),
         builder="labels_testkit",
         known_warnings=known_warnings,
     )

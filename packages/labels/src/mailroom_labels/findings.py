@@ -34,6 +34,8 @@ SEVERITY: dict[str, str] = {
     "subclass_mismatch": "warning",
     "stale_content_hash": "warning",
     "text_unverified": "warning",
+    # the Hub import did not run the text check, so no document's text was verified
+    "text_unchecked": "warning",
     # within and across layers
     "duplicate_label": "error",
     "status_not_allowed": "error",

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -310,6 +310,11 @@ def check(snapshots: Sequence[LabelSnapshot], profile: ClientProfile) -> Quality
             continue
         read.extend(part)
     for snap in snapshots:
+        text_check = snap.manifest.source.get("text_check")
+        if snap.kind == "hub" and not (isinstance(text_check, Mapping) and text_check.get("run") is True):
+            extra.append(finding("text_unchecked", layer="hub", location=snap.snapshot_id,
+                                 detail="the import did not check document text against content_sha256 "
+                                        "(source.text_check.run is not true): verified means only 'not stale'"))
         for key in DROPPED_SOURCE_KEYS:
             entries = snap.manifest.source.get(key)
             if entries:

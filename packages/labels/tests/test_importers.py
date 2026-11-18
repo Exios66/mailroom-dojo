@@ -840,3 +840,17 @@ def test_a_missing_doc_text_never_verifies_even_the_empty_text_hash(tmp_path: Pa
     manifest = hub_build(tmp_path / "hub-x", data)
     assert "D9" in manifest.source["text_unverified_documents"]
     assert manifest.source["text_check"]["unverified_by_reason"]["no_doc_text"] == 1
+
+
+def test_a_hub_import_without_the_text_check_warns_and_fails_strict(tmp_path: Path) -> None:
+    data = write_dataset(tmp_path / "data")
+    manifest = hub_build(tmp_path / "hub-x", data, default=False)
+    assert manifest.source["text_check"] == {"run": False}
+    report, _ = check_dirs([tmp_path / "hub-x"], profile())
+    unchecked = [f for f in report.warnings if f.kind == "text_unchecked"]
+    assert len(unchecked) == 1 and not unchecked[0].known
+    assert unchecked[0] in report.unknown_warnings  # verify --strict fails on it
+    known = ({"kind": "text_unchecked", "doc": None, "field": None, "reason": "text not downloaded"},)
+    hub_build(tmp_path / "hub-y", data, default=False, known_warnings=known)
+    report, _ = check_dirs([tmp_path / "hub-y"], profile())
+    assert [f.known for f in report.warnings if f.kind == "text_unchecked"] == [True]
