@@ -18,6 +18,40 @@ test. The decisions being tested are in `docs/adr/`; the tasks are in
   root `pyproject.toml` puts the tests folder on `pythonpath`); fixtures live in
   `packages/record/tests/conftest.py`.
 
+## JJB's bar (2026-11-18)
+
+"Tests need to be effective for testing real behavior and detect error states and points of
+failure, not just simple one-off unit tests." So, for every module:
+
+- **Failure is never silent.** For each failure the module can meet (crash, kill, torn or
+  corrupt bytes, concurrent writers, disk full, short writes, fsync errors, missing or
+  tampered files), a test injects it and asserts the exact error raised or problem reported.
+  A failure that is swallowed, skipped without a report, or turned into a wrong answer is a
+  bug, and a test must show it cannot happen.
+- **Invariants, not examples.** Property-based tests (`hypothesis`) drive random sequences of
+  operations (appends across writers and documents, flushes, kills, seals, tombstones) and
+  check the invariants after each step: every whole line hashes to itself; per-document `seq`
+  is gap-free and unique; every link holds; every event is exported to exactly one Parquet
+  file; the index equals a rebuild from the log; what verify reports equals what was
+  injected.
+- **Real processes and real data.** Kill tests use real `SIGKILL`ed processes; concurrency
+  tests use real threads and processes; the stage gate runs end to end on all stored runs.
+- **Positive controls.** Every leak scan and every tamper test also proves it can see the
+  thing it looks for.
+
+### Fault injection matrix
+
+| Fault | How injected | Modules | Expected |
+|---|---|---|---|
+| Process killed mid-append | `SIGKILL` a child writer | log | Whole lines verify, torn tail reported, chain continues |
+| Disk full (`ENOSPC`) | Monkeypatch `os.write`/`os.fsync` to raise mid-operation | blobs, log, seal, index, pack | Clear error, writer poisoned, no partial blob or seal visible, nothing reported as success |
+| Short write | `os.write` returns fewer bytes than asked | blobs, log | Retried to completion or failed loudly; never a silent partial line |
+| fsync error (`EIO`) | Monkeypatch `os.fsync` | blobs, log, seal | Error raised, writer poisoned |
+| Corrupt or truncated file | Flip, cut or append bytes | blobs, log, seal, pack | `BlobCorrupt`, `CorruptLine`, torn tail, `SealCorrupt`, `PackCorrupt` |
+| Concurrent writers | Threads and spawned processes | blobs, log, seal | Chains intact, seals numbered without gaps, one tombstone record |
+| Forked chain | Two owners of one document | log, seal, verify | `ForkedChain` refused by writers and seal, reported by verify |
+| Tampering | Edit, delete, reorder lines; delete documents | verify | The exact `Problem.kind` |
+
 ## The pyramid for this package
 
 | Layer | What | Where | Count (approx.) |
@@ -57,6 +91,8 @@ test. The decisions being tested are in `docs/adr/`; the tasks are in
 
 ## Additions beyond the plan's sketches
 
+(Items 6 and 7 added 2026-11-18 after JJB's bar above.)
+
 These come from the ADRs and are folded into the task briefs:
 
 1. **Process-level concurrency** (Task 5). Review Focus 4 says "threads or processes"; the
@@ -69,6 +105,10 @@ These come from the ADRs and are folded into the task briefs:
    `flush_every=16` (events per second, documents per minute at about 20 events per
    document) against the design's 249 documents a minute floor. It is reported, not asserted
    in pytest, so CI does not flake on slow runners.
+6. **Property-based invariant tests** with `hypothesis` (added to the `dev` extra) for
+   hashing, blobs, the log and seals now, and for verify, the index and pack as they land.
+7. **The fault injection matrix above**, applied to every module; disk-full, short-write and
+   fsync-error cases for blobs, the log and seals are added before Task 7 starts.
 
 ## Coverage target
 
