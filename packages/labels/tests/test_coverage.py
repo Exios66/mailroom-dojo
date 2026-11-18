@@ -98,3 +98,16 @@ def test_markdown_rows(snapshot_dirs) -> None:
     # | field | scorable | hub interim near_gold gold | ranks in RANKS order |
     assert "| sender | 3 | 1 | 1 | 1 | 0 | 0 | 0 | 1 | 0 | 1 | 0 | 0 | 1 |" in md
     assert "| filing_id | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |" in md
+
+
+def test_markdown_escapes_a_pipe_in_a_field_name(snapshot_dirs) -> None:
+    docs, refs = docs_and_refs(snapshot_dirs)
+    report = coverage(docs, profile(), refs)
+    cls = next(iter(report["classes"].values()))
+    first = next(iter(cls["fields"]))
+    cls["fields"] = {"a|b" if k == first else k: v for k, v in cls["fields"].items()}
+    md = render_markdown(report)
+    row = next(line for line in md.splitlines() if line.startswith("| a"))
+    assert row.startswith("| a\\|b |")
+    header = next(line for line in md.splitlines() if line.startswith("| Field"))
+    assert row.replace("\\|", "").count("|") == header.count("|")

@@ -78,6 +78,11 @@ def coverage(
     }
 
 
+def _cell(text: str) -> str:
+    """Text safe inside a Markdown table cell: a ``|`` would start a new column."""
+    return str(text).replace("\\", "\\\\").replace("|", "\\|")
+
+
 def render_markdown(report: Mapping[str, Any]) -> str:
     """A Markdown rendering of ``coverage(...)``: totals, then one table per class."""
     lines = [f"# Label coverage: {report['client']}", ""]
@@ -104,6 +109,6 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         ]
         for fname, cell in c["fields"].items():
             nums = [str(cell["by_status"][s]) for s in STATUS_WORDS] + [str(cell["by_rank"][r]) for r in RANKS]
-            lines.append(f"| {fname} | {cell['scorable']} | " + " | ".join(nums) + " |")
+            lines.append(f"| {_cell(fname)} | {cell['scorable']} | " + " | ".join(nums) + " |")
         lines.append("")
     return "\n".join(lines)
