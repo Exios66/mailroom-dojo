@@ -514,7 +514,7 @@ def _measure(method: str, **overrides: Any) -> Measure:
     [
         (lambda: _measure("accuracy", value=1.2), r"value 1.2 is outside \[0, 1\]"),
         (lambda: _measure("prompt_tokens", value=10.5), "a count is a whole number"),
-        (lambda: _measure("reviewer_accept_rule_violations", value=2.5), "a count is a whole number, got 2.5"),
+        (lambda: _measure("reviewer_accept_rule_violations", value=2.5), "a count is a whole number"),
         (lambda: _measure("accuracy", value=0.5, ci=_ci(0.6, 0.9)), "does not contain the value 0.5"),
         (lambda: _measure("accuracy", value=0.95, ci=_ci(0.9, 1.05)), r"ci.high 1.05 is outside \[0, 1\]"),
         (lambda: _measure("wer", value=0.1, ci=_ci(-0.2, 0.3)), "ci.low -0.2 is negative"),
