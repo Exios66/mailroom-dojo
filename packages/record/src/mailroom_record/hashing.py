@@ -30,7 +30,7 @@ def _check_keys(obj: Any) -> None:
 
 def canonical_json(obj: Any) -> bytes:
     """Encode ``obj`` as canonical JSON bytes."""
-    _check_keys(obj)
+    # json.dumps runs first so a cyclic object raises instead of looping in _check_keys.
     text = json.dumps(
         obj,
         sort_keys=True,
@@ -38,6 +38,7 @@ def canonical_json(obj: Any) -> bytes:
         ensure_ascii=False,
         allow_nan=False,
     )
+    _check_keys(obj)
     return text.encode("utf-8")
 
 

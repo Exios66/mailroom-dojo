@@ -59,3 +59,10 @@ def test_hash_obj_is_sha256_of_canonical_json() -> None:
 def test_output_round_trips_through_json() -> None:
     obj = {"text": "line\nbreak   \"quoted\" \\", "n": -3, "f": 0.30000000000000004}
     assert json.loads(canonical_json(obj).decode("utf-8")) == obj
+
+
+def test_cyclic_object_raises_instead_of_hanging():
+    a: list = []
+    a.append(a)
+    with pytest.raises(ValueError):
+        canonical_json(a)

@@ -5,3 +5,5 @@
 [tool.pytest.ini_options]
 testpaths = ["packages/record/tests"]
 addopts = "--import-mode=importlib"
+# Lets tests import shared helpers from packages/record/tests/record_testkit.py.
+pythonpath = ["packages/record/tests"]
