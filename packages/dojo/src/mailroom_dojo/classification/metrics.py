@@ -42,11 +42,16 @@ def accuracy(expected: Sequence[Any], predicted: Sequence[Any], label_set: Class
     require_equal_lengths(expected, predicted)
     if not expected:
         return 0.0
-    pairs = [(item, prediction) for item, prediction in zip(expected, predicted)
-             if not str(prediction).startswith(ERROR_PREFIX)]
+    pairs = [
+        (item, prediction)
+        for item, prediction in zip(expected, predicted, strict=False)
+        if not str(prediction).startswith(ERROR_PREFIX)
+    ]
     if not pairs:
         return 0.0
-    hits = sum(1 for item, prediction in pairs if label_set.normalize(prediction) == label_set.normalize(item))
+    hits = sum(
+        1 for item, prediction in pairs if label_set.normalize(prediction) == label_set.normalize(item)
+    )
     return round(hits / len(pairs), 4)
 
 
@@ -95,12 +100,14 @@ def per_class_stats(
     """
     require_equal_lengths(expected, predicted)
     pairs: list[tuple[str, str]] = []
-    for item, prediction in zip(expected, predicted):
+    for item, prediction in zip(expected, predicted, strict=False):
         output = str(prediction)
         if output.startswith(ERROR_PREFIX):
             continue
         pairs.append((label_set.normalize(item), label_set.normalize(output)))
-    return {class_key: _one_versus_rest(pairs, class_key) for class_key in sorted({item for item, _ in pairs})}
+    return {
+        class_key: _one_versus_rest(pairs, class_key) for class_key in sorted({item for item, _ in pairs})
+    }
 
 
 def macro_accuracy(expected: Sequence[Any], predicted: Sequence[Any], label_set: ClassLabelSet) -> float:
@@ -126,7 +133,7 @@ def confusion_matrix(
     require_equal_lengths(expected, predicted)
     pairs = [
         (label_set.normalize(item), label_set.normalize(prediction))
-        for item, prediction in zip(expected, predicted)
+        for item, prediction in zip(expected, predicted, strict=False)
         if not str(prediction).startswith(ERROR_PREFIX)
     ]
     observed = {item for item, _ in pairs} | {prediction for _, prediction in pairs}
@@ -174,7 +181,7 @@ def binary_metrics(
 
     require_equal_lengths(expected, predicted)
     true_positives = true_negatives = false_positives = false_negatives = 0
-    for item, prediction in zip(expected, predicted):
+    for item, prediction in zip(expected, predicted, strict=False):
         actual = is_positive(item)
         guessed = is_positive(prediction)
         if actual and guessed:
@@ -186,9 +193,15 @@ def binary_metrics(
         else:
             true_negatives += 1
     precision = (
-        round(true_positives / (true_positives + false_positives), 4) if true_positives + false_positives else 0.0
+        round(true_positives / (true_positives + false_positives), 4)
+        if true_positives + false_positives
+        else 0.0
     )
-    recall = round(true_positives / (true_positives + false_negatives), 4) if true_positives + false_negatives else 0.0
+    recall = (
+        round(true_positives / (true_positives + false_negatives), 4)
+        if true_positives + false_negatives
+        else 0.0
+    )
     total = true_positives + true_negatives + false_positives + false_negatives
     negatives = false_positives + true_negatives
     positives = false_negatives + true_positives
@@ -228,7 +241,7 @@ def macro_prf(
         raise TypeError("macro_prf with normalize=True needs a label_set")
     require_equal_lengths(expected, predicted)
     pairs: list[tuple[str, str]] = []
-    for item, prediction in zip(expected, predicted):
+    for item, prediction in zip(expected, predicted, strict=False):
         if str(prediction).startswith(ERROR_PREFIX):
             continue
         if normalize:
@@ -251,7 +264,9 @@ def macro_prf(
     if not classes:
         return empty
     if normalize:
-        stats = per_class_stats([item for item, _ in pairs], [prediction for _, prediction in pairs], label_set)
+        stats = per_class_stats(
+            [item for item, _ in pairs], [prediction for _, prediction in pairs], label_set
+        )
         per_class = {key: value for key, value in stats.items() if key in set(classes)}
     else:
         per_class = {class_key: _one_versus_rest(pairs, class_key) for class_key in classes}
@@ -285,7 +300,9 @@ def confusion_accuracy(matrix: Sequence[Sequence[int]]) -> float:
     return round(trace / total, 4)
 
 
-def top_confusions(matrix: Sequence[Sequence[int]], labels: Sequence[str], k: int = 5) -> list[dict[str, Any]]:
+def top_confusions(
+    matrix: Sequence[Sequence[int]], labels: Sequence[str], k: int = 5
+) -> list[dict[str, Any]]:
     """The ``k`` largest off-diagonal cells as ``{expected, predicted, count}``.
 
     Cells are read row by row; the sort by count is stable, so equal counts keep
@@ -295,7 +312,9 @@ def top_confusions(matrix: Sequence[Sequence[int]], labels: Sequence[str], k: in
     for row_index, row in enumerate(matrix):
         for column_index, count in enumerate(row):
             if row_index != column_index and count > 0:
-                cells.append({"expected": labels[row_index], "predicted": labels[column_index], "count": count})
+                cells.append(
+                    {"expected": labels[row_index], "predicted": labels[column_index], "count": count}
+                )
     cells.sort(key=lambda cell: cell["count"], reverse=True)
     return cells[:k]
 

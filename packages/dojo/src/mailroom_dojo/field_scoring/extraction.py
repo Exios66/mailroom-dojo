@@ -93,13 +93,19 @@ class ExtractionScoreResult:
 
     @property
     def overall_verified_precision(self) -> float | None:
-        """Mean ``verified_precision`` of the audited fields with a prediction, four places (None when there is none)."""
-        values = [audit["verified_precision"] for audit in self.entity_list_audit.values() if audit.get("n_predicted")]
+        """Mean ``verified_precision`` of the audited fields with a prediction, four places (None when there
+        is none)."""
+        values = [
+            audit["verified_precision"]
+            for audit in self.entity_list_audit.values()
+            if audit.get("n_predicted")
+        ]
         return round(sum(values) / len(values), 4) if values else None
 
     @property
     def matcher_fallbacks(self) -> dict[str, str]:
-        """``{field: reason}`` for every list field the greedy matcher scored because scipy was unavailable."""
+        """``{field: reason}`` for every list field the greedy matcher scored because scipy was
+        unavailable."""
         return {
             name: score.matcher_fallback
             for name, score in self.entity_list_scores.items()
@@ -107,7 +113,8 @@ class ExtractionScoreResult:
         }
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize for run logs: class, field scores, overall score, ambiguous fields, list scores, audits, trace."""
+        """Serialize for run logs: class, field scores, overall score, ambiguous fields, list scores, audits,
+        trace."""
         return {
             "doc_class": self.class_key,
             "field_scores": self.field_scores,
@@ -197,7 +204,9 @@ def _checked_field_types(
 ) -> tuple[dict[str, str], dict[str, str]]:
     """Validate a caller's field-type map; return it as a dict with the fields that fall back to ``name``."""
     if not isinstance(field_types, Mapping):
-        raise TypeError(f"field_types must be a mapping of field names to types, got {type(field_types).__name__}")
+        raise TypeError(
+            f"field_types must be a mapping of field names to types, got {type(field_types).__name__}"
+        )
     type_map = dict(field_types)
     not_text = {name: field_type for name, field_type in type_map.items() if not isinstance(field_type, str)}
     if not_text:
@@ -264,7 +273,9 @@ def score_extraction(
     unavailable, reported per list.
     """
     if unknown_field_types not in ("error", "score_as_name"):
-        raise ValueError(f"unknown_field_types must be 'error' or 'score_as_name', got {unknown_field_types!r}")
+        raise ValueError(
+            f"unknown_field_types must be 'error' or 'score_as_name', got {unknown_field_types!r}"
+        )
     registry = registry if registry is not None else FieldScorerRegistry.for_profile(profile)
     if field_types is None:
         type_map = profile.field_types(class_key)
@@ -277,7 +288,9 @@ def score_extraction(
     had_prediction = bool(predicted)
     predicted = _mapping_or_empty(predicted, "predicted")
     expected = _mapping_or_empty(expected, "expected")
-    audit_source = predicted if audit_predicted is None else _mapping_or_empty(audit_predicted, "audit_predicted")
+    audit_source = (
+        predicted if audit_predicted is None else _mapping_or_empty(audit_predicted, "audit_predicted")
+    )
     class_spec = profile.class_spec(class_key)
     active = active_row_variant(class_spec, expected) if apply_variants else None
 
@@ -286,7 +299,9 @@ def score_extraction(
     entity_list_scores: dict[str, EntityListScore] = {}
     entity_list_audit: dict[str, dict[str, Any]] = {}
 
-    expected_items = list(expected.items()) + documented_absent_additions(active, expected, predicted, type_map)
+    expected_items = list(expected.items()) + documented_absent_additions(
+        active, expected, predicted, type_map
+    )
     for key, expected_value in expected_items:
         if is_never_scored_field(profile, key):
             continue
@@ -369,7 +384,11 @@ def score_extraction(
     if profile.audit.enabled and doc_text:
         for key, field_type in sorted(type_map.items()):
             predicted_value = parse_json_container(audit_source.get(key))
-            if is_empty_value(predicted_value) or key in entity_list_audit or is_never_scored_field(profile, key):
+            if (
+                is_empty_value(predicted_value)
+                or key in entity_list_audit
+                or is_never_scored_field(profile, key)
+            ):
                 continue
             if is_entity_list(field_type):
                 entity_list_audit[key] = audit_list_field(
@@ -385,16 +404,28 @@ def score_extraction(
                 continue
             expected_value = expected.get(key)
             audit = audit_scalar_field(
-                profile, field_type, predicted_value, expected_value, doc_text,
-                rescue=rescue, registry=registry, unknown_type_as=unknown_type_as,
+                profile,
+                field_type,
+                predicted_value,
+                expected_value,
+                doc_text,
+                rescue=rescue,
+                registry=registry,
+                unknown_type_as=unknown_type_as,
             )
             if field_type == "label" and class_key and not audit["true_items"]:
                 folded_predicted = profile.canonical_label(class_key, key, predicted_value) or predicted_value
                 folded_expected = profile.canonical_label(class_key, key, expected_value) or expected_value
                 if (folded_predicted, folded_expected) != (predicted_value, expected_value):
                     folded = audit_scalar_field(
-                        profile, field_type, folded_predicted, folded_expected, doc_text,
-                        rescue=rescue, registry=registry, unknown_type_as=unknown_type_as,
+                        profile,
+                        field_type,
+                        folded_predicted,
+                        folded_expected,
+                        doc_text,
+                        rescue=rescue,
+                        registry=registry,
+                        unknown_type_as=unknown_type_as,
                     )
                     if folded["true_items"]:
                         audit = folded

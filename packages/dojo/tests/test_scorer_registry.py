@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from dojo_testkit import minimal_profile_mapping
 
+from dojo_testkit import minimal_profile_mapping
 from mailroom_dojo.field_scoring import scalar_scorers
 from mailroom_dojo.field_scoring.plugins import BUNDLED_PLUGINS
 from mailroom_dojo.field_scoring.plugins.cms_identifiers import score_cms_doc_ref

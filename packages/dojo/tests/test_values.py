@@ -13,10 +13,14 @@ from mailroom_dojo.values import NULL_TOKENS, is_empty_value, parse_json_contain
 
 json_values = st.recursive(
     st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False) | st.text(),
-    lambda children: st.lists(children, max_size=4) | st.dictionaries(st.text(max_size=5), children, max_size=4),
+    lambda children: (
+        st.lists(children, max_size=4) | st.dictionaries(st.text(max_size=5), children, max_size=4)
+    ),
     max_leaves=12,
 )
-hostile_values = json_values | st.floats() | st.binary() | st.tuples(st.integers()) | st.frozensets(st.integers())
+hostile_values = (
+    json_values | st.floats() | st.binary() | st.tuples(st.integers()) | st.frozensets(st.integers())
+)
 
 
 @pytest.mark.parametrize(
@@ -42,8 +46,27 @@ def test_parse_json_container_parses_only_whole_lists_and_objects(value, parsed)
 
 @pytest.mark.parametrize(
     "value",
-    [None, "", "   ", "\t\n", "[]", "{}", " [ ] ", "null", "NULL", " None ", "n/a", "N.A.", "nan", "NaN",
-     float("nan"), [], {}, (), set()],
+    [
+        None,
+        "",
+        "   ",
+        "\t\n",
+        "[]",
+        "{}",
+        " [ ] ",
+        "null",
+        "NULL",
+        " None ",
+        "n/a",
+        "N.A.",
+        "nan",
+        "NaN",
+        float("nan"),
+        [],
+        {},
+        (),
+        set(),
+    ],
 )
 def test_empty_values(value):
     """Every absence form is empty."""
@@ -51,8 +74,25 @@ def test_empty_values(value):
 
 
 @pytest.mark.parametrize(
-    "value", [0, 0.0, False, True, "0", "false", "none of them", '[""]', "[null]", [None], [""], {"a": None},
-              ("x",), frozenset(), float("inf"), " x"],
+    "value",
+    [
+        0,
+        0.0,
+        False,
+        True,
+        "0",
+        "false",
+        "none of them",
+        '[""]',
+        "[null]",
+        [None],
+        [""],
+        {"a": None},
+        ("x",),
+        frozenset(),
+        float("inf"),
+        " x",
+    ],
 )
 def test_values_that_are_not_empty(value):
     """Numbers, booleans, non-empty containers (even of blanks) and any text with content are values.
@@ -64,7 +104,7 @@ def test_values_that_are_not_empty(value):
 
 def test_null_tokens_are_the_documented_five():
     """The null tokens are a closed list; adding one changes what is scored."""
-    assert NULL_TOKENS == {"null", "none", "n/a", "n.a.", "nan"}
+    assert {"null", "none", "n/a", "n.a.", "nan"} == NULL_TOKENS
 
 
 @given(json_values)
@@ -109,7 +149,8 @@ def test_a_huge_integer_is_signed_infinity_not_a_crash():
 
 
 def test_absurdly_nested_json_text_stays_as_written_instead_of_crashing():
-    """JSON text nested deeper than the interpreter allows is left unchanged (the old Dojo raised RecursionError)."""
+    """JSON text nested deeper than the interpreter allows is left unchanged (the old Dojo raised
+    RecursionError)."""
     from mailroom_dojo.values import parse_json_container
 
     deep = "[" * 100_000 + "]" * 100_000

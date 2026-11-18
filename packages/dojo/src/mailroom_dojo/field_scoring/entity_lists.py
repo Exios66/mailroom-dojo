@@ -176,19 +176,27 @@ def _load_hungarian_solver() -> Callable[..., Any]:
     return linear_sum_assignment
 
 
-def _hungarian_matches(similarity_rows: list[list[float]], threshold: float, solver: Callable[..., Any]) -> int:
+def _hungarian_matches(
+    similarity_rows: list[list[float]], threshold: float, solver: Callable[..., Any]
+) -> int:
     """Count the pairs of the maximum-total-similarity assignment that reach ``threshold``."""
     import numpy
 
     similarities = numpy.array(similarity_rows, dtype=float)
     rows, columns = solver(1.0 - similarities)
-    return sum(1 for row, column in zip(rows, columns) if similarities[row, column] >= threshold)
+    return sum(
+        1 for row, column in zip(rows, columns, strict=False) if similarities[row, column] >= threshold
+    )
 
 
 def _greedy_matches(
-    predicted_items: list[str], expected_items: list[str], threshold: float, similarity: Callable[[str, str], float]
+    predicted_items: list[str],
+    expected_items: list[str],
+    threshold: float,
+    similarity: Callable[[str, str], float],
 ) -> int:
-    """Pair each predicted item, in order, with its most similar unpaired expected item at or above ``threshold``.
+    """Pair each predicted item, in order, with its most similar unpaired expected item at or above
+    ``threshold``.
 
     On a tie the later expected item wins.
     """
@@ -269,12 +277,14 @@ def score_entity_list(
             if not label_tokens or size < shortest or size > longest:
                 return False
             return any(
-                label_tokens == tokens[start:start + size]
+                label_tokens == tokens[start : start + size]
                 for tokens in predicted_token_lists
                 for start in range(len(tokens) - size + 1)
             )
 
-        paired_expected = [item for item in expected_items if not (is_role_phrase(item) or label_contained(item))]
+        paired_expected = [
+            item for item in expected_items if not (is_role_phrase(item) or label_contained(item))
+        ]
         role_credits = sum(1 for item in expected_items if is_role_phrase(item))
         contained_credits = expected_count - len(paired_expected) - role_credits
         prediction_names_party = any(not is_role_phrase(item) for item in predicted_items)
@@ -286,7 +296,9 @@ def score_entity_list(
 
     def similarity(predicted_item: str, expected_item: str) -> float:
         """Element similarity under this call's profile, scorer and rescue."""
-        return element_similarity(profile, element_type, predicted_item, expected_item, scorer=scorer, rescue=rescue)
+        return element_similarity(
+            profile, element_type, predicted_item, expected_item, scorer=scorer, rescue=rescue
+        )
 
     used_matcher: str
     fallback_reason: str | None = None
@@ -303,7 +315,9 @@ def score_entity_list(
             if fallback_matcher is None:
                 raise
             fallback_reason = f"scipy unavailable ({type(error).__name__}: {error})"
-            logger.warning("Hungarian list matcher unavailable; using the greedy matcher: %s", fallback_reason)
+            logger.warning(
+                "Hungarian list matcher unavailable; using the greedy matcher: %s", fallback_reason
+            )
             used_matcher = "greedy"
             matched = _greedy_matches(predicted_items, paired_expected, threshold, similarity)
         else:

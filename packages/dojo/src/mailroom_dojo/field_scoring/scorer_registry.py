@@ -52,15 +52,17 @@ class ScalarScorer(Protocol):
 
 #: The built-in scalar scorers, one per name in
 #: :data:`mailroom_dojo.profile.field_types.BUILTIN_SCALAR_TYPES` (a test checks they agree).
-BUILTIN_SCORERS: Mapping[str, ScalarScorer] = FrozenMapping({
-    "id": score_id_field,
-    "date": score_date_field,
-    "money": score_money_field,
-    "name": score_name_field,
-    "label": score_label_field,
-    "free_text": score_free_text_field,
-    "containment": score_containment_field,
-})
+BUILTIN_SCORERS: Mapping[str, ScalarScorer] = FrozenMapping(
+    {
+        "id": score_id_field,
+        "date": score_date_field,
+        "money": score_money_field,
+        "name": score_name_field,
+        "label": score_label_field,
+        "free_text": score_free_text_field,
+        "containment": score_containment_field,
+    }
+)
 
 
 class UnknownFieldTypeError(LookupError):
@@ -83,7 +85,9 @@ def _checked(name: str, scorer: ScalarScorer) -> ScalarScorer:
     def checked(*arguments: Any, **keywords: Any) -> float:
         result = scorer(*arguments, **keywords)
         if isinstance(result, bool) or not isinstance(result, (int, float)) or not 0.0 <= result <= 1.0:
-            raise ScorerResultError(f"plug-in scorer {name!r} returned {result!r}; it must return a number in [0, 1]")
+            raise ScorerResultError(
+                f"plug-in scorer {name!r} returned {result!r}; it must return a number in [0, 1]"
+            )
         return float(result)
 
     return checked
@@ -116,7 +120,10 @@ class FieldScorerRegistry:
             if not callable(scorer):
                 raise TypeError(f"scorer for {name!r} is not callable")
         self._scorers: Mapping[str, ScalarScorer] = FrozenMapping(
-            {name: scorer if BUILTIN_SCORERS.get(name) is scorer else _checked(name, scorer) for name, scorer in scorers.items()}
+            {
+                name: scorer if BUILTIN_SCORERS.get(name) is scorer else _checked(name, scorer)
+                for name, scorer in scorers.items()
+            }
         )
 
     @classmethod
@@ -167,7 +174,8 @@ class FieldScorerRegistry:
         return scalar in self._scorers
 
     def scalar_scorer(self, scalar_type: str) -> ScalarScorer:
-        """Return the scorer of a scalar type; raise :class:`UnknownFieldTypeError` when it is not registered."""
+        """Return the scorer of a scalar type; raise :class:`UnknownFieldTypeError` when it is not
+        registered."""
         try:
             return self._scorers[scalar_type]
         except KeyError:
@@ -188,10 +196,22 @@ class FieldScorerRegistry:
             return ResolvedFieldType(field_type, is_list, scalar, self._scorers[scalar])
         if unknown_as is None:
             self.scalar_scorer(scalar)
-        return ResolvedFieldType(field_type, is_list, unknown_as, self.scalar_scorer(unknown_as), fell_back=True)
+        return ResolvedFieldType(
+            field_type, is_list, unknown_as, self.scalar_scorer(unknown_as), fell_back=True
+        )
 
 
-_MONEY_NAME_WORDS = ("value", "amount", "fee", "compensation", "price", "cost", "salary", "consideration", "total")
+_MONEY_NAME_WORDS = (
+    "value",
+    "amount",
+    "fee",
+    "compensation",
+    "price",
+    "cost",
+    "salary",
+    "consideration",
+    "total",
+)
 _ID_NAME_WORDS = ("number", "id", "docket", "reference", "filing")
 
 
@@ -213,4 +233,3 @@ def heuristic_field_type(field_name: str, value: object) -> str:
     if any(word in name for word in _ID_NAME_WORDS):
         return "id"
     return "name"
-

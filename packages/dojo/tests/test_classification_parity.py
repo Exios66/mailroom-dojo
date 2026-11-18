@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import pytest
+
 from dojo_testkit import OLD_DOJO_COMMIT, decode
 from golden_replay import (
     CLASSIFICATION_FIXTURE,
@@ -28,7 +30,6 @@ from golden_replay import (
     outcome_of,
     same_outcome,
 )
-
 from mailroom_dojo import classification
 from mailroom_dojo.classification import ClassLabelSet
 
@@ -41,22 +42,33 @@ def _adapters(label_set: ClassLabelSet | None) -> dict[str, Callable[[dict[str, 
         "failure": lambda args: classification.failure(args["output"], args["expected"]),
         "accuracy": lambda args: classification.accuracy(args["expected"], args["predicted"], label_set),
         "fbeta": lambda args: classification.fbeta(args["precision"], args["recall"], beta=args["beta"]),
-        "per_class_stats": lambda args: classification.per_class_stats(args["expected"], args["predicted"], label_set),
-        "macro_accuracy": lambda args: classification.macro_accuracy(args["expected"], args["predicted"], label_set),
+        "per_class_stats": lambda args: classification.per_class_stats(
+            args["expected"], args["predicted"], label_set
+        ),
+        "macro_accuracy": lambda args: classification.macro_accuracy(
+            args["expected"], args["predicted"], label_set
+        ),
         "confusion_matrix": lambda args: classification.confusion_matrix(
             args["expected"], args["predicted"], label_set, labels=args.get("labels")
         ),
         "binary_metrics": lambda args: classification.binary_metrics(
-            args["expected"], args["predicted"], args["positive"], label_set=label_set,
+            args["expected"],
+            args["predicted"],
+            args["positive"],
+            label_set=label_set,
             normalize=args.get("normalize", True),
         ),
         "macro_prf": lambda args: classification.macro_prf(
             args["expected"], args["predicted"], label_set, normalize=args.get("normalize", True)
         ),
         "confusion_accuracy": lambda args: classification.confusion_accuracy(args["matrix"]),
-        "top_confusions": lambda args: classification.top_confusions(args["matrix"], args["labels"], k=args["k"]),
+        "top_confusions": lambda args: classification.top_confusions(
+            args["matrix"], args["labels"], k=args["k"]
+        ),
         "class_distribution": lambda args: classification.class_distribution(args["labels"], label_set),
-        "require_equal_lengths": lambda args: classification.require_equal_lengths(args["expected"], args["predicted"]),
+        "require_equal_lengths": lambda args: classification.require_equal_lengths(
+            args["expected"], args["predicted"]
+        ),
     }
 
 
@@ -88,8 +100,11 @@ def test_the_corpus_covers_every_function_and_the_failure_states():
     assert sum(1 for case in cases if "ERROR: " in json.dumps(case["args"])) >= 100
 
 
-FUNCTIONS = sorted(json.loads((GOLDEN_DIRECTORY / CLASSIFICATION_FIXTURE).read_text().splitlines()[0])["header"][
-    "cases_by_function"])
+FUNCTIONS = sorted(
+    json.loads((GOLDEN_DIRECTORY / CLASSIFICATION_FIXTURE).read_text().splitlines()[0])["header"][
+        "cases_by_function"
+    ]
+)
 
 
 @pytest.mark.parametrize("function", FUNCTIONS)

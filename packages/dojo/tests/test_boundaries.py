@@ -18,6 +18,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
+
 from dojo_testkit import PACKAGE_ROOT, SOURCE_ROOT
 
 SOURCE_FILES = sorted(SOURCE_ROOT.rglob("*.py"))
@@ -28,13 +29,41 @@ THIRD_PARTY = {"dateutil", "jellyfish", "numpy", "scipy", "yaml", "sentence_tran
 WORKSPACE_ALLOWED = {"mailroom_dojo", "mailroom_record", "mailroom_labels"}
 #: Standard-library modules that reach the network, spawn processes or threads, or read secrets.
 STDLIB_FORBIDDEN = {
-    "socket", "ssl", "urllib", "http", "ftplib", "smtplib", "imaplib", "poplib", "telnetlib", "xmlrpc",
-    "socketserver", "asyncio", "threading", "multiprocessing", "concurrent", "subprocess", "selectors",
-    "webbrowser", "getpass",
+    "socket",
+    "ssl",
+    "urllib",
+    "http",
+    "ftplib",
+    "smtplib",
+    "imaplib",
+    "poplib",
+    "telnetlib",
+    "xmlrpc",
+    "socketserver",
+    "asyncio",
+    "threading",
+    "multiprocessing",
+    "concurrent",
+    "subprocess",
+    "selectors",
+    "webbrowser",
+    "getpass",
 }
 #: Never allowed, whatever else changes: engines, launchers, the old Dojo, network clients, model SDKs.
-NAMED_FORBIDDEN = {"llm_dojo_scoring", "mailroom_engine", "mailroom_launcher", "requests", "httpx", "aiohttp",
-                   "urllib3", "openai", "anthropic", "langfuse", "dotenv", "torch"}
+NAMED_FORBIDDEN = {
+    "llm_dojo_scoring",
+    "mailroom_engine",
+    "mailroom_launcher",
+    "requests",
+    "httpx",
+    "aiohttp",
+    "urllib3",
+    "openai",
+    "anthropic",
+    "langfuse",
+    "dotenv",
+    "torch",
+}
 CACHE_DECORATORS = {"lru_cache", "cache", "cached_property"}
 
 
@@ -74,8 +103,11 @@ def boundary_problems(path: Path, package_depth: int) -> list[str]:
     problems: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            problems += [f"imports {alias.name} (line {node.lineno})" for alias in node.names
-                         if not _import_allowed(alias.name)]
+            problems += [
+                f"imports {alias.name} (line {node.lineno})"
+                for alias in node.names
+                if not _import_allowed(alias.name)
+            ]
         elif isinstance(node, ast.ImportFrom):
             if node.level == 0 and node.module and not _import_allowed(node.module):
                 problems.append(f"imports {node.module} (line {node.lineno})")
@@ -86,7 +118,9 @@ def boundary_problems(path: Path, package_depth: int) -> list[str]:
             if function in {"importlib.import_module", "import_module", "__import__"}:
                 target = node.args[0] if node.args else None
                 if not isinstance(target, ast.Constant) or not _import_allowed(str(target.value)):
-                    problems.append(f"dynamic import of {ast.unparse(target) if target else '?'} (line {node.lineno})")
+                    problems.append(
+                        f"dynamic import of {ast.unparse(target) if target else '?'} (line {node.lineno})"
+                    )
             if function in {"os.getenv", "getenv", "os.putenv", "os.environ.get"}:
                 problems.append(f"reads the environment via {function} (line {node.lineno})")
         elif isinstance(node, ast.Attribute) and node.attr in {"environ", "environb"}:
@@ -101,9 +135,19 @@ def boundary_problems(path: Path, package_depth: int) -> list[str]:
         if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             names = [target.id for target in targets if isinstance(target, ast.Name)]
-            mutable = isinstance(node.value, (ast.List, ast.Dict, ast.Set, ast.ListComp, ast.DictComp, ast.SetComp))
+            mutable = isinstance(
+                node.value, (ast.List, ast.Dict, ast.Set, ast.ListComp, ast.DictComp, ast.SetComp)
+            )
             factory = isinstance(node.value, ast.Call) and _dotted(node.value.func) in {
-                "dict", "list", "set", "defaultdict", "collections.defaultdict", "OrderedDict", "deque", "Counter"}
+                "dict",
+                "list",
+                "set",
+                "defaultdict",
+                "collections.defaultdict",
+                "OrderedDict",
+                "deque",
+                "Counter",
+            }
             if names != ["__all__"] and (mutable or factory):
                 problems.append(f"module-level mutable {names} (line {node.lineno})")
     return problems
@@ -117,15 +161,20 @@ def _depth(path: Path) -> int:
 def test_the_source_tree_is_found():
     """Guard against walking nothing: the core modules and the task C packages are present."""
     names = {_relative(path) for path in SOURCE_FILES}
-    for expected in ("mailroom_dojo/classification/labels.py", "mailroom_dojo/labels_interface/__init__.py",
-                     "mailroom_dojo/profile/loading.py", "mailroom_dojo/field_scoring/extraction.py"):
+    for expected in (
+        "mailroom_dojo/classification/labels.py",
+        "mailroom_dojo/labels_interface/__init__.py",
+        "mailroom_dojo/profile/loading.py",
+        "mailroom_dojo/field_scoring/extraction.py",
+    ):
         assert expected in names
     assert len(SOURCE_FILES) >= 30
 
 
 @pytest.mark.parametrize("path", SOURCE_FILES, ids=_relative)
 def test_no_module_crosses_a_boundary(path):
-    """No forbidden import (static, relative or dynamic), environment read, global, cache or module-level mutable."""
+    """No forbidden import (static, relative or dynamic), environment read, global, cache or module-level
+    mutable."""
     assert boundary_problems(path, _depth(path)) == []
 
 
@@ -156,19 +205,32 @@ def test_the_checks_catch_each_violation(tmp_path):
     )
     problems = boundary_problems(bad, package_depth=1)
     joined = "\n".join(problems)
-    for expected in ("imports socket", "imports requests", "imports llm_dojo_scoring.scoring",
-                     "imports mailroom_engine.executor", "imports mailroom_launcher", "imports urllib.request",
-                     "imports threading", "relative import climbs out", "dynamic import of 'mailroom_engine'",
-                     "dynamic import of name", "cache decorator lru_cache", "global statement", "uses os.environ",
-                     "reads the environment via os.getenv", "module-level mutable ['CACHE']",
-                     "module-level mutable ['SEEN']"):
+    for expected in (
+        "imports socket",
+        "imports requests",
+        "imports llm_dojo_scoring.scoring",
+        "imports mailroom_engine.executor",
+        "imports mailroom_launcher",
+        "imports urllib.request",
+        "imports threading",
+        "relative import climbs out",
+        "dynamic import of 'mailroom_engine'",
+        "dynamic import of name",
+        "cache decorator lru_cache",
+        "global statement",
+        "uses os.environ",
+        "reads the environment via os.getenv",
+        "module-level mutable ['CACHE']",
+        "module-level mutable ['SEEN']",
+    ):
         assert expected in joined, expected
     assert not any(word in joined for word in ("mailroom_record", "mailroom_labels", "yaml", "json"))
     assert len(problems) == 16
 
 
 def test_importing_every_module_loads_nothing_forbidden():
-    """In a fresh interpreter, importing every Dojo module loads no engine, old Dojo, network client or model library."""
+    """In a fresh interpreter, importing every Dojo module loads no engine, old Dojo, network client or model
+    library."""
     script = (
         "import importlib, json, pkgutil, sys\n"
         "import mailroom_dojo\n"
@@ -176,8 +238,9 @@ def test_importing_every_module_loads_nothing_forbidden():
         "for name in names: importlib.import_module(name)\n"
         "print(json.dumps({'imported': names, 'loaded': sorted(sys.modules)}))\n"
     )
-    completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=True,
-                               cwd=PACKAGE_ROOT)
+    completed = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True, cwd=PACKAGE_ROOT
+    )
     import json
 
     report = json.loads(completed.stdout)
@@ -189,13 +252,30 @@ def test_importing_every_module_loads_nothing_forbidden():
 
 
 def test_declared_dependencies_respect_the_direction():
-    """pyproject names no engine, launcher or old Dojo, and the import allow-list covers every declared dependency."""
+    """pyproject names no engine, launcher or old Dojo, and the import allow-list covers every declared
+    dependency."""
     project = tomllib.loads((PACKAGE_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
-    declared = list(project["dependencies"]) + [dependency for extra in project["optional-dependencies"].values()
-                                                for dependency in extra]
+    declared = list(project["dependencies"]) + [
+        dependency for extra in project["optional-dependencies"].values() for dependency in extra
+    ]
     names = {dependency.split(">")[0].split("=")[0].split("[")[0].strip().lower() for dependency in declared}
-    assert not names & {"llm-dojo-scoring", "mailroom-engine", "mailroom-launcher", "requests", "httpx", "openai"}
-    import_names = {"python-dateutil": "dateutil", "pyyaml": "yaml", "sentence-transformers": "sentence_transformers"}
-    runtime = {import_names.get(name, name.replace("-", "_")) for name in names} - {"pytest", "pytest_xdist",
-                                                                                   "hypothesis", "mailroom_record"}
+    assert not names & {
+        "llm-dojo-scoring",
+        "mailroom-engine",
+        "mailroom-launcher",
+        "requests",
+        "httpx",
+        "openai",
+    }
+    import_names = {
+        "python-dateutil": "dateutil",
+        "pyyaml": "yaml",
+        "sentence-transformers": "sentence_transformers",
+    }
+    runtime = {import_names.get(name, name.replace("-", "_")) for name in names} - {
+        "pytest",
+        "pytest_xdist",
+        "hypothesis",
+        "mailroom_record",
+    }
     assert runtime <= THIRD_PARTY

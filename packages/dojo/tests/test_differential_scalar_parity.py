@@ -11,11 +11,12 @@ and ``0.0``, are different answers.
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import pytest
-from dojo_testkit import OLD_DOJO_COMMIT, FakeSimilarity, canonical, decode, encode, scalar_corpus
 
+from dojo_testkit import OLD_DOJO_COMMIT, FakeSimilarity, canonical, decode, encode, scalar_corpus
 from mailroom_dojo.field_scoring import scalar_scorers
 from mailroom_dojo.field_scoring.plugins import cms_identifiers
 from mailroom_dojo.field_scoring.scorer_registry import heuristic_field_type, is_entity_list
@@ -62,7 +63,9 @@ ADAPTERS: dict[str, Callable[[dict[str, Any], ScoringProfile], Any]] = {
     "expected_date_is_relative": lambda args, profile: dates.expected_date_is_relative(args["exp"]),
     "expected_date_is_null": lambda args, profile: dates.expected_date_is_null(args["exp"]),
     "date_is_blank_or_bare_label": lambda args, profile: dates.date_is_blank_or_bare_label(args["exp"]),
-    "date_phrase_contained": lambda args, profile: dates.date_phrase_contained(args["container"], args["target"]),
+    "date_phrase_contained": lambda args, profile: dates.date_phrase_contained(
+        args["container"], args["target"]
+    ),
     "contains_phrase": lambda args, profile: dates.contains_phrase(args["haystack"], args["phrase"]),
     "score_id_field": _scorer(scalar_scorers.score_id_field),
     "score_money_field": _scorer(scalar_scorers.score_money_field),
@@ -72,24 +75,34 @@ ADAPTERS: dict[str, Callable[[dict[str, Any], ScoringProfile], Any]] = {
     "score_containment_field": _scorer(scalar_scorers.score_containment_field),
     "score_date_field": _scorer(scalar_scorers.score_date_field),
     "date_match_similarity": _scorer(scalar_scorers.date_match_similarity),
-    "date_year_unverified": lambda args, profile: scalar_scorers.date_year_unverified(args["pred"], args["exp"]),
+    "date_year_unverified": lambda args, profile: scalar_scorers.date_year_unverified(
+        args["pred"], args["exp"]
+    ),
     "cms_document_signature": lambda args, profile: cms_identifiers.cms_document_signature(args["text"]),
     "score_cms_doc_ref": _scorer(cms_identifiers.score_cms_doc_ref),
     "heuristic_field_type": lambda args, profile: heuristic_field_type(args["field_name"], args["value"]),
     "is_entity_list": lambda args, profile: is_entity_list(args["field_type"]),
     "parse_json_container": lambda args, profile: emptiness.parse_json_container(args["value"]),
     "is_empty_value": lambda args, profile: emptiness.is_empty_value(args["value"]),
-    "canonical_label": lambda args, profile: profile.canonical_label(args["doc_type"], args["field"], args["value"]),
+    "canonical_label": lambda args, profile: profile.canonical_label(
+        args["doc_type"], args["field"], args["value"]
+    ),
     "normalize_intent": _normalize_intent,
-    "normalize_subtype": lambda args, profile: profile.require_class("contract").subclasses.normalize(args["value"]),
+    "normalize_subtype": lambda args, profile: profile.require_class("contract").subclasses.normalize(
+        args["value"]
+    ),
     "normalize_doc_subclass": lambda args, profile: LabelVocabulary(
         tokens=tuple(sorted(args["allowed"])), fold_method="allowed_set"
     ).normalize(args["value"]),
-    "normalize_corpus_subclass": lambda args, profile: profile.normalize_subclass(args["doc_type"], args["value"]),
+    "normalize_corpus_subclass": lambda args, profile: profile.normalize_subclass(
+        args["doc_type"], args["value"]
+    ),
 }
 
 
-def _outcome(adapter: Callable[[dict[str, Any], ScoringProfile], Any], args: Any, profile: ScoringProfile) -> dict:
+def _outcome(
+    adapter: Callable[[dict[str, Any], ScoringProfile], Any], args: Any, profile: ScoringProfile
+) -> dict:
     """Run one case through the new code and encode its outcome the way the corpus does."""
     try:
         return {"result": encode(adapter(decode(args), profile))}

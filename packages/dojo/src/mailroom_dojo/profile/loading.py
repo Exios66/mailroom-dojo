@@ -25,6 +25,7 @@ from typing import Any
 
 import yaml
 
+from ..normalization.text import compact_label
 from .field_types import BUILTIN_SCALAR_TYPES, ENTITY_LIST_PREFIX, element_type, is_entity_list
 from .frozen import FrozenMapping
 from .label_folding import FOLD_METHODS, CatalogEntry, LabelVocabulary
@@ -46,7 +47,6 @@ from .models import (
     VariantGuard,
     VariantMarker,
 )
-from ..normalization.text import compact_label
 
 __all__ = ["PROFILE_FORMAT", "load_scoring_profile", "profile_canonical_form"]
 
@@ -75,16 +75,12 @@ def _construct_unique_mapping(loader: _StrictSafeLoader, node: yaml.MappingNode,
         key = loader.construct_object(key_node, deep=deep)
         if key in seen:
             mark = key_node.start_mark
-            raise ProfileError(
-                "", f"duplicate key {key!r} at line {mark.line + 1}, column {mark.column + 1}"
-            )
+            raise ProfileError("", f"duplicate key {key!r} at line {mark.line + 1}, column {mark.column + 1}")
         seen[key] = loader.construct_object(value_node, deep=deep)
     return seen
 
 
-_StrictSafeLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping
-)
+_StrictSafeLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping)
 
 
 def _read_yaml(path: Path) -> Any:
@@ -124,8 +120,11 @@ class _Section:
         """True when ``key`` is present."""
         return key in self.data
 
-    def take(self, key: str, reader: Callable[[Any, str], Any], default: Any = None, *, required: bool = False) -> Any:
-        """Read ``key`` with ``reader``, or return ``default`` when it is absent (an error when ``required``)."""
+    def take(
+        self, key: str, reader: Callable[[Any, str], Any], default: Any = None, *, required: bool = False
+    ) -> Any:
+        """Read ``key`` with ``reader``, or return ``default`` when it is absent (an error when
+        ``required``)."""
         self._read.add(key)
         path = _join(self.path, key)
         if key not in self.data:
@@ -215,7 +214,9 @@ def _choice(choices: tuple[str, ...]) -> Callable[[Any, str], str]:
     return read
 
 
-def _list_of(item_reader: Callable[[Any, str], Any], *, unique: bool = True, non_empty: bool = False) -> Callable[[Any, str], tuple]:
+def _list_of(
+    item_reader: Callable[[Any, str], Any], *, unique: bool = True, non_empty: bool = False
+) -> Callable[[Any, str], tuple]:
     """A reader for a list whose items each pass ``item_reader``."""
 
     def read(value: Any, path: str) -> tuple:
@@ -236,7 +237,9 @@ def _list_of(item_reader: Callable[[Any, str], Any], *, unique: bool = True, non
     return read
 
 
-def _string_map(key_reader: Callable[[Any, str], str], value_reader: Callable[[Any, str], Any]) -> Callable[[Any, str], dict]:
+def _string_map(
+    key_reader: Callable[[Any, str], str], value_reader: Callable[[Any, str], Any]
+) -> Callable[[Any, str], dict]:
     """A reader for a mapping whose keys and values pass the given readers (order kept)."""
 
     def read(value: Any, path: str) -> dict:
@@ -268,7 +271,8 @@ def _field_type_reader(scalar_types: tuple[str, ...]) -> Callable[[Any, str], st
             if element in scalar_types:
                 return text
             raise ProfileError(
-                path, f"unregistered element type {element!r} in {text!r}; registered: {', '.join(scalar_types)}"
+                path,
+                f"unregistered element type {element!r} in {text!r}; registered: {', '.join(scalar_types)}",
             )
         raise ProfileError(
             path,
@@ -315,9 +319,13 @@ def _vocabulary(value: Any, path: str, unknown_label: str) -> LabelVocabulary:
         compact_seen[key] = token
 
     if aliases and fold_method not in ("aliases", "inventory", "catalog"):
-        raise ProfileError(_join(path, "aliases"), f"aliases need fold aliases, inventory or catalog, not {fold_method}")
+        raise ProfileError(
+            _join(path, "aliases"), f"aliases need fold aliases, inventory or catalog, not {fold_method}"
+        )
     if prefix_aliases and fold_method != "inventory":
-        raise ProfileError(_join(path, "prefix_aliases"), f"prefix aliases need fold inventory, not {fold_method}")
+        raise ProfileError(
+            _join(path, "prefix_aliases"), f"prefix aliases need fold inventory, not {fold_method}"
+        )
     if catalog_rows and fold_method != "catalog":
         raise ProfileError(_join(path, "catalog"), f"a catalog needs fold catalog, not {fold_method}")
     if fold_method == "catalog" and not catalog_rows:
@@ -329,14 +337,17 @@ def _vocabulary(value: Any, path: str, unknown_label: str) -> LabelVocabulary:
         if key in alias_targets and alias_targets[key] != target:
             raise ProfileError(
                 _join(_join(path, "aliases"), alias),
-                f"folds to the same compact form as another alias with target {alias_targets[key]!r}, not {target!r}",
+                "folds to the same compact form as another alias with target "
+                f"{alias_targets[key]!r}, not {target!r}",
             )
         alias_targets[key] = target
         if fold_method != "inventory" and target not in tokens:
             raise ProfileError(_join(_join(path, "aliases"), alias), f"target {target!r} is not a token")
     for prefix, target in prefix_aliases.items():
         if target not in tokens:
-            raise ProfileError(_join(_join(path, "prefix_aliases"), prefix), f"target {target!r} is not a token")
+            raise ProfileError(
+                _join(_join(path, "prefix_aliases"), prefix), f"target {target!r} is not a token"
+            )
     catalog_keys: set[str] = set()
     for index, entry in enumerate(catalog_rows):
         entry_path = f"{path}.catalog[{index}]"
@@ -374,7 +385,9 @@ def _catalog_entry(value: Any, path: str) -> CatalogEntry:
 class _ProfileContext:
     """What every class reader needs: registered types, name defaults and the unknown label."""
 
-    def __init__(self, scalar_types: tuple[str, ...], name_defaults: FieldNameDefaults, unknown_label: str) -> None:
+    def __init__(
+        self, scalar_types: tuple[str, ...], name_defaults: FieldNameDefaults, unknown_label: str
+    ) -> None:
         """Hold the shared reading context."""
         self.scalar_types = scalar_types
         self.field_type = _field_type_reader(scalar_types)
@@ -395,18 +408,31 @@ def _field(name: str, value: Any, path: str, context: _ProfileContext) -> FieldS
     vocabulary = section.take(
         "vocabulary", lambda raw, raw_path: _vocabulary(raw, raw_path, context.unknown_label)
     )
-    override = section.take("predicted_value_type_override", lambda raw, raw_path: _type_override(raw, raw_path, context))
+    override = section.take(
+        "predicted_value_type_override", lambda raw, raw_path: _type_override(raw, raw_path, context)
+    )
     subclasses = section.take("subclasses", _list_of(_text), ())
-    section.finish(("type", "compare", "coverage", "vocabulary", "predicted_value_type_override", "subclasses"))
+    section.finish(
+        ("type", "compare", "coverage", "vocabulary", "predicted_value_type_override", "subclasses")
+    )
     if field_type == "label" and vocabulary is None:
         raise ProfileError(path, "a label field needs a vocabulary")
     if vocabulary is not None and field_type != "label":
-        raise ProfileError(_join(path, "vocabulary"), f"only label fields fold labels; this field is {field_type!r}")
-    if coverage == "recall" and not is_entity_list(field_type) and section.has("coverage"):
-        raise ProfileError(_join(path, "coverage"), f"recall coverage applies to entity lists, not {field_type!r}")
-    if compare == "containment" and field_type not in ("name", "free_text", "containment") and section.has("compare"):
         raise ProfileError(
-            _join(path, "compare"), f"containment applies to name, free_text and containment fields, not {field_type!r}"
+            _join(path, "vocabulary"), f"only label fields fold labels; this field is {field_type!r}"
+        )
+    if coverage == "recall" and not is_entity_list(field_type) and section.has("coverage"):
+        raise ProfileError(
+            _join(path, "coverage"), f"recall coverage applies to entity lists, not {field_type!r}"
+        )
+    if (
+        compare == "containment"
+        and field_type not in ("name", "free_text", "containment")
+        and section.has("compare")
+    ):
+        raise ProfileError(
+            _join(path, "compare"),
+            f"containment applies to name, free_text and containment fields, not {field_type!r}",
         )
     return FieldSpec(
         name=name,
@@ -439,14 +465,18 @@ def _fields(value: Any, path: str, context: _ProfileContext) -> tuple[FieldSpec,
     return tuple(specs)
 
 
-def _variant(value: Any, path: str, context: _ProfileContext, class_fields: dict[str, FieldSpec]) -> RowVariant:
+def _variant(
+    value: Any, path: str, context: _ProfileContext, class_fields: dict[str, FieldSpec]
+) -> RowVariant:
     """Read one row variant and check that every field it names exists."""
     section = _Section(value, path)
     name = section.take("name", _identifier, required=True)
     added_fields = section.take("added_fields", lambda raw, raw_path: _fields(raw, raw_path, context), ())
-    for index, spec in enumerate(added_fields):
+    for spec in added_fields:
         if spec.name in class_fields:
-            raise ProfileError(_join(_join(path, "added_fields"), spec.name), "is already a field of the class")
+            raise ProfileError(
+                _join(_join(path, "added_fields"), spec.name), "is already a field of the class"
+            )
     known = {**class_fields, **{spec.name: spec for spec in added_fields}}
 
     def known_field(raw: Any, raw_path: str) -> str:
@@ -456,11 +486,15 @@ def _variant(value: Any, path: str, context: _ProfileContext, class_fields: dict
             raise ProfileError(raw_path, f"{field_name!r} is not a field of the class or of this variant")
         return field_name
 
-    marker = section.take("marker", lambda raw, raw_path: _marker(raw, raw_path, known_field, known), required=True)
+    marker = section.take(
+        "marker", lambda raw, raw_path: _marker(raw, raw_path, known_field, known), required=True
+    )
     guard = section.take("guard", lambda raw, raw_path: _guard(raw, raw_path, known_field))
     documented_absent = section.take("documented_absent_fields", _list_of(known_field), ())
     overrides = section.take("field_type_overrides", _string_map(known_field, context.field_type), {})
-    section.finish(("name", "marker", "guard", "documented_absent_fields", "field_type_overrides", "added_fields"))
+    section.finish(
+        ("name", "marker", "guard", "documented_absent_fields", "field_type_overrides", "added_fields")
+    )
     return RowVariant(
         name=name,
         marker=marker,
@@ -471,7 +505,9 @@ def _variant(value: Any, path: str, context: _ProfileContext, class_fields: dict
     )
 
 
-def _marker(value: Any, path: str, known_field: Callable[[Any, str], str], known: dict[str, FieldSpec]) -> VariantMarker:
+def _marker(
+    value: Any, path: str, known_field: Callable[[Any, str], str], known: dict[str, FieldSpec]
+) -> VariantMarker:
     """Read a variant marker; its values must be tokens of the marker field's vocabulary when it has one."""
     section = _Section(value, path)
     field_name = section.take("field", known_field, required=True)
@@ -535,22 +571,35 @@ def _class(value: Any, path: str, context: _ProfileContext) -> ClassSpec:
         (),
     )
     section.finish(
-        ("key", "status", "sorter_label", "synonyms", "subclasses", "accepted_unscored_fields", "fields", "variants")
+        (
+            "key",
+            "status",
+            "sorter_label",
+            "synonyms",
+            "subclasses",
+            "accepted_unscored_fields",
+            "fields",
+            "variants",
+        )
     )
     if subclasses is not None and subclasses.fold_method not in ("catalog", "allowed_set"):
         raise ProfileError(
-            _join(path, "subclasses.fold"), f"subclasses fold with catalog or allowed_set, not {subclasses.fold_method}"
+            _join(path, "subclasses.fold"),
+            f"subclasses fold with catalog or allowed_set, not {subclasses.fold_method}",
         )
     subclass_tokens = subclasses.tokens if subclasses is not None else ()
     for spec in fields:
         for index, subclass in enumerate(spec.subclasses):
             if subclass not in subclass_tokens:
                 raise ProfileError(
-                    f"{path}.fields.{spec.name}.subclasses[{index}]", f"{subclass!r} is not a subclass of {key!r}"
+                    f"{path}.fields.{spec.name}.subclasses[{index}]",
+                    f"{subclass!r} is not a subclass of {key!r}",
                 )
     for name in accepted_unscored:
         if name in class_fields:
-            raise ProfileError(_join(path, "accepted_unscored_fields"), f"{name!r} is a scored field of the class")
+            raise ProfileError(
+                _join(path, "accepted_unscored_fields"), f"{name!r} is a scored field of the class"
+            )
     variant_names: set[str] = set()
     for index, variant in enumerate(variants):
         if variant.name in variant_names:
@@ -600,13 +649,17 @@ def _thresholds(value: Any, path: str, context: _ProfileContext) -> Thresholds:
     thresholds = Thresholds(
         ambiguous_band=section.take("ambiguous_band", _band, defaults.ambiguous_band),
         type_bands=FrozenMapping(section.take("type_bands", _string_map(type_band_key, _type_band), {})),
-        list_match_threshold=section.take("list_match_threshold", _unit_interval, defaults.list_match_threshold),
+        list_match_threshold=section.take(
+            "list_match_threshold", _unit_interval, defaults.list_match_threshold
+        ),
     )
     section.finish(("ambiguous_band", "type_bands", "list_match_threshold"))
     return thresholds
 
 
-def _simple_section(dataclass_type: type, readers: dict[str, Callable[[Any, str], Any]]) -> Callable[[Any, str], Any]:
+def _simple_section(
+    dataclass_type: type, readers: dict[str, Callable[[Any, str], Any]]
+) -> Callable[[Any, str], Any]:
     """A reader for a flat settings section whose keys map to ``dataclass_type`` fields."""
 
     def read(value: Any, path: str) -> Any:
@@ -705,7 +758,9 @@ def load_scoring_profile(source: str | os.PathLike[str] | Mapping[str, Any]) -> 
     root = _Section(data, "")
     profile_format = root.take("profile_format", lambda raw, path: raw, required=True)
     if type(profile_format) is not int or profile_format != PROFILE_FORMAT:
-        raise ProfileError("profile_format", f"this loader reads format {PROFILE_FORMAT}, got {profile_format!r}")
+        raise ProfileError(
+            "profile_format", f"this loader reads format {PROFILE_FORMAT}, got {profile_format!r}"
+        )
     client = root.take("client", _text, required=True)
     version = root.take("version", _text, required=True)
     unknown_label = root.take("unknown_label", _text, "other")
@@ -737,7 +792,8 @@ def load_scoring_profile(source: str | os.PathLike[str] | Mapping[str, Any]) -> 
         client=client,
         version=version,
         classes=classes,
-        classification_match_order=tuple(match_order) + tuple(key for key in class_keys if key not in match_order),
+        classification_match_order=tuple(match_order)
+        + tuple(key for key in class_keys if key not in match_order),
         unknown_label=unknown_label,
         unmapped_fields=unmapped_fields,
         never_scored_fields=frozenset(never_scored),
@@ -762,7 +818,9 @@ def _check_unique_classes(classes: tuple[ClassSpec, ...]) -> None:
     labels: dict[str, int] = {}
     for index, spec in enumerate(classes):
         if spec.key in keys:
-            raise ProfileError(f"classes[{index}].key", f"duplicate class {spec.key!r} (also classes[{keys[spec.key]}])")
+            raise ProfileError(
+                f"classes[{index}].key", f"duplicate class {spec.key!r} (also classes[{keys[spec.key]}])"
+            )
         if spec.sorter_label in labels:
             raise ProfileError(
                 f"classes[{index}].sorter_label",
@@ -809,7 +867,9 @@ def _check_inventory_alias_targets(classes: tuple[ClassSpec, ...]) -> None:
     for class_index, spec in enumerate(classes):
         for field_spec in spec.fields:
             if field_spec.vocabulary is not None:
-                located.append((f"classes[{class_index}].fields.{field_spec.name}.vocabulary", field_spec.vocabulary))
+                located.append(
+                    (f"classes[{class_index}].fields.{field_spec.name}.vocabulary", field_spec.vocabulary)
+                )
         for variant_index, variant in enumerate(spec.variants):
             for field_spec in variant.added_fields:
                 if field_spec.vocabulary is not None:
@@ -820,14 +880,19 @@ def _check_inventory_alias_targets(classes: tuple[ClassSpec, ...]) -> None:
                         )
                     )
     inventory_tokens = {
-        token for _, vocabulary in located if vocabulary.fold_method == "inventory" for token in vocabulary.tokens
+        token
+        for _, vocabulary in located
+        if vocabulary.fold_method == "inventory"
+        for token in vocabulary.tokens
     }
     for path, vocabulary in located:
         if vocabulary.fold_method != "inventory":
             continue
         for alias, target in vocabulary.aliases.items():
             if target not in inventory_tokens:
-                raise ProfileError(f"{path}.aliases.{alias}", f"target {target!r} is not a token of any inventory vocabulary")
+                raise ProfileError(
+                    f"{path}.aliases.{alias}", f"target {target!r} is not a token of any inventory vocabulary"
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -837,9 +902,9 @@ def _check_inventory_alias_targets(classes: tuple[ClassSpec, ...]) -> None:
 
 def _canonical_json(value: Any) -> bytes:
     """Encode as canonical JSON: sorted keys, no whitespace, UTF-8, no NaN."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode(
-        "utf-8"
-    )
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode("utf-8")
 
 
 def _canonical_vocabulary(vocabulary: LabelVocabulary | None) -> Any:
@@ -883,8 +948,12 @@ def _canonical_variant(variant: RowVariant) -> dict[str, Any]:
             "skip_when_unstated": marker.skip_when_unstated,
             "derive_from": marker.derive_from,
         },
-        "guard": None if guard is None else {
-            "field": guard.field, "allowed": sorted(guard.allowed), "allow_empty": guard.allow_empty,
+        "guard": None
+        if guard is None
+        else {
+            "field": guard.field,
+            "allowed": sorted(guard.allowed),
+            "allow_empty": guard.allow_empty,
         },
         "documented_absent_fields": sorted(variant.documented_absent_fields),
         "field_type_overrides": dict(variant.field_type_overrides),
@@ -956,9 +1025,23 @@ def profile_canonical_form(profile: ScoringProfile) -> dict[str, Any]:
     parts = {
         name: getattr(profile, name)
         for name in (
-            "client", "version", "classes", "classification_match_order", "unknown_label", "unmapped_fields",
-            "never_scored_fields", "retired_fields", "scorer_plugins", "class_aliases", "field_name_defaults",
-            "thresholds", "audit", "presence", "embedding", "list_matching", "trace_capture",
+            "client",
+            "version",
+            "classes",
+            "classification_match_order",
+            "unknown_label",
+            "unmapped_fields",
+            "never_scored_fields",
+            "retired_fields",
+            "scorer_plugins",
+            "class_aliases",
+            "field_name_defaults",
+            "thresholds",
+            "audit",
+            "presence",
+            "embedding",
+            "list_matching",
+            "trace_capture",
         )
     }
     return _canonical_parts(parts)

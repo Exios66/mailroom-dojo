@@ -38,7 +38,8 @@ LABEL_STATUSES = ("hub", "interim", "near_gold", "gold")
 
 
 class PresenceExpectation(TypedDict):
-    """Whether a category (a clause family) is expected in a document, the span that answers it, and the predicted field searched."""
+    """Whether a category (a clause family) is expected in a document, the span that answers it, and the
+    predicted field searched."""
 
     expected: bool
     answer: str
@@ -47,7 +48,8 @@ class PresenceExpectation(TypedDict):
 
 @runtime_checkable
 class FieldLabel(Protocol):
-    """One field's label: its value, status (one of :data:`LABEL_STATUSES`), source and reviewer (None when unreviewed)."""
+    """One field's label: its value, status (one of :data:`LABEL_STATUSES`), source and reviewer (None when
+    unreviewed)."""
 
     @property
     def value(self) -> Any:
@@ -125,12 +127,15 @@ class LabelSource(Protocol):
 
 
 class UnverifiedDocumentError(ValueError):
-    """A document whose content hash did not match the dataset was about to be scored without the caller asking for it."""
+    """A document whose content hash did not match the dataset was about to be scored without the caller
+    asking for it."""
 
     def __init__(self, document_id: str, reasons: Collection[str]) -> None:
         """Name the document and why it is unverified."""
         listed = ", ".join(str(reason) for reason in reasons) or "no reason given"
-        super().__init__(f"document {document_id!r} is unverified ({listed}); pass unverified='flag' to score it flagged")
+        super().__init__(
+            f"document {document_id!r} is unverified ({listed}); pass unverified='flag' to score it flagged"
+        )
         self.document_id = document_id
         self.reasons = tuple(str(reason) for reason in reasons)
 

@@ -23,7 +23,9 @@ class SentenceTransformerBackend:
     Not safe to share between threads; give each thread its own backend.
     """
 
-    def __init__(self, model_name_or_path: str | None = None, *, model: Any = None, cache_size: int = 1024) -> None:
+    def __init__(
+        self, model_name_or_path: str | None = None, *, model: Any = None, cache_size: int = 1024
+    ) -> None:
         """Load a local model by name or path, or wrap an already built ``model`` (anything with ``encode``).
 
         Raises ``ImportError`` naming the ``embeddings`` extra when

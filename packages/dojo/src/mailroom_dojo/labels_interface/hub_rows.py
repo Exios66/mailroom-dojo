@@ -82,7 +82,8 @@ def parse_hub_fields(raw: Any) -> dict[str, Any]:
 
 
 def hub_presence_statuses(fields: Mapping[str, Any] | None) -> dict[str, str]:
-    """Return the row's field -> presence status map (stringified or parsed), or ``{}`` when it is missing or malformed."""
+    """Return the row's field -> presence status map (stringified or parsed), or ``{}`` when it is missing or
+    malformed."""
     raw = (fields or {}).get(PRESENCE_KEY)
     if isinstance(raw, str):
         try:
@@ -95,7 +96,8 @@ def hub_presence_statuses(fields: Mapping[str, Any] | None) -> dict[str, str]:
 
 
 def parse_field_values(record: Any) -> Any:
-    """Return a new dict with string keys and each value's stringified JSON container parsed; a non-mapping is returned as is."""
+    """Return a new dict with string keys and each value's stringified JSON container parsed; a non-mapping is
+    returned as is."""
     if not isinstance(record, Mapping):
         return record
     return {str(key): parse_json_container(value) for key, value in record.items()}
@@ -190,7 +192,9 @@ def presence_expectations_from_hub_row(
     """
     if hub_presence_statuses(fields).get(CLAUSE_LABELS_KEY) in ABSENT_PRESENCE_STATUSES:
         return None
-    expectations = presence_expectations_from_clause_labels((fields or {}).get(CLAUSE_LABELS_KEY), field=field)
+    expectations = presence_expectations_from_clause_labels(
+        (fields or {}).get(CLAUSE_LABELS_KEY), field=field
+    )
     if any(entry["expected"] for entry in expectations.values()):
         return expectations
     return None

@@ -31,6 +31,7 @@ directory with its cache plugin off).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import datetime
 import hashlib
@@ -107,9 +108,15 @@ TARGETS: dict[tuple[str, str], str] = {
 }
 
 SCORERS_WITH_EMBEDDING = (
-    "score_id_field", "score_money_field", "score_name_field", "score_label_field",
-    "score_free_text_field", "score_containment_field", "score_date_field",
-    "date_match_similarity", "score_cms_doc_ref",
+    "score_id_field",
+    "score_money_field",
+    "score_name_field",
+    "score_label_field",
+    "score_free_text_field",
+    "score_containment_field",
+    "score_date_field",
+    "date_match_similarity",
+    "score_cms_doc_ref",
 )
 
 
@@ -139,7 +146,11 @@ def encode(value: Any) -> Any:
     if isinstance(value, tuple):
         return {"$tuple": [encode(item) for item in value]}
     if isinstance(value, (set, frozenset)):
-        return {"$set": sorted((encode(item) for item in value), key=lambda item: json.dumps(item, sort_keys=True))}
+        return {
+            "$set": sorted(
+                (encode(item) for item in value), key=lambda item: json.dumps(item, sort_keys=True)
+            )
+        }
     if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
         return {"$date": value.isoformat()}
     if isinstance(value, list):
@@ -190,7 +201,7 @@ def collect_test_inputs(old_dojo: Path, output: Path) -> None:
         filename = frame.f_code.co_filename
         if not filename.startswith(package_root):
             return
-        key = (filename[len(package_root):], frame.f_code.co_name)
+        key = (filename[len(package_root) :], frame.f_code.co_name)
         name = TARGETS.get(key)
         if name is None:
             return
@@ -226,29 +237,107 @@ def collect_test_inputs(old_dojo: Path, output: Path) -> None:
 # Phase 2: generated inputs
 # ---------------------------------------------------------------------------
 
-MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August",
-          "September", "October", "November", "December"]
+MONTHS = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+]
 WEEKDAYS = ["Monday", "Tue.", "Wednesday,", "thu", "Friday", "Sat", "sunday"]
 
 
 def date_texts(rng: random.Random, count: int) -> list[Any]:
     """Date strings in many formats, blanks, relative dates and hostile values."""
     fixed = [
-        "", " ", "____ day of ________, 19__", "Effective Date:", "the date first written above",
-        "nine months after the date hereof", "ninety (90) days after the Effective Date",
-        "thirty-one days prior to closing", "blank", "N/A", "FY2014", "2014", "1999", "Q3 2014",
-        "Augus 18, 2014", "12", "12th", "Tuesday", "Tuesday, December 12, 2014", "2014-08",
-        "August", "May", "march of", "18 August", "August 18", "18th day of August",
-        "16 day of August. 2012", "1st day of April, 2007 (", "March 12,1999", "August 1-3, 2014",
-        "1-3 August 2014", "2014-08-18", "18-08-2014", "08/18/2014", "1/1/77", "1/1/50", "1/1/68",
-        "1/1/69", "1/1/00", "March 3, 99", "1/1/1877", "February 29, 2000", "February 30, 2014",
-        "Feb 29 2001", "2014-13-01", "31/12/2014", "December 31st, 1999", "the 3rd of May 2020",
-        "Monday August 2014", "August 1, 2014 and August 18, 2015", "2014 to 2016", "2014.0",
-        "１８ August ２０１４", "18 August 2014", "August\t18,\n2014", "Ab\ud800c 2014",
-        "9999-12-31", "0001-01-01", "10000-01-01", "August 18, 2014 at 10:30 a.m.", "noon",
-        "10:30", "2014-08-18T10:30:00Z", "seventeenth of March", "March 3rd", "3/4", "2014/08/18",
-        "18 Aug 2014", "Aug. 18, 2014", "Sept 18, 2014", "le 18 août 2014",
-        None, 2014, 2014.0, 2014.5, float("nan"), float("inf"), True, 0, [], ["August 18, 2014"],
+        "",
+        " ",
+        "____ day of ________, 19__",
+        "Effective Date:",
+        "the date first written above",
+        "nine months after the date hereof",
+        "ninety (90) days after the Effective Date",
+        "thirty-one days prior to closing",
+        "blank",
+        "N/A",
+        "FY2014",
+        "2014",
+        "1999",
+        "Q3 2014",
+        "Augus 18, 2014",
+        "12",
+        "12th",
+        "Tuesday",
+        "Tuesday, December 12, 2014",
+        "2014-08",
+        "August",
+        "May",
+        "march of",
+        "18 August",
+        "August 18",
+        "18th day of August",
+        "16 day of August. 2012",
+        "1st day of April, 2007 (",
+        "March 12,1999",
+        "August 1-3, 2014",
+        "1-3 August 2014",
+        "2014-08-18",
+        "18-08-2014",
+        "08/18/2014",
+        "1/1/77",
+        "1/1/50",
+        "1/1/68",
+        "1/1/69",
+        "1/1/00",
+        "March 3, 99",
+        "1/1/1877",
+        "February 29, 2000",
+        "February 30, 2014",
+        "Feb 29 2001",
+        "2014-13-01",
+        "31/12/2014",
+        "December 31st, 1999",
+        "the 3rd of May 2020",
+        "Monday August 2014",
+        "August 1, 2014 and August 18, 2015",
+        "2014 to 2016",
+        "2014.0",
+        "１８ August ２０１４",
+        "18 August 2014",
+        "August\t18,\n2014",
+        "Ab\ud800c 2014",
+        "9999-12-31",
+        "0001-01-01",
+        "10000-01-01",
+        "August 18, 2014 at 10:30 a.m.",
+        "noon",
+        "10:30",
+        "2014-08-18T10:30:00Z",
+        "seventeenth of March",
+        "March 3rd",
+        "3/4",
+        "2014/08/18",
+        "18 Aug 2014",
+        "Aug. 18, 2014",
+        "Sept 18, 2014",
+        "le 18 août 2014",
+        None,
+        2014,
+        2014.0,
+        2014.5,
+        float("nan"),
+        float("inf"),
+        True,
+        0,
+        [],
+        ["August 18, 2014"],
         {"date": "2014-08-18"},
     ]
     generated: list[Any] = []
@@ -290,62 +379,243 @@ def date_texts(rng: random.Random, count: int) -> list[Any]:
 def money_texts() -> list[Any]:
     """Money strings and hostile values."""
     return [
-        "$1,234.56", "1234.56", "$1,234.57", "$1,234.55", "1.2M USD", "USD 1.2M", "$1.2 million",
-        "1200000", "€500", "500 EUR", "EUR 500", "£3", "3 dollars", "1k", "1K", "1000", "2B",
-        "2,000,000,000", "$250,001", "$250,000", "nan", "inf", "-inf", "", "  ", "-5", "$-5.00",
-        "1e3", "1_000", "N/A", "$", "M", "USD", "US 12", "12 USD", "twelve dollars",
-        "Twelve Thousand Dollars ($12,000)", "$12,000 plus expenses", "0", "0.00", ".5", "5.",
-        "１２３", "12.345.678", "(1,000)", None, 0, 12, 12.0, 12.004, 1e300, float("nan"),
-        float("inf"), True, False, [], ["$5"], {"amount": 5},
+        "$1,234.56",
+        "1234.56",
+        "$1,234.57",
+        "$1,234.55",
+        "1.2M USD",
+        "USD 1.2M",
+        "$1.2 million",
+        "1200000",
+        "€500",
+        "500 EUR",
+        "EUR 500",
+        "£3",
+        "3 dollars",
+        "1k",
+        "1K",
+        "1000",
+        "2B",
+        "2,000,000,000",
+        "$250,001",
+        "$250,000",
+        "nan",
+        "inf",
+        "-inf",
+        "",
+        "  ",
+        "-5",
+        "$-5.00",
+        "1e3",
+        "1_000",
+        "N/A",
+        "$",
+        "M",
+        "USD",
+        "US 12",
+        "12 USD",
+        "twelve dollars",
+        "Twelve Thousand Dollars ($12,000)",
+        "$12,000 plus expenses",
+        "0",
+        "0.00",
+        ".5",
+        "5.",
+        "１２３",
+        "12.345.678",
+        "(1,000)",
+        None,
+        0,
+        12,
+        12.0,
+        12.004,
+        1e300,
+        float("nan"),
+        float("inf"),
+        True,
+        False,
+        [],
+        ["$5"],
+        {"amount": 5},
     ]
 
 
 NAME_BASES = [
-    "Acme Corp", "ACME Corporation", "Acme, Inc.", "Acme Incorporated", "acme",
-    "Global Technologies, Ltd", "Global Technologies Ltd", "Global Tech", "Société Générale S.A.",
-    "Societe Generale", "Smith & Jones LLP", "Smith and Jones", "John A. Smith, Esq.", "John Smith",
-    "J. Smith", "Jane Doe", "Doe, Jane", "The Trust Company", "Holdings Group PLC", "Inc.",
-    "LLC", "", "   ", "!!!", "1234", "12-34", "Ab\ud800c Corp", "Ab\ud800c", "株式会社トヨタ", "Toyota",
-    "Bob 🙂 Ltd", "Bob Ltd", "O'Neil", "ONeil", "Delaware",
-    "the laws of the State of Delaware", "State of Delaware law", "New York", "New York, New York",
-    None, 0, 1, 1.5, float("nan"), True, False, [], ["Acme"], {"name": "Acme"},
+    "Acme Corp",
+    "ACME Corporation",
+    "Acme, Inc.",
+    "Acme Incorporated",
+    "acme",
+    "Global Technologies, Ltd",
+    "Global Technologies Ltd",
+    "Global Tech",
+    "Société Générale S.A.",
+    "Societe Generale",
+    "Smith & Jones LLP",
+    "Smith and Jones",
+    "John A. Smith, Esq.",
+    "John Smith",
+    "J. Smith",
+    "Jane Doe",
+    "Doe, Jane",
+    "The Trust Company",
+    "Holdings Group PLC",
+    "Inc.",
+    "LLC",
+    "",
+    "   ",
+    "!!!",
+    "1234",
+    "12-34",
+    "Ab\ud800c Corp",
+    "Ab\ud800c",
+    "株式会社トヨタ",
+    "Toyota",
+    "Bob 🙂 Ltd",
+    "Bob Ltd",
+    "O'Neil",
+    "ONeil",
+    "Delaware",
+    "the laws of the State of Delaware",
+    "State of Delaware law",
+    "New York",
+    "New York, New York",
+    None,
+    0,
+    1,
+    1.5,
+    float("nan"),
+    True,
+    False,
+    [],
+    ["Acme"],
+    {"name": "Acme"},
 ]
 
 FREE_TEXT_BASES = [
-    "The term is three years from the Effective Date.", "three years", "3 years",
-    "This Agreement shall be governed by the laws of the State of Delaware.", "Delaware",
-    "renews automatically for successive one-year terms", "automatic renewal for one year",
-    "payment within thirty (30) days of invoice", "net 30", "", " ", "the of and",
-    "N/A", "none", "Ab\ud800c", "naïve café", "naive cafe", None, 0, 12.5, [], {"a": 1},
+    "The term is three years from the Effective Date.",
+    "three years",
+    "3 years",
+    "This Agreement shall be governed by the laws of the State of Delaware.",
+    "Delaware",
+    "renews automatically for successive one-year terms",
+    "automatic renewal for one year",
+    "payment within thirty (30) days of invoice",
+    "net 30",
+    "",
+    " ",
+    "the of and",
+    "N/A",
+    "none",
+    "Ab\ud800c",
+    "naïve café",
+    "naive cafe",
+    None,
+    0,
+    12.5,
+    [],
+    {"a": 1},
 ]
 
 CMS_REFS = [
-    "provider NPI 5040521237", "NPI: 5040521237", "npi 5040521238", "5040521237",
-    "NDC 00703051002", "NDC 703051002", "ndc 0703-0510-02", "NDC 70305-102-1", "NDC 12345-6789-1",
-    "00703051002", "NDC 0703-0510-2", "facility provider 360029", "Facility Provider ID: 36A029",
-    "facility provider number 360029", "facility provider", "HCPCS detail (1 codes)",
-    "HCPCS detail (2 codes)", "ICD-9 diagnosis codes", "diagnosis code", "", None, 0, [],
-    "NDC", "NPI 12345", "provider 5040521237 and NDC 00703051002",
+    "provider NPI 5040521237",
+    "NPI: 5040521237",
+    "npi 5040521238",
+    "5040521237",
+    "NDC 00703051002",
+    "NDC 703051002",
+    "ndc 0703-0510-02",
+    "NDC 70305-102-1",
+    "NDC 12345-6789-1",
+    "00703051002",
+    "NDC 0703-0510-2",
+    "facility provider 360029",
+    "Facility Provider ID: 36A029",
+    "facility provider number 360029",
+    "facility provider",
+    "HCPCS detail (1 codes)",
+    "HCPCS detail (2 codes)",
+    "ICD-9 diagnosis codes",
+    "diagnosis code",
+    "",
+    None,
+    0,
+    [],
+    "NDC",
+    "NPI 12345",
+    "provider 5040521237 and NDC 00703051002",
 ]
 
 HEURISTIC_NAMES = [
-    "effective_date", "date_of_loss", "UPDATE_DATE", "contract_value", "total", "fee_schedule",
-    "claim_number", "policy_id", "docket", "reference", "filing", "valid_id", "name", "party",
-    "consideration", "valuation_date", "", "Price", "identity", "salary_band", "cost_basis_id",
+    "effective_date",
+    "date_of_loss",
+    "UPDATE_DATE",
+    "contract_value",
+    "total",
+    "fee_schedule",
+    "claim_number",
+    "policy_id",
+    "docket",
+    "reference",
+    "filing",
+    "valid_id",
+    "name",
+    "party",
+    "consideration",
+    "valuation_date",
+    "",
+    "Price",
+    "identity",
+    "salary_band",
+    "cost_basis_id",
 ]
 
 
 def label_surfaces(rng: random.Random, tokens: list[str]) -> list[Any]:
     """Written forms of labels: tokens, case and spacing variants, prefixes, garbage and hostile values."""
-    surfaces: list[Any] = [None, "", " ", 0, 1, False, True, 1.5, float("nan"), [], ["notice"], {"a": 1},
-                           "other", "OTHER", "Other / Unspecified", "unknown", "n/a", "x", "123", "10k",
-                           "Ab\ud800c", "ÉMAIL", "e-mail", "E MAIL"]
+    surfaces: list[Any] = [
+        None,
+        "",
+        " ",
+        0,
+        1,
+        False,
+        True,
+        1.5,
+        float("nan"),
+        [],
+        ["notice"],
+        {"a": 1},
+        "other",
+        "OTHER",
+        "Other / Unspecified",
+        "unknown",
+        "n/a",
+        "x",
+        "123",
+        "10k",
+        "Ab\ud800c",
+        "ÉMAIL",
+        "e-mail",
+        "E MAIL",
+    ]
     for token in tokens:
         spaced = token.replace("_", " ")
         surfaces += [
-            token, token.upper(), spaced, spaced.title(), f"  {token}  ", token.replace("_", "-"),
-            f"{token} letter", f"the {spaced}", f"{token}s", token[: max(1, len(token) // 2)],
-            f"{spaced} agreement", f"{spaced} agreements", token.replace("_", ""), f"{token}_v2",
+            token,
+            token.upper(),
+            spaced,
+            spaced.title(),
+            f"  {token}  ",
+            token.replace("_", "-"),
+            f"{token} letter",
+            f"the {spaced}",
+            f"{token}s",
+            token[: max(1, len(token) // 2)],
+            f"{spaced} agreement",
+            f"{spaced} agreements",
+            token.replace("_", ""),
+            f"{token}_v2",
         ]
     for _ in range(12):
         first, second = rng.choice(tokens), rng.choice(tokens)
@@ -360,10 +630,8 @@ def generated_cases(rng: random.Random, old: dict[str, Any]) -> list[dict[str, A
 
     def add(function: str, **arguments: Any) -> None:
         """Append a case, skipping arguments the format cannot hold."""
-        try:
+        with contextlib.suppress(Unencodable):
             cases.append({"function": function, "args": encode(arguments)})
-        except Unencodable:
-            pass
 
     dates = date_texts(rng, 260)
     for text in dates:
@@ -423,10 +691,47 @@ def generated_cases(rng: random.Random, old: dict[str, Any]) -> list[dict[str, A
     for field_type in ("entity_list", "entity_list:name", "entity_list:", "entity_listx", "name", "", "list"):
         add("is_entity_list", field_type=field_type)
 
-    hostile = ["", " ", "[]", "{}", "[ ]", '["Bylaws"]', '{"a": 1}', "[1, 2", "null", "None", "N/A",
-               "n.a.", "nan", "NaN", "  NULL ", "41", "true", '"quoted"', "[null]", '["  "]', "{}x",
-               None, 0, 0.0, False, True, float("nan"), float("inf"), [], {}, (), set(), [None], [""],
-               {"a": None}, ("x",), "Ab\ud800c", " ", "[ ]"]
+    hostile = [
+        "",
+        " ",
+        "[]",
+        "{}",
+        "[ ]",
+        '["Bylaws"]',
+        '{"a": 1}',
+        "[1, 2",
+        "null",
+        "None",
+        "N/A",
+        "n.a.",
+        "nan",
+        "NaN",
+        "  NULL ",
+        "41",
+        "true",
+        '"quoted"',
+        "[null]",
+        '["  "]',
+        "{}x",
+        None,
+        0,
+        0.0,
+        False,
+        True,
+        float("nan"),
+        float("inf"),
+        [],
+        {},
+        (),
+        set(),
+        [None],
+        [""],
+        {"a": None},
+        ("x",),
+        "Ab\ud800c",
+        " ",
+        "[ ]",
+    ]
     for value in hostile:
         add("is_empty_value", value=value)
         add("parse_json_container", value=value)
@@ -445,8 +750,11 @@ def generated_cases(rng: random.Random, old: dict[str, Any]) -> list[dict[str, A
                 add("canonical_label", doc_type=doc_type, field=field_name, value=value)
     for doc_type in list(old["INTENT_LABELS"]) + ["contract", "", None, "unknown_class"]:
         tokens = list(old["INTENT_LABELS"].get(doc_type, ("notice",)))
-        for value in label_surfaces(rng, tokens) + list(old["INTENT_ALIASES"]) + ["Amendment No. 1 to Merger",
-                                                                                  "amend", "AMENDED"]:
+        for value in (
+            label_surfaces(rng, tokens)
+            + list(old["INTENT_ALIASES"])
+            + ["Amendment No. 1 to Merger", "amend", "AMENDED"]
+        ):
             add("normalize_intent", doc_type=doc_type, value=value)
     contract_surfaces = (
         label_surfaces(rng, list(old["DOC_TYPE_SUBCLASSES"]["contract"]))
@@ -472,10 +780,14 @@ def generated_cases(rng: random.Random, old: dict[str, Any]) -> list[dict[str, A
     long_text = "the term of this agreement " * 100
     long_date = "dated " + "the day after " * 150 + "August 18, 2014"
     long_inputs = {
-        "score_name_field": (long_name, long_name[:-9]), "score_id_field": (long_name, long_name),
-        "score_label_field": (long_text, long_text), "score_free_text_field": (long_text, long_text[5:]),
-        "score_containment_field": (long_text, "term agreement"), "score_money_field": (long_text, "$5"),
-        "score_date_field": (long_date, "August 18, 2014"), "score_cms_doc_ref": (long_text, "NPI 5040521237"),
+        "score_name_field": (long_name, long_name[:-9]),
+        "score_id_field": (long_name, long_name),
+        "score_label_field": (long_text, long_text),
+        "score_free_text_field": (long_text, long_text[5:]),
+        "score_containment_field": (long_text, "term agreement"),
+        "score_money_field": (long_text, "$5"),
+        "score_date_field": (long_date, "August 18, 2014"),
+        "score_cms_doc_ref": (long_text, "NPI 5040521237"),
     }
     for function, (predicted, expected) in long_inputs.items():
         add(function, pred=predicted, exp=expected)
@@ -486,14 +798,27 @@ def generated_cases(rng: random.Random, old: dict[str, Any]) -> list[dict[str, A
     similarity_specs = [{"kind": "constant", "value": value} for value in (0.0, 0.3, 0.69, 0.7, 0.95, 1.0)]
     similarity_specs += [{"kind": "none"}, {"kind": "raises"}, {"kind": "nan"}]
     rescue_pairs = [
-        ("Acme Corp", "Widget Industries"), ("John Smith", "J. Smith"), ("three years", "36 months"),
-        ("Delaware", "the State of Delaware"), ("", "Acme"), ("Acme", " "), ("12 apples", "$12"),
-        ("August 2014", "the eighteenth of August"), ("FY2014", "August 18, 2014"), ("cash", "money"),
+        ("Acme Corp", "Widget Industries"),
+        ("John Smith", "J. Smith"),
+        ("three years", "36 months"),
+        ("Delaware", "the State of Delaware"),
+        ("", "Acme"),
+        ("Acme", " "),
+        ("12 apples", "$12"),
+        ("August 2014", "the eighteenth of August"),
+        ("FY2014", "August 18, 2014"),
+        ("cash", "money"),
     ]
     for spec in similarity_specs:
         for predicted, expected in rescue_pairs:
-            for function in ("score_name_field", "score_free_text_field", "score_money_field",
-                             "score_date_field", "score_id_field", "score_containment_field"):
+            for function in (
+                "score_name_field",
+                "score_free_text_field",
+                "score_money_field",
+                "score_date_field",
+                "score_id_field",
+                "score_containment_field",
+            ):
                 add(function, pred=predicted, exp=expected, embedding={"$similarity": spec})
     return cases
 
@@ -549,7 +874,9 @@ def old_tables() -> dict[str, Any]:
     from llm_dojo_scoring.schemas import corpus, intents, scored_enums
 
     return {
-        "SCORED_ENUM_FIELDS": {kind: dict(fields) for kind, fields in scored_enums.SCORED_ENUM_FIELDS.items()},
+        "SCORED_ENUM_FIELDS": {
+            kind: dict(fields) for kind, fields in scored_enums.SCORED_ENUM_FIELDS.items()
+        },
         "INTENT_LABELS": dict(intents.INTENT_LABELS),
         "INTENT_ALIASES": dict(intents.INTENT_ALIASES),
         "COVERAGE_ALIASES": dict(scored_enums._COVERAGE_ALIASES),
@@ -601,8 +928,18 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as scratch:
         captured_path = Path(scratch) / "captured.json"
         subprocess.run(
-            [sys.executable, __file__, "--old-dojo", str(old_dojo), "--collect-test-inputs", str(captured_path)],
-            check=True, cwd=scratch, env=environment, stdout=subprocess.DEVNULL,
+            [
+                sys.executable,
+                __file__,
+                "--old-dojo",
+                str(old_dojo),
+                "--collect-test-inputs",
+                str(captured_path),
+            ],
+            check=True,
+            cwd=scratch,
+            env=environment,
+            stdout=subprocess.DEVNULL,
         )
         captured = json.loads(captured_path.read_text())
     if captured["exit_code"] != 0:
@@ -627,15 +964,27 @@ def main() -> int:
         seen.add(key)
         outcome = run_case(functions, case)
         case_id = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
-        lines.append(json.dumps(
-            {"id": case_id, "source": source, "function": case["function"], "args": case["args"], "outcome": outcome},
-            sort_keys=True, ensure_ascii=True, separators=(",", ":"),
-        ))
+        lines.append(
+            json.dumps(
+                {
+                    "id": case_id,
+                    "source": source,
+                    "function": case["function"],
+                    "args": case["args"],
+                    "outcome": outcome,
+                },
+                sort_keys=True,
+                ensure_ascii=True,
+                separators=(",", ":"),
+            )
+        )
         counts[case["function"]] = counts.get(case["function"], 0) + 1
 
     header = {
         "header": {
-            "description": "llm-dojo-scoring outputs for the scalar scoring layers (differential parity corpus)",
+            "description": (
+                "llm-dojo-scoring outputs for the scalar scoring layers (differential parity corpus)"
+            ),
             "old_commit": commit,
             "old_version": llm_dojo_scoring.__version__,
             "seed": options.seed,

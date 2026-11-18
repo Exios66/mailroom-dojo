@@ -18,7 +18,13 @@ __all__ = [
 
 #: Scalar field types every registry provides.
 BUILTIN_SCALAR_TYPES: tuple[str, ...] = (
-    "id", "date", "money", "name", "label", "free_text", "containment",
+    "id",
+    "date",
+    "money",
+    "name",
+    "label",
+    "free_text",
+    "containment",
 )
 
 #: The list type name; ``entity_list:<scalar type>`` names the element type.

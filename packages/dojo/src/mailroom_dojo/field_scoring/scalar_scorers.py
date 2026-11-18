@@ -1,4 +1,5 @@
-"""One scorer per scalar field type. Each returns a score in ``[0, 1]`` for one predicted value against one expected value.
+"""One scorer per scalar field type. Each returns a score in ``[0, 1]`` for one predicted value against one
+expected value.
 
 Every scorer has the signature ``(predicted, expected, rescue=None) -> float``.
 ``rescue`` is an optional :class:`~.similarity_backend.EmbeddingRescue`; only the
@@ -112,7 +113,8 @@ def score_name_field(predicted: object, expected: object, rescue: EmbeddingRescu
 
 
 def score_label_field(predicted: object, expected: object, rescue: EmbeddingRescue | None = None) -> float:
-    """Return 1.0 when both labels compact (lowercase letters and digits) to the same non-empty text, else 0.0.
+    """Return 1.0 when both labels compact (lowercase letters and digits) to the same non-empty text, else
+    0.0.
 
     There is no partial credit. Callers fold aliases onto vocabulary tokens first.
     """
@@ -121,7 +123,9 @@ def score_label_field(predicted: object, expected: object, rescue: EmbeddingResc
     return 1.0 if compact_predicted and compact_predicted == compact_expected else 0.0
 
 
-def score_free_text_field(predicted: object, expected: object, rescue: EmbeddingRescue | None = None) -> float:
+def score_free_text_field(
+    predicted: object, expected: object, rescue: EmbeddingRescue | None = None
+) -> float:
     """Return the token F1 of the prediction against the expectation, offered to embedding rescue.
 
     A non-string side is read as ``str(value or "")``.
@@ -133,7 +137,9 @@ def score_free_text_field(predicted: object, expected: object, rescue: Embedding
     return with_embedding_rescue(token_f1(predicted, expected), predicted, expected, rescue)
 
 
-def score_containment_field(predicted: object, expected: object, rescue: EmbeddingRescue | None = None) -> float:
+def score_containment_field(
+    predicted: object, expected: object, rescue: EmbeddingRescue | None = None
+) -> float:
     """Return the share of the expected text's tokens found in the prediction, rounded to four places.
 
     Tokens leave out containment stopwords. No expected tokens: 1.0 when the
@@ -202,7 +208,9 @@ def date_year_unverified(predicted: object, expected: object) -> bool:
     return len(predicted_years) > 1 and not predicted_years <= stated_years(expected)
 
 
-def date_match_similarity(predicted: object, expected: object, rescue: EmbeddingRescue | None = None) -> float:
+def date_match_similarity(
+    predicted: object, expected: object, rescue: EmbeddingRescue | None = None
+) -> float:
     """Return the date similarity used for pairing list items and audits.
 
     Like :func:`score_date_field`, except a pair whose year the label cannot verify
@@ -223,7 +231,9 @@ def _score_date_uncapped(predicted: object, expected: object, rescue: EmbeddingR
     if expected_parts is None and expected_date_is_null(expected):
         if not str(predicted).strip():
             return 1.0
-        if not date_is_blank_or_bare_label(expected) and normalize_text(predicted) == normalize_text(expected):
+        if not date_is_blank_or_bare_label(expected) and normalize_text(predicted) == normalize_text(
+            expected
+        ):
             return 1.0
         return 0.0
     prediction_omits_label_component = expected_parts is not None and (
@@ -255,7 +265,9 @@ def _score_full_dates(predicted: datetime.date, expected: datetime.date) -> floa
     if predicted == expected:
         return 1.0
     shared = sum(
-        1 for first, second in ((predicted.year, expected.year), (predicted.month, expected.month)) if first == second
+        1
+        for first, second in ((predicted.year, expected.year), (predicted.month, expected.month))
+        if first == second
     )
     if shared == 2:
         return DATE_PARTIAL_CREDIT

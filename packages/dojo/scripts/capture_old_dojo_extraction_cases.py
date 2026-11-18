@@ -28,7 +28,8 @@ Inputs come from three places:
 
 Run it only with an interpreter that can import the old Dojo, never in CI::
 
-    PYTHONDONTWRITEBYTECODE=1 <old-venv>/bin/python packages/dojo/scripts/capture_old_dojo_extraction_cases.py \\
+    PYTHONDONTWRITEBYTECODE=1 <old-venv>/bin/python \\
+        packages/dojo/scripts/capture_old_dojo_extraction_cases.py \\
         --old-dojo <llm-dojo-scoring checkout at 23f8234c> \\
         --output packages/dojo/tests/fixtures/differential/extraction_cases.jsonl
 
@@ -40,7 +41,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import copy
-import datetime
 import hashlib
 import importlib.metadata
 import importlib.util
@@ -121,13 +121,25 @@ TARGETS: dict[tuple[str, str], str] = {
 
 #: Old settings a case may override, by section.
 FIELD_SETTINGS = (
-    "ambiguous_band", "bipartite_match_threshold", "type_bands", "partial_gt_fields", "containment_fields",
-    "verification_enabled", "verification_token_coverage", "embedding_enabled", "embedding_rescue_below",
+    "ambiguous_band",
+    "bipartite_match_threshold",
+    "type_bands",
+    "partial_gt_fields",
+    "containment_fields",
+    "verification_enabled",
+    "verification_token_coverage",
+    "embedding_enabled",
+    "embedding_rescue_below",
     "presence_embedding_threshold",
 )
 TRACE_SETTINGS = (
-    "capture_confidence", "capture_reasoning", "confidence_min", "confidence_band", "compute_calibration_error",
-    "missing_confidence", "reasoning_routes_presence",
+    "capture_confidence",
+    "capture_reasoning",
+    "confidence_min",
+    "confidence_band",
+    "compute_calibration_error",
+    "missing_confidence",
+    "reasoning_routes_presence",
 )
 
 
@@ -147,7 +159,10 @@ def knobs_as_settings(knobs: Any) -> dict[str, Any]:
 def _arguments(frame: Any) -> dict[str, Any]:
     """The arguments of a called frame, by parameter name."""
     code = frame.f_code
-    return {name: frame.f_locals.get(name) for name in code.co_varnames[: code.co_argcount + code.co_kwonlyargcount]}
+    return {
+        name: frame.f_locals.get(name)
+        for name in code.co_varnames[: code.co_argcount + code.co_kwonlyargcount]
+    }
 
 
 def collect_test_inputs(old_dojo: Path, output: Path) -> None:
@@ -167,7 +182,7 @@ def collect_test_inputs(old_dojo: Path, output: Path) -> None:
         filename = frame.f_code.co_filename
         if not filename.startswith(package_root):
             return
-        name = TARGETS.get((filename[len(package_root):], frame.f_code.co_name))
+        name = TARGETS.get((filename[len(package_root) :], frame.f_code.co_name))
         if name is None:
             return
         arguments = _arguments(frame)
@@ -201,7 +216,9 @@ def collect_test_inputs(old_dojo: Path, output: Path) -> None:
 
 def collect_golden_calls(old_dojo: Path, output: Path) -> None:
     """Run the old golden collectors and write every score_extraction call with its in-run result."""
-    spec = importlib.util.spec_from_file_location("freeze_goldens", old_dojo / "scripts" / "freeze_goldens.py")
+    spec = importlib.util.spec_from_file_location(
+        "freeze_goldens", old_dojo / "scripts" / "freeze_goldens.py"
+    )
     goldens = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(goldens)
     target = str(old_dojo / "llm_dojo_scoring" / "scoring" / "field_scoring.py")
@@ -239,19 +256,96 @@ def collect_golden_calls(old_dojo: Path, output: Path) -> None:
 # Phase 2: generated inputs
 # ---------------------------------------------------------------------------
 
-HOSTILE = [None, "", " ", "null", "N/A", "[]", "{}", [], {}, 0, 0.0, False, True, float("nan"), float("inf"),
-           [[1, 2], [3]], {"a": 1}, "日本 Ünïcödé ✓", "\x00\t\n", "x" * 300, 10 ** 30, -1.5]
-NAMES = ["Acme Corp", "ACME Corporation", "Acme", "Acme Corp.", "Beta LLC", "Beta Holdings", "Gamma Trust",
-         "John Smith", "Smith, John", "J. Smith", "Jon Smyth", "Delta Partners LP", "the Seller", "Seller",
-         "Buyer", "Company", "the Licensee and Licensor", "Omega Industries Inc", "Global Technologies, Ltd"]
+HOSTILE = [
+    None,
+    "",
+    " ",
+    "null",
+    "N/A",
+    "[]",
+    "{}",
+    [],
+    {},
+    0,
+    0.0,
+    False,
+    True,
+    float("nan"),
+    float("inf"),
+    [[1, 2], [3]],
+    {"a": 1},
+    "日本 Ünïcödé ✓",
+    "\x00\t\n",
+    "x" * 300,
+    10**30,
+    -1.5,
+]
+NAMES = [
+    "Acme Corp",
+    "ACME Corporation",
+    "Acme",
+    "Acme Corp.",
+    "Beta LLC",
+    "Beta Holdings",
+    "Gamma Trust",
+    "John Smith",
+    "Smith, John",
+    "J. Smith",
+    "Jon Smyth",
+    "Delta Partners LP",
+    "the Seller",
+    "Seller",
+    "Buyer",
+    "Company",
+    "the Licensee and Licensor",
+    "Omega Industries Inc",
+    "Global Technologies, Ltd",
+]
 ROLE_WORDS = ["Seller", "Buyer", "the Company", "Licensee", "Parties", "Customer", "Vendor Party", "shipper"]
-DATES = ["2014-08-18", "August 18, 2014", "Aug 18 2014", "08/18/2014", "18th day of August, 2014",
-         "the 18t h day of August, 2014", "August 2014", "2014", "August 18", "18 August", "2015-01-01",
-         "12/31/99", "04-01-06", "3/24/2006", "April 1, 2006", "N/A", "", "the date first written above",
-         "____ day of ________, 19__", "ninety (90) days after the Effective Date", 20140818, "Q3 2014",
-         "Tuesday, December 12, 2014", "2014-08-19", "September 18, 2014"]
-MONEY = ["$1,000.00", "1000", "USD 1,000", "$1,000.01", "$999.99", "one thousand dollars", "$5 million",
-         "$5,000,000", 1000, 1000.0, "", "$0.00", "€250", "approximately $1,000", "nan"]
+DATES = [
+    "2014-08-18",
+    "August 18, 2014",
+    "Aug 18 2014",
+    "08/18/2014",
+    "18th day of August, 2014",
+    "the 18t h day of August, 2014",
+    "August 2014",
+    "2014",
+    "August 18",
+    "18 August",
+    "2015-01-01",
+    "12/31/99",
+    "04-01-06",
+    "3/24/2006",
+    "April 1, 2006",
+    "N/A",
+    "",
+    "the date first written above",
+    "____ day of ________, 19__",
+    "ninety (90) days after the Effective Date",
+    20140818,
+    "Q3 2014",
+    "Tuesday, December 12, 2014",
+    "2014-08-19",
+    "September 18, 2014",
+]
+MONEY = [
+    "$1,000.00",
+    "1000",
+    "USD 1,000",
+    "$1,000.01",
+    "$999.99",
+    "one thousand dollars",
+    "$5 million",
+    "$5,000,000",
+    1000,
+    1000.0,
+    "",
+    "$0.00",
+    "€250",
+    "approximately $1,000",
+    "nan",
+]
 IDS = ["C-1001", "c1001", "C1001", "POL 22-33", "pol2233", "12345", 12345, "ABC/9", "abc9", "X-1", ""]
 FREE_TEXT = [
     "The Seller shall deliver the goods within thirty days.",
@@ -265,29 +359,82 @@ FREE_TEXT = [
     "unrelated text about weather",
     "",
 ]
-CMS_REFS = ["provider NPI 5040521237", "NPI 5040521237", "NDC 00703051002", "ndc 0703-0510-02",
-            "HCPCS detail (1 codes)", "HCPCS detail (2 codes)", "facility provider id 3900MB",
-            "facility provider 3900MB", "NPI 5040521238", "ICD9 diagnosis (3 codes)"]
+CMS_REFS = [
+    "provider NPI 5040521237",
+    "NPI 5040521237",
+    "NDC 00703051002",
+    "ndc 0703-0510-02",
+    "HCPCS detail (1 codes)",
+    "HCPCS detail (2 codes)",
+    "facility provider id 3900MB",
+    "facility provider 3900MB",
+    "NPI 5040521238",
+    "ICD9 diagnosis (3 codes)",
+]
 CMS_TABLES = ["pde", "inpatient", "outpatient", "carrier"]
 CLASSES_EXTRA = ["audit", "widget_report", "", " Insurance_Claim ", "CONTRACT", "Contract "]
-UNMAPPED_KEYS = ["effective_date_x", "total_value", "case_number", "random_key", "filing_ref", "candidate",
-                 "valid_until", "notes"]
+UNMAPPED_KEYS = [
+    "effective_date_x",
+    "total_value",
+    "case_number",
+    "random_key",
+    "filing_ref",
+    "candidate",
+    "valid_until",
+    "notes",
+]
 NEVER_SCORED = ["confidence", "reasoning", "gt_presence", "provenance", "expected_subclass", "evidence"]
 RETIRED = ["key_obligations", "termination_clauses", "key_points"]
-CONFIDENCES = [None, "", True, False, 0, 0.5, 0.85, 1, 1.0, 85, "85", "0.4", 150, -0.1, 100, 100.5,
-               float("nan"), "abc", [0.5], {"score": 0.7}, {"value": "90"}, {"other": 1}, {"confidence": None}]
-REASONINGS = [None, "", "  ", "Because the header says so.", ["entry one", "", None, {"field": "parties"}],
-              {"summary": "short", "entries": [{"field": "governing_law", "evidence": "Delaware law"}]},
-              {"summary": "", "entries": []}, {"field": "parties", "evidence": "Acme"},
-              {"text": "free text"}, {"entries": [{"span": "x", "section": " 2.1 "}, 5, "plain"]},
-              ("tuple entry",), 42, {"evidence": None, "ref": "3.2"}, []]
+CONFIDENCES = [
+    None,
+    "",
+    True,
+    False,
+    0,
+    0.5,
+    0.85,
+    1,
+    1.0,
+    85,
+    "85",
+    "0.4",
+    150,
+    -0.1,
+    100,
+    100.5,
+    float("nan"),
+    "abc",
+    [0.5],
+    {"score": 0.7},
+    {"value": "90"},
+    {"other": 1},
+    {"confidence": None},
+]
+REASONINGS = [
+    None,
+    "",
+    "  ",
+    "Because the header says so.",
+    ["entry one", "", None, {"field": "parties"}],
+    {"summary": "short", "entries": [{"field": "governing_law", "evidence": "Delaware law"}]},
+    {"summary": "", "entries": []},
+    {"field": "parties", "evidence": "Acme"},
+    {"text": "free text"},
+    {"entries": [{"span": "x", "section": " 2.1 "}, 5, "plain"]},
+    ("tuple entry",),
+    42,
+    {"evidence": None, "ref": "3.2"},
+    [],
+]
 
 
 def label_values(rng: random.Random, vocabulary: dict[str, Any] | None) -> list[Any]:
     """Surfaces for a label field: tokens, aliases, case and spacing variants, junk."""
     tokens = list((vocabulary or {}).get("tokens") or ["other"])
     aliases = list(((vocabulary or {}).get("aliases") or {}).keys())
-    surfaces = tokens + aliases[:20] + [token.upper().replace("_", " ") for token in tokens] + ["inform", "low", ""]
+    surfaces = (
+        tokens + aliases[:20] + [token.upper().replace("_", " ") for token in tokens] + ["inform", "low", ""]
+    )
     return surfaces
 
 
@@ -295,23 +442,37 @@ def value_for(rng: random.Random, field_type: str, vocabulary: dict[str, Any] | 
     """A plausible expected value for a field type."""
     if field_type.startswith("entity_list"):
         element = field_type.split(":", 1)[1] if ":" in field_type else "name"
-        pool = {"name": NAMES, "free_text": FREE_TEXT, "date": DATES, "id": IDS, "money": MONEY,
-                "cms_doc_ref": CMS_REFS, "label": ["approved", "denied"]}.get(element, NAMES)
+        pool = {
+            "name": NAMES,
+            "free_text": FREE_TEXT,
+            "date": DATES,
+            "id": IDS,
+            "money": MONEY,
+            "cms_doc_ref": CMS_REFS,
+            "label": ["approved", "denied"],
+        }.get(element, NAMES)
         items = [rng.choice(pool) for _ in range(rng.randint(0, 4))]
         if rng.random() < 0.15:
             items += [rng.choice(ROLE_WORDS)]
         if rng.random() < 0.1:
             return json.dumps(items)
         return items
-    pool = {"date": DATES, "money": MONEY, "id": IDS, "name": NAMES, "free_text": FREE_TEXT,
-            "containment": FREE_TEXT}.get(field_type)
+    pool = {
+        "date": DATES,
+        "money": MONEY,
+        "id": IDS,
+        "name": NAMES,
+        "free_text": FREE_TEXT,
+        "containment": FREE_TEXT,
+    }.get(field_type)
     if field_type == "label":
         pool = label_values(rng, vocabulary)
     return rng.choice(pool or NAMES)
 
 
 def perturb(rng: random.Random, value: Any, field_type: str, vocabulary: dict[str, Any] | None) -> Any:
-    """A prediction for an expected value: the same, a variant, another value, empty, hostile or a JSON text."""
+    """A prediction for an expected value: the same, a variant, another value, empty, hostile or a JSON
+    text."""
     roll = rng.random()
     if roll < 0.3:
         return copy.deepcopy(value)
@@ -338,9 +499,19 @@ def document_text(rng: random.Random, values: list[Any]) -> str:
     for value in values:
         if rng.random() < 0.6:
             parts.append(str(value if not isinstance(value, list) else "; ".join(map(str, value))))
-    parts += rng.sample(["dated April 1, 2006", "on 3/24/2006", "the 18th day of August, 2014",
-                         "signed 08-18-14", "Acme Corporation of Delaware", "in the amount of $1,000.00",
-                         "provider NPI 5040521237", "Seller delivers the goods"], k=rng.randint(0, 4))
+    parts += rng.sample(
+        [
+            "dated April 1, 2006",
+            "on 3/24/2006",
+            "the 18th day of August, 2014",
+            "signed 08-18-14",
+            "Acme Corporation of Delaware",
+            "in the amount of $1,000.00",
+            "provider NPI 5040521237",
+            "Seller delivers the goods",
+        ],
+        k=rng.randint(0, 4),
+    )
     return " ".join(parts)
 
 
@@ -349,8 +520,16 @@ def random_settings(rng: random.Random, allow_embedding: bool = False) -> dict[s
     choices = [
         lambda: {"ambiguous_band": rng.choice([[0.3, 0.9], [0.0, 1.0], [0.6, 0.61]])},
         lambda: {"bipartite_match_threshold": rng.choice([0.0, 0.3, 0.8, 1.0])},
-        lambda: {"type_bands": rng.choice([{"name": "always"}, {"date": "never"}, {"entity_list": [0.2, 0.95]},
-                                            {"entity_list:name": "never", "money": [0.0, 0.5]}])},
+        lambda: {
+            "type_bands": rng.choice(
+                [
+                    {"name": "always"},
+                    {"date": "never"},
+                    {"entity_list": [0.2, 0.95]},
+                    {"entity_list:name": "never", "money": [0.0, 0.5]},
+                ]
+            )
+        },
         lambda: {"partial_gt_fields": rng.choice([[], ["parties", "signatories", "denial_reasons"]])},
         lambda: {"containment_fields": rng.choice([[], ["governing_law", "insurer", "damages_description"]])},
         lambda: {"verification_enabled": False},
@@ -388,8 +567,14 @@ def profile_tables() -> dict[str, Any]:
     return classes
 
 
-SIMILARITY_SPECS = [{"kind": "constant", "value": 0.95}, {"kind": "constant", "value": 0.75},
-                    {"kind": "constant", "value": 0.3}, {"kind": "none"}, {"kind": "raises"}, {"kind": "nan"}]
+SIMILARITY_SPECS = [
+    {"kind": "constant", "value": 0.95},
+    {"kind": "constant", "value": 0.75},
+    {"kind": "constant", "value": 0.3},
+    {"kind": "none"},
+    {"kind": "raises"},
+    {"kind": "nan"},
+]
 
 
 def generated_cases(rng: random.Random, classes: dict[str, Any]) -> list[dict[str, Any]]:
@@ -398,10 +583,8 @@ def generated_cases(rng: random.Random, classes: dict[str, Any]) -> list[dict[st
 
     def add(function: str, settings: dict[str, Any] | None = None, **arguments: Any) -> None:
         """Queue one case (skip values the corpus format cannot hold)."""
-        try:
+        with contextlib.suppress(Unencodable):
             cases.append({"function": function, "args": encode(arguments), "settings": settings or {}})
-        except Unencodable:
-            pass
 
     element_types = ["name", "free_text", "date", "id", "money", "label", "cms_doc_ref", "containment"]
     # Entity lists: pools, role words, duplicates, empties, JSON texts, hostile items, permutations.
@@ -411,7 +594,8 @@ def generated_cases(rng: random.Random, classes: dict[str, Any]) -> list[dict[st
         expected = value_for(rng, f"entity_list:{element}", None)
         if rng.random() < 0.2:
             expected = [rng.choice(ROLE_WORDS) for _ in range(rng.randint(1, 3))] + (
-                [rng.choice(NAMES)] if rng.random() < 0.5 else [])
+                [rng.choice(NAMES)] if rng.random() < 0.5 else []
+            )
         if rng.random() < 0.15 and isinstance(predicted, list) and predicted:
             predicted = predicted + [predicted[0]]
         if rng.random() < 0.08:
@@ -419,45 +603,108 @@ def generated_cases(rng: random.Random, classes: dict[str, Any]) -> list[dict[st
         if rng.random() < 0.05:
             expected = rng.choice(HOSTILE)
         settings = random_settings(rng) if rng.random() < 0.15 else {}
-        add("score_entity_list", settings, element_type=element, pred=predicted, exp=expected,
-            partial_gt=rng.random() < 0.4)
+        add(
+            "score_entity_list",
+            settings,
+            element_type=element,
+            pred=predicted,
+            exp=expected,
+            partial_gt=rng.random() < 0.4,
+        )
     words = ["alpha", "beta", "gamma", "delta"]
     for _ in range(100):
-        predicted = [" ".join(rng.choice(words) for _ in range(rng.randint(1, 3))) for _ in range(rng.randint(2, 3))]
-        expected = [" ".join(rng.choice(words) for _ in range(rng.randint(1, 3))) for _ in range(rng.randint(2, 3))]
+        predicted = [
+            " ".join(rng.choice(words) for _ in range(rng.randint(1, 3))) for _ in range(rng.randint(2, 3))
+        ]
+        expected = [
+            " ".join(rng.choice(words) for _ in range(rng.randint(1, 3))) for _ in range(rng.randint(2, 3))
+        ]
         for order in range(3):
             shuffled = list(predicted)
             random.Random(order).shuffle(shuffled)
-            add("score_entity_list", element_type=rng.choice(["free_text", "name"]), pred=shuffled, exp=expected,
-                partial_gt=False)
-    clause_items = ["Seller shall deliver the goods", "the Seller shall deliver the goods within thirty days",
-                    "Buyer pays the price", "governed by Delaware law"]
+            add(
+                "score_entity_list",
+                element_type=rng.choice(["free_text", "name"]),
+                pred=shuffled,
+                exp=expected,
+                partial_gt=False,
+            )
+    clause_items = [
+        "Seller shall deliver the goods",
+        "the Seller shall deliver the goods within thirty days",
+        "Buyer pays the price",
+        "governed by Delaware law",
+    ]
     for _ in range(100):
         predicted = rng.sample(clause_items, k=rng.randint(1, 3))
-        expected = [rng.choice(["deliver the goods within", "Seller shall deliver", "pays the price", "Seller",
-                                "the Seller", "Delaware law"]) for _ in range(rng.randint(1, 3))]
-        add("score_entity_list", element_type=rng.choice(["free_text", "name"]), pred=predicted, exp=expected,
-            partial_gt=True)
+        expected = [
+            rng.choice(
+                [
+                    "deliver the goods within",
+                    "Seller shall deliver",
+                    "pays the price",
+                    "Seller",
+                    "the Seller",
+                    "Delaware law",
+                ]
+            )
+            for _ in range(rng.randint(1, 3))
+        ]
+        add(
+            "score_entity_list",
+            element_type=rng.choice(["free_text", "name"]),
+            pred=predicted,
+            exp=expected,
+            partial_gt=True,
+        )
     for spec in SIMILARITY_SPECS:
         for _ in range(10):
             element = rng.choice(["name", "free_text"])
-            add("score_entity_list", {"embedding_enabled": True}, element_type=element,
-                pred=value_for(rng, f"entity_list:{element}", None), exp=value_for(rng, f"entity_list:{element}", None),
-                partial_gt=rng.random() < 0.3, embedding={"$similarity": spec})
+            add(
+                "score_entity_list",
+                {"embedding_enabled": True},
+                element_type=element,
+                pred=value_for(rng, f"entity_list:{element}", None),
+                exp=value_for(rng, f"entity_list:{element}", None),
+                partial_gt=rng.random() < 0.3,
+                embedding={"$similarity": spec},
+            )
 
     # score_field and field_is_ambiguous.
-    scalar_types = ["name", "free_text", "date", "id", "money", "label", "containment", "cms_doc_ref",
-                    "entity_list", "entity_list:name", "entity_list:free_text", "entity_list:cms_doc_ref"]
+    scalar_types = [
+        "name",
+        "free_text",
+        "date",
+        "id",
+        "money",
+        "label",
+        "containment",
+        "cms_doc_ref",
+        "entity_list",
+        "entity_list:name",
+        "entity_list:free_text",
+        "entity_list:cms_doc_ref",
+    ]
     for _ in range(250):
         field_type = rng.choice(scalar_types)
         expected = value_for(rng, field_type, None)
-        add("score_field", random_settings(rng) if rng.random() < 0.1 else {}, field_type=field_type,
-            pred=perturb(rng, expected, field_type, None), exp=expected, partial_gt=rng.random() < 0.3)
+        add(
+            "score_field",
+            random_settings(rng) if rng.random() < 0.1 else {},
+            field_type=field_type,
+            pred=perturb(rng, expected, field_type, None),
+            exp=expected,
+            partial_gt=rng.random() < 0.3,
+        )
     for _ in range(200):
         field_type = rng.choice(scalar_types + ["widget", "entity_list:widget"])
         score = rng.choice([0.0, 0.2, 0.5, 0.6, 0.849, 0.85, 0.95, 1.0, 0.4999])
-        add("field_is_ambiguous", random_settings(rng) if rng.random() < 0.5 else {}, field_type=field_type,
-            score=score)
+        add(
+            "field_is_ambiguous",
+            random_settings(rng) if rng.random() < 0.5 else {},
+            field_type=field_type,
+            score=score,
+        )
 
     # Audits.
     for _ in range(250):
@@ -465,56 +712,121 @@ def generated_cases(rng: random.Random, classes: dict[str, Any]) -> list[dict[st
         predicted = value_for(rng, f"entity_list:{element}", None)
         expected = value_for(rng, f"entity_list:{element}", None)
         text = rng.choice([None, "", document_text(rng, [predicted, expected]), "No content here at all."])
-        add("audit_list_field", random_settings(rng) if rng.random() < 0.1 else {}, element_type=element,
-            pred_items=predicted, exp_items=expected, doc_text=text,
-            token_coverage=rng.choice([None, None, 0.5, 1.0]))
+        add(
+            "audit_list_field",
+            random_settings(rng) if rng.random() < 0.1 else {},
+            element_type=element,
+            pred_items=predicted,
+            exp_items=expected,
+            doc_text=text,
+            token_coverage=rng.choice([None, None, 0.5, 1.0]),
+        )
     for _ in range(450):
         field_type = rng.choice(["date", "date", "name", "free_text", "id", "money", "label", "containment"])
         expected = value_for(rng, field_type, {"tokens": ["approved", "denied"]})
         predicted = perturb(rng, expected, field_type, None)
-        text = rng.choice([None, "", document_text(rng, [predicted]), document_text(rng, [expected]),
-                           "Signed on the 18th day of August, 2014 by Acme.", "Dated 08/18/2014.",
-                           "Effective September 18, 2014."])
-        add("audit_scalar_field", random_settings(rng) if rng.random() < 0.1 else {}, field_type=field_type,
-            pred=predicted, exp=rng.choice([expected, None, ""]), doc_text=text)
+        text = rng.choice(
+            [
+                None,
+                "",
+                document_text(rng, [predicted]),
+                document_text(rng, [expected]),
+                "Signed on the 18th day of August, 2014 by Acme.",
+                "Dated 08/18/2014.",
+                "Effective September 18, 2014.",
+            ]
+        )
+        add(
+            "audit_scalar_field",
+            random_settings(rng) if rng.random() < 0.1 else {},
+            field_type=field_type,
+            pred=predicted,
+            exp=rng.choice([expected, None, ""]),
+            doc_text=text,
+        )
     for _ in range(150):
         items = [rng.choice(NAMES + FREE_TEXT + HOSTILE[:6]) for _ in range(rng.randint(0, 4))]
-        add("verify_list_items", items=items, doc_text=document_text(rng, items[:2]),
-            token_coverage=rng.choice([None, 0.0, 0.5, 0.7, 1.0]))
+        add(
+            "verify_list_items",
+            items=items,
+            doc_text=document_text(rng, items[:2]),
+            token_coverage=rng.choice([None, 0.0, 0.5, 0.7, 1.0]),
+        )
     for _ in range(150):
         value = rng.choice(DATES + NAMES[:4] + MONEY[:4])
         add("verification_tokens", value=value, field_type=rng.choice(["date", "name", "money", "id"]))
     for _ in range(200):
-        parts = rng.choice([[2014, 8, 18], [2014, 8, None], [None, 8, 18], [2014, None, None], [2006, 4, 1],
-                            [2006, 3, 24], [2015, 1, 1], [None, None, None]])
+        parts = rng.choice(
+            [
+                [2014, 8, 18],
+                [2014, 8, None],
+                [None, 8, 18],
+                [2014, None, None],
+                [2006, 4, 1],
+                [2006, 3, 24],
+                [2015, 1, 1],
+                [None, None, None],
+            ]
+        )
         predicted_date = {"$date_parts": parts} if rng.random() < 0.7 else {"$date": "2014-08-18"}
         if rng.random() < 0.05:
             predicted_date = None
-        cases.append({"function": "date_grounded_in_document", "settings": {}, "args": {
-            "pred_date": predicted_date,
-            "doc_text": rng.choice([document_text(rng, []), "", "dated 08.18.2014", "18 day of August 2014",
-                                    "Aug. 18, 2014 and Sept 1, 2015", None])}})
+        cases.append(
+            {
+                "function": "date_grounded_in_document",
+                "settings": {},
+                "args": {
+                    "pred_date": predicted_date,
+                    "doc_text": rng.choice(
+                        [
+                            document_text(rng, []),
+                            "",
+                            "dated 08.18.2014",
+                            "18 day of August 2014",
+                            "Aug. 18, 2014 and Sept 1, 2015",
+                            None,
+                        ]
+                    ),
+                },
+            }
+        )
     for _ in range(200):
         element = rng.choice(element_types)
         expected = value_for(rng, element, None)
-        add("element_similarity", element_type=element, item=str(perturb(rng, expected, element, None)),
-            exp=str(expected))
+        add(
+            "element_similarity",
+            element_type=element,
+            item=str(perturb(rng, expected, element, None)),
+            exp=str(expected),
+        )
 
     # Clause spans and presence.
-    clauses = ["The Seller shall indemnify the Buyer. The Buyer shall pay within 30 days.",
-               "Non-compete applies for two years; non-solicit for one year",
-               "Governed by the laws of the U.S. and Delaware.\nVenue: Wilmington",
-               "Price is $5.00 per unit. See Section 1.2 for adjustments.", "Short. Tiny. Ok.",
-               "Either party may terminate on notice (see 3.1). Termination for convenience is allowed!",
-               "", None, ["a list item. Another Sentence here please", "dup", "dup"]]
+    clauses = [
+        "The Seller shall indemnify the Buyer. The Buyer shall pay within 30 days.",
+        "Non-compete applies for two years; non-solicit for one year",
+        "Governed by the laws of the U.S. and Delaware.\nVenue: Wilmington",
+        "Price is $5.00 per unit. See Section 1.2 for adjustments.",
+        "Short. Tiny. Ok.",
+        "Either party may terminate on notice (see 3.1). Termination for convenience is allowed!",
+        "",
+        None,
+        ["a list item. Another Sentence here please", "dup", "dup"],
+    ]
     for clause in clauses:
         add("split_clause_spans", text=clause)
         for minimum in (1, 2, 4, 6):
-            add("disaggregate_clause_spans", items=clause if isinstance(clause, list) else [clause, clause],
-                min_span_tokens=minimum)
-    answers = {"Non-Compete": "non-compete applies for two years", "Governing Law": "laws of Delaware",
-               "Indemnification": "The Seller shall indemnify the Buyer", "Audit Rights": "right to audit the books",
-               "Termination For Convenience": "Termination for convenience is allowed"}
+            add(
+                "disaggregate_clause_spans",
+                items=clause if isinstance(clause, list) else [clause, clause],
+                min_span_tokens=minimum,
+            )
+    answers = {
+        "Non-Compete": "non-compete applies for two years",
+        "Governing Law": "laws of Delaware",
+        "Indemnification": "The Seller shall indemnify the Buyer",
+        "Audit Rights": "right to audit the books",
+        "Termination For Convenience": "Termination for convenience is allowed",
+    }
     for _ in range(300):
         categories = rng.sample(sorted(answers), k=rng.randint(0, 4))
         expectations = {}
@@ -527,29 +839,52 @@ def generated_cases(rng: random.Random, classes: dict[str, Any]) -> list[dict[st
             expectations[category] = expectation
         predicted: Any = {"cuad_clauses": rng.sample(clauses[:6], k=rng.randint(0, 3))}
         if rng.random() < 0.3:
-            predicted["key_terms"] = rng.choice([["right to audit the books and records"], "Delaware law governs",
-                                                 json.dumps(["termination for convenience is allowed"])])
+            predicted["key_terms"] = rng.choice(
+                [
+                    ["right to audit the books and records"],
+                    "Delaware law governs",
+                    json.dumps(["termination for convenience is allowed"]),
+                ]
+            )
         roll = rng.random()
         if roll < 0.3:
             routed = rng.sample(sorted(answers), k=2)
-            predicted["reasoning"] = {"entries": [
-                {"field": rng.choice([routed[0], f" {routed[1]} "]), "evidence": rng.choice([answers[routed[0]], ""]),
-                 "section_ref": rng.choice([None, "4.2"])}, {"field": routed[1], "section_ref": answers[routed[1]]}]}
+            predicted["reasoning"] = {
+                "entries": [
+                    {
+                        "field": rng.choice([routed[0], f" {routed[1]} "]),
+                        "evidence": rng.choice([answers[routed[0]], ""]),
+                        "section_ref": rng.choice([None, "4.2"]),
+                    },
+                    {"field": routed[1], "section_ref": answers[routed[1]]},
+                ]
+            }
         elif roll < 0.35:
             predicted["reasoning"] = rng.choice(["a string reasoning", ["entry"], None, {"entries": None}])
         if rng.random() < 0.03:
             predicted = rng.choice([None, {}])
         settings = {"reasoning_routes_presence": False} if rng.random() < 0.2 else {}
-        add("score_category_presence", settings, predicted=predicted, presence_expectations=expectations,
-            field_types={})
+        add(
+            "score_category_presence",
+            settings,
+            predicted=predicted,
+            presence_expectations=expectations,
+            field_types={},
+        )
     for spec in SIMILARITY_SPECS:
         for _ in range(8):
             categories = rng.sample(sorted(answers), k=2)
-            add("score_category_presence", {"embedding_enabled": True}, predicted={"cuad_clauses": [
-                rng.choice(clauses[:6]), "unrelated words entirely"]},
-                presence_expectations={category: {"expected": True, "answer": answers[category], "field": "cuad_clauses"}
-                                       for category in categories},
-                field_types={}, embedding={"$similarity": spec})
+            add(
+                "score_category_presence",
+                {"embedding_enabled": True},
+                predicted={"cuad_clauses": [rng.choice(clauses[:6]), "unrelated words entirely"]},
+                presence_expectations={
+                    category: {"expected": True, "answer": answers[category], "field": "cuad_clauses"}
+                    for category in categories
+                },
+                field_types={},
+                embedding={"$similarity": spec},
+            )
 
     # Trace capture.
     for _ in range(600):
@@ -560,24 +895,38 @@ def generated_cases(rng: random.Random, classes: dict[str, Any]) -> list[dict[st
             predicted["reasoning"] = rng.choice(REASONINGS)
         if rng.random() < 0.05:
             predicted = rng.choice([None, {}, [("confidence", 0.9)]])
-        add("capture_trace", random_settings(rng) if rng.random() < 0.5 else {}, predicted=predicted,
-            correctness=rng.choice([None, 0.0, 0.5, 0.875, 1.0, 1.5, -0.2]))
+        add(
+            "capture_trace",
+            random_settings(rng) if rng.random() < 0.5 else {},
+            predicted=predicted,
+            correctness=rng.choice([None, 0.0, 0.5, 0.875, 1.0, 1.5, -0.2]),
+        )
     for value in CONFIDENCES + ["1e-5", "  0.5 ", 0.12345, 99.99999]:
         add("parse_confidence", value=value)
     for value in REASONINGS + [{"entries": "not a list"}, {"summary": 7}, "\n"]:
         add("parse_reasoning", value=value)
     for _ in range(150):
-        add("confidence_gate", random_settings(rng), confidence=rng.choice([None, 0.0, 0.3, 0.5, 0.79, 0.8, 1.0]))
+        add(
+            "confidence_gate",
+            random_settings(rng),
+            confidence=rng.choice([None, 0.0, 0.3, 0.5, 0.79, 0.8, 1.0]),
+        )
     for _ in range(120):
-        add("confidence_calibration_error", confidence=rng.choice(CONFIDENCES[:12] + ["0.3"]),
-            correctness=rng.choice([None, 0, 0.5, 1, 1.2, "0.5", "x"]))
+        add(
+            "confidence_calibration_error",
+            confidence=rng.choice(CONFIDENCES[:12] + ["0.3"]),
+            correctness=rng.choice([None, 0, 0.5, 1, 1.2, "0.5", "x"]),
+        )
 
     # Audit support.
     for _ in range(100):
         audits = {}
         for index in range(rng.randint(0, 4)):
-            audit = {"n_predicted": rng.choice([0, 1, 3, None]), "verified_precision": rng.choice([0.0, 0.3333, 1.0]),
-                     "hallucination_rate": rng.choice([0.0, 0.6667, 1.0])}
+            audit = {
+                "n_predicted": rng.choice([0, 1, 3, None]),
+                "verified_precision": rng.choice([0.0, 0.3333, 1.0]),
+                "hallucination_rate": rng.choice([0.0, 0.6667, 1.0]),
+            }
             if rng.random() < 0.05:
                 audit.pop("hallucination_rate")
             audits[f"field_{index}"] = audit
@@ -587,29 +936,45 @@ def generated_cases(rng: random.Random, classes: dict[str, Any]) -> list[dict[st
     for _ in range(200):
         expected = {}
         if rng.random() < 0.85:
-            expected["cms_source_table"] = rng.choice(CMS_TABLES + ["PDE", " Carrier ", '"pde"', "auto", "", None])
+            expected["cms_source_table"] = rng.choice(
+                CMS_TABLES + ["PDE", " Carrier ", '"pde"', "auto", "", None]
+            )
         if rng.random() < 0.7:
             expected["claim_type"] = rng.choice(["health", "Health ", "", None, "auto", "null", "[]", 0])
         doc_class = rng.choice(["insurance_claim", "insurance_claim", "contract", "Insurance_Claim", None])
-        add("expected_cms_source_table", doc_class=doc_class, expected=rng.choice([expected, expected, None, []]))
+        add(
+            "expected_cms_source_table",
+            doc_class=doc_class,
+            expected=rng.choice([expected, expected, None, []]),
+        )
         predicted = {}
         if rng.random() < 0.6:
             predicted["cms_source_table"] = rng.choice(CMS_TABLES + ["", None, "[]", "other"])
         if rng.random() < 0.6:
             predicted["claim_type"] = rng.choice(CMS_TABLES + ["health", "PDE ", "", None])
-        add("is_unstated_cms_marker", key=rng.choice(["cms_source_table", "claim_type"]),
-            cms_table=rng.choice(CMS_TABLES + [None]), predicted=rng.choice([predicted, predicted, None]))
+        add(
+            "is_unstated_cms_marker",
+            key=rng.choice(["cms_source_table", "claim_type"]),
+            cms_table=rng.choice(CMS_TABLES + [None]),
+            predicted=rng.choice([predicted, predicted, None]),
+        )
     for _ in range(80):
-        add("is_parse_compat_key", doc_class=rng.choice(["contract", " Contract", "CONTRACT ", "merger_agreement",
-                                                          None, ""]),
+        add(
+            "is_parse_compat_key",
+            doc_class=rng.choice(["contract", " Contract", "CONTRACT ", "merger_agreement", None, ""]),
             key=rng.choice(["merger_consideration", "maud_clauses", "parties"]),
-            field_types=rng.choice([None, {}, {"maud_clauses": "entity_list:free_text"}]))
+            field_types=rng.choice([None, {}, {"maud_clauses": "entity_list:free_text"}]),
+        )
 
     # Whole extractions.
     class_keys = sorted(classes) + CLASSES_EXTRA
     for _ in range(420):
         class_key = rng.choice(class_keys)
-        known = classes.get(class_key) or classes.get(class_key.strip().lower()) or {"fields": {}, "vocabularies": {}}
+        known = (
+            classes.get(class_key)
+            or classes.get(class_key.strip().lower())
+            or {"fields": {}, "vocabularies": {}}
+        )
         fields, vocabularies = known["fields"], known["vocabularies"]
         if not fields:
             fields = {"finding": "free_text", "severity": "label", "risk": "name", "summary": "free_text"}
@@ -626,9 +991,14 @@ def generated_cases(rng: random.Random, classes: dict[str, Any]) -> list[dict[st
         if rng.random() < 0.1:
             expected[rng.choice(RETIRED)] = ["obligation one"]
         if rng.random() < 0.1:
-            expected[rng.choice(["merger_consideration", "maud_clauses"])] = rng.choice(["all_cash", ["clause"]])
-        predicted: Any = {name: perturb(rng, value, fields.get(name, "name"), vocabularies.get(name))
-                          for name, value in expected.items() if rng.random() < 0.85}
+            expected[rng.choice(["merger_consideration", "maud_clauses"])] = rng.choice(
+                ["all_cash", ["clause"]]
+            )
+        predicted: Any = {
+            name: perturb(rng, value, fields.get(name, "name"), vocabularies.get(name))
+            for name, value in expected.items()
+            if rng.random() < 0.85
+        }
         if rng.random() < 0.3:
             extra = rng.choice(names)
             predicted[extra] = value_for(rng, fields[extra], vocabularies.get(extra))
@@ -650,10 +1020,16 @@ def generated_cases(rng: random.Random, classes: dict[str, Any]) -> list[dict[st
         elif roll < 0.8:
             field_types = {}
         elif roll < 0.9:
-            field_types = {**fields, rng.choice(RETIRED): "entity_list:free_text",
-                           "merger_consideration": "label"}
+            field_types = {
+                **fields,
+                rng.choice(RETIRED): "entity_list:free_text",
+                "merger_consideration": "label",
+            }
         else:
-            field_types = {name: fields[name] for name in names[:3]} | {"total_value": "money", "case_number": "id"}
+            field_types = {name: fields[name] for name in names[:3]} | {
+                "total_value": "money",
+                "case_number": "id",
+            }
         text = None
         if rng.random() < 0.4:
             text = document_text(rng, list((expected or {}).values()) + list((predicted or {}).values()))
@@ -661,8 +1037,17 @@ def generated_cases(rng: random.Random, classes: dict[str, Any]) -> list[dict[st
         if rng.random() < 0.08 and isinstance(predicted, dict):
             audit_predicted = {**predicted, rng.choice(names): value_for(rng, "name", None)}
         settings = random_settings(rng) if rng.random() < 0.12 else {}
-        add("score_extraction", settings, doc_class=class_key, field_types=field_types, predicted=predicted,
-            expected=expected, doc_text=text, audit_predicted=audit_predicted, cms_aware=rng.random() < 0.85)
+        add(
+            "score_extraction",
+            settings,
+            doc_class=class_key,
+            field_types=field_types,
+            predicted=predicted,
+            expected=expected,
+            doc_text=text,
+            audit_predicted=audit_predicted,
+            cms_aware=rng.random() < 0.85,
+        )
 
     # CMS rows of insurance claims.
     insurance = classes["insurance_claim"]
@@ -681,7 +1066,9 @@ def generated_cases(rng: random.Random, classes: dict[str, Any]) -> list[dict[st
         if rng.random() < 0.6:
             predicted["cms_source_table"] = rng.choice(CMS_TABLES + ["", None, "Inpatient", "health"])
         if rng.random() < 0.7:
-            predicted["claim_type"] = rng.choice(CMS_TABLES + ["health", "auto", "", None, "PDE", "Health insurance"])
+            predicted["claim_type"] = rng.choice(
+                CMS_TABLES + ["health", "auto", "", None, "PDE", "Health insurance"]
+            )
         if rng.random() < 0.5:
             predicted["adjuster"] = rng.choice(["", None, "Bob", [], "null"])
         if rng.random() < 0.5:
@@ -693,28 +1080,53 @@ def generated_cases(rng: random.Random, classes: dict[str, Any]) -> list[dict[st
             predicted = rng.choice([None, {}])
         roll = rng.random()
         doc_class = rng.choice(["insurance_claim"] * 6 + ["contract", "Insurance_Claim"])
-        field_types = None if roll < 0.5 and doc_class in classes else (
-            dict(insurance["fields"]) if roll < 0.8 else rng.choice([{}, {"claim_number": "id", "adjuster": "name"}]))
-        add("score_extraction", random_settings(rng) if rng.random() < 0.05 else {},
-            doc_class=doc_class, field_types=field_types,
-            predicted=predicted, expected=expected,
+        field_types = (
+            None
+            if roll < 0.5 and doc_class in classes
+            else (
+                dict(insurance["fields"])
+                if roll < 0.8
+                else rng.choice([{}, {"claim_number": "id", "adjuster": "name"}])
+            )
+        )
+        add(
+            "score_extraction",
+            random_settings(rng) if rng.random() < 0.05 else {},
+            doc_class=doc_class,
+            field_types=field_types,
+            predicted=predicted,
+            expected=expected,
             doc_text=document_text(rng, list(predicted.values()) if isinstance(predicted, dict) else [])
-            if rng.random() < 0.3 else None,
-            audit_predicted=None, cms_aware=rng.random() < 0.8)
+            if rng.random() < 0.3
+            else None,
+            audit_predicted=None,
+            cms_aware=rng.random() < 0.8,
+        )
 
     # Extractions with an embedding backend.
     for spec in SIMILARITY_SPECS:
         for _ in range(12):
             class_key = rng.choice(["contract", "correspondence", "merger_agreement", "insurance_claim"])
             fields = classes[class_key]["fields"]
-            chosen = [name for name in fields if fields[name] in ("name", "free_text", "entity_list:name",
-                                                                  "entity_list:free_text")][:6]
+            chosen = [
+                name
+                for name in fields
+                if fields[name] in ("name", "free_text", "entity_list:name", "entity_list:free_text")
+            ][:6]
             expected = {name: value_for(rng, fields[name], None) for name in chosen}
             predicted = {name: value_for(rng, fields[name], None) for name in chosen}
-            add("score_extraction", {"embedding_enabled": True}, doc_class=class_key, field_types=None,
-                predicted=predicted, expected=expected,
+            add(
+                "score_extraction",
+                {"embedding_enabled": True},
+                doc_class=class_key,
+                field_types=None,
+                predicted=predicted,
+                expected=expected,
                 doc_text=document_text(rng, list(expected.values())) if rng.random() < 0.3 else None,
-                audit_predicted=None, cms_aware=True, embedding={"$similarity": spec})
+                audit_predicted=None,
+                cms_aware=True,
+                embedding={"$similarity": spec},
+            )
     return cases
 
 
@@ -744,7 +1156,8 @@ class FakeSimilarity:
 
 @contextlib.contextmanager
 def old_settings(settings: dict[str, Any], similarity: dict[str, Any] | None):
-    """Apply a settings spec (and a fake embedding backend) to the old process-wide settings, then restore them."""
+    """Apply a settings spec (and a fake embedding backend) to the old process-wide settings, then restore
+    them."""
     from llm_dojo_scoring.config import get_settings
     from llm_dojo_scoring.scoring import field_scoring
 
@@ -756,7 +1169,9 @@ def old_settings(settings: dict[str, Any], similarity: dict[str, Any] | None):
             if name in ("ambiguous_band", "confidence_band") and value is not None:
                 value = tuple(value)
             if name == "type_bands":
-                value = {key: (band,) if isinstance(band, str) else tuple(band) for key, band in value.items()}
+                value = {
+                    key: (band,) if isinstance(band, str) else tuple(band) for key, band in value.items()
+                }
             if name in ("partial_gt_fields", "containment_fields"):
                 value = set(value)
             section = current.field_scoring if name in FIELD_SETTINGS else current.trace_knobs
@@ -783,20 +1198,35 @@ def old_call(function: str, arguments: dict[str, Any], classes: dict[str, Any]) 
         if field_types is None:
             field_types = dict(classes[arguments["doc_class"]]["fields"])
         result = field_scoring.score_extraction(
-            arguments["doc_class"], field_types, arguments["predicted"], arguments["expected"],
-            arguments.get("doc_text"), audit_predicted=arguments.get("audit_predicted"),
+            arguments["doc_class"],
+            field_types,
+            arguments["predicted"],
+            arguments["expected"],
+            arguments.get("doc_text"),
+            audit_predicted=arguments.get("audit_predicted"),
             cms_aware=arguments.get("cms_aware", True),
         )
-        return {"to_dict": result.to_dict(), "audit_support": result.audit_support,
-                "needs_judge_review": result.needs_judge_review,
-                "overall_verified_precision": result.overall_verified_precision}
+        return {
+            "to_dict": result.to_dict(),
+            "audit_support": result.audit_support,
+            "needs_judge_review": result.needs_judge_review,
+            "overall_verified_precision": result.overall_verified_precision,
+        }
     if function == "score_entity_list":
-        result = field_scoring.score_entity_list(arguments["element_type"], arguments["pred"], arguments["exp"],
-                                                 partial_gt=arguments.get("partial_gt", False))
+        result = field_scoring.score_entity_list(
+            arguments["element_type"],
+            arguments["pred"],
+            arguments["exp"],
+            partial_gt=arguments.get("partial_gt", False),
+        )
         return {"to_dict": result.to_dict(), "score": result.score}
     if function == "score_field":
-        result = field_scoring.score_field(arguments["field_type"], arguments["pred"], arguments["exp"],
-                                           partial_gt=arguments.get("partial_gt", False))
+        result = field_scoring.score_field(
+            arguments["field_type"],
+            arguments["pred"],
+            arguments["exp"],
+            partial_gt=arguments.get("partial_gt", False),
+        )
         if isinstance(result, field_scoring.EntityListScore):
             return {"list": result.to_dict(), "score": result.score}
         return result
@@ -862,8 +1292,14 @@ def json_paths(tree: Any, target: Any, path: str = "") -> list[str]:
 #: Helper functions the old tests reach mostly from inside score_extraction (once per key);
 #: their captured calls are sampled down to this many, the rest add size, not coverage.
 HELPER_CALL_SAMPLE = 80
-SAMPLED_HELPERS = ("is_unstated_cms_marker", "is_parse_compat_key", "expected_cms_source_table",
-                   "element_similarity", "verification_tokens", "field_is_ambiguous")
+SAMPLED_HELPERS = (
+    "is_unstated_cms_marker",
+    "is_parse_compat_key",
+    "expected_cms_source_table",
+    "element_similarity",
+    "verification_tokens",
+    "field_is_ambiguous",
+)
 
 
 def sample_helper_calls(records: list[dict[str, Any]], seed: int) -> list[dict[str, Any]]:
@@ -888,8 +1324,13 @@ def _child(old_dojo: Path, flag: str, scratch: str) -> dict[str, Any]:
     output = Path(scratch) / f"{flag.strip('-')}.json"
     environment = {key: value for key, value in os.environ.items() if key != "LLM_DOJO_SCORING_CONFIG"}
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
-    subprocess.run([sys.executable, __file__, "--old-dojo", str(old_dojo), flag, str(output)],
-                   check=True, cwd=scratch, env=environment, stdout=subprocess.DEVNULL)
+    subprocess.run(
+        [sys.executable, __file__, "--old-dojo", str(old_dojo), flag, str(output)],
+        check=True,
+        cwd=scratch,
+        env=environment,
+        stdout=subprocess.DEVNULL,
+    )
     return json.loads(output.read_text())
 
 
@@ -915,8 +1356,9 @@ def main() -> int:
     output = options.output.resolve()
     if old_dojo in output.parents:
         parser.error("refusing to write inside the old Dojo checkout")
-    commit = subprocess.run(["git", "-C", str(old_dojo), "rev-parse", "HEAD"], check=True, capture_output=True,
-                            text=True).stdout.strip()
+    commit = subprocess.run(
+        ["git", "-C", str(old_dojo), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
     if commit != EXPECTED_OLD_COMMIT:
         print(f"warning: old Dojo is at {commit}, expected {EXPECTED_OLD_COMMIT}", file=sys.stderr)
 
@@ -945,12 +1387,19 @@ def main() -> int:
         if not paths:
             print(f"golden {record['case']}: field_scores not found in scores.json", file=sys.stderr)
             return 1
-        golden_cases.append({
-            "function": "score_extraction", "args": record["args"], "settings": {},
-            "golden": {"case": record["case"], "scores_json_paths": paths,
-                       "field_scores_sha256": canonical_sha256(field_scores)},
-            "in_run_result": record["in_run_result"],
-        })
+        golden_cases.append(
+            {
+                "function": "score_extraction",
+                "args": record["args"],
+                "settings": {},
+                "golden": {
+                    "case": record["case"],
+                    "scores_json_paths": paths,
+                    "field_scores_sha256": canonical_sha256(field_scores),
+                },
+                "in_run_result": record["in_run_result"],
+            }
+        )
 
     sources = [("golden", case) for case in golden_cases]
     sources += [("old_tests", record) for record in sample_helper_calls(captured["records"], options.seed)]
@@ -974,40 +1423,57 @@ def main() -> int:
         if source == "golden":
             in_run = case["in_run_result"]
             if outcome.get("result", {}).get("to_dict") != in_run:
-                print(f"golden {case['golden']['case']}: recomputed output differs from the golden run", file=sys.stderr)
+                print(
+                    f"golden {case['golden']['case']}: recomputed output differs from the golden run",
+                    file=sys.stderr,
+                )
                 return 1
-        entry = {"id": hashlib.sha256(key.encode("utf-8")).hexdigest()[:16], "source": source,
-                 "function": case["function"], "args": case["args"], "settings": case["settings"], "outcome": outcome}
+        entry = {
+            "id": hashlib.sha256(key.encode("utf-8")).hexdigest()[:16],
+            "source": source,
+            "function": case["function"],
+            "args": case["args"],
+            "settings": case["settings"],
+            "outcome": outcome,
+        }
         if source == "golden":
             entry["golden"] = case["golden"]
         lines.append(json.dumps(entry, ensure_ascii=True, separators=(",", ":")))
         counts[case["function"]] = counts.get(case["function"], 0) + 1
         by_source[source] = by_source.get(source, 0) + 1
 
-    header = {"header": {
-        "description": "llm-dojo-scoring outputs for the extraction scoring layers (differential parity corpus)",
-        "old_commit": commit,
-        "old_version": llm_dojo_scoring.__version__,
-        "seed": options.seed,
-        "golden_inputs_json_sha256": hashlib.sha256(inputs_text).hexdigest(),
-        "golden_scores_json_sha256": hashlib.sha256(scores_text).hexdigest(),
-        "golden_calls": len(golden_calls),
-        "captured_test_files": list(OLD_TEST_FILES),
-        "captured_calls": len(captured["records"]),
-        "captured_skipped": captured["skipped"],
-        "cases": len(lines),
-        "cases_by_function": dict(sorted(counts.items())),
-        "cases_by_source": dict(sorted(by_source.items())),
-        "dependencies": {name: importlib.metadata.version(name)
-                         for name in ("python-dateutil", "jellyfish", "scipy", "numpy", "PyYAML")},
-        "python": sys.version.split()[0],
-        "script": "packages/dojo/scripts/capture_old_dojo_extraction_cases.py",
-    }}
+    header = {
+        "header": {
+            "description": (
+                "llm-dojo-scoring outputs for the extraction scoring layers (differential parity corpus)"
+            ),
+            "old_commit": commit,
+            "old_version": llm_dojo_scoring.__version__,
+            "seed": options.seed,
+            "golden_inputs_json_sha256": hashlib.sha256(inputs_text).hexdigest(),
+            "golden_scores_json_sha256": hashlib.sha256(scores_text).hexdigest(),
+            "golden_calls": len(golden_calls),
+            "captured_test_files": list(OLD_TEST_FILES),
+            "captured_calls": len(captured["records"]),
+            "captured_skipped": captured["skipped"],
+            "cases": len(lines),
+            "cases_by_function": dict(sorted(counts.items())),
+            "cases_by_source": dict(sorted(by_source.items())),
+            "dependencies": {
+                name: importlib.metadata.version(name)
+                for name in ("python-dateutil", "jellyfish", "scipy", "numpy", "PyYAML")
+            },
+            "python": sys.version.split()[0],
+            "script": "packages/dojo/scripts/capture_old_dojo_extraction_cases.py",
+        }
+    }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join([json.dumps(header, sort_keys=True, ensure_ascii=True)] + lines) + "\n")
     print(f"old commit {commit}, version {llm_dojo_scoring.__version__}")
-    print(f"golden calls {len(golden_calls)}; captured {len(captured['records'])} test calls; "
-          f"wrote {len(lines)} unique cases to {output} ({output.stat().st_size} bytes)")
+    print(
+        f"golden calls {len(golden_calls)}; captured {len(captured['records'])} test calls; "
+        f"wrote {len(lines)} unique cases to {output} ({output.stat().st_size} bytes)"
+    )
     for name, count in sorted(counts.items()):
         print(f"  {count:6d} {name}")
     print("by source:", by_source)
