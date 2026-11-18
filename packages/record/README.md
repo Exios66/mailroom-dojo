@@ -113,6 +113,9 @@ mailroom-record versions <run> <doc> --root <store>
 ```
 
 Every command takes `--json` for tools. Exit codes: 0 done (verify: ok); 1 the run is not ok,
-a seal was refused, or an unexpected error; 2 a usage error (malformed run id, unknown run or
-document, a root that is not a directory, a bad option). Errors are one line on stderr, never
-a traceback. Output holds hashes, roles, node names, kinds and counts only.
+a seal was refused, a document has no readable event but unreadable lines may hold it, or an
+unexpected error; 2 a usage error (malformed run id, unknown run or document, a root that is
+not a directory, a bad option); 141 the output pipe closed (`| head`), nothing printed.
+Errors are one line on stderr, never a traceback. Output holds hashes, roles, node names,
+kinds and counts only; control, format and separator characters in stored ids are escaped
+(`\x1b`, `\u202e`) in text output.
