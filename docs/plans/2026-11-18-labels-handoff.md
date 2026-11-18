@@ -1,6 +1,6 @@
 # Handoff: project 2 (labels package and EDA move)
 
-Branch: `claude/project-thread-pbvxf9` (pushed), stacked on `claude/project-thread-h3rj4z` (PR #2). Plan: `docs/plans/2026-11-18-labels-plan.md`.
+Branch: `claude/project-thread-pbvxf9` (PR #5). PR #2 (record) is on `main` and was merged into the branch, so PR #5 is no longer stacked: it targets `main`. Plan: `docs/plans/2026-11-18-labels-plan.md`.
 
 ## State
 - Library `packages/labels/` (`mailroom_labels`): snapshots with tamper-checked manifests, four label layers, resolver, quality gate, coverage, importers, CLI `mailroom-labels`, `LabelSet` for the Dojo.
@@ -13,9 +13,9 @@ Branch: `claude/project-thread-pbvxf9` (pushed), stacked on `claude/project-thre
 - No independent review of the final nine fix commits (`86f292d..156d48f`, i.e. 78cdede through 156d48f); one fresh Opus review of that range is the next step. The fixer was stopped before its final report, so its gate output was not seen; the head gate above was re-run by the lead.
 - CircleCI has not run on this branch (project not set up for the repo).
 - Not verified: live `fetch_hub.py` download, `build_profile.py` regeneration (needs the EDA clone), rebuilding the review snapshot from public sources (inputs are project files).
-- Merge only after PRs #2 and #3 land, then retarget this PR to `main`.
+- Merge into `main` through the merge gate in `.claude/rules/pr-flow.md`, step 7.
 
-## Open questions for JJB
+## Open questions for the owner
 1. Human desk decisions are `gold` with the desk role as reviewer (no initials recorded). Should initials be added first?
 2. Six documents re-filed under another subclass between Hub revisions are unverified (53 fields unscored; the sandbox scores them). Rebuild interim on ccd040f6, or drop only their stale interim labels?
 3. Review decision files live only in project files; move them into a repository?
