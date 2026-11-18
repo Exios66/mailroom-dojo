@@ -58,8 +58,11 @@ behind the spend gate).
 5. **Pairing.** Every kept headline or keep-rule row names a pairing or a `pairing_note`.
    `paired_percentile_bootstrap` is D1's `paired_bootstrap_delta` (per document, same documents
    on both sides); `two_sample_percentile_bootstrap` is D1's `delta_significance`. `f1_macro`,
-   `content_topic_f1_macro` and `reviewer_wrong_accept_upper_95` are whole-set statistics, so
-   their notes say why there is no per-document pairing; D7 decides their comparison.
+   `content_topic_f1_macro`, `extraction_f1`, `extraction_f2` and
+   `reviewer_wrong_accept_upper_95` are whole-set statistics (macro F1; field-micro F1 and F2
+   pool the counts of every document before dividing, old `suites.py` line 1486
+   `merge_extraction_counts`; a bound), so their notes say why there is no per-document
+   pairing; D7 decides their comparison.
 6. **Noise floor deferred to D7.** The keep rule's smallest meaningful difference is measured by
    repeat runs and lands with D7 in `config/`, not in this table.
 7. **Duplicates point at the canonical row.** `alias_of` (a not-ported second name, same unit,

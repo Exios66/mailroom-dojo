@@ -798,6 +798,14 @@ def test_every_compared_metric_names_its_pairing_or_why_not() -> None:
     assert {row.pairing for row in table.rows} - {None} <= set(PAIRING_METHODS)
 
 
+@pytest.mark.parametrize("metric", ["f1_macro", "extraction_f1", "extraction_f2"])
+def test_a_whole_set_statistic_has_no_per_document_pairing(metric: str) -> None:
+    """Macro F1 and the pooled field-micro F1 and F2 are not means of per-document values."""
+    row = load_metric_table().get(metric)
+    assert row.pairing is None
+    assert row.pairing_note is not None and "D7" in row.pairing_note
+
+
 def test_the_pairings_are_the_tests_d1_implements() -> None:
     """Each pairing names a D1 function by the method string its result carries."""
     paired = pytest.importorskip("mailroom_dojo.statistics.paired", reason="D1 statistics not on this branch")

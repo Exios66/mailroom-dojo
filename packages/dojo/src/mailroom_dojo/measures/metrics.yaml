@@ -371,7 +371,7 @@ metrics:
     layer: "D3b"
     status: "planned"
     readers: ["golden_parity_gate", "headline_view"]
-    pairing: "paired_percentile_bootstrap"
+    pairing_note: "Field-micro F1 pools true positives, false positives and false negatives over every document of the run before dividing (old suites.py merge_extraction_counts, extraction_metrics.extraction_binary_metrics), so it is a statistic of the whole set, not a mean of per-document values, and D1's paired_bootstrap_delta does not apply; a paired document resample that recomputes the pooled F1 on both runs is D7's to build. Compare runs on extraction_overall_score (paired) meanwhile."
     origin: "registry"
     old_source: "extraction_metrics.extraction_binary_metrics"
     citation: "ACE / CoNLL / SemEval slot filling; TP requires typed score ≥ 1.0. F1 is van Rijsbergen β=1."
@@ -388,7 +388,7 @@ metrics:
     layer: "D3b"
     status: "planned"
     readers: ["golden_parity_gate", "headline_view"]
-    pairing: "paired_percentile_bootstrap"
+    pairing_note: "Field-micro F2 pools true positives, false positives and false negatives over every document of the run before dividing (old suites.py merge_extraction_counts, extraction_metrics.extraction_binary_metrics), so it is a statistic of the whole set, not a mean of per-document values, and D1's paired_bootstrap_delta does not apply; a paired document resample that recomputes the pooled F2 on both runs is D7's to build. Compare runs on extraction_overall_score (paired) meanwhile."
     origin: "registry"
     old_source: "extraction_metrics.extraction_binary_metrics"
     citation: "ACE / CoNLL / SemEval slot filling; F2 is van Rijsbergen Fβ with β=2 (5PR/(4P+R))."
