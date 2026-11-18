@@ -91,7 +91,7 @@ failure, not just simple one-off unit tests." So, for every module:
 | Hostile stored bytes crash verify | Fault injection, property | JSON nested 200,000 deep in a segment, seal, run header or tombstone, and a valid line whose payload nests 5,000 deep: reported, never raised (seal_run raises `CorruptLine`); the never-raises property also draws deep nesting; a 24 MB line is reported under a lowered limit with a bounded peak | 7 |
 | A broken tombstone passes as a deletion | Fault injection | Empty, directory, not JSON, other hash, no reason: `corrupt_tombstone` | 7 |
 | Verify holds a large run in memory | Integration | 24 MB of payloads: traced peak stays under 6 MB; one line with seq 10^9 and one seal numbered 10^9 are each reported in under 5 s (asserted) | 7 |
-| Whole document deleted between seals | Fault injection | Seal lists documents; deletion gives `document_missing_from_log` | 7 |
+| Whole document deleted between seals | Fault injection | Seal lists documents; deleting a sealed document gives `document_missing_from_log` (a document added and deleted between two seals is not detectable: no seal names it) | 7 |
 | Tombstone confused with loss | Unit | Tombstone passes, missing blob fails and names the event | 7 |
 | Index drifts from the log | Integration, equivalence | Incremental index equals full reindex; deleting the index and rebuilding gives the same dump | 8 |
 | Index drifts under real histories | Property | `test_incremental_equals_reindex_over_random_histories`: two runs sharing documents, three writers each, handoffs, flushes, seals and repeated applies; after every step the index equals a rebuild of the log (`drift == []`) | 8 |

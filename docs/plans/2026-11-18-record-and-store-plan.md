@@ -480,7 +480,7 @@ def test_cli_never_prints_blob_content(review_store):
 - Mapping rules:
   - `Run`: `origin="imported_sandbox"`, `kind="full_pipeline"` when `nodes.jsonl` has a `classify` node, else `"specialist_only"`; `backend` from `spec.lock.json` `engine`; `agent_models`, `prompt_hashes` (from `prompt.lock.json`), `code_version` (from `git`), `signed_by` (from `spend-authorization.json` if present, else `None`); `source = {"folder": <name>, "spec_hash": ...}`. `policy_name="legacy"`, `policy_hash=None`.
   - `doc_id` is `content_sha256`. `doc_text` becomes an `original`-role blob. `expected_*` fields are NOT imported into the record (labels belong to the labels package); only `expected_doc_class` is kept in the first event's `payload` as `draw_class`.
-  - Each `done`, `paused` or `failed` node row becomes one event: `kind="decision"` when `decisions` is non-empty, `kind="review"` for `human_review`, `kind="error"` for `failed`, else `kind="handoff"`. `decision` holds the row's `decisions` list as given, minus any `options` text. `latency_ms` from `ms`. `ts` converted to ISO (the finish time).
+  - Each `done`, `paused` or `failed` node row becomes one event, its kind decided in this order: `kind="review"` for `human_review`, `kind="error"` for `failed`, `kind="decision"` when `decisions` is non-empty, else `kind="handoff"` (so a paused `human_review` row with decisions is still a review, and Task 8's review queue sees it). `decision` holds the row's `decisions` list as given, minus any `options` text. `latency_ms` from `ms`. `ts` converted to ISO (the finish time).
   - Floor replay (added 2026-11-18, see the spec's "Requirements added 2026-11-18", R7): the matching `running` row is not a separate event, but its time is kept on the finishing event as `payload.started_ts` (ISO). The finishing event's `payload` also keeps `status`, `step` (when present) and `stage` (when present). A `running` row with no finishing row (in flight when the run stopped) becomes one event with `kind="handoff"` and `payload.status="running"`. Pairing is by `(doc, node, step)` in file order, the same rule the sandbox's `tui/floor_replay.py:build_timeline` uses.
   - `checkpoint.json` (`state`, `cursor`, `total`) becomes a final `_run` event with `node="checkpoint"`, `kind="handoff"` and those three values in `payload`; absent when the file is missing.
   - The item's `pred.extracted_data` (without `_report`) becomes an `extraction` blob and `_report` a `report` blob, attached to one final `kind="output"` event per document whose `decision` holds `doc_type`, `stage`, both confidences, `review_causes`, `review_verdict`, `escalation_reason`. Its `payload` holds `usage_by_agent` and the sandbox `score` dict under the key `legacy_score`.
@@ -565,9 +565,9 @@ def test_native_run_replays(store_with_events): ...                        # a r
 
 **Interfaces:**
 - Produces:
-  - `pack_run(root: Path, run_id: str, out: Path, *, include_blobs: bool = True) -> PackManifest` (a `.tar.zst` holding the run folder, the blobs it names, and `manifest.json` with every member's SHA-256 and the last seal hash). Refuses an unsealed run with `RunNotSealed`.
+  - `pack_run(root: Path, run_id: str, out: Path, *, include_blobs: bool = True) -> PackManifest` (a `.tar.zst` holding the run folder, the blobs it names, and `manifest.json` with every member's SHA-256 and the last seal hash). Refuses with `RunNotSealed` unless the latest seal covers the latest event: a run with no seal, or with flushed events after its latest seal, is refused (seal it first).
   - `unpack_run(archive: Path, root: Path) -> str` (verifies the manifest, then `verify_run`; raises `PackCorrupt`)
-  - `prune_run(root: Path, run_id: str, *, keep_columns: bool = True) -> PruneReport` (removes segments and seals of a packed run; deletes a blob only when no other run in the index names it). Refuses unless a pack path is recorded for the run.
+  - `prune_run(root: Path, run_id: str, *, keep_columns: bool = True) -> PruneReport` (removes segments and seals of a packed run; deletes a blob only when no other run names it, found by reading the other runs' logs, the authoritative record, never the index, which can lag a crash between flush and apply). It holds the store's exclusive maintenance lock, which writers take shared, so no append can name a blob between that check and the delete. Refuses unless a pack path is recorded for the run, and, like `pack_run`, unless the latest seal covers the latest event.
   - CLI: `pack`, `unpack`, `prune`.
 
 - [ ] **Step 1: Failing tests**
@@ -617,7 +617,8 @@ def test_public_surface_is_exactly_this():
 - [ ] **Step 4:** Run it on the real data:
 
 ```bash
-python packages/record/scripts/stage1_gate.py --runs /mnt/project-files/runs/autoresearch --root "$(mktemp -d)"
+ROOT="$(mktemp -d)"   # one store root, kept for the second run below
+python packages/record/scripts/stage1_gate.py --runs /mnt/project-files/runs/autoresearch --root "$ROOT"
 ```
 
 Expected, and each is a gate condition:
@@ -625,8 +626,8 @@ Expected, and each is a gate condition:
 - `original` blobs: 25 for the five v1 runs together and 75 for the ten v2 runs together, assuming v1 and v2 share no document. Report the real number; if it differs, explain it from the draws, do not force it.
 - Store size on disk is smaller than the 93 MB source.
 - `mailroom-record trace doc <a v1 doc id>` lists all five v1 runs.
-- A second run of the script reports every run as `already_imported`.
-- `grep` of the report and of every Parquet file for a 40-character string taken from one imported document's text finds nothing.
+- A second run of the script with the same `--root "$ROOT"` reports every run as `already_imported`.
+- A 40-character string taken from one imported document's text is in none of the report's bytes and none of the decoded values of any Parquet file (every string and list-of-string cell of `pyarrow.parquet.read_table(...)`; a byte `grep` misses compressed pages). Positive control first: the same scan finds the string in a scratch Parquet file that holds it.
 - Floor replay parity: for every run folder with `nodes.jsonl` or `items.jsonl`, `replay_timeline` from the record gives the same node sequence (doc, node, status) and the same times (within 1 ms) as the sandbox's `build_timeline` on the source folder. The script loads `tui/floor_replay.py` by path from a sandbox checkout when one is given (`--sandbox <dir>`; the module imports only the standard library) and reports the check as skipped otherwise.
 
 - [ ] **Step 5:** Run the whole suite: `pytest packages/record/tests -q`. Expected: all pass, no skips. Commit: `feat(record): stage 1 gate on the v1 and v2 runs` with the report's totals in the commit body.

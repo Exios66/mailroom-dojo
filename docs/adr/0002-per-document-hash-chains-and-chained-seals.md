@@ -22,6 +22,17 @@ run-level hash computed "at the end" would never exist.
 - `verify_run` recomputes both levels and names the first broken entry by kind:
   `bad_hash`, `broken_link`, `seq_gap`, `seal_mismatch`, `document_missing_from_log`,
   `truncated_after_seal`, `missing_blob`; `torn_tail` is reported but does not fail.
+- Verification can only check what a seal committed. Events appended after the latest seal
+  (a cut unsealed tail, or a whole document added and deleted before the next seal) leave
+  no trace a seal names, so their deletion is detectable only once a later seal covers
+  them. The detection window is the seal period.
+- Accepted risk, rollback of the latest seal: every seal file sits in the run's own
+  directory. Someone who can write the run can delete the latest seal together with every
+  event added since the seal before it; what remains is a valid, shorter record and
+  verification passes. Only a copy of the latest seal hash held outside the run (another
+  host, a ticket, the deploy's audit trail) can show that. This package keeps no such
+  anchor; where to anchor it is the deploy's decision (project 6). Until then the risk is
+  accepted.
 
 ## Options considered
 
@@ -34,8 +45,9 @@ run-level hash computed "at the end" would never exist.
 | Team familiarity | Medium |
 
 **Pros:** no shared lock; deleting a whole document or cutting a tail is caught by the seal.
-**Cons:** between seals, a deleted whole document chain is not detectable (bounded by the
-seal period).
+**Cons:** between seals, a deleted whole document chain or a cut unsealed tail is not
+detectable (bounded by the seal period); without an external anchor, removing the latest
+seal with the events after the one before it is not detectable either (see Decision).
 
 ### B. One global chain per run
 **Pros:** a single head proves everything. **Cons:** the lock this design exists to remove.

@@ -57,7 +57,10 @@ masks a tampered column file. A seal whose predecessor is unreadable or missing 
 bound its rows, so its column file is not compared. A missing column file of the latest
 seal does not fail the run: ``seal_run`` writes it just after the seal file, so a crash
 or a seal in progress leaves it missing for a while, and the next ``seal_run`` rebuilds
-it. A missing older one fails (``seal_run`` rebuilds it too).
+it. That holds on a closed run too: the closing seal may still be writing it, and the
+export is derived from the log and the seal, which verify has checked. No later seal
+comes on a closed run, so the detail says to run ``seal_run`` once more, which rebuilds
+the file and commits nothing new. A missing older one fails (``seal_run`` rebuilds it too).
 
 Blobs. Every blob an event names is checked once. Tombstoned (tombstone, no content):
 passes, counted in ``tombstoned_blobs``, if the tombstone is the record ``BlobStore``
@@ -75,9 +78,13 @@ Torn tails, and when a run is closed
 ------------------------------------
 A torn tail (bytes after a segment's last newline) is always reported and never fails
 the run: its bytes were never a whole event, so they were never part of any chain, and a
-writer that recovered continued every chain past them. Losing a committed event is
-caught elsewhere (``seq_gap``, ``truncated_after_seal``, ``document_missing_from_log``).
-The detail says which case it is:
+writer that recovered continued every chain past them. Losing a sealed event is caught
+elsewhere (``seq_gap``, ``truncated_after_seal``, ``document_missing_from_log``). An event
+written after the last seal is committed by no seal, so losing it from the end of its
+chain leaves nothing to detect; on a closed run, where no later seal will commit it,
+verify notes it (``unsealed_events``, one problem per document naming the first ``seq``
+and how many events are past the seal; it never fails the run). The torn-tail detail
+says which case it is:
 
 - A run is **closed** when its header's ``kind`` is an experiment kind (anything but
   ``service_period``) and it has at least one seal file. An experiment run is sealed once,
@@ -147,6 +154,8 @@ ProblemKind = Literal[
     "columns_mismatch",
     "corrupt_run_header",
     "corrupt_tombstone",
+    # added in fix pass 2: a note, never failing
+    "unsealed_events",
 ]
 PROBLEM_KINDS: tuple[str, ...] = ProblemKind.__args__  # type: ignore[attr-defined]
 
@@ -180,8 +189,9 @@ _INF = float("inf")
 @dataclass(frozen=True)
 class Problem:
     """One thing wrong with a run. ``fails`` is false only for a torn tail (never final
-    damage: its bytes were never a whole event) and for the latest seal's missing column
-    file (the next ``seal_run`` rebuilds it).
+    damage: its bytes were never a whole event), for the latest seal's missing column
+    file (the next ``seal_run`` rebuilds it) and for ``unsealed_events`` (a note that a
+    closed run holds events no seal commits).
 
     ``detail`` names hashes, field names, segments, offsets and counts, never content.
     """
@@ -276,10 +286,11 @@ def verify_run(log: EventLog, blobs: BlobStore, run_id: str) -> VerifyReport:
         _scan(log, run_id, st)
         chains = _check_chains(st)
     seals, n_seal_files = _check_seals(st, seal_files, col_numbers)
-    _check_columns(log, run_id, st, seals, chains)
-    tombstoned = _check_blobs(blobs, st)
-
     closed = n_seal_files > 0 and (run is None or run.kind != "service_period")
+    _check_columns(log, run_id, st, seals, chains, closed)
+    tombstoned = _check_blobs(blobs, st)
+    if closed:
+        _note_unsealed(st, seals, max(seal_files[0] | col_numbers))
     for t in st.torn:
         if closed:
             detail = (
@@ -631,7 +642,12 @@ def _read_seal(path: Path, n: int, run_id: str, st: _State) -> tuple[Seal, dict[
 
 
 def _check_columns(
-    log: EventLog, run_id: str, st: _State, seals: dict[int, _SealInfo], chains: dict[str, dict[int, _Entry]]
+    log: EventLog,
+    run_id: str,
+    st: _State,
+    seals: dict[int, _SealInfo],
+    chains: dict[str, dict[int, _Entry]],
+    closed: bool,
 ) -> None:
     for n, info in sorted(seals.items()):
         path = _columns_path(log, run_id, n)
@@ -639,10 +655,17 @@ def _check_columns(
             latest = n == max(seals)
             # The latest seal's file is written just after the seal: a crash or a seal_run
             # still running leaves it missing for a while, and the next seal_run writes it.
+            # On a closed run no later seal comes, so the detail asks for one more seal_run.
+            if not latest:
+                why = ""
+            elif closed:
+                why = (" (the closing seal of a closed run: a crash or the seal still in progress; "
+                       "no later seal will come, so run seal_run once more, which commits nothing new)")
+            else:
+                why = " (the latest seal: a crash or a seal in progress, recoverable)"
             st.problems.append(Problem(
                 "columns_missing", None, None,
-                f"columns/events-{n}.parquet is missing; seal_run rebuilds it"
-                + (" (the latest seal: a crash or a seal in progress, recoverable)" if latest else ""),
+                f"columns/events-{n}.parquet is missing; seal_run rebuilds it{why}",
                 seal=n, fails=not latest,
             ))
             continue
@@ -678,6 +701,40 @@ def _check_columns(
                 st.add("columns_mismatch", doc, bad[0],
                        f"columns/events-{n}.parquet disagrees with the log on {len(bad)} row(s), first at seq {bad[0]}",
                        seal=n)
+
+
+def _note_unsealed(st: _State, seals: dict[int, _SealInfo], last: int) -> None:
+    """On a closed run, note each document's events past every seal (never failing).
+
+    A document's sealed head is the highest head any readable seal commits for it, so a
+    seal that drops a document or goes backwards (``seal_mismatch``) adds no note. Only
+    when the last seal number (seal or column file) is a readable seal: otherwise
+    ``seal_corrupt`` or ``seal_missing`` already fails the run and what it committed is
+    unknown. A document whose sealed head the log no longer holds is already reported
+    (``truncated_after_seal``, ``document_missing_from_log``) and is not noted again.
+    """
+    if last not in seals:
+        return
+    sealed: dict[str, int] = {}
+    lost: set[str] = set()
+    for info in seals.values():
+        for doc in info.seal.doc_heads:
+            if doc in info.heads:
+                sealed[doc] = max(sealed.get(doc, -1), info.heads[doc])
+            else:
+                lost.add(doc)
+    for doc in sorted(st.entries.keys() - lost):
+        head = sealed.get(doc, -1)
+        above = sorted({e.seq for e in st.entries[doc] if e.seq > head})
+        if above:
+            n = len(above)
+            st.add(
+                "unsealed_events", doc, above[0],
+                f"{n} event{'s' if n != 1 else ''} from seq {above[0]} after seal {last}, the last seal "
+                "of this closed run; no seal commits them, so losing them would go undetected "
+                "(seal_run commits them)",
+                seal=last, fails=False,
+            )
 
 
 def _read_columns(path: Path, n: int, st: _State) -> dict[str, dict[int, bytes | None]] | None:
