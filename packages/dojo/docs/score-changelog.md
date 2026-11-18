@@ -257,3 +257,12 @@ and reliability functions keep the old lenient reading (`bool(correct)`, and onl
     gate only, so the calibration error stays None. The `TraceCaptureOptions` docstring, which said the policy
     also applied to calibration, now says what the code does; the old Dojo's comment made the same wrong claim.
 
+
+## Review fixes, round 6
+
+- **A huge backend integer never crashes a fallback.** Not a score change: the fallback reason only. A
+  `PresenceSimilarity` backend returning an integer too large for a float (`10**400`) raised `OverflowError` out
+  of `covers`; it is now an `out_of_range` fallback, as it already was for embedding rescue. An integer over
+  Python's digit limit (`10**5000`) made the fallback detail itself raise `ValueError` in both places; the detail
+  now reads `<int too large to show>`. The old Dojo raised on both (`float(similarity)`); in every case the
+  string or containment score is kept, so no score moves and no fixture changes.

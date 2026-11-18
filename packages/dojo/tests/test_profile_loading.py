@@ -792,6 +792,29 @@ def test_a_value_too_long_to_print_still_gives_a_profile_error(edit, path, words
     assert "too large to show" in error.problem
 
 
+def test_a_file_that_is_not_utf8_is_a_profile_error(tmp_path):
+    """A file starting with a UTF-16 byte order mark cannot be read as UTF-8; that is a ProfileError naming
+    the file, not a raw UnicodeDecodeError."""
+    path = tmp_path / "scoring.yaml"
+    path.write_bytes(b"\xff\xfe" + yaml.safe_dump(minimal_profile_mapping()).encode("utf-16-le"))
+    _expect_error(path, "", "scoring.yaml is not UTF-8 text")
+
+
+def test_yaml_nested_deeper_than_the_interpreter_allows_is_a_profile_error(tmp_path):
+    """A value nested 5,000 levels deep makes PyYAML recurse past the interpreter's limit; that is a malformed
+    file, reported as a ProfileError naming it, not a raw RecursionError."""
+    path = tmp_path / "scoring.yaml"
+    path.write_text(yaml.safe_dump(minimal_profile_mapping()) + "deep: " + "[" * 5000 + "]" * 5000 + "\n")
+    _expect_error(path, "", "scoring.yaml is not valid YAML")
+
+
+def test_an_impossible_yaml_timestamp_is_a_profile_error(tmp_path):
+    """PyYAML raises ValueError building a timestamp with month 13; that is reported as a ProfileError."""
+    path = tmp_path / "scoring.yaml"
+    path.write_text(yaml.safe_dump(minimal_profile_mapping()) + "when: 2020-13-01\n")
+    _expect_error(path, "", "scoring.yaml is not valid YAML")
+
+
 def test_invalid_yaml_is_a_profile_error(tmp_path):
     """A YAML syntax error is reported as a ProfileError naming the file."""
     path = tmp_path / "scoring.yaml"

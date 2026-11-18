@@ -38,6 +38,14 @@ logger = logging.getLogger(__name__)
 FallbackReason = Literal["backend_raised", "not_a_number", "out_of_range"]
 
 
+def shown_value(value: object) -> str:
+    """``repr(value)`` for a fallback detail; an integer over Python's digit limit is named, not printed."""
+    try:
+        return repr(value)
+    except ValueError:
+        return f"<{type(value).__name__} too large to show>"
+
+
 @runtime_checkable
 class SimilarityBackend(Protocol):
     """Anything that rates how alike two texts are in meaning."""
@@ -133,15 +141,15 @@ class EmbeddingRescue:
         if similarity is None:
             return string_score
         if isinstance(similarity, bool) or not isinstance(similarity, numbers.Real):
-            return self._fall_back("not_a_number", repr(similarity), string_score)
+            return self._fall_back("not_a_number", shown_value(similarity), string_score)
         try:
             value = float(similarity)
         except OverflowError:  # an integer too large for a float is out of range, not a crash
-            return self._fall_back("out_of_range", repr(similarity)[:80], string_score)
+            return self._fall_back("out_of_range", shown_value(similarity)[:80], string_score)
         if math.isnan(value):
-            return self._fall_back("not_a_number", repr(similarity), string_score)
+            return self._fall_back("not_a_number", shown_value(similarity), string_score)
         if not 0.0 <= value <= 1.0:
-            return self._fall_back("out_of_range", repr(similarity), string_score)
+            return self._fall_back("out_of_range", shown_value(similarity), string_score)
         return max(string_score, value)
 
     def _fall_back(self, reason: FallbackReason, detail: str, string_score: float) -> float:

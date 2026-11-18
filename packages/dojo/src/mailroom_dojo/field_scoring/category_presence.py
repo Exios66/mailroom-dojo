@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 from ..normalization.text import tokenize
 from .entity_lists import as_list
 from .scalar_scorers import score_containment_field
-from .similarity_backend import FallbackReason, SimilarityBackend, SimilarityFallback
+from .similarity_backend import FallbackReason, SimilarityBackend, SimilarityFallback, shown_value
 
 if TYPE_CHECKING:
     from ..profile.models import ScoringProfile
@@ -112,12 +112,15 @@ class PresenceSimilarity:
         if similarity is None:
             return False
         if isinstance(similarity, bool) or not isinstance(similarity, numbers.Real):
-            return self._fall_back("not_a_number", repr(similarity), containment_score)
-        value = float(similarity)
+            return self._fall_back("not_a_number", shown_value(similarity), containment_score)
+        try:
+            value = float(similarity)
+        except OverflowError:  # an integer too large for a float is out of range, not a crash
+            return self._fall_back("out_of_range", shown_value(similarity)[:80], containment_score)
         if math.isnan(value):
-            return self._fall_back("not_a_number", repr(similarity), containment_score)
+            return self._fall_back("not_a_number", shown_value(similarity), containment_score)
         if not 0.0 <= value <= 1.0:
-            return self._fall_back("out_of_range", repr(similarity), containment_score)
+            return self._fall_back("out_of_range", shown_value(similarity), containment_score)
         return value >= self._threshold
 
     def _fall_back(self, reason: FallbackReason, detail: str, containment_score: float) -> bool:
