@@ -649,14 +649,7 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
     same_as = None if spec["same_as"] is None else _string(spec["same_as"], f"{path}.same_as")
     if same_as is not None and alias_of is not None:
         raise _fail(f"{path}.same_as", "an alias already names its target; same_as is for a second row")
-    noise_floor = spec["noise_floor"]
-    if noise_floor is not None and (
-        isinstance(noise_floor, bool)
-        or not isinstance(noise_floor, int | float)
-        or not math.isfinite(noise_floor)
-        or noise_floor < 0
-    ):
-        raise _fail(f"{path}.noise_floor", "must be null or a non-negative number")
+    noise_floor = _noise_floor(spec["noise_floor"], f"{path}.noise_floor")
     metric_id = _string(spec["metric_id"], f"{path}.metric_id")
     if metric_id.startswith("registry:") and metric_id != f"registry:{metric}":
         raise _fail(f"{path}.metric_id", f"a registry id names its own row: registry:{metric}")
@@ -689,16 +682,37 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
         denominator=denominator,
         alias_of=alias_of,
         same_as=same_as,
-        noise_floor=None if noise_floor is None else float(noise_floor),
+        noise_floor=noise_floor,
         old_source=None if spec["old_source"] is None else _string(spec["old_source"], f"{path}.old_source"),
         notes=_string(spec["notes"], f"{path}.notes", allow_empty=True),
     )
 
 
+def _noise_floor(raw: Any, path: str) -> float | None:
+    """Null or a finite non-negative number, as a float (an int too large for a float is refused)."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, int | float):
+        raise _fail(path, "must be null or a non-negative number")
+    try:
+        value = float(raw)
+    except OverflowError:
+        raise _fail(path, "must be null or a non-negative number (too large for a float)") from None
+    if not math.isfinite(value) or value < 0:
+        raise _fail(path, "must be null or a non-negative number")
+    return value
+
+
 def _source(raw: Any) -> dict[str, str]:
+    """String keys only: a key is never converted, so ``1`` and ``"1"`` cannot collapse into one."""
     if not isinstance(raw, Mapping):
         raise _fail("source", "must be a mapping of strings")
-    return {str(key): _string(value, f"source.{key}") for key, value in raw.items()}
+    out: dict[str, str] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or not key.strip():
+            raise _fail(f"source.{key}", f"a source key is a non-empty string, got {type(key).__name__}")
+        out[key] = _string(value, f"source.{key}")
+    return out
 
 
 def _row_canonical(row: MetricRow) -> dict[str, Any]:
@@ -970,7 +984,7 @@ def _build(data: Any) -> MetricTable:
     for key in sorted(_TOP_KEYS):
         if key not in data:
             raise _fail(key, "missing")
-    if data["table_format"] != TABLE_FORMAT or isinstance(data["table_format"], bool):
+    if type(data["table_format"]) is not int or data["table_format"] != TABLE_FORMAT:
         raise _fail(
             "table_format", f"this loader reads table_format {TABLE_FORMAT}, got {data['table_format']!r}"
         )

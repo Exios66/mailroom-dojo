@@ -292,6 +292,16 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
     ("unknown top key", lambda raw: raw.__setitem__("tiers", {}), "tiers: unknown key"),
     ("missing top key", lambda raw: raw.pop("agent_families"), "agent_families: missing"),
     ("table format", lambda raw: raw.__setitem__("table_format", 2), "table_format: this loader reads"),
+    (
+        "table format float",
+        lambda raw: raw.__setitem__("table_format", 1.0),
+        "table_format: this loader reads",
+    ),
+    (
+        "table format bool",
+        lambda raw: raw.__setitem__("table_format", True),
+        "table_format: this loader reads",
+    ),
     ("version zero", lambda raw: raw.__setitem__("version", 0), "version: must be a positive int"),
     ("version bool", lambda raw: raw.__setitem__("version", True), "version: must be a positive int"),
     ("no rows", lambda raw: raw.__setitem__("metrics", []), "metrics: must be a non-empty list"),
@@ -433,6 +443,8 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
     ("negative noise floor", _set("f1_macro", "noise_floor", -0.1), "(f1_macro).noise_floor"),
     ("nan noise floor", _set("f1_macro", "noise_floor", float("nan")), "(f1_macro).noise_floor"),
     ("bool noise floor", _set("f1_macro", "noise_floor", True), "(f1_macro).noise_floor"),
+    ("huge noise floor", _set("f1_macro", "noise_floor", 10**400), "(f1_macro).noise_floor"),
+    ("infinite noise floor", _set("f1_macro", "noise_floor", float("inf")), "(f1_macro).noise_floor"),
     ("foreign registry id", _set("f1", "metric_id", "registry:f2"), "(f1).metric_id: a registry id names"),
     ("live agent without a view", _drop_view(LIVE_AGENT), f"{LIVE_AGENT!r} is a live agent with no entry"),
     (
@@ -562,6 +574,21 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
         "source not text",
         lambda raw: raw["source"].__setitem__("old_dojo_commit", 7),
         "source.old_dojo_commit",
+    ),
+    (
+        "source key not text",
+        lambda raw: raw["source"].__setitem__(7, "seven"),
+        "source.7: a source key is a non-empty string, got int",
+    ),
+    (
+        "source keys that collapse",
+        lambda raw: raw["source"].update({1: "one", "1": "also one"}),
+        "source.1: a source key is a non-empty string, got int",
+    ),
+    (
+        "empty source key",
+        lambda raw: raw["source"].__setitem__(" ", "blank"),
+        "source. : a source key is a non-empty string",
     ),
 ]
 
