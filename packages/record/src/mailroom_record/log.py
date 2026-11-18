@@ -23,11 +23,11 @@ Writing
   it exclusive, so no event can name a blob between prune's check of what other runs name
   and its delete; a writer opened while a prune runs waits for it to finish.
 - A pruned run takes no events. Once ``runs/<run_id>/prune.json`` exists (a prune finished
-  or part way through), ``open_writer`` refuses with ``RunPruned`` after taking the shared
+  or part way through; anything at that path counts, even a damaged record), ``open_writer`` refuses with ``RunPruned`` after taking the shared
   maintenance lock and before touching the segments: the segments are gone, so an append
   would start the chains again at ``seq`` 0 and fork them when the archive is unpacked.
-  ``refuse_if_pruned`` is the store's one check of that state; ``seal_run`` and the
-  importer call it too. Unpack the archive first (``unpack_run``), then write.
+  ``refuse_if_pruned`` is the store's one check of that state; ``seal_run``, ``pack_run``
+  and the importer call it too. Unpack the archive first (``unpack_run``), then write.
 - ``LogWriter.append`` validates the event, sets ``seq``, ``prev_hash`` and ``hash`` itself,
   and serializes the line at once: canonical JSON of the validated model's JSON-mode dump,
   plus ``\\n``. So every stored line satisfies ``event_hash(json.loads(line)) == hash``.
@@ -855,7 +855,7 @@ def pruned_archive(log: EventLog, run_id: str) -> str | None:
     """The archive recorded for ``run_id`` when it is pruned or part way through a prune
     (``prune.json`` is there), else ``None``. Its segments may be gone: unpack it first."""
     run_dir = log.run_dir(run_id)
-    if not (run_dir / PRUNE_RECORD).is_file():
+    if not os.path.lexists(run_dir / PRUNE_RECORD):  # anything there, even damaged, means pruned
         return None
     try:
         archive = json.loads((run_dir / PACK_RECORD).read_bytes())["archive"]

@@ -180,6 +180,16 @@ a pack in progress. Unpacking the recorded archive (the one `pack.json` names, o
 other archive of that run, such as an older pack, is `UnpackConflict` in this store and
 changes nothing.
 
+Recovering a damaged pack or prune record. A `pack.json` that is unreadable or not the record
+`pack_run` writes, or a `prune.json` that is unreadable or names another archive, makes
+`prune_run` refuse by name (`PruneRefused`) and changes nothing; a damaged `prune.json` still
+counts as pruned, so writers, `seal_run` and `pack_run` keep refusing the run. To restore the
+run, unpack the archive it was pruned from: `unpack` accepts the archive `pack.json` names or
+the one `prune.json` names, and removes `prune.json` once the run verifies in the store. If
+neither record is readable, move `runs/<run>` out of the store (keep it), then unpack the
+archive the run was packed to: with no record there it is checked like any new run. Never
+edit these records by hand.
+
 ## Command line
 
 `pip install -e packages/record` installs `mailroom-record` (also `python -m mailroom_record`):

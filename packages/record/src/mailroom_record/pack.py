@@ -80,7 +80,10 @@ Rules
   run's segments (whole, torn or corrupt lines alike), plus the blobs of every other run
   recorded as packed without blobs. It refuses (``PruneRefused``) unless ``pack.json`` names
   an archive whose bytes still hash to the recorded SHA-256 and that covers the latest
-  seal, and (``RunNotSealed``) unless the latest seal covers every flushed event; it deletes
+  seal, and (``RunNotSealed``) unless the latest seal covers every flushed event. A
+  ``pack.json`` that is unreadable or not a pack record, a ``prune.json`` that is unreadable
+  or names another archive (the run still counts as pruned), or another run's unreadable
+  ``pack.json`` is ``PruneRefused`` naming the file, before anything changes. It deletes
   a run file only when the archive holds the same bytes. It writes ``prune.json`` before
   deleting, so a prune interrupted part way is finished by the next call (which also
   re-reads what other runs name), and a prune of a pruned run is a no-op. A pack made
@@ -703,6 +706,29 @@ def _load_record(path: Path) -> dict[str, Any] | None:
     return record if isinstance(record, dict) else None
 
 
+def _pack_record(path: Path) -> dict[str, Any] | None:
+    """``pack.json`` if it is a pack record ``pack_run`` writes (every field prune reads, of
+    the right type), else ``None``."""
+    record = _load_record(path)
+    if record is None:
+        return None
+    seal, members = record.get("last_seal"), record.get("members")
+    shaped = (
+        isinstance(record.get("archive"), str)
+        and isinstance(record.get("archive_sha256"), str)
+        and isinstance(record.get("include_blobs", True), bool)
+        and isinstance(seal, dict)
+        and isinstance(seal.get("n"), int)
+        and isinstance(seal.get("hash"), str)
+        and isinstance(members, dict)
+        and all(
+            isinstance(m, dict) and isinstance(m.get("sha256"), str) and isinstance(m.get("size"), int)
+            for m in members.values()
+        )
+    )
+    return record if shaped else None
+
+
 def _refuse_another_pack(read: _Read, root: Path) -> None:
     """``UnpackConflict`` when ``root`` recorded a pack of this run (``pack.json``, or a prune
     by ``prune.json``) and ``read`` is not that archive.
@@ -715,7 +741,7 @@ def _refuse_another_pack(read: _Read, root: Path) -> None:
     """
     run_dir = root / "runs" / read.run_id
     pack_path, prune_path = run_dir / _PACK_RECORD, run_dir / _PRUNE_RECORD
-    if not (pack_path.is_file() or prune_path.is_file()):
+    if not (os.path.lexists(pack_path) or os.path.lexists(prune_path)):
         return
     pruned = _load_record(prune_path)
     if pruned is not None and pruned.get("archive_sha256") == read.archive_sha256:
@@ -732,7 +758,7 @@ def _refuse_another_pack(read: _Read, root: Path) -> None:
     seal = read.manifest.get("last_seal")
     given = (read.archive_sha256, *(seal.get(k) for k in ("n", "hash"))) if isinstance(seal, dict) else None
     if given != recorded:
-        state = "pruned from" if prune_path.is_file() else "packed as"
+        state = "pruned from" if os.path.lexists(prune_path) else "packed as"
         raise UnpackConflict(
             f"runs/{read.run_id}: this store holds the run {state} {archive} (seal {recorded[1]}); "
             f"this archive is a different pack (seal {seal.get('n') if isinstance(seal, dict) else '?'}); "
@@ -884,12 +910,15 @@ def _names_elsewhere(log: EventLog, run_id: str) -> set[str]:
                     tail = buf[-63:]
         record = other / _PACK_RECORD
         if record.is_file():
-            try:
-                rec = json.loads(record.read_bytes())
-            except (ValueError, RecursionError):
-                raise PruneRefused(f"run {other.name!r} has an unreadable {_PACK_RECORD}") from None
+            rec = _load_record(record)
+            blobs = rec.get("blobs", []) if rec is not None else None
+            if rec is None or not isinstance(blobs, list):
+                raise PruneRefused(
+                    f"run {other.name!r} has an unreadable {_PACK_RECORD}, so the blobs it relies on "
+                    "are unknown; nothing was pruned (pack that run again to rewrite it)"
+                )
             if not rec.get("include_blobs", True):
-                names.update(b for b in rec.get("blobs", []) if isinstance(b, str))
+                names.update(b for b in blobs if isinstance(b, str))
     return names
 
 
@@ -902,18 +931,29 @@ def prune_run(root: Path, run_id: str, *, keep_columns: bool = True, lock_timeou
         raise FileNotFoundError(f"no run {run_id!r} under {root}")
     with _maintenance(root, lock_timeout):
         record_path = run_dir / _PACK_RECORD
-        if not record_path.is_file():
+        prune_path = run_dir / _PRUNE_RECORD
+        if not record_path.is_file() and not os.path.lexists(prune_path):
             raise PruneRefused(f"run {run_id!r}: no pack recorded; pack it first")
-        record = json.loads(record_path.read_bytes())
+        record = _pack_record(record_path)
+        if record is None:
+            raise PruneRefused(
+                f"run {run_id!r}: runs/{run_id}/{_PACK_RECORD} is missing, unreadable or not a pack record; "
+                "nothing was pruned (see the README, Pack: recovering a damaged pack or prune record)"
+            )
         archive = Path(record["archive"])
         if not archive.is_file() or _sha_file(archive) != record["archive_sha256"]:
             raise PruneRefused(f"run {run_id!r}: the recorded archive is missing or changed; pack it again")
-        prune_path = run_dir / _PRUNE_RECORD
-        resuming = False
-        if prune_path.is_file():
-            with contextlib.suppress(ValueError, RecursionError):
-                resuming = json.loads(prune_path.read_bytes()).get("archive_sha256") == record["archive_sha256"]
-        if not resuming:
+        resuming = os.path.lexists(prune_path)
+        if resuming:
+            pruned = _load_record(prune_path)
+            if pruned is None or pruned.get("archive_sha256") != record["archive_sha256"]:
+                # Garbage, or another archive's: the run still counts as pruned (the safe reading).
+                raise PruneRefused(
+                    f"run {run_id!r}: runs/{run_id}/{_PRUNE_RECORD} is unreadable or names another archive "
+                    f"than {_PACK_RECORD}; the run counts as pruned and nothing was changed: unpack the "
+                    "archive it was pruned from (see the README, Pack: recovering a damaged pack or prune record)"
+                )
+        else:
             n, h = _coverage(log, run_id)
             if (n, h) != (record["last_seal"]["n"], record["last_seal"]["hash"]):
                 raise PruneRefused(f"run {run_id!r}: the pack does not cover the latest seal {n}; pack it again")
@@ -926,6 +966,7 @@ def prune_run(root: Path, run_id: str, *, keep_columns: bool = True, lock_timeou
             if want is None or want["size"] != p.stat().st_size or want["sha256"] != _sha_file(p):
                 raise PruneRefused(f"run {run_id!r}: {rel} is not in the pack as it is on disk; seal and pack again")
 
+        keep = _names_elsewhere(log, run_id)  # before prune.json: a refusal here changes nothing
         _write_replace(prune_path, canonical_json({"state": "started", "archive_sha256": record["archive_sha256"]}))
         candidates: list[str] = []
         if record.get("include_blobs", True):
@@ -933,7 +974,6 @@ def prune_run(root: Path, run_id: str, *, keep_columns: bool = True, lock_timeou
                 m = _BLOB_MEMBER.fullmatch(name)
                 if m and m["ext"] == "zst":
                     candidates.append(m["sha"])
-        keep = _names_elsewhere(log, run_id)
         removed: list[str] = []
         kept = 0
         for sha in sorted(candidates):

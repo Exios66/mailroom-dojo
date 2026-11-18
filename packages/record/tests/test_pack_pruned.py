@@ -17,6 +17,7 @@ from record_testkit import build_two_run_sealed_store, run_cli, store_tree
 import mailroom_record.pack as pack_module
 from mailroom_record.log import RunPruned
 from mailroom_record.pack import (
+    PruneRefused,
     StoreBusy,
     pack_run,
     prune_run,
@@ -122,3 +123,61 @@ def test_an_unpack_that_finds_prune_json_gone_finishes(s: SimpleNamespace, tmp_p
     monkeypatch.undo()
     assert not prune.exists() and verify_run(*s.parts, "r1").ok
 
+
+
+# --- finding 8: damaged pack and prune records are named refusals ---------------------------
+
+_DAMAGED = {
+    "empty": b"",
+    "list": b"[]",
+    "garbage": b"{not json",
+    "no-archive": b'{"archive_sha256": "x"}',
+    "members-not-a-dict": b'{"archive": "a", "archive_sha256": "x", "last_seal": {"n": 0, "hash": "h"}, "members": []}',
+}
+
+
+@pytest.mark.parametrize("pruned", [False, True], ids=["packed", "pruned"])
+@pytest.mark.parametrize("body", list(_DAMAGED.values()), ids=list(_DAMAGED))
+def test_a_damaged_pack_record_is_a_named_refusal(s: SimpleNamespace, tmp_path: Path, body: bytes, pruned: bool) -> None:
+    pack_run(s.root, "r1", tmp_path / "A.tar.zst")
+    if pruned:
+        prune_run(s.root, "r1")
+    (s.root / "runs" / "r1" / "pack.json").write_bytes(body)
+    before = store_tree(s.root)
+    with pytest.raises(PruneRefused, match="pack.json"):
+        prune_run(s.root, "r1")
+    assert store_tree(s.root) == before
+    res = run_cli("prune", "r1", root=s.root)
+    assert res.exit_code == 1 and "PruneRefused" in res.stderr and "pack.json" in res.stderr
+
+
+@pytest.mark.parametrize("body", [*_DAMAGED.values(), b'{"archive_sha256": "' + b"0" * 64 + b'"}'], ids=[*_DAMAGED, "other-archive"])
+def test_a_damaged_prune_record_still_means_pruned(s: SimpleNamespace, tmp_path: Path, body: bytes) -> None:
+    """A prune.json that is garbage, or names another archive, is never taken for "not
+    pruned": prune refuses by name, writers and pack refuse the run, and unpacking the
+    recorded archive restores it."""
+    archive = tmp_path / "A.tar.zst"
+    pack_run(s.root, "r1", archive)
+    prune_run(s.root, "r1")
+    (s.root / "runs" / "r1" / "prune.json").write_bytes(body)
+    before = store_tree(s.root)
+    with pytest.raises(PruneRefused, match="prune.json"):
+        prune_run(s.root, "r1")
+    with pytest.raises(RunPruned):
+        s.log.open_writer("r1", "w9")
+    with pytest.raises(RunPruned):
+        pack_run(s.root, "r1", tmp_path / "B.tar.zst")
+    assert store_tree(s.root) == before
+    assert unpack_run(archive, s.root) == "r1"  # the recovery: pack.json still names it
+    assert verify_run(*s.parts, "r1").ok and not (s.root / "runs" / "r1" / "prune.json").exists()
+
+
+@pytest.mark.parametrize("body", [b"[]", b'{"include_blobs": false, "blobs": 7}'], ids=["list", "blobs-not-a-list"])
+def test_another_runs_damaged_pack_record_is_a_named_refusal(s: SimpleNamespace, tmp_path: Path, body: bytes) -> None:
+    pack_run(s.root, "r1", tmp_path / "A.tar.zst")
+    pack_run(s.root, "r2", tmp_path / "B.tar.zst")
+    (s.root / "runs" / "r2" / "pack.json").write_bytes(body)
+    before = store_tree(s.root)
+    with pytest.raises(PruneRefused, match="r2.*pack.json"):
+        prune_run(s.root, "r1")
+    assert store_tree(s.root) == before
