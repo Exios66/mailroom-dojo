@@ -175,7 +175,10 @@ def redact_text(text: str) -> str:
     return text
 
 
-def redact(value: Any, key: str | None = None) -> Any:
+_MAX_DEPTH = 32
+
+
+def redact(value: Any, key: str | None = None, _depth: int = 0) -> Any:
     """Return a JSON-friendly copy of ``value`` with credentials masked.
 
     Mappings and sequences are copied recursively; strings are scanned with
@@ -183,15 +186,19 @@ def redact(value: Any, key: str | None = None) -> Any:
     rendered with ``str`` and then scanned. ``key`` is the name the value is stored under.
     A two-item list or tuple whose first item is a string naming a credential (a header
     pair such as ``("Authorization", "Basic …")``) is treated as a key and its value.
+    Nesting deeper than 32 levels (a self-referential list or mapping) is replaced by
+    ``"[TRUNCATED]"`` so logging never fails on it.
     """
     if key is not None and _is_sensitive_key(key):
         return REDACTED
+    if _depth > _MAX_DEPTH and isinstance(value, (Mapping, list, tuple, set, frozenset)):
+        return "[TRUNCATED]"
     if isinstance(value, Mapping):
-        return {str(k): redact(v, str(k)) for k, v in value.items()}
+        return {str(k): redact(v, str(k), _depth + 1) for k, v in value.items()}
     if isinstance(value, (list, tuple)) and len(value) == 2 and isinstance(value[0], str):
-        return [redact_text(value[0]), redact(value[1], value[0])]
+        return [redact_text(value[0]), redact(value[1], value[0], _depth + 1)]
     if isinstance(value, (list, tuple, set, frozenset)):
-        return [redact(item) for item in value]
+        return [redact(item, None, _depth + 1) for item in value]
     if value is None or isinstance(value, (bool, int, float)):
         return value
     return redact_text(value if isinstance(value, str) else _safe_str(value))

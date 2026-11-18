@@ -570,3 +570,15 @@ def test_unclosed_quote_does_not_make_redaction_quadratic() -> None:
     start = time.perf_counter()
     redact_text(text)
     assert time.perf_counter() - start < 2.0
+
+
+def test_self_referential_values_are_truncated_not_a_recursion_error() -> None:
+    loop: list[object] = []
+    loop.append(loop)
+    out = redact({"data": loop})
+    node = out["data"]
+    depth = 0
+    while isinstance(node, list):
+        node = node[0]
+        depth += 1
+    assert node == "[TRUNCATED]" and depth < 40

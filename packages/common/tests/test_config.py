@@ -509,3 +509,13 @@ def test_overlay_values_always_win_at_the_top_level(a: dict[str, Any], b: dict[s
     for key, value in b.items():
         if not (isinstance(value, dict) and isinstance(a.get(key), dict)):
             assert merged[key] == value
+
+
+def test_a_self_referential_alias_is_a_config_error_not_a_recursion_error(tmp_path: Path) -> None:
+    class Listy(ConfigModel):
+        a: list[object]
+
+    path = tmp_path / "loop.yaml"
+    path.write_text("a: &x [*x]\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="nested too deeply"):
+        load_config(path, Listy)

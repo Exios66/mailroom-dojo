@@ -16,6 +16,7 @@ Built and merged on the branch, `make check` green on the head (run with `PYTHON
 - Build: four Opus builders (common core, common runtime, dictionaries, tooling), each with mutation checks.
 - Round 1: two independent Opus reviewers (common; dictionaries and tooling): no blockers, 9 majors, all fixed by Opus fixers with red-then-green regression tests.
 - Bot review (CodeAnt) on PR #6: 5 findings, all verified real and fixed with tests (YAML merge-key override, test-writer symlink escape, CRLF at the JSONL limit, quoted secrets with spaces, mutable request messages); threads resolved without replies.
+- CodeAnt nitpicks (8): two fixed (self-referential values in log redaction and in config), the rest left as known gaps: frozen config models still hold mutable dict/list fields, `config_hash` of a non-dict Mapping, torn-tail flag on an oversized last line, run-id test uses a 32-bit suffix over 50 draws (collision odds about 3 in 10 million), glossary headings that differ only in punctuation share an anchor, `check_layout` treats an optional path that is a file as fine.
 - Round 2: one independent Opus reviewer on the fix commits: 1 blocker (layout map missing `docs/handoff/`), 2 majors (quadratic redaction regexes, text-redaction leaks), several minors. All fixed; redaction now linear (1 MB adversarial inputs under 2 s, tested) and run-together keys like `dbpassword` are masked.
 
 ## Not done

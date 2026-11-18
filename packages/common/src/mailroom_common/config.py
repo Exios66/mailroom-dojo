@@ -125,8 +125,20 @@ def _interpolate(
     return data
 
 
+_MAX_CONFIG_DEPTH = 100
+
+
 def _to_json_data(data: Any, source: str, location: tuple[int | str, ...]) -> Any:
-    """YAML dates become ISO strings; NaN, infinity and YAML-only types (sets, binary) are refused."""
+    """YAML dates become ISO strings; NaN, infinity and YAML-only types (sets, binary) are refused.
+
+    Nesting beyond ``_MAX_CONFIG_DEPTH`` (which includes a self-referential YAML alias) is a ConfigError.
+    """
+    if len(location) > _MAX_CONFIG_DEPTH:
+        raise ConfigError(
+            "config is nested too deeply (or an alias refers to itself)",
+            source=source,
+            key=_dotted(location[:8]),
+        )
     if isinstance(data, dict):
         return {key: _to_json_data(value, source, (*location, key)) for key, value in data.items()}
     if isinstance(data, list):
