@@ -233,8 +233,9 @@ def _append(path: Callable[[dict[str, Any]], list[Any]], item: Any) -> Callable[
 COLUMN_EDITS: dict[str, Callable[[dict[str, Any]], None]] = {
     "same_as": _set("laziness_rate", "same_as", None),
     "alias_of": _set("contracteval_false_no_related", "alias_of", None),
-    "pairing": _set("tokens_per_second", "pairing", "paired_percentile_bootstrap"),
+    "pairing": _set("accuracy", "pairing", "two_sample_percentile_bootstrap"),
     "pairing_note": _set("f1_macro", "pairing_note", "a whole-set statistic"),
+    "denominator": _set("f1_macro", "denominator", "gold"),
     "readers": _append(lambda raw: raw["metrics"][_row_index(raw, "accuracy")]["readers"], "keep_rule"),
     "status": _not_ported("judge_error_rate"),
     "status_reason": _set("bert_elapsed_ms", "status_reason", "another reason"),
@@ -339,6 +340,25 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
     ("unknown reader", _set("f1_macro", "readers", ["dashboard"]), "(f1_macro).readers[0]: 'dashboard'"),
     ("reader twice", _set("schema_valid", "readers", ["run_report", "run_report"]), "lists a reader twice"),
     ("bad pairing", _set("f1_macro", "pairing", "paired_t"), "(f1_macro).pairing"),
+    ("bad denominator", _set("f1_macro", "denominator", "pool"), "(f1_macro).denominator: 'pool'"),
+    (
+        "run denominator paired",
+        _sequence(
+            _set("wrong_archive_rate", "pairing_note", None),
+            _set("wrong_archive_rate", "pairing", "paired_percentile_bootstrap"),
+        ),
+        "(wrong_archive_rate).pairing: the denominator is set by the run's own decisions",
+    ),
+    (
+        "run denominator two-sample",
+        _set("ttft_seconds", "denominator", "run"),
+        "(ttft_seconds).pairing: the denominator is set by the run's own decisions",
+    ),
+    (
+        "paired without a gold denominator",
+        _drop("accuracy", "denominator"),
+        "(accuracy).denominator: a paired_percentile_bootstrap pairing needs denominator gold",
+    ),
     (
         "alias to nothing",
         _set("contracteval_false_no_related", "alias_of", "nope"),
@@ -452,7 +472,7 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
     ("null with layers", _view(NO_METRIC_AGENT, label_layers=["hub"]), "reads no labels"),
     (
         "default without pairing",
-        _set("judge_verdict_accuracy_vs_gold", "pairing", None),
+        _set("judge_verdict_accuracy_vs_gold", "pairing_note", None),
         "default_views.judge.metric: 'judge_verdict_accuracy_vs_gold' names no pairing",
     ),
     (
@@ -892,6 +912,75 @@ def test_every_default_and_guard_metric_names_its_pairing_or_why_not() -> None:
     for metric in sorted(shown):
         row = table.get(metric)
         assert (row.pairing is None) != (row.pairing_note is None), metric
+
+
+#: Kept rows whose denominator is set by the run's own decisions: the documents that reached a
+#: lane, the rulings, accepts or archives the run made, or a verdict read from the run's own
+#: extraction. Two runs divide by different sets of documents, so no per-document pairing.
+RUN_DENOMINATOR = frozenset(
+    {
+        "reviewer_class_accuracy",
+        "reviewer_class_accuracy_vs_gold",
+        "reviewer_wrong_accept_rate",
+        "reviewer_wrong_accept_upper_95",
+        "reviewer_wrong_accept_upper_95_vs_gold",
+        "reviewer_routed_to_human_review_rate",
+        "reviewer_confidence_ece",
+        "reviewer_cost_per_accepted_usd",
+        "judge_verdict_accuracy",
+        "judge_verdict_accuracy_vs_gold",
+        "judge_escalation_recall",
+        "judge_escalation_recall_vs_gold",
+        "judge_false_escalation_rate",
+        "judge_error_rate",
+        "arbiter_decision_accuracy",
+        "arbiter_decision_accuracy_vs_gold",
+        "arbiter_retry_usefulness",
+        "arbiter_wrongful_accept_rate",
+        "arbiter_wrongful_accept_rate_vs_gold",
+        "arbiter_unnecessary_escalation_rate",
+        "boss_wrongful_approve_rate",
+        "boss_wrongful_approve_rate_vs_gold",
+        "boss_needless_review_rate",
+        "boss_needless_review_rate_vs_gold",
+        "review_tray_wasted_review_rate",
+        "wrong_archive_rate",
+        "wrong_archive_upper95",
+        "slot_override_rate",
+        "cost_per_decision",
+    }
+)
+
+
+def test_the_run_denominator_rows_are_the_reviewed_ones() -> None:
+    """A denominator the run's own decisions set is data on the row, reviewed here."""
+    table = load_metric_table()
+    assert {row.id for row in table.rows if row.denominator == "run"} == RUN_DENOMINATOR
+
+
+def test_no_run_denominator_is_paired_and_every_paired_row_divides_by_gold() -> None:
+    """A per-document pairing needs the same documents on both sides.
+
+    ``wrong_archive_rate`` (over the run's scorable archives) and the judge's escalation recall
+    (over documents whose verdict is read from the run's own extraction) were paired: this
+    would have refused them.
+    """
+    table = load_metric_table()
+    paired = [row for row in table.rows if row.pairing == "paired_percentile_bootstrap"]
+    assert paired
+    for row in paired:
+        assert row.denominator == "gold", row.id
+    for row in table.rows:
+        if row.denominator == "run":
+            assert row.pairing is None, row.id
+            if row.headline or "keep_rule" in row.readers or row.id in _shown_metrics(table):
+                assert row.pairing_note and "D7" in row.pairing_note, row.id
+    for metric in ("wrong_archive_rate", "judge_escalation_recall_vs_gold"):
+        assert table.get(metric).denominator == "run" and table.get(metric).pairing is None
+
+
+def _shown_metrics(table: Any) -> set[str]:
+    return {metric for view in table.default_views.values() for metric in (view.metric, view.guard) if metric}
 
 
 @pytest.mark.parametrize("metric", ["f1_macro", "extraction_f1", "extraction_f2"])

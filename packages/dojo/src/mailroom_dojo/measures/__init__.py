@@ -24,6 +24,7 @@ from .measure import (
 )
 from .table import (
     AGENT_STATUSES,
+    DENOMINATORS,
     LABEL_LAYERS,
     PAIRING_METHODS,
     READERS,
@@ -40,6 +41,7 @@ from .table import (
 __all__ = [
     "AGENT_STATUSES",
     "COST_BASES",
+    "DENOMINATORS",
     "LABEL_LAYERS",
     "LABEL_STATUSES",
     "LABEL_STATUS_WORDS",

@@ -36,6 +36,7 @@ __all__ = [
     "AGGREGATIONS",
     "AgentEntry",
     "DefaultView",
+    "DENOMINATORS",
     "DIRECTIONS",
     "GROUND_TRUTH",
     "LABEL_LAYERS",
@@ -135,6 +136,13 @@ PAIRING_METHODS: Mapping[str, str] = MappingProxyType(
     }
 )
 PAIRINGS: tuple[str, ...] = tuple(PAIRING_METHODS)
+#: What sets a metric's denominator. ``gold``: the evaluation set (its documents, or those with
+#: gold in the named layers), the same for every run over the set, so per-document values of
+#: two runs pair by document id. ``run``: the run's own decisions (the documents that reached a
+#: lane, the rulings, accepts or archives it made, or a verdict read from its own extraction),
+#: so two runs divide by different sets of documents and no pairing applies (a ``pairing_note``
+#: says so; D7 builds a resample that recomputes the share on both runs). ``null``: not stated.
+DENOMINATORS: tuple[str, ...] = ("gold", "run")
 
 #: The gates, reports and projections that read metrics, as the master design and the port
 #: design name them (``metrics.yaml`` says where). A kept metric names at least one.
@@ -188,6 +196,7 @@ _ROW_DEFAULTS: Mapping[str, Any] = MappingProxyType(
         "cost": False,
         "pairing": None,
         "pairing_note": None,
+        "denominator": None,
         "alias_of": None,
         "same_as": None,
         "noise_floor": None,
@@ -267,6 +276,7 @@ class MetricRow:
     cost: bool
     pairing: str | None
     pairing_note: str | None
+    denominator: str | None
     alias_of: str | None
     same_as: str | None
     noise_floor: float | None
@@ -604,6 +614,19 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
         raise _fail(f"{path}.pairing", "a not_ported metric has no pairing")
     if pairing is not None and pairing_note is not None:
         raise _fail(f"{path}.pairing_note", "a note says why there is no pairing; this row has one")
+    denominator = _choice(spec["denominator"], DENOMINATORS, f"{path}.denominator", nullable=True)
+    if denominator == "run" and pairing is not None:
+        raise _fail(
+            f"{path}.pairing",
+            "the denominator is set by the run's own decisions (denominator run), so two runs divide by "
+            "different documents; no pairing applies, a pairing_note says so",
+        )
+    if pairing == "paired_percentile_bootstrap" and denominator != "gold":
+        raise _fail(
+            f"{path}.denominator",
+            "a paired_percentile_bootstrap pairing needs denominator gold: the same documents on both "
+            "sides, set by the evaluation set and not by the run's own decisions",
+        )
     compared = status != "not_ported" and (spec["headline"] or "keep_rule" in readers)
     if compared and pairing is None and pairing_note is None:
         raise _fail(
@@ -653,6 +676,7 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
         cost=spec["cost"],
         pairing=pairing,
         pairing_note=pairing_note,
+        denominator=denominator,
         alias_of=alias_of,
         same_as=same_as,
         noise_floor=None if noise_floor is None else float(noise_floor),
@@ -689,6 +713,7 @@ def _row_canonical(row: MetricRow) -> dict[str, Any]:
         "cost": row.cost,
         "pairing": row.pairing,
         "pairing_note": row.pairing_note,
+        "denominator": row.denominator,
         "alias_of": row.alias_of,
         "same_as": row.same_as,
         "noise_floor": row.noise_floor,

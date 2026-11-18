@@ -100,6 +100,15 @@
 #                 (as its number or its guard), unless pairing_note says why not.
 #   pairing_note  default null; why such a row has no pairing (a statistic of the whole
 #                 set, such as macro F1, a bound, or a share of the run's own decisions)
+#   denominator   default null (not stated); what sets the denominator: gold (the
+#                 evaluation set: its documents, or those with gold, the same for every
+#                 run) or run (the run's own decisions: documents that reached a lane, its
+#                 rulings, accepts or archives, a verdict read from its own extraction). A
+#                 run row has no pairing (two runs divide by different documents; a
+#                 pairing_note says so and D7 builds the resample); every
+#                 paired_percentile_bootstrap row states gold. Stated on every paired row
+#                 and every kept row whose denominator the run sets
+#                 (tests/test_metric_table.py, RUN_DENOMINATOR).
 #   noise_floor   default null everywhere, on purpose: the smallest difference that
 #                 counts is measured by D7 (repeat runs of one configuration), not
 #                 guessed here; the old code and docs define none. Until D7 sets it, a
@@ -341,6 +350,7 @@ metrics:
     readers: ["golden_parity_gate", "headline_view", "classification_report"]
     pairing: "paired_percentile_bootstrap"
     producer: "mailroom_dojo.classification.metrics.accuracy"
+    denominator: "gold"
     origin: "registry"
     old_source: "classification.accuracy"
     citation: "Exact-match accuracy after task-aware normalize_label (classification.accuracy)."
@@ -359,6 +369,7 @@ metrics:
     readers: ["golden_parity_gate", "headline_view", "specialist_report", "keep_rule", "set_c_report"]
     pairing: "paired_percentile_bootstrap"
     producer: "mailroom_dojo.field_scoring.extraction.score_extraction"
+    denominator: "gold"
     origin: "registry"
     old_source: "field_scoring.score_extraction"
     citation: "Mean of per-field typed scores from field_scoring.score_extraction (soft mean; partial list credit stays here)."
@@ -410,7 +421,8 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["headline_view", "set_a_report"]
-    pairing: "paired_percentile_bootstrap"
+    pairing_note: "A share of the documents the reviewer answered: the sorter's confidence and class, this run's own decisions, set which documents reach the reviewer, so two runs divide by different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
     origin: "registry"
     old_source: "reviewer.score_review_lane"
     citation: "Exact class match over reviewer-answered rows with a verified target."
@@ -428,7 +440,8 @@ metrics:
     status: "planned"
     readers: ["set_a_report"]
     status_reason: "Reader: set_a_report and sorter_reviewer's default view. Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): the reviewer's class is right when it equals the resolved class label (hub, interim, near_gold or review, in the labels package's order). A row of its own: reviewer_class_accuracy keeps the old rule (verified targets). No scoring code in D2."
-    pairing: "paired_percentile_bootstrap"
+    pairing_note: "A share of the documents the reviewer answered: the sorter's confidence and class, this run's own decisions, set which documents reach the reviewer, so two runs divide by different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
     origin: "design"
     citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on reviewer_class_accuracy."
     inclusion: "Reviewer-answered documents with a gold class in those layers; none when there is none."
@@ -444,7 +457,8 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["headline_view", "set_a_report"]
-    pairing: "paired_percentile_bootstrap"
+    pairing_note: "A share of the reviewer's own accepts: the denominator is what this run accepted, so two runs divide by different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
     origin: "registry"
     old_source: "reviewer.score_review_lane"
     citation: "Accepted = the pipeline routed the document to extraction; wrong = accepted label differs from the verified target."
@@ -461,7 +475,8 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["headline_view", "set_a_report"]
-    pairing_note: "An upper confidence bound is a guard, not a number two runs are compared on; compare reviewer_wrong_accept_rate (paired) instead."
+    pairing_note: "An upper confidence bound is a guard, not a number two runs are compared on, and its denominator is the run's own accepts; each run reports its own bound, and any comparison of two runs is D7's to build."
+    denominator: "run"
     origin: "registry"
     old_source: "reviewer.score_review_lane"
     citation: "Clopper-Pearson exact upper bound (analysis.calibration.clopper_pearson_upper)."
@@ -479,7 +494,8 @@ metrics:
     status: "planned"
     readers: ["set_a_report"]
     status_reason: "Reader: set_a_report and sorter_reviewer's default view (its guard). Gold derived (owner decision, 2026-11-18): an accept is wrong when the accepted class differs from the resolved class label; the bound is Clopper-Pearson over those accepts. A row of its own: reviewer_wrong_accept_upper_95 keeps the old rule (verified targets). No scoring code in D2."
-    pairing_note: "An upper confidence bound is a guard, not a number two runs are compared on; each run reports its own bound."
+    pairing_note: "An upper confidence bound is a guard, not a number two runs are compared on, and its denominator is the run's own accepts; each run reports its own bound, and any comparison of two runs is D7's to build."
+    denominator: "run"
     origin: "design"
     citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on reviewer_wrong_accept_upper_95."
     inclusion: "Accepted documents with a gold class in those layers; none when there is none."
@@ -495,7 +511,8 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["headline_view", "set_a_report"]
-    pairing: "paired_percentile_bootstrap"
+    pairing_note: "A share of the documents that reached the reviewer: the sorter's confidence and class, this run's own decisions, set which documents reach it, so two runs divide by different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
     origin: "registry"
     old_source: "reviewer.score_review_lane"
     citation: "Pipeline reviewer routing basis: a human verdict, no usable answer, or a confidence below the class cutoff."
@@ -513,6 +530,7 @@ metrics:
     status: "planned"
     readers: ["headline_view", "set_a_report"]
     pairing: "paired_percentile_bootstrap"
+    denominator: "gold"
     origin: "registry"
     old_source: "reviewer.score_review_lane"
     citation: "Every accept must have text, an eligible reviewer label, no causes, a cutoff, and agreement unless the sorter was below its low band."
@@ -673,6 +691,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    denominator: "run"
     origin: "registry"
     old_source: "decision_lanes.score_judge_lane"
     citation: "Exact match of the judge verdict with the gold verdict: human resolution (approve_as_is complete, correct partial, reject/reclassify incomplete), else the dataset extraction score read through the ambiguous band."
@@ -690,7 +709,8 @@ metrics:
     status: "planned"
     readers: ["behaviour_report"]
     status_reason: "Reader: behaviour_report and the judge's default view. Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): the gold verdict is complete when the extraction scores at or above the high band against the resolved field labels and the class is right, partial between the low and high bands, incomplete below the low band or under a wrong class. A row of its own: judge_verdict_accuracy keeps the old rule (human resolution first, else the dataset score through the ambiguous band). No scoring code in D2."
-    pairing: "paired_percentile_bootstrap"
+    pairing_note: "A share of the documents the judge ruled on: routing (this run's own decisions) sets which documents reach the judge, and its judge_error rows are left out, so two runs divide by different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
     origin: "design"
     citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on judge_verdict_accuracy."
     inclusion: "Judged documents with gold field labels in those layers; judge_error rows are unscored, never 0; none when there is none."
@@ -722,6 +742,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    denominator: "run"
     origin: "registry"
     old_source: "decision_lanes.score_judge_lane"
     citation: "Recall of the judge's escalation (verdict other than complete) over documents whose gold verdict is partial or incomplete."
@@ -739,7 +760,8 @@ metrics:
     status: "planned"
     readers: ["behaviour_report"]
     status_reason: "Reader: behaviour_report and the judge's default view (its guard). Gold derived (owner decision, 2026-11-18): over documents whose derived verdict (judge_verdict_accuracy_vs_gold's rule) is partial or incomplete. A row of its own: judge_escalation_recall keeps the old rule. No scoring code in D2."
-    pairing: "paired_percentile_bootstrap"
+    pairing_note: "A share of the documents whose derived verdict is partial or incomplete: that verdict is read from this run's own extraction, so the denominator is set by the run, so two runs divide by different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
     origin: "design"
     citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on judge_escalation_recall."
     inclusion: "Judged documents whose derived verdict is partial or incomplete; none when there is none."
@@ -755,6 +777,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    denominator: "run"
     origin: "registry"
     old_source: "decision_lanes.score_judge_lane"
     citation: "Complement of complete-class recall: gold complete, judge partial or incomplete."
@@ -772,6 +795,7 @@ metrics:
     status: "planned"
     readers: ["archive_gate"]
     status_reason: "Read by the archive gate: its pass rule requires no judge_error document in the slice (local-mailroom-sandbox src/mailroom_sandbox/job/gate.py at 93f298c, lines 20 and 397-398). D6 ports the gate."
+    denominator: "run"
     origin: "registry"
     old_source: "decision_lanes.score_judge_lane"
     citation: "judge_error verdicts over every row the judge ran on; needs no gold."
@@ -788,6 +812,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    denominator: "run"
     origin: "registry"
     old_source: "decision_lanes.score_arbiter_lane"
     citation: "Retry right when the next attempt's dataset score rose by epsilon; accept right when the person approved as is or the final score is at or above the high band; human_review right when the person changed the work or the final score is below the high band."
@@ -806,6 +831,7 @@ metrics:
     readers: ["behaviour_report"]
     status_reason: "Reader: behaviour_report and the arbiter's default view. Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): a retry is right when the next attempt's score against the resolved field labels rose by at least epsilon; an accept is right when the final score is at or above the high band and the class is right; a human_review is right when the final score is below the high band or the class is wrong. A row of its own: arbiter_decision_accuracy keeps the old rule (human resolution first). No scoring code in D2."
     pairing_note: "A share of the run's own arbiter rulings: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
     origin: "design"
     citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on arbiter_decision_accuracy."
     inclusion: "Rulings whose documents have gold field labels in those layers; rulings without gold are unscored, never 0."
@@ -821,6 +847,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    denominator: "run"
     origin: "registry"
     old_source: "decision_lanes.score_arbiter_lane"
     citation: "Dataset extraction score of attempt k+1 minus attempt k, at least epsilon (default 0.05), for a retry ruled on after attempt k."
@@ -837,6 +864,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    denominator: "run"
     origin: "registry"
     old_source: "decision_lanes.score_arbiter_lane"
     citation: "Accept wrong when the person corrected, reclassified or rejected the work, or, with no resolution, the final dataset score is below the high band."
@@ -855,6 +883,7 @@ metrics:
     readers: ["behaviour_report"]
     status_reason: "Reader: behaviour_report and the arbiter's default view (its guard). Gold derived (owner decision, 2026-11-18): an accept_with_caveats ruling is wrong when the final extraction scores below the high band against the resolved field labels, or the class is wrong. A row of its own: arbiter_wrongful_accept_rate keeps the old rule (human resolution first). No scoring code in D2."
     pairing_note: "A share of the run's own accept_with_caveats rulings: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
     origin: "design"
     citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on arbiter_wrongful_accept_rate."
     inclusion: "accept_with_caveats rulings whose documents have gold field labels in those layers; none when there is none."
@@ -870,6 +899,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    denominator: "run"
     origin: "registry"
     old_source: "decision_lanes.score_arbiter_lane"
     citation: "Escalation unnecessary when the person approved as is, or, with no resolution, the final dataset score is at or above the high band."
@@ -886,6 +916,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    denominator: "run"
     origin: "registry"
     old_source: "decision_lanes.score_boss_lane"
     citation: "Human outcome only: approved, then the person corrected, reclassified or rejected the document."
@@ -904,6 +935,7 @@ metrics:
     readers: ["behaviour_report"]
     status_reason: "Reader: behaviour_report and the boss's default view (owner decision, 2026-11-18: the boss is judged on wrong approvals). Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): an approval is wrong when the approved extraction scores below the high band against the resolved field labels, or the class is wrong. A row of its own: boss_wrongful_approve_rate keeps the old rule (human outcome only). No scoring code in D2."
     pairing_note: "A share of the run's own boss approvals: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
     origin: "design"
     citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on boss_wrongful_approve_rate."
     inclusion: "Boss approvals whose documents have gold field labels in those layers; none when there is none."
@@ -919,6 +951,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["behaviour_report"]
+    denominator: "run"
     origin: "registry"
     old_source: "decision_lanes.score_boss_lane"
     citation: "Human outcome only: review, then the person approved as is."
@@ -937,6 +970,7 @@ metrics:
     readers: ["behaviour_report"]
     status_reason: "Reader: behaviour_report and the boss's default view (its guard). Gold derived (owner decision, 2026-11-18): a review ruling was needless when the extraction scores at or above the high band against the resolved field labels and the class is right. A row of its own: boss_needless_review_rate keeps the old rule (human outcome only). No scoring code in D2."
     pairing_note: "A share of the run's own boss review rulings: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
     origin: "design"
     citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on boss_needless_review_rate."
     inclusion: "Boss review rulings whose documents have gold field labels in those layers; none when there is none."
@@ -953,6 +987,7 @@ metrics:
     status: "planned"
     readers: ["behaviour_report"]
     status_reason: "Attributed to the routing policy that sent the document to review, not to the reviewers: humans are the gold source (owner decision, 2026-11-18)."
+    denominator: "run"
     origin: "registry"
     old_source: "decision_lanes.score_review_tray"
     citation: "A review that changed nothing: resolution approve_as_is and empty field_corrections."
@@ -1334,6 +1369,7 @@ metrics:
     layer: "D6"
     status: "planned"
     readers: ["confidence_report"]
+    denominator: "run"
     origin: "registry"
     old_source: "reviewer.score_review_lane"
     citation: "Equal-width 10-bin ECE over answered rows with a verified target."
@@ -1367,6 +1403,7 @@ metrics:
     status: "planned"
     readers: ["set_a_report"]
     cost: true
+    denominator: "run"
     origin: "registry"
     old_source: "reviewer.score_review_lane"
     citation: "Measured reviewer cost divided by accepted documents; None unless every row is priced."
@@ -1890,6 +1927,7 @@ metrics:
     readers: ["golden_parity_gate", "run_report", "cost_projection"]
     cost: true
     pairing: "paired_percentile_bootstrap"
+    denominator: "gold"
     origin: "registry"
     old_source: "cost.estimate_for_record"
     citation: "Total estimated cost / documents processed (cost.estimate_for_record)."
@@ -2936,6 +2974,7 @@ metrics:
     readers: ["specialist_report", "keep_rule"]
     pairing: "paired_percentile_bootstrap"
     producer: "mailroom_dojo.field_scoring.extraction.score_extraction"
+    denominator: "gold"
     origin: "registry"
     old_source: "field_scoring.score_field"
     citation: ""
@@ -3640,7 +3679,8 @@ metrics:
     status: "planned"
     readers: ["archive_gate", "run_report", "keep_rule"]
     status_reason: "Readers: archive_gate (its pass rule), run_report (wrong-archive rate with bounds) and keep_rule (kept at a fixed review rate)."
-    pairing: "paired_percentile_bootstrap"
+    pairing_note: "A share of the run's own scorable archives: which documents are archived rather than sent to review is this run's decision, so two runs divide by different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile. The keep rule compares it at a fixed review rate (review_rate, paired over every document)."
+    denominator: "run"
     origin: "design"
     citation: "local-mailroom-sandbox src/mailroom_sandbox/job/gate.py at 93f298c, lines 7-8 and 24; docs/specs/2026-11-18-lean-rewrite-design.md, 'Fewer wrong archives' (line 34) and 'Utility is the objective' (line 382)."
     inclusion: "Scorable archives only (enough labelled fields); unscorable archives and reviews are left out; none when nothing is scorable."
@@ -3657,6 +3697,7 @@ metrics:
     status: "planned"
     readers: ["archive_gate", "run_report"]
     status_reason: "Readers: archive_gate and run_report (rates with bounds). Method: the Wilson score upper bound at 95%, as the sandbox gate computes it. Named as the gate names it."
+    denominator: "run"
     origin: "design"
     citation: "local-mailroom-sandbox src/mailroom_sandbox/job/gate.py at 93f298c, _wilson_upper (lines 182-188) and line 405."
     inclusion: "None when no archive is scorable."
@@ -3674,6 +3715,7 @@ metrics:
     readers: ["archive_gate", "run_report", "keep_rule"]
     status_reason: "Readers: archive_gate (its pass rule), run_report and keep_rule (the wrong-archive rate is compared at a fixed review rate). Direction lower at equal wrong-archive rate ('Less human review'); owner to confirm."
     pairing: "paired_percentile_bootstrap"
+    denominator: "gold"
     origin: "design"
     citation: "local-mailroom-sandbox src/mailroom_sandbox/job/gate.py at 93f298c, lines 9 and 23; docs/specs/2026-11-18-lean-rewrite-design.md, 'Less human review' (line 35)."
     inclusion: "Every document of the pool; none for an empty pool."
@@ -3707,6 +3749,7 @@ metrics:
     readers: ["run_report", "keep_rule"]
     status_reason: "Readers: keep_rule (a variant is kept on whole-pipeline utility) and run_report. The utility of each outcome is configuration, never code; it can be negative (v1: -0.101 and -0.140)."
     pairing: "paired_percentile_bootstrap"
+    denominator: "gold"
     origin: "design"
     citation: "docs/specs/2026-11-18-lean-rewrite-design.md: 'Document outcome' row (line 283), 'Utility is the objective' (line 382), the v1 re-score (line 322)."
     inclusion: "Every document with an outcome; none for an empty run."
@@ -3723,6 +3766,7 @@ metrics:
     status: "planned"
     readers: ["behaviour_report"]
     status_reason: "Reader: behaviour_report (per-slot summaries and override caps). A descriptive rate: whether more overrides is better depends on whether they were right."
+    denominator: "run"
     origin: "design"
     citation: "docs/specs/2026-11-18-lean-rewrite-design.md: Behavior row (line 284), R10 (lines 119-123)."
     inclusion: "Per slot, over the slot's recorded decisions; none for a slot that never ran."
@@ -3772,6 +3816,7 @@ metrics:
     readers: ["behaviour_report", "set_a_report"]
     status_reason: "Readers: behaviour_report and set_a_report (Set A: cost per review)."
     cost: true
+    denominator: "run"
     origin: "design"
     citation: "docs/specs/2026-11-18-lean-rewrite-design.md: the Sets table row A (line 467), R10 (line 123)."
     inclusion: "Slots with at least one decision."
@@ -3919,6 +3964,7 @@ metrics:
     readers: ["classification_report"]
     status_reason: "Reader: classification_report (class accuracy per agent) and intake's default view (owner decision, 2026-11-18: intake is judged only by its triage class against the gold class, no guard). A row of its own: the old intake suite's accuracy (exact match of the cleaned text against the clerk's gold) and f1_macro (token F1) keep their meaning (llm_dojo_scoring/pipeline/intake.py at 23f8234c, _score_one)."
     pairing: "paired_percentile_bootstrap"
+    denominator: "gold"
     origin: "design"
     citation: "Owner decision, 2026-11-18 (intake simplified to what is absolutely necessary: triage-class accuracy, no guard)."
     inclusion: "Documents with a gold class in the named label layers (hub, interim, near_gold, review; precedence unchanged); none for an empty set."

@@ -69,11 +69,20 @@ behind the spend gate).
    `reviewer_wrong_accept_upper_95` are whole-set statistics (macro F1; field-micro F1 and F2
    pool the counts of every document before dividing, old `suites.py` line 1486
    `merge_extraction_counts`; a bound), so their notes say why there is no per-document
-   pairing; D7 decides their comparison. The arbiter's and the boss's default and guard rates
-   are shares of the run's own rulings, so two runs rule on different documents; their notes
-   say so, and D7 builds the resample. The judge's verdict accuracy and escalation recall (a
-   per-document verdict, paired by document id over the documents both runs judged; the
-   recall's denominator comes from the gold) and `cost_per_document` are paired.
+   pairing; D7 decides their comparison. A `denominator` column says what sets a row's
+   denominator: `gold` (the evaluation set, the same documents for every run) or `run` (the
+   run's own decisions: the documents that reached a lane, its rulings, accepts or archives,
+   or a verdict read from its own extraction). The loader refuses any pairing on a `run` row
+   and requires `gold` on every `paired_percentile_bootstrap` row. The `run` rows that are
+   compared carry a `pairing_note` instead, and D7 builds a resample that recomputes the share
+   on both runs: the arbiter's and boss's rates (shares of their rulings), the sorter
+   reviewer's (the sorter decides which documents reach it), the judge's verdict accuracy (the
+   documents routed to the judge, without its `judge_error` rows) and escalation recall (over
+   documents whose derived verdict is read from the run's own extraction), and
+   `wrong_archive_rate` (over the run's own scorable archives). The paired rows divide by
+   gold: `accuracy`, `extraction_overall_score`, `reviewer_accept_rule_violations` (a count
+   over every document), `cost_per_document`, `per_field_scores`, `review_rate`,
+   `document_utility` and `intake_class_accuracy`.
 6. **Noise floor deferred to D7.** The keep rule's smallest meaningful difference is measured by
    repeat runs and lands with D7 in `config/`, not in this table.
 7. **Duplicates point at the canonical row.** `alias_of` (a not-ported second name, same unit,

@@ -284,7 +284,8 @@ def test_design_rows_are_planned_needs_with_a_named_reader(table: MetricTable) -
         assert row.metric_id == f"dojo:{row.id}" and not row.headline, row.id
         assert row.status_reason and "Reader" in row.status_reason, row.id
         if "keep_rule" in row.readers:
-            assert row.pairing == "paired_percentile_bootstrap", row.id
+            # paired, unless the run's own decisions set the denominator (a note then says why)
+            assert row.pairing == "paired_percentile_bootstrap" or row.denominator == "run", row.id
 
 
 #: The design needs with no old metric (orchestrator revision, 2026-11-18).

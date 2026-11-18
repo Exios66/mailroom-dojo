@@ -221,6 +221,14 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   `contracteval_false_no_related`, "mirrors ContractEval no_related_rate", is wrong: it is
   `false_no_related_rate` (positive pairs), not `no_related_rate` (all pairs). The note keeps
   its old text; the row's `status_reason` corrects it.
+- **A denominator the run sets is not paired (review round 3).** A `denominator` column
+  (`gold` or `run`) says whether the evaluation set or the run's own decisions set a row's
+  denominator. The loader refuses a pairing on a `run` row and needs `gold` on every
+  `paired_percentile_bootstrap` row. `wrong_archive_rate` (over the run's scorable archives),
+  the judge's `_vs_gold` verdict accuracy and escalation recall, and the sorter reviewer's
+  class accuracy, wrong-accept and routed-to-review rates (the old ids and the `_vs_gold` row)
+  were paired; they now carry a `pairing_note`, and D7 builds the resample. No value
+  changes; only how two runs' values may be compared.
 - **27 planned design rows** (`origin: design`, ids `dojo:<id>`) add numbers the old Dojo never
   had; none changes an old number. Eight of them are the `_vs_gold` rows above.
 
