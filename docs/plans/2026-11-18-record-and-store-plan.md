@@ -490,7 +490,7 @@ def test_cli_never_prints_blob_content(review_store):
   - The run is sealed at the end of the import.
 - `audit_sandbox_run` lists, as `present` or `absent`, each routing input the engine's `legacy` replay will need: `classification_confidence`, `extraction_confidence`, `judge verdict per pass`, `arbiter route per pass`, `sorter reviewer verdict`, `retry counts`, `effective thresholds`, `decision slot outputs`, `boss approval`.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```python
 def test_import_fixture_folder(tmp_store, fixture_folder):
@@ -527,10 +527,10 @@ def test_audit_reports_routing_inputs(fixture_folder):
     assert "extraction_confidence" in a.present and "decision slot outputs" in a.absent
 ```
 
-- [ ] **Step 2:** Run; expect import failure.
-- [ ] **Step 3:** Build the fixture folders (synthetic text only, no real document), then implement.
-- [ ] **Step 4:** Run; expect 7 passed.
-- [ ] **Step 5:** Commit: `feat(record): import sandbox run folders and audit routing inputs`.
+- [x] **Step 2:** Run; expect import failure.
+- [x] **Step 3:** Build the fixture folders (synthetic text only, no real document), then implement.
+- [x] **Step 4:** Run; expect 7 passed.
+- [x] **Step 5:** Commit: `feat(record): import sandbox run folders and audit routing inputs`.
 
 ### Task 10b: Floor replay timeline from the record
 

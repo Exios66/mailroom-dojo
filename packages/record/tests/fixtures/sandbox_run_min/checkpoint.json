@@ -1,0 +1,11 @@
+{
+  "cursor": 3,
+  "last_error": null,
+  "remote": null,
+  "run_id": "ar-fixture-r00",
+  "schema_version": 1,
+  "spec_hash": "34cfacfe380ae3a3c81464fd8aa4fc8a73fe5157507e818185d0ddf46cb388b7",
+  "state": "done",
+  "total": 3,
+  "updated_at": "2026-11-18T12:00:05.975+00:00"
+}

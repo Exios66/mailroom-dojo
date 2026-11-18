@@ -1015,3 +1015,96 @@ def join_all(procs: Any, timeout: float = 120.0) -> list[int | None]:
             p.kill()
             p.join(30)
     return [p.exitcode if p.pid is not None else None for p in procs]
+
+
+# --- sandbox run folders (Tasks 10 to 12) -------------------------------------------
+
+FIXTURE_RUN_ID = "ar-fixture-r00"
+
+
+def fixture_source() -> Any:
+    """The committed hand-made sandbox run folder (synthetic text, the real file format)."""
+    from pathlib import Path
+
+    return Path(__file__).parent / "fixtures" / "sandbox_run_min"
+
+
+def read_jsonl(path: Any) -> list[dict[str, Any]]:
+    import json
+    from pathlib import Path
+
+    return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def write_jsonl(path: Any, rows: list[dict[str, Any]], tail: bytes = b"") -> None:
+    import json
+    from pathlib import Path
+
+    Path(path).write_bytes(b"".join(json.dumps(r).encode() + b"\n" for r in rows) + tail)
+
+
+def edit_json(path: Any, **changes: Any) -> None:
+    import json
+    from pathlib import Path
+
+    p = Path(path)
+    p.write_text(json.dumps(json.loads(p.read_text(encoding="utf-8")) | changes, indent=2, sort_keys=True))
+
+
+def copy_fixture(dest: Any, run_id: str | None = None) -> Any:
+    """A private copy of the fixture folder under ``dest``; ``run_id`` renames the run."""
+    import shutil
+    from pathlib import Path
+
+    dest = Path(dest)
+    shutil.copytree(fixture_source(), dest)
+    if run_id is not None:
+        edit_json(dest / "spec.lock.json", run_id=run_id)
+        edit_json(dest / "checkpoint.json", run_id=run_id)
+    return dest
+
+
+def crash_fixture(folder: Any) -> Any:
+    """Turn a fixture copy into a run that stopped mid-document: the last document's
+    ``extract`` is in flight (a ``running`` row with no finish), it has no item row, the
+    checkpoint still says ``running`` and ``nodes.jsonl`` ends in a torn line."""
+    from pathlib import Path
+
+    folder = Path(folder)
+    nodes = read_jsonl(folder / "nodes.jsonl")
+    assert nodes[-1]["status"] == "error" and nodes[-1]["node"] == "extract"
+    write_jsonl(folder / "nodes.jsonl", nodes[:-1], tail=b'{"doc": "DOC-00000000000000c3", "node": "ext')
+    items = read_jsonl(folder / "items.jsonl")
+    write_jsonl(folder / "items.jsonl", items[:-1])
+    events = read_jsonl(folder / "events.jsonl")
+    write_jsonl(folder / "events.jsonl", [e for e in events if e["event"] not in ("item_failed", "done")])
+    edit_json(folder / "checkpoint.json", state="running", cursor=2)
+    return folder
+
+
+def source_ids(folder: Any) -> dict[str, str]:
+    """Dataset row id -> content SHA-256 (the record's doc id), in dataset order."""
+    from pathlib import Path
+
+    return {r["id"]: r["content_sha256"] for r in read_jsonl(Path(folder) / "dataset.jsonl")}
+
+
+def named_blobs(log: Any, role: str | None = None) -> set[str]:
+    """Every blob sha (of ``role``, if given) that any event of any run names."""
+    out: set[str] = set()
+    runs = log.root / "runs"
+    for run_dir in sorted(runs.iterdir()) if runs.is_dir() else []:
+        for e in log.iter_events(run_dir.name):
+            out.update(r.sha256 for r in (*e.inputs, *e.outputs) if role is None or r.role == role)
+    return out
+
+
+def count_blobs(store: Any, role: str) -> int:
+    return len(named_blobs(store.log, role))
+
+
+def segment_bytes(root: Any) -> bytes:
+    """Every segment byte of every run under ``root``, concatenated."""
+    from pathlib import Path
+
+    return b"".join(p.read_bytes() for p in sorted(Path(root).glob("runs/*/segments/*.jsonl")))

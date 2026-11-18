@@ -1,0 +1,43 @@
+{
+  "agent_knobs": {},
+  "agent_models": {
+    "arbiter": "vendor/test-model",
+    "contract_specialist": "vendor/test-model",
+    "judge": "vendor/test-model",
+    "sorter": "vendor/test-model"
+  },
+  "agent_routes": {},
+  "confidence": {
+    "classification_threshold": 0.7
+  },
+  "created_at": "2026-11-18T12:00:00.000+00:00",
+  "dependency_sources": {},
+  "effective_confidence": {
+    "classification_threshold": 0.7,
+    "extraction_threshold": 0.6
+  },
+  "engine": {
+    "kind": "openrouter",
+    "modal": null,
+    "model": "vendor/test-model",
+    "vllm": null
+  },
+  "git": {
+    "commit": "abc1234",
+    "dirty": false
+  },
+  "job": {
+    "concurrency": 1
+  },
+  "profile": "fixture",
+  "prompt": {
+    "default": "deploy_v1"
+  },
+  "prompt_text_sha": "0f7e07a6e5fc880d068162659a46a91bc87592e011e54b93cd79b7fc1e66a900",
+  "run_id": "ar-fixture-r00",
+  "spec_hash": "34cfacfe380ae3a3c81464fd8aa4fc8a73fe5157507e818185d0ddf46cb388b7",
+  "task": "pipeline",
+  "versions": {
+    "python": "3.11"
+  }
+}

@@ -8,6 +8,8 @@ Commands (each takes ``--root``, the store root, and ``--json`` for machine-read
     mailroom-record trace run <run>       every document of a run and its path
     mailroom-record trace doc <doc>       every run that touched a document, with versions
     mailroom-record versions <run> <doc>  a document's version chain in one run
+    mailroom-record import sandbox-run <folder>   import a sandbox run folder (creates --root)
+    mailroom-record audit sandbox-run <folder>    which routing inputs a folder carries (no --root)
 
 Exit codes: 0 done (for ``verify``: the run is ok); 1 the record is not ok or an operation
 was refused or failed (``verify`` found a failing problem, ``seal`` refused a damaged log,
@@ -42,6 +44,8 @@ import typer
 
 from mailroom_record._reading import BadRunId, Damage, UnknownRun, read_document, require_run, seal_files, open_index
 from mailroom_record.blobs import BlobStore
+from mailroom_record.importer.audit import audit_sandbox_run
+from mailroom_record.importer.sandbox_run import ImportConflict, SandboxFolderInvalid, import_sandbox_run
 from mailroom_record.index import ApplyRefused, Index, IndexUnavailable
 from mailroom_record.log import CorruptLine, EventLog, ForkedChain
 from mailroom_record.seal import SealCorrupt, SealRefused, seal_run
@@ -62,10 +66,15 @@ app = typer.Typer(
 )
 trace_app = typer.Typer(help="Trace a run or a document.", no_args_is_help=True)
 app.add_typer(trace_app, name="trace")
+import_app = typer.Typer(help="Import run folders written by other tools.", no_args_is_help=True)
+app.add_typer(import_app, name="import")
+audit_app = typer.Typer(help="Audit run folders written by other tools.", no_args_is_help=True)
+app.add_typer(audit_app, name="audit")
 
 Root = Annotated[Path, typer.Option("--root", help="The store root (holds runs/ and blobs/).")]
 AsJson = Annotated[bool, typer.Option("--json", help="Print JSON instead of text.")]
 RunArg = Annotated[str, typer.Argument(help="The run id.")]
+FolderArg = Annotated[Path, typer.Argument(help="The sandbox run folder.")]
 DocArg = Annotated[str, typer.Argument(help="The document id.")]
 
 
@@ -143,7 +152,10 @@ def _describe(exc: BaseException) -> str:
         return f"a seal file is corrupt ({str(exc).split(':', 1)[0]}); run verify"
     if isinstance(exc, CorruptLine):
         return f"CorruptLine: {str(exc).split(':', 1)[0]} is not a valid event or not JSON; run verify"
-    if isinstance(exc, (SealRefused, ForkedChain, IndexUnavailable, ApplyRefused, FileNotFoundError)):
+    if isinstance(
+        exc,
+        (SealRefused, ForkedChain, IndexUnavailable, ApplyRefused, FileNotFoundError, SandboxFolderInvalid, ImportConflict),
+    ):
         return f"{type(exc).__name__}: {exc}"
     return type(exc).__name__
 
@@ -482,6 +494,46 @@ def versions(run_id: RunArg, doc_id: DocArg, root: Root, as_json: AsJson = False
             _echo("damage:")
             for line in _damage_lines(read.damage, "  "):
                 _echo(line)
+        return 0
+
+    _guard(body)
+
+
+@import_app.command("sandbox-run")
+def import_sandbox_run_cmd(folder: FolderArg, root: Root, as_json: AsJson = False) -> None:
+    """Import a sandbox run folder into the store (a second import is a no-op)."""
+
+    def body() -> int:
+        root.mkdir(parents=True, exist_ok=True)
+        s = _Store(root)
+        r = import_sandbox_run(folder, s.log, s.blobs)
+        if as_json:
+            _print_json(asdict(r))
+            return 0
+        verb = "imported" if r.status == "imported" else "already imported"
+        _echo(f"{verb} run {r.run_id}: {_n(r.documents, 'document')}, {_n(r.events, 'event')}")
+        _echo(f"absent: {', '.join(r.absent_fields) or 'nothing'}")
+        for w in r.warnings:
+            _echo(f"warning: {w}")
+        return 0
+
+    _guard(body)
+
+
+@audit_app.command("sandbox-run")
+def audit_sandbox_run_cmd(folder: FolderArg, as_json: AsJson = False) -> None:
+    """Report which routing inputs a sandbox run folder carries (reads only)."""
+
+    def body() -> int:
+        a = audit_sandbox_run(folder)
+        if as_json:
+            _print_json(asdict(a))
+            return 0
+        _echo(f"run {a.run_id}: {_n(a.documents, 'document')}")
+        _echo(f"present: {', '.join(a.present) or 'nothing'}")
+        _echo(f"absent: {', '.join(a.absent) or 'nothing'}")
+        _echo("nodes: " + ", ".join(f"{k} {v}" for k, v in a.nodes_seen.items()))
+        _echo("decisions: " + ", ".join(f"{k} {v}" for k, v in a.decisions_seen.items()))
         return 0
 
     _guard(body)
