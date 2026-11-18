@@ -118,7 +118,7 @@ Rules: dependencies point one way and a test enforces them: `labels` imports `re
 
 ### R10. Decision-model experiments by configuration
 
-Decision models stay a first-class experiment, as they are on the current pipeline. The decision slots of mailroom #309 carry over: sorter reviewer, archive gate, judge and boss checks, arbiter veto, closed-field resolver and field-level routing. Each slot is off by default, has its own caps (including per-slot override caps for slots that can reroute), and is switched on and tuned in a policy file or run spec. An experiment arm is a named policy plus config, with no code change per experiment.
+Decision models stay a first-class experiment, as they are on the current pipeline. The eight decision slots of mailroom #309 carry over: sorter reviewer, archive gate, judge replacement, judge check, boss check, arbiter veto, closed-field resolver and field review (field-level routing), plus the default archive checks that need no model. Each slot is off by default, has its own caps (including per-slot override caps for slots that can reroute), and is switched on and tuned in a policy file or run spec. An experiment arm is a named policy plus config, with no code change per experiment.
 
 Every slot call is an event in the record (`kind="decision"`, the slot as `node`, the model, tokens, latency, and the decision with its probability and cause as our own tokens), so a run can be replayed and audited per slot. The Dojo scores slots from the record: per-slot accuracy and override rate, silent-wrong per 1,000, cost per decision, and the risk-coverage curve with bounds (Sets A, B, D and E).
 
