@@ -55,6 +55,9 @@ failure, not just simple one-off unit tests." So, for every module:
 | Bit rot | Flip, truncate or replace a blob's stored bytes | verify | `corrupt_blob` (put does not repair it) |
 | Crash between tombstone and unlink | Content restored next to its tombstone | verify | `tombstone_with_content` |
 | Damaged seal or column file | Edit, rehash, delete, renumber a seal; truncate, garble, edit rows of a Parquet file | verify | `seal_mismatch`, `seal_corrupt`, `seal_missing`, `columns_missing`, `columns_mismatch` |
+| Damaged or old index file | Garbage, empty, truncated (half, header), flipped magic and b-tree page byte, older `schema_version`, older layout, unfinished `state` | index | Status names it; every query and `apply` raises `IndexUnavailable`; `ensure` rebuilds an equal index |
+| Crash mid-rebuild | Injected `ENOSPC` from the log read, a real `SQLITE_FULL` (`max_page_count`), a `SIGKILL`ed rebuild process with and without an earlier index | index | The old index unchanged, or none (`missing`); never a half-built one |
+| Damaged log under a rebuild | Corrupt and invalid lines, torn tail, gap, fork, broken link, unreadable seal and run header | index | Rebuild completes; each damage is one `problems` row with its exact kind; the document stops at its last good event |
 
 ## The pyramid for this package
 
@@ -91,7 +94,14 @@ failure, not just simple one-off unit tests." So, for every module:
 | Whole document deleted between seals | Fault injection | Seal lists documents; deletion gives `document_missing_from_log` | 7 |
 | Tombstone confused with loss | Unit | Tombstone passes, missing blob fails and names the event | 7 |
 | Index drifts from the log | Integration, equivalence | Incremental index equals full reindex; deleting the index and rebuilding gives the same dump | 8 |
-| Document text leaks into an export | Leak scan | Sentinel string absent from Parquet, SQLite, CLI output, pack manifest, gate report | 6, 8, 9, 11, 12 |
+| Index drifts under real histories | Property | `test_incremental_equals_reindex_over_random_histories`: two runs sharing documents, three writers each, handoffs, flushes, seals and repeated applies; after every step the index equals a rebuild of the log (`drift == []`) | 8 |
+| An apply out of order corrupts head state | Unit | Gap, fork and broken link each raise `ApplyRefused` and change nothing; repeats and events a rebuild covered are no-ops | 8 |
+| A reader sees a half-built index | Concurrency | A reader process dumps in a loop while a slowed rebuild runs: only the old or the new digest is ever seen, and the old one mid-build | 8 |
+| Applies race a rebuild | Concurrency | Four writer threads apply after each flush while a thread rebuilds repeatedly; the end state equals a rebuild | 8 |
+| A per-document read scans the whole run | Integration, property | Reads touch one writer's lines; tails written after the rebuild and new segments are read; a shrunk segment falls back; any layout equals the log's read | 8 |
+| A reader holds a large run in memory | Integration | 26 MB run: every log reader, the rebuild and per-document reads peak under 6 MB (the old readers peaked at 28-54 MB) | 8 |
+| A reader glues a half-written line | Fault injection | A line finished while a reader iterates is never returned as a line of its own | 8 |
+| Document text leaks into an export | Leak scan | Sentinel string absent from Parquet, SQLite (every table, and the raw file and WAL bytes, with the sentinel in cause, decision, payload and an invalid line), CLI output, pack manifest, gate report | 6, 8, 9, 11, 12 |
 | Payload carries free text | Unit | Parquet has no `payload` column; importer drops decision `options` text | 6, 10 |
 | Re-import duplicates a run or blobs | Idempotency | Second import is `already_imported`, blob bytes on disk unchanged | 10 |
 | Importer guesses a missing field | Unit | Missing optional files listed in `absent_fields`, value is `None` | 10 |

@@ -63,8 +63,26 @@ A line is whole when it ends with ``\\n``. Bytes after the last newline of a seg
 torn tail: skipped and reported. A whole line that is not a JSON object is corruption and
 raises ``CorruptLine`` naming the segment and byte offset; it is never skipped. Events are
 upgraded on read (``Event.from_stored``); ``iter_stored`` yields the raw stored dicts so a
-verifier can hash the stored form (ADR-0005). ``iter_events`` orders by ``(doc_id, seq)``
-across segments; ``_run`` sorts like any other doc id.
+verifier can hash the stored form (ADR-0005). ``_run`` sorts like any other doc id.
+
+Every reader streams: a segment is read one line at a time, never whole, and a reader
+reads a segment only up to its size when the reader opened it and stops at the first line
+that has no newline yet, so a writer appending meanwhile can never hand it half a line
+(the rest of a line it saw the start of). Memory is bounded by the longest line plus, for
+the ordered readers, a few machine words per event; never by the size of the run.
+
+Ordering contract. ``iter_stored``, ``iter_raw`` and the head readers go in segment-name
+order, then file order. ``iter_events`` (and ``scan(...).events()``) yield grouped by
+document in ``doc_id`` order, each document by ``seq``; two stored events with one
+``(doc_id, seq)`` (a fork) both come back, in segment-name then file order. A segment is
+not sorted by document, so this order cannot be a streaming merge: ``scan`` makes two
+passes. Pass one streams every segment and keeps only ``(seq, segment, offset, length)``
+per event, packed in one ``array`` per document; pass two seeks to each line in order and
+parses it. Pass one parses every line, so a corrupt line raises ``CorruptLine`` before the
+first event is yielded; an event that fails validation raises when pass two reaches it.
+The tolerant mode (``strict=False``, for the index) records such lines as ``BadLine`` and
+skips them instead. ``spans`` limits a scan to byte ranges of named segments (the index's
+per-document locations, Task 8), so a per-document read need not read the whole run.
 
 ``iter_raw`` is the tolerant reader for verification (Task 7): it streams every segment one
 line at a time and parses nothing, yielding each whole line as bytes (``RawLine``) and each
@@ -77,6 +95,7 @@ from __future__ import annotations
 
 import copy
 import errno
+from array import array
 import fcntl
 import json
 import os
@@ -86,22 +105,25 @@ import weakref
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from mailroom_record.blobs import BlobStore, _fsync_dir, _makedirs_durable, write_exclusive
 from mailroom_record.hashing import canonical_json
 from mailroom_record.models import GENESIS, BlobRef, Event, Run, utc_now
 
 __all__ = [
+    "BadLine",
     "BlobNotStored",
     "CorruptLine",
     "DocumentInUse",
     "EventLog",
     "ForkedChain",
+    "LocatedEvent",
     "LogWriter",
     "OverlongLine",
     "RawLine",
     "RunExists",
+    "RunScan",
     "StoredLine",
     "TornTail",
     "WriterInUse",
@@ -183,6 +205,53 @@ class RawLine:
     data: bytes
 
 
+@dataclass(frozen=True)
+class BadLine:
+    """A whole line a tolerant scan skipped: not a JSON object, or not a valid event.
+
+    ``detail`` names the parse or validation error only (field names and error types),
+    never the line's content.
+    """
+
+    segment: str
+    byte_offset: int
+    kind: Literal["corrupt_line", "invalid_event"]
+    detail: str
+
+
+@dataclass(frozen=True)
+class LocatedEvent:
+    """An event and where its line is stored (``length`` counts the newline)."""
+
+    segment: str
+    byte_offset: int
+    length: int
+    event: Event
+
+
+def _stream_lines(path: Path, start: int = 0, end: int | None = None) -> Iterator[tuple[int, bytes, bool]]:
+    """Stream ``(offset, line without newline, whole)`` from ``start`` up to ``end``.
+
+    Never reads past ``end`` or the file's size when it was opened, and stops after the
+    first line that has no newline within that bound (a torn tail, or a line a writer is
+    still writing), so it can never return the rest of a line it saw the start of.
+    """
+    with path.open("rb") as f:
+        size = os.fstat(f.fileno()).st_size
+        stop = size if end is None else min(end, size)
+        f.seek(start)
+        offset = start
+        while offset < stop:
+            line = f.readline(stop - offset)
+            if not line:
+                return
+            if not line.endswith(b"\n"):
+                yield offset, line, False
+                return
+            yield offset, line[:-1], True
+            offset += len(line)
+
+
 def iter_raw_segment(path: Path, max_line: int | None = None) -> Iterator[RawLine | OverlongLine | TornTail]:
     """Stream one segment: each whole line as a ``RawLine``, then its torn tail, if any.
 
@@ -193,23 +262,29 @@ def iter_raw_segment(path: Path, max_line: int | None = None) -> Iterator[RawLin
     bytes with no newline at all is the segment's torn tail). Raises ``OSError`` if the file
     cannot be read.
     """
-    limit = -1 if max_line is None else max_line + 1
     with path.open("rb") as f:
+        stop = os.fstat(f.fileno()).st_size  # never read past the size at open
         offset = 0
-        while line := f.readline(limit):
+        while offset < stop:
+            want = stop - offset if max_line is None else min(stop - offset, max_line + 1)
+            line = f.readline(want)
+            if not line:
+                return
             if line.endswith(b"\n"):
                 yield RawLine(path.name, offset, line[:-1])
                 offset += len(line)
                 continue
-            if max_line is None or len(line) <= max_line:  # end of file: a torn tail
+            if max_line is None or len(line) <= max_line:  # no newline before the bound: a torn tail
                 yield TornTail(path.name, offset)
                 return
-            length = len(line)
-            while chunk := f.readline(1 << 20):
-                length += len(chunk)
-                if chunk.endswith(b"\n"):
+            length, ended = len(line), False  # an over-long line: skip it in chunks up to its newline
+            while not ended and offset + length < stop:
+                chunk = f.readline(min(1 << 20, stop - offset - length))
+                if not chunk:
                     break
-            else:
+                length += len(chunk)
+                ended = chunk.endswith(b"\n")
+            if not ended:  # no newline before the bound: a torn tail
                 yield TornTail(path.name, offset)
                 return
             yield OverlongLine(path.name, offset, length - 1)
@@ -222,27 +297,151 @@ def _check_writer_id(writer_id: Any) -> str:
     return writer_id
 
 
-def _parse_lines(segment: str, data: bytes, base: int) -> tuple[list[StoredLine], int]:
-    """Parse the whole lines of ``data`` (which starts at file offset ``base``).
+def _parse_line(segment: str, offset: int, line: bytes) -> dict[str, Any]:
+    """Parse one whole line. Raises ``CorruptLine`` if it is not a JSON object."""
+    try:
+        raw = json.loads(line)
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:  # deep nesting too
+        raise CorruptLine(f"{segment} at byte {offset}: not JSON ({exc})") from None
+    if not isinstance(raw, dict):
+        raise CorruptLine(f"{segment} at byte {offset}: not a JSON object")
+    return raw
 
-    Returns the lines and the number of bytes consumed (up to and including the last
-    newline). Raises ``CorruptLine`` for a whole line that is not a JSON object.
-    """
-    end = data.rfind(b"\n") + 1
-    out: list[StoredLine] = []
-    pos = 0
-    while pos < end:
-        nl = data.index(b"\n", pos)
-        line = data[pos:nl]
+
+def _iter_segment_stored(path: Path) -> Iterator[StoredLine]:
+    for offset, data, whole in _stream_lines(path):
+        if whole:
+            yield StoredLine(path.name, offset, _parse_line(path.name, offset, data))
+
+
+def _safe_detail(exc: BaseException) -> str:
+    """An error description without the input it rejected (no stored content leaks)."""
+    errors = getattr(exc, "errors", None)
+    if callable(errors):  # pydantic ValidationError: field locations and error types only
         try:
-            raw = json.loads(line)
-        except (UnicodeDecodeError, ValueError, RecursionError) as exc:  # deep nesting too
-            raise CorruptLine(f"{segment} at byte {base + pos}: not JSON ({exc})") from None
-        if not isinstance(raw, dict):
-            raise CorruptLine(f"{segment} at byte {base + pos}: not a JSON object")
-        out.append(StoredLine(segment, base + pos, raw))
-        pos = nl + 1
-    return out, end
+            parts = [".".join(str(x) for x in e.get("loc", ())) + ": " + str(e.get("type")) for e in errors()]
+            return "invalid event: " + "; ".join(parts)
+        except Exception:  # noqa: BLE001 - fall through to the type name
+            pass
+    if isinstance(exc, CorruptLine):
+        return str(exc).split(": ", 1)[-1]
+    return type(exc).__name__ + (f": {exc}" if type(exc).__name__ == "UnknownSchemaVersion" else "")
+
+
+def _is_seq(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+class RunScan:
+    """Pass one of an ordered read: where each event of a run (or of one document) lives.
+
+    Built by ``EventLog.scan``. Holds ``(seq, segment, offset, length)`` per event packed in
+    one ``array`` per document, so it is a few dozen bytes per event, whatever the payloads.
+    ``events()`` is pass two (see "Ordering contract" in the module doc).
+    """
+
+    def __init__(self, log: EventLog, run_id: str, doc_id: str | None, strict: bool) -> None:
+        self.log = log
+        self.run_id = run_id
+        self.doc_id = doc_id
+        self.strict = strict
+        self.segments: list[Path] = []
+        self.ends: dict[str, int] = {}  # segment -> end of the last whole line scanned
+        self.torn: list[TornTail] = []
+        self.bad: list[BadLine] = []
+        self._docs: dict[str, array[int]] = {}
+
+    def _bad(self, segment: str, offset: int, kind: Literal["corrupt_line", "invalid_event"], exc: BaseException) -> None:
+        if self.strict:
+            raise exc
+        self.bad.append(BadLine(segment, offset, kind, _safe_detail(exc)))
+
+    def _scan_span(self, seg_idx: int, path: Path, start: int, end: int | None) -> None:
+        name = path.name
+        reached = start
+        for offset, data, whole in _stream_lines(path, start, end):
+            if not whole:
+                if end is None:
+                    self.torn.append(TornTail(name, offset))
+                break
+            reached = offset + len(data) + 1
+            try:
+                raw = _parse_line(name, offset, data)
+            except CorruptLine as exc:
+                self._bad(name, offset, "corrupt_line", exc)
+                continue
+            doc, seq = raw.get("doc_id"), raw.get("seq")
+            if not isinstance(doc, str) or not _is_seq(seq):
+                try:
+                    Event.from_stored(raw)  # raises the validation error a reader expects
+                    exc: BaseException = CorruptLine(f"{name} at byte {offset}: missing doc_id or seq")
+                except (ValueError, TypeError) as err:
+                    exc = err
+                self._bad(name, offset, "invalid_event", exc)
+                continue
+            if self.doc_id is not None and doc != self.doc_id:
+                continue
+            arr = self._docs.get(doc)
+            if arr is None:
+                arr = self._docs[doc] = array("q")
+            arr.extend((seq, seg_idx, offset, len(data) + 1))
+        self.ends[name] = max(self.ends.get(name, 0), reached)
+
+    def doc_ids(self) -> list[str]:
+        return sorted(self._docs)
+
+    def seqs(self, doc_id: str) -> list[int]:
+        """Every stored ``seq`` of ``doc_id`` in this scan, sorted (a fork repeats one)."""
+        arr = self._docs.get(doc_id, array("q"))
+        return sorted(arr[0::4])
+
+    def gaps(self) -> dict[str, int]:
+        """``doc_id -> first missing seq`` for each document whose seqs skip a number."""
+        out: dict[str, int] = {}
+        for doc in self.doc_ids():
+            expect = 0
+            for seq in sorted(set(self.seqs(doc))):  # walk the stored seqs, never range(max)
+                if seq != expect:
+                    out[doc] = expect
+                    break
+                expect += 1
+        return out
+
+    def __len__(self) -> int:
+        return sum(len(a) // 4 for a in self._docs.values())
+
+    def events(self) -> Iterator[LocatedEvent]:
+        """Pass two: every scanned event, upgraded and validated, in the documented order."""
+        files: dict[int, Any] = {}
+        try:
+            for doc in self.doc_ids():
+                arr = self._docs[doc]
+                rows = sorted(tuple(arr[i : i + 4]) for i in range(0, len(arr), 4))
+                for seq, seg_idx, offset, length in rows:
+                    path = self.segments[seg_idx]
+                    f = files.get(seg_idx)
+                    if f is None:
+                        f = files[seg_idx] = path.open("rb")
+                    f.seek(offset)
+                    data = f.read(length)
+                    try:
+                        if len(data) != length or not data.endswith(b"\n"):
+                            raise CorruptLine(f"{path.name} at byte {offset}: line changed while reading")
+                        raw = _parse_line(path.name, offset, data[:-1])
+                        if raw.get("doc_id") != doc or raw.get("seq") != seq:
+                            raise CorruptLine(f"{path.name} at byte {offset}: line changed while reading")
+                    except CorruptLine as exc:
+                        self._bad(path.name, offset, "corrupt_line", exc)
+                        continue
+                    try:
+                        event = Event.from_stored(raw)
+                    except (ValueError, TypeError) as exc:
+                        self._bad(path.name, offset, "invalid_event", exc)
+                        continue
+                    yield LocatedEvent(path.name, offset, length, event)
+        finally:
+            for f in files.values():
+                f.close()
 
 
 # In-process document ownership: (store root, run_id, doc_id) -> the live writer.
@@ -305,10 +504,12 @@ class EventLog:
     # --- reading --------------------------------------------------------------------
 
     def iter_stored(self, run_id: str) -> Iterator[StoredLine]:
-        """Every whole stored line of a run, in segment-name then file order, not upgraded."""
+        """Every whole stored line of a run, in segment-name then file order, not upgraded.
+
+        Streamed: lines before a corrupt one are yielded before ``CorruptLine`` is raised.
+        """
         for seg in self._segments(run_id):
-            lines, _ = _parse_lines(seg.name, seg.read_bytes(), 0)
-            yield from lines
+            yield from _iter_segment_stored(seg)
 
     def segment_paths(self, run_id: str) -> list[Path]:
         """Every segment file of a run, sorted by name."""
@@ -323,17 +524,56 @@ class EventLog:
         """Segments whose last bytes do not end in a newline, with where the torn part starts."""
         out: list[TornTail] = []
         for seg in self._segments(run_id):
-            data = seg.read_bytes()
-            if data and not data.endswith(b"\n"):
-                out.append(TornTail(seg.name, data.rfind(b"\n") + 1))
+            start = _torn_start(seg)
+            if start is not None:
+                out.append(TornTail(seg.name, start))
         return out
 
+    def scan(
+        self,
+        run_id: str,
+        doc_id: str | None = None,
+        *,
+        spans: Mapping[str, Iterable[tuple[int, int | None]]] | None = None,
+        strict: bool = True,
+    ) -> RunScan:
+        """Pass one of an ordered read (see "Ordering contract" in the module doc).
+
+        ``spans`` maps a segment name to the ``(start, end)`` byte ranges to read (``end``
+        ``None`` reads to the end); segments it does not name are not read. Every ``start``
+        must be a line boundary. Without ``spans`` every segment is read whole. Strict
+        (the default) raises ``CorruptLine`` and validation errors like ``iter_events``;
+        ``strict=False`` records them in ``RunScan.bad`` and skips the line.
+        """
+        out = RunScan(self, run_id, doc_id, strict)
+        paths = self._segments(run_id)
+        if spans is not None:
+            paths = [p for p in paths if p.name in spans]
+        out.segments = paths
+        for i, path in enumerate(paths):
+            ranges = [(0, None)] if spans is None else sorted(spans[path.name], key=lambda r: r[0])
+            for start, end in ranges:
+                out._scan_span(i, path, start, end)
+        return out
+
+    def iter_located(
+        self,
+        run_id: str,
+        doc_id: str | None = None,
+        *,
+        spans: Mapping[str, Iterable[tuple[int, int | None]]] | None = None,
+    ) -> Iterator[LocatedEvent]:
+        """Like ``iter_events``, with each event's segment, offset and line length."""
+        yield from self.scan(run_id, doc_id, spans=spans).events()
+
     def iter_events(self, run_id: str, doc_id: str | None = None) -> Iterator[Event]:
-        """Flushed events, upgraded and validated, ordered by ``(doc_id, seq)``."""
-        rows = [s for s in self.iter_stored(run_id) if doc_id is None or s.raw.get("doc_id") == doc_id]
-        events = [Event.from_stored(s.raw) for s in rows]
-        events.sort(key=lambda e: (e.doc_id, e.seq))
-        yield from events
+        """Flushed events, upgraded and validated, grouped by ``doc_id`` and ordered by ``seq``.
+
+        Streamed in two passes (see "Ordering contract" in the module doc): memory is a few
+        machine words per event plus one line, never the run's payloads.
+        """
+        for located in self.scan(run_id, doc_id).events():
+            yield located.event
 
     def doc_heads(self, run_id: str) -> dict[str, str]:
         """``doc_id -> hash`` of the highest-``seq`` flushed event of each document.
@@ -391,14 +631,14 @@ class _DiskHeads:
 
     def refresh(self) -> None:
         for seg in self._log._segments(self._run_id):
-            start = self._offsets.get(seg.name, 0)
-            with seg.open("rb") as f:
-                f.seek(start)
-                data = f.read()
-            lines, used = _parse_lines(seg.name, data, start)
-            for s in lines:
-                self.heads.add(s.raw, s)
-            self._offsets[seg.name] = start + used
+            for offset, data, whole in _stream_lines(seg, self._offsets.get(seg.name, 0)):
+                if not whole:
+                    break
+                raw = _parse_line(seg.name, offset, data)
+                self.heads.add(raw, StoredLine(seg.name, offset, raw))
+                # Advance per line: a corrupt line raises here and is re-read next time,
+                # while the lines before it are never added twice (which would look forked).
+                self._offsets[seg.name] = offset + len(data) + 1
 
 
 class LogWriter:
@@ -599,6 +839,29 @@ class LogWriter:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+
+
+def _torn_start(path: Path, chunk: int = 1 << 16) -> int | None:
+    """Where the torn tail of ``path`` starts, or ``None`` if it ends in a newline (or is empty).
+
+    Reads backwards from the end in ``chunk``-sized pieces, so a large segment is not read.
+    """
+    with path.open("rb") as f:
+        end = os.fstat(f.fileno()).st_size
+        if end == 0:
+            return None
+        f.seek(end - 1)
+        if f.read(1) == b"\n":
+            return None
+        pos = end
+        while pos > 0:
+            start = max(0, pos - chunk)
+            f.seek(start)
+            nl = f.read(pos - start).rfind(b"\n")
+            if nl >= 0:
+                return start + nl + 1
+            pos = start
+        return 0
 
 
 def _last_byte(path: Path) -> bytes:

@@ -697,3 +697,154 @@ def seal_until_stopped(root: str, run_id: str, stop: Any, pause: float) -> int:
         n += 1
         time.sleep(pause)
     return n
+
+# --- streaming reads and the index (Task 8) -------------------------------------------
+
+
+def write_lines(root: Any, segment: str, events: list[Any], run_id: str = "r1", extra: bytes = b"") -> Any:
+    """Append ``events`` (Events or stored dicts) as canonical lines to one segment, then ``extra``.
+
+    Bypasses the writer, so tests can lay out any history (handoffs, forks, gaps, damage).
+    """
+    from pathlib import Path
+
+    from mailroom_record.hashing import canonical_json
+
+    seg = Path(root) / "runs" / run_id / "segments" / segment
+    seg.parent.mkdir(parents=True, exist_ok=True)
+    with seg.open("ab") as f:
+        for e in events:
+            raw = e if isinstance(e, dict) else e.model_dump(mode="json")
+            f.write(canonical_json(raw) + b"\n")
+        f.write(extra)
+    return seg
+
+
+def chain(doc_id: str, n: int, start: int = 0, prev: str = GENESIS, run_id: str = "r1", **fields: Any) -> list[Event]:
+    """``n`` linked events of ``doc_id`` starting at ``seq`` ``start`` after ``prev``."""
+    out: list[Event] = []
+    for i in range(start, start + n):
+        e = make_event(run_id=run_id, doc_id=doc_id, seq=i, prev_hash=prev, node=f"n{i}", **fields)
+        out.append(e)
+        prev = e.hash
+    return out
+
+
+def peak_bytes(fn: Any) -> int:
+    """Peak traced Python allocation while ``fn()`` runs (``tracemalloc``)."""
+    import gc
+    import tracemalloc
+
+    gc.collect()
+    tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        fn()
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+
+def build_two_run_store(root: Any) -> Any:
+    """Runs ``r1`` and ``r2`` under one root; both hold ``d1``; ``d2`` only in r1, ``d3`` only in r2."""
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from mailroom_record.blobs import BlobStore
+    from mailroom_record.log import EventLog
+    from mailroom_record.models import Run
+
+    root = Path(root)
+    blobs = BlobStore(root)
+    log = EventLog(root, blobs)
+    for run_id, created, docs in (("r1", "2026-11-18T12:00:00Z", ["d1", "d2"]), ("r2", "2026-11-18T13:00:00Z", ["d1", "d3"])):
+        log.create_run(Run(**run_fields(run_id=run_id, created_at=created, document_ids=docs)))
+        with log.open_writer(run_id, "w0") as w:
+            for doc in docs:
+                w.append(doc_id=doc, node="classify", kind="decision")
+                w.append(doc_id=doc, node="extract", kind="output")
+    return SimpleNamespace(root=root, blobs=blobs, log=log)
+
+
+def reindex_in_child(root: str, index_path: str, marker: str, after: int) -> None:
+    """Process target: reindex, pausing for ever after ``after`` events once ``marker`` is written.
+
+    The parent SIGKILLs it while the rebuild transaction is open.
+    """
+    import time
+    from pathlib import Path
+
+    from mailroom_record.blobs import BlobStore
+    from mailroom_record.index import Index
+    from mailroom_record.log import EventLog
+
+    log = slow_log(Path(root), BlobStore(Path(root)), marker=marker, after=after, pause=3600.0)
+    Index(Path(index_path)).reindex(log)
+    time.sleep(3600)  # never reached when the parent kills the child mid-build
+
+
+def read_index_until(index_path: str, stop: str, out: str) -> None:
+    """Process target: dump the index in a loop until ``stop`` exists; write what was seen to ``out``.
+
+    Each observation is the dump's digest, or ``unavailable:<status>``, plus whether the
+    parent's mid-build marker (``stop + ".building"``) existed just before the read began.
+    """
+    import hashlib
+    import json
+    import os
+    from pathlib import Path
+
+    from mailroom_record.index import Index, IndexUnavailable
+
+    idx = Index(Path(index_path))
+    seen: list[list[Any]] = []
+    while not os.path.exists(stop):
+        building = os.path.exists(stop + ".building")
+        try:
+            digest = hashlib.sha256(json.dumps(idx.dump(), sort_keys=True).encode()).hexdigest()
+        except IndexUnavailable as exc:
+            digest = f"unavailable:{exc.status}"
+        seen.append([building, digest])
+    Path(out).write_text(json.dumps(seen))
+
+
+def dump_digest(index: Any) -> str:
+    import hashlib
+    import json
+
+    return hashlib.sha256(json.dumps(index.dump(), sort_keys=True).encode()).hexdigest()
+
+
+def _make_slow_log() -> type:
+    from mailroom_record.log import EventLog
+
+    class _SlowLog(EventLog):
+        """An EventLog whose ordered reads touch ``marker`` after ``after`` events, then sleep ``pause``."""
+
+        def __init__(self, root: Any, blobs: Any, *, marker: str, after: int, pause: float) -> None:
+            super().__init__(root, blobs)
+            self.marker, self.after, self.pause = marker, after, pause
+
+        def scan(self, run_id: str, doc_id: Any = None, **kw: Any) -> Any:
+            import time
+            from pathlib import Path
+
+            scan = super().scan(run_id, doc_id, **kw)
+            events, owner = scan.events, self
+
+            def slow() -> Any:
+                for i, located in enumerate(events()):
+                    if i == owner.after:
+                        Path(owner.marker).touch()
+                        time.sleep(owner.pause)
+                    yield located
+
+            scan.events = slow  # type: ignore[method-assign]
+            return scan
+
+    return _SlowLog
+
+
+def slow_log(root: Any, blobs: Any, *, marker: str, after: int, pause: float) -> Any:
+    """An EventLog whose ordered reads touch ``marker`` after ``after`` events, then sleep ``pause``."""
+    return _make_slow_log()(root, blobs, marker=marker, after=after, pause=pause)
