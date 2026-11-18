@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from mailroom_common.errors import ConfigError
 from mailroom_common.hashing import canonical_json, hash_obj
 from mailroom_common.jsonl import parse_json
+from mailroom_common.logging import REDACTED, redact_text
 from mailroom_common.yamlio import loads_yaml
 
 __all__ = ["ConfigModel", "config_hash", "deep_merge", "load_config", "load_layered"]
@@ -85,7 +86,7 @@ def _dotted(location: Sequence[int | str]) -> str:
     return ".".join(str(part) for part in location) or "<root>"
 
 
-def _interpolate_text(text: str, env: Mapping[str, str], source: str, where: str) -> str:
+def _interpolate_text(text: str, env: Mapping[str, str], source: str, where: str, used: set[str]) -> str:
     def replace(match: re.Match[str]) -> str:
         whole = match.group(0)
         if whole == "$$":
@@ -103,18 +104,24 @@ def _interpolate_text(text: str, env: Mapping[str, str], source: str, where: str
             return default
         if value is None:
             raise ConfigError(f"undefined variable {name} with no default", source=source, key=where)
+        used.add(value)
         return value
 
     return _REFERENCE.sub(replace, text)
 
 
-def _interpolate(data: Any, env: Mapping[str, str], source: str, location: tuple[int | str, ...]) -> Any:
+def _interpolate(
+    data: Any, env: Mapping[str, str], source: str, location: tuple[int | str, ...], used: set[str]
+) -> Any:
+    """Interpolate every string in ``data``; each environment value substituted is added to ``used``."""
     if isinstance(data, str):
-        return _interpolate_text(data, env, source, _dotted(location))
+        return _interpolate_text(data, env, source, _dotted(location), used)
     if isinstance(data, dict):
-        return {key: _interpolate(value, env, source, (*location, key)) for key, value in data.items()}
+        return {key: _interpolate(value, env, source, (*location, key), used) for key, value in data.items()}
     if isinstance(data, list):
-        return [_interpolate(value, env, source, (*location, index)) for index, value in enumerate(data)]
+        return [
+            _interpolate(value, env, source, (*location, index), used) for index, value in enumerate(data)
+        ]
     return data
 
 
@@ -137,7 +144,7 @@ def _to_json_data(data: Any, source: str, location: tuple[int | str, ...]) -> An
     )
 
 
-def _read_layer(path: Path, env: Mapping[str, str] | None) -> dict[str, Any]:
+def _read_layer(path: Path, env: Mapping[str, str] | None, used: set[str]) -> dict[str, Any]:
     source = str(path)
     suffix = path.suffix.lower()
     if suffix not in _YAML_SUFFIXES | _JSON_SUFFIXES:
@@ -165,21 +172,34 @@ def _read_layer(path: Path, env: Mapping[str, str] | None) -> dict[str, Any]:
         )
     data = _to_json_data(data, source, ())
     if env is not None:
-        data = _interpolate(data, env, source, ())
+        data = _interpolate(data, env, source, (), used)
     return data  # type: ignore[no-any-return]
 
 
-def _validate(data: dict[str, Any], model: type[ModelT], source: str | list[str]) -> ModelT:
+def _scrub(message: str, interpolated: set[str]) -> str:
+    for value in sorted((v for v in interpolated if v), key=len, reverse=True):
+        message = message.replace(value, REDACTED)
+    return redact_text(message)
+
+
+def _validate(
+    data: dict[str, Any], model: type[ModelT], source: str | list[str], interpolated: set[str]
+) -> ModelT:
     """Validate, or raise a ConfigError holding only value-free facts.
 
     pydantic's ``ValidationError`` renders each ``input_value``, which may be an
     interpolated secret, so it is neither chained nor left as ``__context__``: the
     ConfigError is raised outside the ``except`` block and carries only paths and messages.
+    A message can still quote a value (a validator's own ``ValueError``), so every
+    interpolated environment value in it is replaced by ``[REDACTED]`` and the message is
+    then run through :func:`~mailroom_common.logging.redact_text`.
     """
     try:
         return model.model_validate_json(canonical_json(data), strict=True)
     except ValidationError as exc:
-        problems = [f"{_dotted(error['loc'])}: {error['msg']}" for error in exc.errors()]
+        problems = [
+            f"{_dotted(error['loc'])}: {_scrub(error['msg'], interpolated)}" for error in exc.errors()
+        ]
     raise ConfigError(
         f"config does not match {model.__name__}: " + "; ".join(problems),
         source=source,
@@ -204,7 +224,9 @@ def load_config(path: str | Path, model: type[ModelT], *, env: Mapping[str, str]
     (the message lists every problem as ``dotted.path: message``).
     """
     path = Path(path)
-    return _validate(_read_layer(path, env), model, str(path))
+    used: set[str] = set()
+    data = _read_layer(path, env, used)
+    return _validate(data, model, str(path), used)
 
 
 def load_layered(
@@ -219,9 +241,10 @@ def load_layered(
     if not paths:
         raise ConfigError("load_layered needs at least one config file")
     merged: dict[str, Any] = {}
+    used: set[str] = set()
     for path in paths:
-        merged = deep_merge(merged, _read_layer(Path(path), env))
-    return _validate(merged, model, [str(Path(path)) for path in paths])
+        merged = deep_merge(merged, _read_layer(Path(path), env, used))
+    return _validate(merged, model, [str(Path(path)) for path in paths], used)
 
 
 def config_hash(config: BaseModel | Mapping[str, Any]) -> str:
