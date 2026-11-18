@@ -26,22 +26,34 @@ def validate_confidence(confidence: Any, name: str = "confidence") -> float:
     return value
 
 
-def validate_resampling(n_boot: Any, alpha: Any, seed: Any) -> tuple[int, int]:
+def validate_alpha(alpha: Any) -> float:
+    """Require a real ``alpha`` (not a bool) strictly inside ``(0, 1)``; return it as a plain float.
+
+    A NumPy float or a ``Fraction`` becomes a ``float``, so a result that stores it, and a
+    ``significant`` flag compared with it, serialise to JSON.
+    """
+    if isinstance(alpha, bool) or not isinstance(alpha, numbers.Real) or not 0.0 < float(alpha) < 1.0:
+        raise ValueError(f"alpha must be in (0, 1); got {alpha!r}")
+    return float(alpha)
+
+
+def validate_resampling(n_boot: Any, alpha: Any, seed: Any) -> tuple[int, float, int]:
     """A bootstrap needs at least one resample, an ``alpha`` inside ``(0, 1)`` and an integer seed.
 
-    Returns ``(n_boot, seed)`` as plain ints (``operator.index``), so a NumPy integer
-    seeds ``random.Random`` and its result serialises to JSON.
+    Returns ``(n_boot, alpha, seed)`` as a plain int, float and int (``operator.index``,
+    :func:`validate_alpha`), so a NumPy integer seeds ``random.Random`` and the result
+    serialises to JSON. The float ``alpha`` is for storing and comparing; the percentile
+    positions are computed from the alpha as given (``bootstrap.percentile_indices``).
     """
     if isinstance(n_boot, bool) or not isinstance(n_boot, numbers.Integral):
         raise TypeError("n_boot must be an integer")
     count = operator.index(n_boot)
     if count < 1:
         raise ValueError(f"n_boot must be at least 1; got {n_boot!r}")
-    if isinstance(alpha, bool) or not isinstance(alpha, numbers.Real) or not 0.0 < float(alpha) < 1.0:
-        raise ValueError(f"alpha must be in (0, 1); got {alpha!r}")
+    level = validate_alpha(alpha)
     if isinstance(seed, bool) or not isinstance(seed, numbers.Integral):
         raise TypeError("seed must be an integer")
-    return count, operator.index(seed)
+    return count, level, operator.index(seed)
 
 
 def is_non_finite(value: Any) -> bool:

@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import random
 import re
+from fractions import Fraction
 
 import numpy
 import pytest
@@ -339,6 +340,45 @@ def test_numpy_integer_resampling_parameters_are_plain_integers(integer):
             assert got.to_dict() == expected
             assert type(got.seed) is int and type(got.n_boot) is int
             assert json.loads(json.dumps(got.to_dict())) == expected
+
+
+@pytest.mark.parametrize(
+    "alpha",
+    [numpy.float64(0.05), numpy.float32(0.05), Fraction(1, 20)],
+    ids=["float64", "float32", "Fraction"],
+)
+def test_non_float_alphas_are_plain_floats_and_results_are_json(alpha):
+    """A NumPy or Fraction alpha is stored as a float, significant is a bool, to_dict() is JSON."""
+    a = by_document([0.1, 0.5, 0.9, 0.4, 0.7])
+    b = by_document([0.3, 0.6, 0.8, 0.6, 0.9])
+    delta = paired_bootstrap_delta(a, b, n_boot=50, seed=7, alpha=alpha)
+    expected = paired_bootstrap_delta(a, b, n_boot=50, seed=7, alpha=float(alpha)).to_dict()
+    flips_a = {f"d{i}": i % 2 == 0 for i in range(12)}
+    flips_b = {f"d{i}": True for i in range(12)}
+    flip = outcome_flip_test(flips_a, flips_b, alpha=alpha)
+    flip_expected = outcome_flip_test(flips_a, flips_b, alpha=float(alpha)).to_dict()
+    for result, want in ((delta, expected), (flip, flip_expected)):
+        assert type(result.alpha) is float and result.alpha == float(alpha)
+        assert type(result.significant) is bool
+        assert result.to_dict() == want
+        assert json.loads(json.dumps(result.to_dict())) == want
+
+
+def test_float32_alpha_keeps_the_old_percentile_positions():
+    """A float32 alpha picks the old Dojo's positions at a tie, not those of float(alpha).
+
+    The old Dojo gave ``lo 0.2857, hi 0.6571`` here for ``float32(0.05)``, the same as for
+    ``0.05``; ``float(float32(0.05))`` would round ``(1 - alpha / 2) * 100`` to another
+    position.
+    """
+    values = [0.1, 0.5, 0.9, 0.4, 0.7, 0.2, 0.8]
+    alpha = numpy.float32(0.05)
+    got = bootstrap_ci(values, n_boot=100, alpha=alpha, seed=42).to_dict()
+    assert (got["lo"], got["hi"]) == (0.2857, 0.6571)
+    assert got == bootstrap_ci(values, n_boot=100, alpha=0.05, seed=42).to_dict()
+    zeros = by_document([0.0] * len(values))
+    paired = paired_bootstrap_delta(zeros, by_document(values), n_boot=100, alpha=alpha, seed=42)
+    assert (paired.ci_lo, paired.ci_hi) == (0.2857, 0.6571)
 
 
 # --- bad input -----------------------------------------------------------------

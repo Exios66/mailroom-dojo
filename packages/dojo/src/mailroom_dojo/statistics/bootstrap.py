@@ -141,7 +141,12 @@ def scores_as_floats(values: Iterable[Any], name: str = "values") -> list[float]
 
 
 def percentile_indices(n_boot: int, alpha: float) -> tuple[int, int]:
-    """The sorted-resample positions of the lower and upper percentile bounds."""
+    """The sorted-resample positions of the lower and upper percentile bounds.
+
+    ``alpha`` is used as the caller gave it, not as a float: the old Dojo computed these
+    positions in the alpha's own arithmetic, and a NumPy ``float32(0.05)`` converted to a
+    float rounds to other positions at ties (``n_boot=20`` or ``100``).
+    """
     lo_index = max(0, int(round((alpha / 2) * n_boot)) - 1)
     hi_index = min(n_boot - 1, int(round((1 - alpha / 2) * n_boot)) - 1)
     return lo_index, hi_index
@@ -169,7 +174,7 @@ def bootstrap_ci(
     cleaned = scores_as_floats(values)
     if len(cleaned) < 2:
         return None
-    n_boot, seed = validate_resampling(n_boot, alpha, seed)
+    n_boot, _, seed = validate_resampling(n_boot, alpha, seed)
     means = resample_means(cleaned, n_boot, random.Random(seed))
     means.sort()
     lo_index, hi_index = percentile_indices(n_boot, alpha)
@@ -201,7 +206,7 @@ def delta_significance(
     b = scores_as_floats(values_b, "values_b")
     if len(a) < 2 or len(b) < 2:
         return None
-    n_boot, seed = validate_resampling(n_boot, alpha, seed)
+    n_boot, _, seed = validate_resampling(n_boot, alpha, seed)
     rng = random.Random(seed)
     mean_a = sum(a) / len(a)
     mean_b = sum(b) / len(b)
