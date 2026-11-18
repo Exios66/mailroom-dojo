@@ -19,6 +19,12 @@ layout) the same way, so a seal cannot land between the desk's "is this run clos
 and its append (see ``desk.py``). It makes ``seals/`` durable first (creates it if missing,
 then fsyncs it and the run directory, on every call), because ``seal_run`` skips those
 fsyncs for a directory that already exists.
+
+A process forked without ``exec`` inherits the lock: ``flock`` belongs to the open file
+description, which a ``fork`` shares, so the lock stays held until the parent *and* the
+child have closed it (or exited). Never fork while holding a desk lock; start workers with
+``multiprocessing``'s ``spawn`` (or ``fork`` followed by ``exec``, as ``subprocess`` does):
+the descriptors are non-inheritable, so an exec'd child never holds the lock.
 """
 
 from __future__ import annotations

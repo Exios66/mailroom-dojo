@@ -119,3 +119,51 @@ def test_lock_held_by_another_process_times_out_then_frees_on_its_death(tmp_path
     child.join(30)
     assert Desk(tmp_path, lock_timeout=5).enqueue(request("d1", "flag_low"), pol)
     _verify_clean(tmp_path)
+
+
+def test_a_child_forked_without_exec_keeps_the_lock_after_the_parent_lets_go(tmp_path: Path) -> None:
+    """``flock`` belongs to the open file description, which ``fork`` shares: a child forked
+    while the desk lock is held holds it too, until it exits, even after the parent has
+    released it. Hence the rule (lock.py, README): never fork while holding a desk lock;
+    use spawn or exec. The child only blocks on a pipe and calls ``os._exit``."""
+    import warnings
+
+    make_run(tmp_path)
+    r, w = os.pipe()
+    with desk_lock(tmp_path, "r1", timeout=1):
+        with warnings.catch_warnings():  # Python warns about fork in a threaded process
+            warnings.simplefilter("ignore", DeprecationWarning)
+            pid = os.fork()
+        if pid == 0:  # the child: wait until the parent closes the pipe, then exit
+            try:
+                os.close(w)
+                os.read(r, 1)
+            finally:
+                os._exit(0)
+        os.close(r)
+    try:
+        with pytest.raises(DeskLockTimeout):  # the parent closed its descriptor; the child's holds the lock
+            with desk_lock(tmp_path, "r1", timeout=0):
+                pass
+    finally:
+        os.close(w)
+        _, status = os.waitpid(pid, 0)
+    assert os.waitstatus_to_exitcode(status) == 0
+    with desk_lock(tmp_path, "r1", timeout=0):  # the child exited: free
+        pass
+
+
+def test_a_spawned_child_does_not_inherit_the_lock(tmp_path: Path) -> None:
+    """Positive control for the rule above: a child started with ``spawn`` (fork and exec)
+    while the lock is held gets none of its descriptors, so releasing frees it at once."""
+    make_run(tmp_path)
+    with desk_lock(tmp_path, "r1", timeout=1):
+        child = CTX.Process(target=time.sleep, args=(600,))
+        child.start()
+    try:
+        assert child.is_alive()
+        with desk_lock(tmp_path, "r1", timeout=0):
+            pass
+    finally:
+        child.kill()
+        child.join(30)

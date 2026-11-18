@@ -48,6 +48,11 @@ desk.case("r1", "<doc sha256>")           # one document's case (its last episod
 - Every desk append happens under the run's desk lock, with the writer id `desk`, opened,
   flushed and closed per action. For an experiment run the desk also holds the record's
   seal lock, so a seal cannot land between the "is this run closed?" check and the append.
+- Never fork a process while it holds a desk lock: a `flock` belongs to the open file
+  description, which `fork` shares, so a child forked without `exec` keeps the lock held
+  after the parent releases it, until the child exits. Start workers with
+  `multiprocessing`'s `spawn` context or `subprocess` (fork then exec): the desk's lock
+  descriptors are not inheritable, so those children never hold a lock.
 - A sealed experiment run is refused (`RunClosed`); a `service_period` run is never closed.
 - With an index, `queue()` checks run by run that the index's document heads equal the log's.
   A run where they differ (or an unavailable index) is read from the log and a warning is
