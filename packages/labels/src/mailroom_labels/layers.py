@@ -27,7 +27,9 @@ outer shape; every label has ``basis`` ``near_gold:<how>`` and a ``presence``. I
 
 ``review`` / ``mailroom-labels/review/v1`` — one decision per line: ``{"doc_id", "field",
 "verdict", "reviewer": {"model", "role"}, "note"?, "entry": {"value", "evidence"?,
-"absent"?, "basis"?}}``. ``verdict`` is ``correct`` or ``accept``. A decision whose
+"absent"?, "basis"?}, "origin"?, "reviewed_at"?}``. ``origin`` (a list of
+``<source file>:<line>`` strings) and ``reviewed_at`` (a timestamp string or null) are
+provenance only and never change how a decision resolves. ``verdict`` is ``correct`` or ``accept``. A decision whose
 ``reviewer.model`` is ``human`` is ``gold`` (rank ``review:gold``); any other reviewer's is
 ``near_gold`` (rank ``review:near_gold``) with source ``review:<model>-<role>``. An
 ``absent`` reason makes the presence ``schema_documented_absence``.
@@ -313,9 +315,14 @@ def _read_review(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
     ctx, d = _Ctx(snap, row), row.data
     doc, fname = d.get("doc_id"), d.get("field")
     problems = []
-    extra = set(d) - {"doc_id", "field", "verdict", "reviewer", "note", "entry"}
+    extra = set(d) - {"doc_id", "field", "verdict", "reviewer", "note", "entry", "origin", "reviewed_at"}
     if extra:
         problems.append(f"unknown keys {sorted(extra)}")
+    origin = d.get("origin", [])
+    if not (isinstance(origin, list) and all(_is_name(o) for o in origin)):
+        problems.append("origin must be a list of names")
+    if not isinstance(d.get("reviewed_at"), (str, type(None))):
+        problems.append("reviewed_at must be a string or null")
     if not _is_name(doc):
         problems.append("doc_id must be a name")
     if not _is_name(fname):

@@ -195,3 +195,15 @@ def test_hash_matches_prefix_rule() -> None:
 def test_corpus_index_keeps_the_first_entry(tmp_path: Path) -> None:
     out = read(tmp_path, "hub", [hub_row("D1", "letter"), hub_row("D1", "filing", "annual")])
     assert corpus_index(out.corpus)["D1"].doc_class == "filing"  # rows are sorted by canonical JSON
+
+
+def test_review_provenance_keys_are_read_and_checked(tmp_path: Path) -> None:
+    """``origin`` and ``reviewed_at`` are provenance: accepted when well formed, a
+    malformed_record when not, and they never change the decision."""
+    good = {**review_row("D1", "sender", "Ann", human=True),
+            "origin": ["desk.jsonl:3", "owner.jsonl:1"], "reviewed_at": "2026-11-17T18:13:52Z"}
+    bad_origin = {**review_row("D2", "sender", "Bo"), "origin": "desk.jsonl:4"}
+    bad_time = {**review_row("D3", "sender", "Cy"), "reviewed_at": 17}
+    read = read_layer(load_snapshot(make_snapshot(tmp_path, "review", [good, bad_origin, bad_time])))
+    assert [(r.document_id, r.rank, r.value) for r in read.records] == [("D1", "review:gold", "Ann")]
+    assert sorted((f.kind, f.doc) for f in read.findings) == [("malformed_record", "D2"), ("malformed_record", "D3")]
