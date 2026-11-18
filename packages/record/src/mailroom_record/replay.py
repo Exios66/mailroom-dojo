@@ -49,7 +49,8 @@ latest row. Only ``done`` and
 ``failed`` final states count as complete; ``cancelled`` replays as ``failed``.
 
 No document text and no extracted value is in the timeline: rows are built from a fixed
-list of fields, decisions lose any ``options`` entry, and blobs are never read. Raises
+list of fields, decisions lose any ``options`` entry (and the importer stored their free
+text as its SHA-256 and length), and blobs are never read. Raises
 ``FileNotFoundError`` for an unknown run, ``RunPruned`` for a pruned run (naming the
 archive that holds its events) and ``ValueError`` for a run with no node or item row, or a
 timeline longer than seven days (the sandbox's limits).
@@ -68,6 +69,11 @@ Where the rows differ from the sandbox's, field by field, and why:
   finishing event (``payload.step``) to pair the two.
 - ``decisions`` lose each ``options`` entry: model output text, which the importer does not
   store.
+- A decision's ``question`` or ``answer`` (or any other string in it) that was free text,
+  not a short token, is stored as its SHA-256 and length, so it cannot be restored and
+  replays as that ``{"sha256", "chars"}`` digest; the sandbox shows the text. Tokens (class
+  labels, verdicts such as ``continue_sorter_correct``, question ids), numbers and bools
+  replay as stored.
 - A node ``status`` that was free text is stored as its SHA-256 and length, so it cannot be
   restored and replays as ``None``; a number or a bool replays as stored.
 - Item rows: the record shows ``doc`` (the item id), ``error`` as the cause token (the type

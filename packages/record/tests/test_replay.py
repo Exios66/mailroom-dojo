@@ -376,7 +376,7 @@ OUTCOME_KEYS = (
 
 def _same_fields(got: list[tuple[float, dict]], want: list[tuple[float, dict]]) -> set[str]:
     """Assert the field rules above row by row; return the fields that were compared."""
-    from mailroom_record.importer._folder import cause_token
+    from mailroom_record.importer._folder import cause_token, scrub
 
     compared: set[str] = set()
     started: dict[tuple[str, str], Any] = {}  # the sandbox's last running step per (doc, node)
@@ -404,8 +404,9 @@ def _same_fields(got: list[tuple[float, dict]], want: list[tuple[float, dict]]) 
                 # the finish's own row, else of its start.
                 assert g["step"] == (w["step"] if "step" in w else started.get(pair)), (pair, g["step"])
                 assert g["stage"] == w.get("stage") and g["ms"] == w.get("ms")
+                # minus ``options``, and free text (not a token) as its SHA-256 and length
                 decisions = w.get("decisions") or []
-                assert g["decisions"] == [{k: v for k, v in d.items() if k != "options"} for d in decisions]
+                assert g["decisions"] == [scrub({k: v for k, v in d.items() if k != "options"}) for d in decisions]
             compared |= {f"node.{k}" for k in g}
         else:
             assert set(g) == ITEM_KEYS, set(g)
@@ -421,7 +422,7 @@ def _same_fields(got: list[tuple[float, dict]], want: list[tuple[float, dict]]) 
     return compared
 
 
-@pytest.mark.parametrize("variant", ["complete", "crashed"])
+@pytest.mark.parametrize("variant", ["complete", "crashed", "free_text_decision"])
 def test_field_parity_with_the_sandbox_build_timeline(tmp_path: Path, variant: str) -> None:
     sandbox = _sandbox_floor_replay()
     if sandbox is None:
@@ -429,11 +430,19 @@ def test_field_parity_with_the_sandbox_build_timeline(tmp_path: Path, variant: s
     folder = copy_fixture(tmp_path / "src" / variant, run_id=f"ar-fields-{variant}")
     if variant == "crashed":
         crash_fixture(folder)
+    if variant == "free_text_decision":  # a documented difference: the text replays as its digest
+        nodes = read_jsonl(folder / "nodes.jsonl")
+        row = next(r for r in nodes if r.get("decisions"))
+        row["decisions"].append({"question": "party name", "type": "choice", "answer": "Jane Q Example", "p": 0.9})
+        write_jsonl(folder / "nodes.jsonl", nodes)
     store = _store(tmp_path / "store")
     r = import_sandbox_run(folder, store.log, store.blobs)
     got, got_meta = replay_timeline(store.log, r.run_id)
     want, want_meta = sandbox.build_timeline(folder)
     compared = _same_fields(got, want)
+    if variant == "free_text_decision":
+        shown = [d for _, e in got if "node" in e for d in e["node"].get("decisions") or []]
+        assert {"sha256", "chars"} == set(next(d["answer"] for d in shown if d.get("p") == 0.9))
     assert {f"node.{k}" for k in FINISH_KEYS} | {f"item.{k}" for k in ITEM_KEYS} <= compared
     assert set(got_meta) == set(want_meta)
     for key in set(got_meta) - {"duration_s"}:

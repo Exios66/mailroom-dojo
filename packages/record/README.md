@@ -135,7 +135,10 @@ imported, except `expected_doc_class` as `draw_class`. Each finished node row is
 (`review`, `error`, `decision` or `handoff`, in that order of rules) carrying its start time,
 step, stage and status for the floor replay; each item row is one `output` (or `error`)
 event with `extraction` and `report` blobs; `events.jsonl` and `checkpoint.json` become
-`_run` events. Fields the folder does not capture are `None` and listed in `absent_fields`;
+`_run` events. A string in a payload or a decision that is not a short token (an id, a
+label, a model name; never an email, a URL or a path) is stored as its SHA-256 and length,
+so no document or model free text enters the log. Fields the folder does not capture are
+`None` and listed in `absent_fields`;
 a torn last line the import skipped is in `warnings` and kept as the run's `import` event.
 Importing a folder again is a no-op (`already_imported`); an import that died part way is
 finished by the next one; a different folder under the same run id raises `ImportConflict`,
@@ -175,6 +178,11 @@ Where the record's rows differ from the sandbox's, field by field, and why:
   finishing event (`payload.step`) to pair the two.
 - `decisions` lose each `options` entry: model output text, which the importer does not
   store.
+- A decision's `question` or `answer` (or any other string in it) that was free text, not a
+  short token, is stored as its SHA-256 and length, so it cannot be restored and replays as
+  that `{"sha256", "chars"}` digest; the sandbox shows the text. Tokens (class labels,
+  verdicts such as `continue_sorter_correct`, question ids), numbers and bools replay as
+  stored.
 - A node `status` that was free text is stored as its SHA-256 and length, so it cannot be
   restored and replays as `None`; a number or a bool replays as stored.
 - Item rows: the record shows `doc` (the item id), `error` as the cause token (the type name

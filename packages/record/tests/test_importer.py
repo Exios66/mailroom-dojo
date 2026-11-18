@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -25,6 +26,7 @@ from record_testkit import (
 )
 
 from mailroom_record.blobs import BlobStore
+from mailroom_record.importer._folder import scrub, token
 from mailroom_record.importer.audit import ROUTING_INPUTS, audit_sandbox_run
 from mailroom_record.importer.sandbox_run import (
     ImportConflict,
@@ -85,7 +87,7 @@ def test_node_decisions_survive(tmp_store: SimpleNamespace, fixture_folder: Path
     ev = [e for e in tmp_store.log.iter_events(RUN, DOC1) if e.node == "judge_verify"]
     assert ev[0].decision[0]["question"] == "extraction_verdict" and ev[0].decision[0]["answer"] == "partial"
     classify = [e for e in events_of(tmp_store, doc_id=DOC1) if e.node == "classify"][0]
-    # the row's decisions as given, minus the options text (model output)
+    # the row's decisions minus the options text (model output); tokens are kept as written
     assert classify.decision == [
         {"question": "doc_type", "type": "choice", "answer": "contract", "p": 0.93, "expected": None, "source": "agent"}
     ]
@@ -566,3 +568,85 @@ def test_skipped_torn_line_is_kept_in_the_record(
     clean = import_sandbox_run(fixture_folder_replicate, tmp_store.log, tmp_store.blobs)
     assert clean.warnings == []
     assert not [e for e in tmp_store.log.iter_events(clean.run_id, "_run") if e.node == "import"]
+
+
+# --- free text never reaches the log ---------------------------------------------------------
+
+FREE_ANSWER = "Jane Q Example of 12 Elm St"
+FREE_QUESTION = "party name of the buyer"
+EMAIL = "jane.example@client-firm.com"
+
+
+def test_decision_and_detail_free_text_is_scrubbed(tmp_store: SimpleNamespace, fixture_folder: Path) -> None:
+    """A decision's question and answer, and an ``events.jsonl`` detail, that are not tokens
+    are stored as their SHA-256 and length: no byte of them is in any segment."""
+    nodes = read_jsonl(fixture_folder / "nodes.jsonl")
+    row = next(r for r in nodes if r.get("decisions"))
+    row["decisions"].append(
+        {"question": FREE_QUESTION, "type": "choice", "answer": FREE_ANSWER, "p": 0.9, "source": "decisions"}
+    )
+    write_jsonl(fixture_folder / "nodes.jsonl", nodes)
+    events = read_jsonl(fixture_folder / "events.jsonl")
+    events[0]["detail"] = EMAIL
+    write_jsonl(fixture_folder / "events.jsonl", events)
+    r = import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    assert r.status == "imported"
+    stored = segment_bytes(tmp_store.root)
+    for needle in (FREE_ANSWER, FREE_QUESTION, EMAIL):
+        assert needle.encode() not in stored
+    decided = [e for e in events_of(tmp_store) if e.decision and isinstance(e.decision, list)]
+    added = [d for e in decided for d in e.decision if d.get("source") == "decisions"]
+    assert added == [
+        {
+            "question": {"sha256": hashlib.sha256(FREE_QUESTION.encode()).hexdigest(), "chars": len(FREE_QUESTION)},
+            "type": "choice",
+            "answer": {"sha256": hashlib.sha256(FREE_ANSWER.encode()).hexdigest(), "chars": len(FREE_ANSWER)},
+            "p": 0.9,
+            "source": "decisions",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        EMAIL,
+        "someone@example.org",
+        "https://example.org/a",
+        "http://localhost:8000/v1",
+        "file:///etc/passwd",
+        "/home/someone/runs/a.jsonl",
+        "~/runs/a.jsonl",
+        "./runs/a.jsonl",
+        "../levers.yaml",
+        "runs/../secret",
+        "a//b",
+        "C:/Users/someone",
+    ],
+)
+def test_an_email_url_or_path_is_not_a_token(value: str) -> None:
+    assert token(value) is None
+    assert isinstance(scrub(value), dict)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "low_confidence",
+        "contract",
+        "continue_sorter_correct",
+        "extraction_verdict",
+        "qwen/qwen3.7-flash",
+        "openai/gpt-6-luna-decisions",
+        "mailroom.spend-authorization/v1",
+        "entity_list:name",
+        "2026-11-18T12:00:05.975+00:00",
+        "DOC-0000000000000dd4",
+        "allen-p/deleted_items/100.",
+        "",
+    ],
+)
+def test_labels_ids_and_model_names_stay_tokens(value: str) -> None:
+    assert token(value) == value
+    assert scrub(value) == value
+

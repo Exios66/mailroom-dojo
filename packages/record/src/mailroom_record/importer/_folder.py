@@ -13,7 +13,10 @@ stored value: messages name the file, the line number and what is wrong.
   the record's form (UTC, microseconds, ``Z``).
 - ``scrub`` keeps a value made of numbers, booleans, ``None`` and short tokens (ids, names,
   labels such as ``low_confidence``); any other string becomes its SHA-256 and length, so
-  free text from a model or a document never reaches the record.
+  free text from a model or a document never reaches the record. A token is at most 80
+  characters of ``A-Z a-z 0-9 _ . : / + # = -``, and never a path or a URL (a leading ``/``,
+  a drive letter, a ``.`` or ``..`` segment, or ``//``); ``@`` is not among its characters,
+  so an email is not a token. A single word is still a token, whatever wrote it.
 """
 
 from __future__ import annotations
@@ -39,7 +42,13 @@ __all__ = [
     "token",
 ]
 
-_TOKEN_RE = re.compile(r"[A-Za-z0-9_.:/@+#=-]{0,80}")
+_TOKEN_RE = re.compile(r"[A-Za-z0-9_.:/+#=-]{0,80}")
+# A path or a URL is not a token, though its characters are: an absolute or home path, a
+# drive letter, a ``.`` or ``..`` segment, an empty segment (``//``, so every ``scheme://``).
+# A single ``/`` stays (model ids such as ``qwen/qwen3.7-flash``, schema ids such as
+# ``mailroom.spend-authorization/v1``), and so do several (corpus ids such as
+# ``allen-p/deleted_items/100.``). ``@`` is never in a token, so neither is an email.
+_PATH_RE = re.compile(r"^/|^[A-Za-z]:/|//|(^|/)\.{1,2}(/|$)")
 _CAUSE_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,79}")
 
 
@@ -49,7 +58,9 @@ class SandboxFolderInvalid(ValueError):
 
 def token(value: Any) -> str | None:
     """``value`` if it is a short token string (safe to store and print), else ``None``."""
-    return value if isinstance(value, str) and _TOKEN_RE.fullmatch(value) else None
+    if isinstance(value, str) and _TOKEN_RE.fullmatch(value) and not _PATH_RE.search(value):
+        return value
+    return None
 
 
 def label(value: Any) -> Any:

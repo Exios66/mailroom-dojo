@@ -25,7 +25,9 @@ Mapping
 - Each ``done``, ``paused``, ``error`` or ``failed`` row of ``nodes.jsonl`` is one event,
   its kind decided in this order: ``review`` for ``human_review``; ``error`` for ``error``
   or ``failed``; ``decision`` when the row has decisions; else ``handoff``. ``decision`` is
-  the row's decision list as given, minus each ``options`` entry (model output text).
+  the row's decision list minus each ``options`` entry (model output text), scrubbed as a
+  payload is: a ``question`` or ``answer`` that is not a short token (free text) is stored as
+  its SHA-256 and length.
   ``latency_ms`` is the row's ``ms``; ``ts`` is the finish time; ``attempt`` counts the
   document's earlier finished rows of the same node. ``cause`` is the error's type name,
   never its message.
@@ -55,8 +57,9 @@ Mapping
   skipped has no such event.
 - Every payload carries ``floor`` (``draw``, ``node``, ``item``, ``lifecycle``,
   ``checkpoint`` or ``import``): what the event is to the floor replay.
-- Strings in ``payload`` other than short tokens (ids, names, labels) are stored as their
-  SHA-256 and length (``_folder.scrub``): no document or model free text enters the log.
+- Strings in ``payload`` and ``decision`` other than short tokens (ids, names, labels; never
+  an email, a URL or a path) are stored as their SHA-256 and length (``_folder.scrub``): no
+  document or model free text enters the log.
 - A field the folder did not capture is ``None`` and named in ``absent_fields``; a row
   without a usable time takes the time of the event before it and says so with
   ``payload.ts_absent``.
@@ -422,7 +425,7 @@ def _node_events(rows: list[tuple[int, dict[str, Any]]], doc_for: Any) -> None:
         attempt = visits[key]
         visits[key] += 1
         decisions = row.get("decisions")
-        decisions = [_strip_options(d) for d in decisions] if isinstance(decisions, list) else []
+        decisions = [scrub(_strip_options(d)) for d in decisions] if isinstance(decisions, list) else []
         if node == _REVIEW_NODE:
             kind = "review"
         elif status in _ERROR_STATUSES:
