@@ -128,16 +128,19 @@ def test_catalog_normalize_recognises_a_token_written_with_case_or_punctuation()
 
 
 def test_catalog_normalize_tries_the_compact_form_only_after_the_label_step():
-    """The compact-form lookup is the normalizer's last step: a value whose compact form is one token's but which
-    another entry's label names goes to that entry, as the old Dojo's label step did. Here ``Co-Op`` folds to
-    the token ``Co-Op`` but normalizes to ``coopx``, whose label is "Coop"."""
+    """The compact-form lookup is the normalizer's last step: a value whose compact form is one token's, but
+    which another entry's label names, goes to that entry, as the old Dojo's label step did. Here ``Co-Op``
+    folds to the token ``Co-Op`` but normalizes to ``coopx``, whose label is "Coop"."""
     mapping = minimal_profile_mapping()
     mapping["classes"][0]["fields"]["coverage_tier"] = {
         "type": "label",
         "vocabulary": {
             "tokens": ["coopx", "Co-Op", "other"],
             "fold": "catalog",
-            "catalog": [{"key": "coopx", "label": "Coop"}, {"key": "Co-Op", "label": "Cooperative Agreement"}],
+            "catalog": [
+                {"key": "coopx", "label": "Coop"},
+                {"key": "Co-Op", "label": "Cooperative Agreement"},
+            ],
         },
     }
     vocabulary = load_scoring_profile(mapping).label_vocabulary("auto_policy_declaration", "coverage_tier")
