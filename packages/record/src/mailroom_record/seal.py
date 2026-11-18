@@ -320,7 +320,7 @@ def _check_links(
         where = f"run {run_id!r}: document {doc!r} seq {seq} ({s.segment} at byte {s.byte_offset})"
         try:
             ok = event_hash(raw) == raw["hash"]
-        except (TypeError, ValueError):  # not canonical-JSON encodable (NaN, a non-str key)
+        except (TypeError, ValueError, RecursionError):  # NaN, a non-str key, nesting too deep
             ok = False
         if not ok:
             raise SealRefused(f"{where} does not hash to its stored hash; run verify before sealing")
@@ -359,11 +359,12 @@ def _invalid(s: StoredLine, exc: Exception) -> CorruptLine:
 def _row(s: StoredLine) -> dict[str, Any]:
     try:
         ev = Event.from_stored(s.raw).model_dump(mode="json")
-    except ValueError as exc:  # pydantic ValidationError, UnknownSchemaVersion
+        decision = None if ev["decision"] is None else canonical_json(ev["decision"]).decode("utf-8")
+    except (ValueError, TypeError, RecursionError) as exc:  # ValidationError, UnknownSchemaVersion, nesting
         raise _invalid(s, exc) from None
     row = {c: ev[c] for c in EVENT_COLUMNS}
     row["schema_version"] = s.raw["schema_version"]
-    row["decision"] = None if ev["decision"] is None else canonical_json(ev["decision"]).decode("utf-8")
+    row["decision"] = decision
     row["inputs"] = [r["sha256"] for r in ev["inputs"]]
     row["outputs"] = [r["sha256"] for r in ev["outputs"]]
     return row

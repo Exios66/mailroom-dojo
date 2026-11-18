@@ -18,9 +18,10 @@ from record_testkit import (
     append_more,
     check_chains,
     hand_line,
-    handoff_until_stopped,
     seal_in_child,
     slow_segment_reads,
+    start_handoff_workers,
+    stop_workers,
     stored_v0_event_dict,
 )
 
@@ -617,45 +618,13 @@ def test_older_version_seal_chains_on_its_stored_hash(
 # --- fix pass: a busy log seals without false refusals (M1) -------------------------
 
 
-def _start_handoff_workers(store: SimpleNamespace, n: int) -> tuple[Any, list[Any]]:
-    """``n`` processes, each owning ``h<j>`` and handing it between three writer ids.
-
-    Even-numbered documents rotate a -> m -> z (each event in a segment the sealer reads
-    after the one holding the event before: the order that shows a reader a false gap),
-    odd ones z -> m -> a. Returns the stop event and the processes, all started.
-    """
-    ctx = multiprocessing.get_context("spawn")
-    stop = ctx.Event()
-    procs, started = [], []
-    for j in range(n):
-        ids = [f"a{j}", f"m{j}", f"z{j}"]
-        ready = ctx.Event()
-        p = ctx.Process(
-            target=handoff_until_stopped,
-            args=(str(store.root), "r1", f"h{j}", ids if j % 2 == 0 else ids[::-1], stop, ready),
-        )
-        p.start()
-        procs.append(p)
-        started.append(ready)
-    for ready in started:
-        assert ready.wait(60), "a hand-off worker never started"
-    return stop, procs
-
-
-def _stop(stop: Any, procs: list[Any]) -> None:
-    stop.set()
-    for p in procs:
-        p.join(30)
-        assert p.exitcode == 0
-
-
 def test_busy_log_with_handoffs_seals_without_false_refusals(
     store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Four processes hand their documents between writers on every event while the sealer
     # reads slowly (20 ms between segments). The log never has a gap, so no seal may be
     # refused; reads that raced a hand-off must be resolved, not retried until refusal.
-    stop, procs = _start_handoff_workers(store, 4)
+    stop, procs = start_handoff_workers(store.root, 4)
     try:
         reads = slow_segment_reads(monkeypatch, store.log, 0.02)
         refused: list[str] = []
@@ -681,7 +650,7 @@ def test_busy_log_with_handoffs_seals_without_false_refusals(
         assert len(list_seals(store.log, "r1")) == n_before
         _write_lines(store, "gap2.jsonl", [chain[2]])  # the lost line comes back: no gap now
     finally:
-        _stop(stop, procs)
+        stop_workers(stop, procs)
     monkeypatch.undo()
     final = seal_run(store.log, "r1")
     counts = check_chains(store.root)

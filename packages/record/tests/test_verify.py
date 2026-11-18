@@ -38,12 +38,16 @@ from record_testkit import (
     find_line,
     flip_byte,
     forge_event,
+    hand_line,
     kinds,
     last_seq,
     remove_blob_file,
     replace_bytes,
     rewrite_line,
     run_fields,
+    seal_until_stopped,
+    start_handoff_workers,
+    stop_workers,
     stored_v0_event_dict,
     two_output_blobs,
     verify,
@@ -51,9 +55,10 @@ from record_testkit import (
 
 from mailroom_record.blobs import BlobStore
 from mailroom_record.hashing import canonical_json
-from mailroom_record.log import EventLog, ForkedChain
+from mailroom_record.log import CorruptLine, EventLog, ForkedChain, OverlongLine, RawLine, TornTail, iter_raw_segment
 from mailroom_record.models import GENESIS, Run, event_hash, seal_hash
 from mailroom_record.seal import EVENT_SCHEMA, SealRefused, seal_run
+from mailroom_record import verify as verify_module
 from mailroom_record.verify import PROBLEM_KINDS, Problem, verify_run
 
 TOTAL_EVENTS = 14  # d1: 5, d2: 3, d3: 3, d4: 3 (see build_sealed_store)
@@ -809,14 +814,15 @@ def test_clean_histories_verify_and_any_flipped_byte_is_caught(
     assert caught or in_torn_tail, (target.name, offset, mask, r.problems)
 
 
-DAMAGE = st.sampled_from(["delete", "truncate", "flip", "garbage", "empty"])
+DAMAGE = st.sampled_from(["delete", "truncate", "flip", "garbage", "empty", "deep"])
 
 
 @settings(suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture])
 @given(data=st.data())
 def test_verify_never_raises_on_any_damage(tmp_path_factory: pytest.TempPathFactory, data: st.DataObject) -> None:
     # Random destructive operations on any stored file (segments, seals, column files, blobs,
-    # tombstones, the run header): verify always returns a report and never raises.
+    # tombstones, the run header), deep nesting included: verify always returns a report and
+    # never raises.
     s = build_sealed_store(tmp_path_factory.mktemp("never"))
     files = sorted(p for p in s.root.rglob("*") if p.is_file() and not p.name.startswith(".") and p.suffix != ".tmp")
     for _ in range(data.draw(st.integers(1, 4), label="n")):
@@ -839,7 +845,383 @@ def test_verify_never_raises_on_any_damage(tmp_path_factory: pytest.TempPathFact
             target.write_bytes(junk)
         elif how == "empty":
             target.write_bytes(b"")
+        elif how == "deep":  # nesting deeper than the JSON parser allows, as a whole line
+            target.write_bytes(DEEP + b"\n")
     r = verify(s)
     assert isinstance(r.ok, bool) and all(isinstance(p, Problem) for p in r.problems)
     assert all(p.kind in PROBLEM_KINDS for p in r.problems)
     assert_no_leak(r)
+
+
+# --- fix pass: verify never raises on deep nesting (Task 7 review, BLOCKING 1) ----------
+
+DEEP = b"[" * 200_000 + b"]" * 200_000  # deeper than the JSON parser allows
+
+
+def _deep_payload_line(store: SimpleNamespace, doc_id: str, seq: int, prev: str) -> bytes:
+    # Parses, hashes and is canonical, but nests deeper than validation can recurse.
+    nested: Any = []
+    for _ in range(5000):
+        nested = [nested]
+    raw = hand_line("r1", doc_id, seq, prev)
+    raw["payload"] = {"x": nested}
+    raw["hash"] = event_hash(raw)
+    return canonical_json(raw) + b"\n"
+
+
+@pytest.mark.parametrize("where", ["segment", "segment_payload", "seal", "run_header", "tombstone"])
+def test_deep_nesting_is_reported_not_raised(sealed_store: SimpleNamespace, where: str) -> None:
+    s = sealed_store
+    if where == "segment":
+        with (run_dir(s) / "segments" / "w0.jsonl").open("ab") as f:
+            f.write(DEEP + b"\n")
+        want = ("corrupt_line", None, None)
+    elif where == "segment_payload":
+        head = s.log.doc_heads("r1")["d2"]
+        with (run_dir(s) / "segments" / "w0.jsonl").open("ab") as f:
+            f.write(_deep_payload_line(s, "d2", last_seq(s, "d2") + 1, head))
+        want = ("invalid_event", "d2", 3)
+    elif where == "seal":
+        seal_path(s, 2).write_bytes(DEEP)
+        want = ("seal_corrupt", None, None)
+    elif where == "run_header":
+        (run_dir(s) / "run.json").write_bytes(DEEP)
+        want = ("corrupt_run_header", None, None)
+    else:
+        sha = s.originals["d1"]
+        s.blobs.tombstone(sha, "erasure request")
+        s.blobs.tombstone_path(sha).write_bytes(DEEP)
+        want = ("corrupt_tombstone", "d1", 0)
+    r = verify(s)
+    assert want in failing(r), failing(r)
+    assert_no_leak(r)
+
+
+@pytest.mark.parametrize("deep", ["unparsable", "payload"])
+def test_seal_run_refuses_deep_nesting_without_recursion_error(store_with_events: SimpleNamespace, deep: str) -> None:
+    s = store_with_events
+    seg = s.root / "runs/r1/segments/deep.jsonl"
+    if deep == "unparsable":
+        seg.write_bytes(DEEP + b"\n")
+    else:
+        seg.write_bytes(_deep_payload_line(s, "g", 0, GENESIS))
+    with pytest.raises(CorruptLine, match="deep.jsonl at byte 0"):
+        seal_run(s.log, "r1")
+
+
+# --- fix pass: a run written while it is verified (Task 7 review, MAJOR 2) --------------
+
+
+def _after_segment(monkeypatch: pytest.MonkeyPatch, name: str, action: Any) -> list[bool]:
+    """Run ``action`` once, right after verify has scanned segment ``name``."""
+    original = verify_module.iter_raw_segment
+    done: list[bool] = []
+
+    def hooked(path: Path, *args: Any, **kwargs: Any) -> Any:
+        yield from original(path, *args, **kwargs)
+        if path.name == name and not done:
+            done.append(True)
+            action()
+
+    monkeypatch.setattr(verify_module, "iter_raw_segment", hooked)
+    return done
+
+
+def test_seal_made_during_the_scan_is_not_a_false_failure(
+    sealed_store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Once verify has scanned w0.jsonl, a writer appends there (d1 and a new document) and
+    # the timer seals. That seal commits heads the scan never saw; reading it would report
+    # truncated_after_seal and document_missing_from_log on a healthy run.
+    s = sealed_store
+
+    def write_and_seal() -> None:
+        with s.log.open_writer("r1", "w0") as w:
+            w.append(doc_id="d1", node="late", kind="decision")
+            w.append(doc_id="d9", node="late", kind="decision")
+        seal_run(s.log, "r1")
+
+    done = _after_segment(monkeypatch, "w0.jsonl", write_and_seal)
+    r = verify(s)
+    assert done and len(list((run_dir(s) / "seals").glob("*.json"))) == 4
+    assert r.ok and r.problems == [], failing(r)
+    monkeypatch.undo()
+    assert verify(s).ok  # and the quiet run verifies, with the new seal
+
+
+def test_handoff_during_the_scan_is_not_a_seq_gap(sealed_store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    # w0 (already scanned) takes d1 for one event, then hands it to w2 (scanned later):
+    # the scan sees d1's next seq but not the one before it.
+    s = sealed_store
+
+    def handoff() -> None:
+        with s.log.open_writer("r1", "w0") as w:
+            w.append(doc_id="d1", node="handoff", kind="decision")
+        with s.log.open_writer("r1", "w2") as w:
+            w.append(doc_id="d1", node="handoff", kind="decision")
+
+    done = _after_segment(monkeypatch, "w0.jsonl", handoff)
+    r = verify(s)
+    assert done
+    assert r.ok and r.problems == [], failing(r)
+    # The rescan keeps seqs up to the head the first scan saw (the event in w2), and the
+    # one in w0 below it was on disk by then: both are checked.
+    assert r.events_checked == TOTAL_EVENTS + 2
+
+
+def test_real_gap_is_still_reported_when_the_scan_races_a_handoff(
+    sealed_store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    s = sealed_store
+    delete_line(s, "d1", 1)  # a real loss below a sealed head (not a head itself)
+
+    def handoff() -> None:
+        with s.log.open_writer("r1", "w0") as w:
+            w.append(doc_id="d1", node="handoff", kind="decision")
+        with s.log.open_writer("r1", "w2") as w:
+            w.append(doc_id="d1", node="handoff", kind="decision")
+
+    _after_segment(monkeypatch, "w0.jsonl", handoff)
+    r = verify(s)
+    assert failing(r) == [("seq_gap", "d1", 1)]
+
+
+def test_seal_without_its_column_file_yet_is_recoverable(sealed_store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A crash (or a seal_run still running) between the seal file and its column file.
+    s = sealed_store
+    with s.log.open_writer("r1", "w5") as w:
+        w.append(doc_id="d1", node="n", kind="decision")
+    from mailroom_record import seal as seal_mod
+
+    def crash(path: Path, table: Any) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(seal_mod, "_write_columns", crash)
+    with pytest.raises(KeyboardInterrupt):
+        seal_run(s.log, "r1")
+    monkeypatch.undo()
+    r = verify(s)
+    assert r.ok, failing(r)
+    assert [(p.kind, p.seal, p.fails) for p in r.problems] == [("columns_missing", 3, False)]
+    assert "seal_run rebuilds it" in r.problems[0].detail
+    seal_run(s.log, "r1")  # the recovery the detail names
+    assert verify(s).problems == []
+    # An older seal's lost column file still fails: no crash leaves that state.
+    columns_path(s, 1).unlink()
+    assert failing(verify(s)) == [("columns_missing", None, None)]
+
+
+def test_verify_a_busy_run_while_another_process_seals(store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Real processes: four writers hand their documents between writer ids on every event,
+    # another process seals every 50 ms, and verify scans slowly (20 ms per segment).
+    # The run never has a problem, so every report must be ok.
+    import multiprocessing as mp
+
+    stop, procs = start_handoff_workers(store.root, 4)
+    ctx = mp.get_context("spawn")
+    sealer = ctx.Process(target=seal_until_stopped, args=(str(store.root), "r1", stop, 0.05))
+    sealer.start()
+    original = verify_module.iter_raw_segment
+
+    def slow(path: Path, *args: Any, **kwargs: Any) -> Any:
+        time.sleep(0.02)
+        yield from original(path, *args, **kwargs)
+
+    monkeypatch.setattr(verify_module, "iter_raw_segment", slow)
+    reports = []
+    try:
+        deadline = time.monotonic() + 4
+        while time.monotonic() < deadline and len(reports) < 6:
+            reports.append(verify_run(store.log, store.blobs, "r1"))
+    finally:
+        stop_workers(stop, procs + [sealer])
+    bad = [failing(r) for r in reports if not r.ok]
+    assert bad == [], f"{len(bad)} of {len(reports)} reports failed a healthy run: {bad[0]}"
+    assert any(r.seals_checked for r in reports)
+    monkeypatch.undo()
+    seal_run(store.log, "r1")
+    r = verify_run(store.log, store.blobs, "r1")
+    assert r.ok and r.problems == []
+
+
+# --- fix pass: damage is scoped to the seals it touches (Task 7 review, MINOR 3) ------
+
+
+def _tamper_column_row(path: Path, doc_id: str, seq: int, **changes: Any) -> None:
+    rows = pq.read_table(path).to_pylist()
+    for row in rows:
+        if (row["doc_id"], row["seq"]) == (doc_id, seq):
+            row.update(changes)
+    pq.write_table(pa.Table.from_pylist(rows, schema=EVENT_SCHEMA), path)
+
+
+def test_damage_after_the_last_seal_does_not_mask_a_tampered_column_file(sealed_store: SimpleNamespace) -> None:
+    s = sealed_store
+    _tamper_column_row(columns_path(s, 0), "d1", 1, node="EDITED")
+    # An unsealed, invalid (but hashed and linked) event on the same document.
+    head = s.log.doc_heads("r1")["d1"]
+    forge_event(s, "d1", last_seq(s, "d1") + 1, head)
+    rewrite_line(s, "d1", 5, recompute_hash=True, attempt=-1)
+    r = verify(s)
+    assert ("invalid_event", "d1", 5) in failing(r)
+    assert ("columns_mismatch", "d1", 1) in failing(r), failing(r)
+
+
+def test_damage_inside_a_seal_still_skips_only_that_seal(sealed_store: SimpleNamespace) -> None:
+    s = sealed_store
+    rewrite_line(s, "d1", 4, recompute_hash=False, cause="tampered")  # in seal 1's rows of d1
+    _tamper_column_row(columns_path(s, 0), "d1", 0, node="EDITED")  # seal 0's rows of d1
+    r = verify(s)
+    assert ("bad_hash", "d1", 4) in failing(r)
+    assert ("columns_mismatch", "d1", 0) in failing(r)
+    assert not any(p.kind == "columns_mismatch" and p.seal == 1 for p in r.problems)
+
+
+# --- fix pass: tombstones are parsed (Task 7 review, MINOR 4) ---------------------------
+
+
+@pytest.mark.parametrize("bad", ["empty", "directory", "not_json", "other_hash", "no_reason", "list"])
+def test_a_tombstone_that_is_not_a_deletion_record_fails(sealed_store: SimpleNamespace, bad: str) -> None:
+    s = sealed_store
+    sha = s.originals["d3"]
+    s.blobs.tombstone(sha, "erasure request")
+    path = s.blobs.tombstone_path(sha)
+    record = json.loads(path.read_bytes())
+    if bad == "directory":
+        path.unlink()
+        path.mkdir()
+    else:
+        path.write_bytes({
+            "empty": b"",
+            "not_json": b"\xff not json",
+            "other_hash": canonical_json(record | {"sha256": "0" * 64}),
+            "no_reason": canonical_json(record | {"reason": "  "}),
+            "list": b"[]",
+        }[bad])
+    r = verify(s)
+    assert failing(r) == [("corrupt_tombstone", "d3", 0)]
+    assert r.tombstoned_blobs == 0
+
+
+def test_a_lawful_tombstone_passes(sealed_store: SimpleNamespace) -> None:
+    s = sealed_store
+    s.blobs.tombstone(s.originals["d3"], "erasure request")
+    r = verify(s)
+    assert r.ok and r.tombstoned_blobs == 1
+
+
+def test_tombstoned_between_the_two_checks_counts_as_tombstoned(
+    sealed_store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # BlobStore.tombstone writes the record, then unlinks the content. Verify looks at the
+    # tombstone path, then the content path: a deletion in between shows neither at first.
+    s = sealed_store
+    sha = s.originals["d3"]
+    tomb = s.blobs.tombstone_path(sha)
+    original_exists = Path.exists
+    seen = []
+
+    def exists(self: Path) -> bool:
+        if self == tomb and not seen:
+            seen.append(True)
+            s.blobs.tombstone(sha, "erasure request")  # lands right after the first look
+            return False
+        return original_exists(self)
+
+    monkeypatch.setattr(Path, "exists", exists)
+    r = verify(s)
+    monkeypatch.undo()
+    assert seen
+    assert r.ok and r.problems == [] and r.tombstoned_blobs == 1
+
+
+# --- fix pass: invalid values, canonical forms, hostile limits (MINOR 5, 6, 7) ---------
+
+
+def test_integer_parquet_cannot_hold_is_invalid_event(sealed_store: SimpleNamespace) -> None:
+    s = sealed_store
+    head = s.log.doc_heads("r1")["d4"]
+    forge_event(s, "d4", last_seq(s, "d4") + 1, head, tokens_in=2**70)
+    r = verify(s)
+    assert failing(r) == [("invalid_event", "d4", 3)]
+    assert "int64" in r.problems[0].detail
+    with pytest.raises(CorruptLine):  # seal_run refuses the same line
+        seal_run(s.log, "r1")
+
+
+def test_seal_file_not_in_canonical_form_is_corrupt(sealed_store: SimpleNamespace) -> None:
+    s = sealed_store
+    raw = json.loads(seal_path(s, 1).read_bytes())
+    seal_path(s, 1).write_bytes(json.dumps(raw, indent=2).encode())  # same content, other bytes
+    r = verify(s)
+    assert ("seal_corrupt", None, None) in failing(r)
+    assert any("canonical" in p.detail for p in r.problems if p.kind == "seal_corrupt")
+
+
+def test_run_header_not_in_canonical_form_is_corrupt(sealed_store: SimpleNamespace) -> None:
+    s = sealed_store
+    path = run_dir(s) / "run.json"
+    path.write_bytes(json.dumps(json.loads(path.read_bytes()), indent=2).encode())
+    r = verify(s)
+    assert failing(r) == [("corrupt_run_header", None, None)]
+    assert "canonical" in r.problems[0].detail
+
+
+def test_overlong_line_is_reported_without_being_held(store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(verify_module, "MAX_LINE", 1024 * 1024)
+    with store.log.open_writer("r1", "w0") as w:
+        w.append(doc_id="d1", node="before", kind="decision")
+    big = store.root / "runs/r1/segments/big.jsonl"
+    with big.open("wb") as f:
+        for _ in range(24):  # a 24 MB line with no newline until its end
+            f.write(b"x" * (1024 * 1024))
+        f.write(b"\n")
+        f.write(canonical_json(hand_line("r1", "d2", 0, GENESIS)) + b"\n")  # a whole event after it
+    tracemalloc.start()
+    try:
+        r = verify_run(store.log, store.blobs, "r1")
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert failing(r) == [("corrupt_line", None, None)]
+    assert (r.problems[0].segment, r.problems[0].byte_offset) == ("big.jsonl", 0)
+    assert "a line of 25165824 bytes, over the 1048576-byte limit" in r.problems[0].detail
+    assert r.events_checked == 2  # the event after it was still checked
+    assert peak < 6 * 1024 * 1024, f"peak {peak} bytes: the long line was held"
+
+
+def test_reader_limit_edges(tmp_path: Path) -> None:
+    seg = tmp_path / "s.jsonl"
+    seg.write_bytes(b"abcd\n" + b"x" * 10 + b"\n" + b"y" * 4 + b"\n" + b"z" * 10)
+    items = list(iter_raw_segment(seg, max_line=4))
+    assert items == [
+        RawLine("s.jsonl", 0, b"abcd"),           # exactly the limit: read
+        OverlongLine("s.jsonl", 5, 10),          # over it: skipped, size known
+        RawLine("s.jsonl", 16, b"yyyy"),
+        TornTail("s.jsonl", 21),                 # an over-long tail is still a torn tail
+    ]
+    assert list(iter_raw_segment(seg)) == [
+        RawLine("s.jsonl", 0, b"abcd"), RawLine("s.jsonl", 5, b"x" * 10), RawLine("s.jsonl", 16, b"yyyy"),
+        TornTail("s.jsonl", 21),
+    ]
+
+
+@pytest.mark.parametrize("which", ["segments", "seals", "columns"])
+def test_unlistable_directories_are_reported(
+    sealed_store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, which: str
+) -> None:
+    s = sealed_store
+    target = run_dir(s) / which
+    original = Path.iterdir
+
+    def iterdir(self: Path) -> Any:
+        if self == target:
+            raise PermissionError(13, "injected")
+        return original(self)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+    r = verify(s)
+    monkeypatch.undo()
+    want = {"segments": "corrupt_line", "seals": "seal_corrupt", "columns": "columns_missing"}[which]
+    assert (want, None, None) in failing(r)
+    assert any(f"{which}/ cannot be listed" in p.detail for p in r.problems)

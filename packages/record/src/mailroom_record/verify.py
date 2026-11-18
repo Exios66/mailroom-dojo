@@ -16,7 +16,11 @@ recomputed on the stored dict as parsed, before any upgrade (ADR-0005): a mismat
 ``bad_hash``. A line whose bytes are not the canonical encoding of what it parses to (a
 writer only ever writes canonical lines) is a ``corrupt_line`` too. A line that hashes but
 does not validate as an event after upgrading (a bad field, a newer ``schema_version``,
-another run's ``run_id``) is ``invalid_event``.
+another run's ``run_id``, an integer outside Parquet's int64 that ``seal_run`` could not
+export) is ``invalid_event``. A line longer than ``MAX_LINE`` (64 MiB) is a
+``corrupt_line`` and is skipped in chunks, never held in memory. Stored bytes that nest
+deeper than the JSON parser allows are corrupt like any other unparsable bytes: no parse,
+encode or hash of stored data lets an exception escape.
 
 Chains, per document. ``seq`` must run from 0 with no gap (``seq_gap``, one per missing
 range); a ``seq`` stored twice is ``forked_chain``; seq 0 links to ``GENESIS`` and every
@@ -46,12 +50,21 @@ head. Rows are compared field by field with the rows the log's lines give
 the log does not account for, or a row it lacks is ``columns_mismatch`` (one problem per
 document, naming the first ``seq``). Documents with a log-level problem are left out of
 this comparison, because their rows cannot be expected exactly; their damage is already
-reported, and every other document is still compared. A seal whose predecessor is
-unreadable or missing cannot bound its rows, so its column file is not compared.
+reported. A document is left out only of the seals whose rows of it the damage touches
+(a problem at ``seq`` s, or a gap over s, leaves it out of the seal that added s; a
+problem with no ``seq`` leaves it out of every seal), so damage after the last seal never
+masks a tampered column file. A seal whose predecessor is unreadable or missing cannot
+bound its rows, so its column file is not compared. A missing column file of the latest
+seal does not fail the run: ``seal_run`` writes it just after the seal file, so a crash
+or a seal in progress leaves it missing for a while, and the next ``seal_run`` rebuilds
+it. A missing older one fails (``seal_run`` rebuilds it too).
 
 Blobs. Every blob an event names is checked once. Tombstoned (tombstone, no content):
-passes, counted in ``tombstoned_blobs``. Neither content nor tombstone: ``missing_blob``.
-Content next to its own tombstone (a crash between writing the tombstone and unlinking
+passes, counted in ``tombstoned_blobs``, if the tombstone is the record ``BlobStore``
+writes (a JSON object with this hash, a non-empty reason and a time); any other file (or
+a directory) at the tombstone path is ``corrupt_tombstone``, because a tombstone that is
+not a deletion record must not pass as a lawful deletion. Neither content nor tombstone:
+``missing_blob``. Content next to its own tombstone (a crash between writing the tombstone and unlinking
 the content, or content restored afterwards): ``tombstone_with_content``. Content that does
 not decompress, or decompresses to bytes with another SHA-256 (bit rot; ``BlobStore.put``
 never rewrites present content, so nothing else repairs it): ``corrupt_blob``. Content is
@@ -75,7 +88,18 @@ The detail says which case it is:
 - On a **closed** run it is final: a crash that was recovered from; no writer will
   complete those bytes.
 
-Every other kind always fails the run. ``ok`` is true when no problem fails.
+A run being written while it is verified
+----------------------------------------
+Verify reads column files, then seal files, then segments, the reverse of the order they
+are written in (events are flushed before a seal commits them, a seal file is written
+before its column file), so a seal is never read ahead of the events it commits. If the
+scan shows a ``seq`` gap, which a document handed between writers during the scan can
+fake, the segments are scanned once more and only lines up to the per-document heads the
+first scan saw are kept: each of those was on disk before the first scan ended, so a gap
+still there is real. Lines written after the first scan are left to the next verify.
+
+Every other kind always fails the run (``columns_missing`` of an older seal included).
+``ok`` is true when no problem fails.
 """
 
 from __future__ import annotations
@@ -95,7 +119,7 @@ import zstandard
 
 from mailroom_record.blobs import BlobStore
 from mailroom_record.hashing import canonical_json
-from mailroom_record.log import EventLog, RawLine, StoredLine, TornTail, iter_raw_segment
+from mailroom_record.log import EventLog, OverlongLine, RawLine, StoredLine, TornTail, iter_raw_segment
 from mailroom_record.models import GENESIS, Event, Run, Seal, event_hash, seal_hash
 from mailroom_record.seal import EVENT_SCHEMA, _columns_path, _row, _seals_dir
 
@@ -122,6 +146,7 @@ ProblemKind = Literal[
     "columns_missing",
     "columns_mismatch",
     "corrupt_run_header",
+    "corrupt_tombstone",
 ]
 PROBLEM_KINDS: tuple[str, ...] = ProblemKind.__args__  # type: ignore[attr-defined]
 
@@ -141,12 +166,22 @@ _COLUMNS_NAME_RE = re.compile(r"events-(0|[1-9][0-9]*)\.parquet")
 _SEAL_NAME_RE = re.compile(r"(0|[1-9][0-9]*)\.json")
 _CHUNK = 4 * 1024 * 1024
 _BATCH = 4096
+# Exceptions a parse, encode or hash of stored bytes can raise: bad JSON or UTF-8, NaN,
+# a non-str key, or nesting deeper than the interpreter's recursion limit.
+_PARSE_ERRORS = (ValueError, TypeError, RecursionError)
+# The longest line verify reads (64 MiB). Content belongs in blobs, so an event line is a
+# few KB; a longer line is reported as corrupt_line without being held in memory.
+MAX_LINE = 64 * 1024 * 1024
+_INT_COLUMNS = tuple(name for name, t in zip(EVENT_SCHEMA.names, EVENT_SCHEMA.types) if pa.types.is_integer(t))
+_INT64 = (-(2**63), 2**63 - 1)
+_INF = float("inf")
 
 
 @dataclass(frozen=True)
 class Problem:
     """One thing wrong with a run. ``fails`` is false only for a torn tail (never final
-    damage: its bytes were never a whole event).
+    damage: its bytes were never a whole event) and for the latest seal's missing column
+    file (the next ``seal_run`` rebuilds it).
 
     ``detail`` names hashes, field names, segments, offsets and counts, never content.
     """
@@ -195,14 +230,20 @@ class _State:
     # sha256 -> [first (doc_id, seq), role, number of references]
     refs: dict[str, list[Any]] = field(default_factory=dict)
     torn: list[TornTail] = field(default_factory=list)
-    damaged: set[str] = field(default_factory=set)
+    # doc -> (first, last) seq ranges a chain problem touches; (0, inf) when unknown
+    damage: dict[str, list[tuple[float, float]]] = field(default_factory=lambda: defaultdict(list))
     events_checked: int = 0
     names: dict[str, str] = field(default_factory=dict)  # interned segment names
+    bound: dict[str, int] | None = None  # rescan: keep only seqs up to these heads
 
     def add(self, kind: ProblemKind, doc_id: str | None, seq: int | None, detail: str, **where: Any) -> None:
         self.problems.append(Problem(kind, doc_id, seq, detail, **where))
         if doc_id is not None and kind in _CHAIN_KINDS:
-            self.damaged.add(doc_id)
+            self.damage[doc_id].append((0, _INF) if seq is None else (seq, seq))
+
+    def damaged(self, doc: str, lo: float = 0, hi: float = _INF) -> bool:
+        """Whether a chain problem of ``doc`` touches a seq in ``[lo, hi]``."""
+        return any(a <= hi and lo <= b for a, b in self.damage.get(doc, ()))
 
 
 def verify_run(log: EventLog, blobs: BlobStore, run_id: str) -> VerifyReport:
@@ -216,9 +257,25 @@ def verify_run(log: EventLog, blobs: BlobStore, run_id: str) -> VerifyReport:
         raise FileNotFoundError(f"no run {run_id!r} under {log.root}")
     st = _State(run_id)
     run = _check_header(log, run_id, st)
+    # Column files, then seal files, then segments: each is written only after the one
+    # read after it here (events are flushed before a seal commits them; a seal file is
+    # written before its column file), so a run written while verify reads it never
+    # shows a seal ahead of its events or a column file ahead of its seal.
+    col_numbers = _list_columns(log, run_id, st)
+    seal_files = _read_seal_files(log, run_id, st)
+    before_scan = list(st.problems)
     _scan(log, run_id, st)
     chains = _check_chains(st)
-    seals, n_seal_files = _check_seals(log, run_id, st)
+    if any(p.kind == "seq_gap" for p in st.problems):
+        # A document handed between writers while the scan ran can show a gap that is
+        # not on disk. Scan once more, keeping only seqs up to the heads the first scan
+        # saw: each of those was on disk before the first scan ended, so a gap the second
+        # scan still shows is real (the same rule as seal_run's snapshot).
+        bound = {doc: max(e.seq for e in es) for doc, es in st.entries.items()}
+        st = _State(run_id, problems=before_scan, bound=bound)
+        _scan(log, run_id, st)
+        chains = _check_chains(st)
+    seals, n_seal_files = _check_seals(st, seal_files, col_numbers)
     _check_columns(log, run_id, st, seals, chains)
     tombstoned = _check_blobs(blobs, st)
 
@@ -268,13 +325,17 @@ def _check_header(log: EventLog, run_id: str, st: _State) -> Run | None:
         if not isinstance(raw, dict):
             raise ValueError("not a JSON object")
         run = Run.from_stored(raw)
-    except (ValueError, TypeError) as exc:
+    except _PARSE_ERRORS as exc:
         st.add("corrupt_run_header", None, None, f"run.json is not a valid run header ({_why(exc)})")
         return None
     if run.run_id != run_id:
         st.add("corrupt_run_header", None, None, f"run.json names run {run.run_id!r}")
         return None
-    if _canonical(raw) != data:
+    try:
+        canonical = _canonical(raw) == data
+    except _PARSE_ERRORS:
+        canonical = False
+    if not canonical:
         st.add("corrupt_run_header", None, None, "run.json is not in canonical form")
     return run
 
@@ -283,11 +344,20 @@ def _check_header(log: EventLog, run_id: str, st: _State) -> Run | None:
 
 
 def _scan(log: EventLog, run_id: str, st: _State) -> None:
-    for seg in log.segment_paths(run_id):
+    try:
+        segments = log.segment_paths(run_id)
+    except OSError as exc:
+        st.add("corrupt_line", None, None, f"segments/ cannot be listed ({_oserror(exc)})")
+        return
+    for seg in segments:
         try:
-            for item in iter_raw_segment(seg):
+            for item in iter_raw_segment(seg, max_line=MAX_LINE):
                 if isinstance(item, TornTail):
                     st.torn.append(item)
+                elif isinstance(item, OverlongLine):
+                    st.add("corrupt_line", None, None,
+                           f"{item.segment} at byte {item.byte_offset}: a line of {item.length} bytes, over the "
+                           f"{MAX_LINE}-byte limit; not read", segment=item.segment, byte_offset=item.byte_offset)
                 else:
                     _check_line(item, st)
         except OSError as exc:
@@ -300,7 +370,7 @@ def _check_line(line: RawLine, st: _State) -> None:
     at = f"{segment} at byte {line.byte_offset}"
     try:
         raw = json.loads(line.data)
-    except (UnicodeDecodeError, ValueError) as exc:
+    except _PARSE_ERRORS as exc:  # RecursionError: nesting deeper than the parser allows
         st.add("corrupt_line", None, None, f"{at}: not JSON ({type(exc).__name__})", **where)
         return
     if not isinstance(raw, dict):
@@ -318,13 +388,15 @@ def _check_line(line: RawLine, st: _State) -> None:
     ):
         st.add("corrupt_line", None, None, f"{at}: no usable doc_id, seq, hash and prev_hash", **where)
         return
+    if st.bound is not None and seq > st.bound.get(doc, -1):
+        return  # written after the first scan: left to the next verify
     st.events_checked += 1
 
     true_hash: str | None
     try:
         true_hash = event_hash(raw)
         canonical = _canonical(raw) == line.data
-    except (TypeError, ValueError):  # NaN or Infinity: json.loads accepts them, canonical JSON does not
+    except _PARSE_ERRORS:  # NaN or Infinity (json.loads accepts them, canonical JSON does not), deep nesting
         true_hash, canonical = None, False
     if true_hash != h:
         st.add("bad_hash", doc, seq, f"{at}: the event does not hash to its stored hash", **where)
@@ -334,7 +406,7 @@ def _check_line(line: RawLine, st: _State) -> None:
     digest: bytes | None = None
     try:
         ev = Event.from_stored(raw)
-    except ValueError as exc:  # pydantic ValidationError, UnknownSchemaVersion
+    except _PARSE_ERRORS as exc:  # pydantic ValidationError, UnknownSchemaVersion, deep nesting
         st.add("invalid_event", doc, seq, f"{at}: not a valid event ({_why(exc)})", **where)
     else:
         if ev.run_id != st.run_id:
@@ -348,8 +420,14 @@ def _check_line(line: RawLine, st: _State) -> None:
                     cur[0] = min(cur[0], (doc, seq))
                     cur[2] += 1
             try:
-                digest = _digest(_row(StoredLine(segment, line.byte_offset, raw)))
-            except ValueError as exc:  # a value Parquet cannot hold
+                row = _row(StoredLine(segment, line.byte_offset, raw))
+                big = [c for c in _INT_COLUMNS if row[c] is not None and not _INT64[0] <= row[c] <= _INT64[1]]
+                if big:  # seal_run cannot export it either (Parquet int64)
+                    st.add("invalid_event", doc, seq, f"{at}: not a valid event ({', '.join(big)}: out of int64 range)",
+                           **where)
+                else:
+                    digest = _digest(row)
+            except _PARSE_ERRORS as exc:  # a value Parquet cannot hold, deep nesting
                 st.add("invalid_event", doc, seq, f"{at}: not a valid event ({_why(exc)})", **where)
     st.entries[doc].append(_Entry(seq, h, true_hash, prev, segment, line.byte_offset, digest))
 
@@ -374,6 +452,7 @@ def _check_chains(st: _State) -> dict[str, dict[int, _Entry]]:
         for first, last in _gaps(seqs):
             what = f"seq {first}" if first == last else f"seqs {first}..{last}"
             st.add("seq_gap", doc, first, f"{what} missing although seq {top} is stored")
+            st.damage[doc].append((first, last))
         for seq in sorted(by_seq):
             for e in by_seq[seq]:
                 if seq == 0:
@@ -414,30 +493,50 @@ class _SealInfo:
     complete: bool  # every head found and no document damaged
 
 
-def _check_seals(log: EventLog, run_id: str, st: _State) -> tuple[dict[int, _SealInfo], int]:
-    """Check the seal chain and each seal against the log. Returns readable seals and the
-    number of seal files (readable or not)."""
+def _list_columns(log: EventLog, run_id: str, st: _State) -> set[int]:
+    """The numbers of the column files present."""
+    cols_dir = log.run_dir(run_id) / "columns"
+    numbers: set[int] = set()
+    try:
+        if cols_dir.is_dir():
+            for p in cols_dir.iterdir():
+                m = _COLUMNS_NAME_RE.fullmatch(p.name)
+                if m:
+                    numbers.add(int(m[1]))
+    except OSError as exc:
+        st.add("columns_missing", None, None, f"columns/ cannot be listed ({_oserror(exc)})")
+    return numbers
+
+
+def _read_seal_files(log: EventLog, run_id: str, st: _State) -> tuple[set[int], dict[int, tuple[Seal, dict[str, Any]]]]:
+    """The numbers of the seal files present, and the readable ones."""
     seals_dir = _seals_dir(log, run_id)
     numbers: set[int] = set()
     readable: dict[int, tuple[Seal, dict[str, Any]]] = {}
-    if seals_dir.is_dir():
-        for p in sorted(seals_dir.iterdir(), key=lambda q: q.name):
-            m = _SEAL_NAME_RE.fullmatch(p.name)
-            if not m:
-                continue
-            n = int(m[1])
-            numbers.add(n)
-            parsed = _read_seal(p, n, run_id, st)
-            if parsed is not None:
-                readable[n] = parsed
+    try:
+        paths = sorted(seals_dir.iterdir(), key=lambda q: q.name) if seals_dir.is_dir() else []
+    except OSError as exc:
+        st.add("seal_corrupt", None, None, f"seals/ cannot be listed ({_oserror(exc)})")
+        paths = []
+    for p in paths:
+        m = _SEAL_NAME_RE.fullmatch(p.name)
+        if not m:
+            continue
+        n = int(m[1])
+        numbers.add(n)
+        parsed = _read_seal(p, n, run_id, st)
+        if parsed is not None:
+            readable[n] = parsed
+    return numbers, readable
+
+
+def _check_seals(
+    st: _State, seal_files: tuple[set[int], dict[int, tuple[Seal, dict[str, Any]]]], col_numbers: set[int]
+) -> tuple[dict[int, _SealInfo], int]:
+    """Check the seal chain and each seal against the log. Returns readable seals and the
+    number of seal files (readable or not)."""
+    numbers, readable = seal_files
     n_files = len(numbers)
-    cols_dir = log.run_dir(run_id) / "columns"
-    col_numbers: set[int] = set()
-    if cols_dir.is_dir():
-        for p in cols_dir.iterdir():
-            m = _COLUMNS_NAME_RE.fullmatch(p.name)
-            if m:
-                col_numbers.add(int(m[1]))
     # Walk the numbers that exist (never range(max)): a file named 1000000000.json is cheap.
     present = sorted(numbers | col_numbers)
     missing: list[tuple[int, str]] = [(n, "its column file remains") for n in col_numbers - numbers]
@@ -492,7 +591,7 @@ def _check_seals(log: EventLog, run_id: str, st: _State) -> tuple[dict[int, _Sea
 
     # event_count needs every head and undamaged chains; decided after all seals are read.
     for n, info in sorted(infos.items()):
-        if info.complete and not (set(info.heads) & st.damaged):
+        if info.complete and not any(st.damaged(d, 0, q) for d, q in info.heads.items()):
             expected = sum(seq + 1 for seq in info.heads.values())
             if info.seal.event_count != expected:
                 st.add("seal_mismatch", None, None,
@@ -512,7 +611,7 @@ def _read_seal(path: Path, n: int, run_id: str, st: _State) -> tuple[Seal, dict[
         if not isinstance(raw, dict):
             raise ValueError("not a JSON object")
         seal = Seal.from_stored(raw)
-    except (ValueError, TypeError) as exc:
+    except _PARSE_ERRORS as exc:
         st.add("seal_corrupt", None, None, f"{name} is not a valid seal ({_why(exc)})", seal=n)
         return None
     if seal.n != n or seal.run_id != run_id:
@@ -520,7 +619,7 @@ def _read_seal(path: Path, n: int, run_id: str, st: _State) -> tuple[Seal, dict[
         return None
     try:
         canonical = _canonical(raw) == data
-    except (TypeError, ValueError):
+    except _PARSE_ERRORS:
         canonical = False
     if not canonical:
         st.add("seal_corrupt", None, None, f"{name} is not in canonical form", seal=n)
@@ -537,25 +636,37 @@ def _check_columns(
     for n, info in sorted(seals.items()):
         path = _columns_path(log, run_id, n)
         if not path.is_file():
-            st.add("columns_missing", None, None, f"columns/events-{n}.parquet is missing; seal_run rebuilds it", seal=n)
+            latest = n == max(seals)
+            # The latest seal's file is written just after the seal: a crash or a seal_run
+            # still running leaves it missing for a while, and the next seal_run writes it.
+            st.problems.append(Problem(
+                "columns_missing", None, None,
+                f"columns/events-{n}.parquet is missing; seal_run rebuilds it"
+                + (" (the latest seal: a crash or a seal in progress, recoverable)" if latest else ""),
+                seal=n, fails=not latest,
+            ))
             continue
         if n > 0 and n - 1 not in seals:
             continue  # no readable previous seal: the rows this seal added cannot be bounded
         before = seals[n - 1].heads if n > 0 else {}
         expected: dict[str, dict[int, bytes | None]] = {}
+        skipped: set[str] = set()
         for doc, head in info.heads.items():
-            if doc in st.damaged or doc not in chains:
+            lo = before.get(doc, -1)
+            # Leave a document out only if a chain problem touches this seal's rows of it.
+            if st.damaged(doc, lo + 1, head) or doc not in chains:
+                skipped.add(doc)
                 continue
             if n > 0 and doc in seals[n - 1].seal.doc_heads and doc not in before:
+                skipped.add(doc)
                 continue
-            lo = before.get(doc, -1)
             expected[doc] = {s: chains[doc][s].row_digest for s in range(lo + 1, head + 1)}
         actual = _read_columns(path, n, st)
         if actual is None:
             continue
         for doc in sorted(set(expected) | set(actual)):
-            if doc in st.damaged:
-                continue
+            if doc in skipped or (doc not in expected and st.damaged(doc, before.get(doc, -1) + 1)):
+                continue  # damage touches rows of it this seal may hold
             want, got = expected.get(doc), actual.get(doc, {})
             if want is None:
                 if doc not in info.heads:
@@ -611,18 +722,45 @@ def _check_blobs(blobs: BlobStore, st: _State) -> int:
         has_tomb, has_content = tomb_path.exists(), content_path.exists()
         if has_tomb and has_content:
             st.add("tombstone_with_content", doc, seq, f"{named}: content sits next to its tombstone")
-        elif has_tomb:
-            tombstoned += 1
-        elif not has_content:
-            if tomb_path.exists():  # tombstoned between the two checks
+        elif has_tomb or (not has_content and tomb_path.exists()):  # or tombstoned between the checks
+            why = _tombstone_damage(tomb_path, sha)
+            if why is None:
                 tombstoned += 1
             else:
-                st.add("missing_blob", doc, seq, f"{named}: no content and no tombstone")
+                st.add("corrupt_tombstone", doc, seq, f"{named}: {why}")
+        elif not has_content:
+            st.add("missing_blob", doc, seq, f"{named}: no content and no tombstone")
         else:
             why = _blob_damage(content_path, sha)
             if why is not None:
                 st.add("corrupt_blob", doc, seq, f"{named}: {why}")
     return tombstoned
+
+
+def _tombstone_damage(path: Path, sha: str) -> str | None:
+    """Why ``path`` is not the record ``BlobStore.tombstone`` writes, or ``None`` if it is.
+
+    ``BlobStore.exists`` counts any file at the path as a tombstone; verify is stricter: a
+    lawful deletion is a JSON object naming this hash, a non-empty reason and a time.
+    """
+    try:
+        data = path.read_bytes()
+    except OSError as exc:  # a directory at the path, or unreadable
+        return f"the tombstone cannot be read ({_oserror(exc)})"
+    try:
+        rec = json.loads(data)
+    except _PARSE_ERRORS:
+        return "the tombstone is not JSON"
+    if not isinstance(rec, dict):
+        return "the tombstone is not a JSON object"
+    if rec.get("sha256") != sha:
+        return "the tombstone names another hash"
+    reason, when = rec.get("reason"), rec.get("tombstoned_at")
+    if not isinstance(reason, str) or not reason.strip():
+        return "the tombstone has no reason"
+    if not isinstance(when, str) or not when:
+        return "the tombstone has no time"
+    return None
 
 
 def _blob_damage(path: Path, sha: str) -> str | None:

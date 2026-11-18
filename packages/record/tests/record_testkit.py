@@ -644,3 +644,56 @@ def hand_line(run_id: str, doc_id: str, seq: int, prev_hash: str, **fields: Any)
         inputs=[], outputs=[], payload={}, prev_hash=prev_hash,
     )
     return Event.build(**(base | fields)).model_dump(mode="json")
+
+
+def start_handoff_workers(root: Any, n: int, run_id: str = "r1") -> tuple[Any, list[Any]]:
+    """Start ``n`` processes (spawn), each owning ``h<j>`` and handing it between writers.
+
+    Even-numbered documents rotate a -> m -> z (each event lands in a segment a reader
+    reaches after the one holding the event before: the order that shows a reader a false
+    gap), odd ones z -> m -> a. Waits until each has written three events. Returns the
+    stop event and the processes; pass them to ``stop_workers``.
+    """
+    import multiprocessing
+
+    ctx = multiprocessing.get_context("spawn")
+    stop = ctx.Event()
+    procs, started = [], []
+    for j in range(n):
+        ids = [f"a{j}", f"m{j}", f"z{j}"]
+        ready = ctx.Event()
+        p = ctx.Process(
+            target=handoff_until_stopped,
+            args=(str(root), run_id, f"h{j}", ids if j % 2 == 0 else ids[::-1], stop, ready),
+        )
+        p.start()
+        procs.append(p)
+        started.append(ready)
+    for ready in started:
+        assert ready.wait(60), "a hand-off worker never started"
+    return stop, procs
+
+
+def stop_workers(stop: Any, procs: list[Any]) -> None:
+    stop.set()
+    for p in procs:
+        p.join(30)
+        assert p.exitcode == 0, f"worker exit code {p.exitcode}"
+
+
+def seal_until_stopped(root: str, run_id: str, stop: Any, pause: float) -> int:
+    """Process target: seal ``run_id`` every ``pause`` seconds until ``stop`` is set."""
+    import time
+    from pathlib import Path
+
+    from mailroom_record.blobs import BlobStore
+    from mailroom_record.log import EventLog
+    from mailroom_record.seal import seal_run
+
+    log = EventLog(Path(root), BlobStore(Path(root)))
+    n = 0
+    while not stop.is_set():
+        seal_run(log, run_id)
+        n += 1
+        time.sleep(pause)
+    return n

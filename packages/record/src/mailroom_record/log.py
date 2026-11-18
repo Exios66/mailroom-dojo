@@ -99,6 +99,7 @@ __all__ = [
     "EventLog",
     "ForkedChain",
     "LogWriter",
+    "OverlongLine",
     "RawLine",
     "RunExists",
     "StoredLine",
@@ -165,6 +166,15 @@ class StoredLine:
 
 
 @dataclass(frozen=True)
+class OverlongLine:
+    """A whole line longer than the reader's limit: skipped unread, only its size is known."""
+
+    segment: str
+    byte_offset: int
+    length: int
+
+
+@dataclass(frozen=True)
 class RawLine:
     """One whole stored line as bytes, without its newline, not parsed."""
 
@@ -173,20 +183,37 @@ class RawLine:
     data: bytes
 
 
-def iter_raw_segment(path: Path) -> Iterator[RawLine | TornTail]:
+def iter_raw_segment(path: Path, max_line: int | None = None) -> Iterator[RawLine | OverlongLine | TornTail]:
     """Stream one segment: each whole line as a ``RawLine``, then its torn tail, if any.
 
     Reads one line at a time (a line ends at ``\\n`` and nowhere else), so memory is bounded
-    by the longest line, not the segment. Raises ``OSError`` if the file cannot be read.
+    by the longest line, not the segment. With ``max_line``, a whole line longer than that
+    many bytes (newline excluded) is not held: it is skipped in chunks up to its newline and
+    yielded as an ``OverlongLine``, so memory stays bounded by ``max_line`` (a long run of
+    bytes with no newline at all is the segment's torn tail). Raises ``OSError`` if the file
+    cannot be read.
     """
+    limit = -1 if max_line is None else max_line + 1
     with path.open("rb") as f:
         offset = 0
-        for line in f:
+        while line := f.readline(limit):
             if line.endswith(b"\n"):
                 yield RawLine(path.name, offset, line[:-1])
+                offset += len(line)
+                continue
+            if max_line is None or len(line) <= max_line:  # end of file: a torn tail
+                yield TornTail(path.name, offset)
+                return
+            length = len(line)
+            while chunk := f.readline(1 << 20):
+                length += len(chunk)
+                if chunk.endswith(b"\n"):
+                    break
             else:
                 yield TornTail(path.name, offset)
-            offset += len(line)
+                return
+            yield OverlongLine(path.name, offset, length - 1)
+            offset += length
 
 
 def _check_writer_id(writer_id: Any) -> str:
@@ -209,7 +236,7 @@ def _parse_lines(segment: str, data: bytes, base: int) -> tuple[list[StoredLine]
         line = data[pos:nl]
         try:
             raw = json.loads(line)
-        except (UnicodeDecodeError, ValueError) as exc:
+        except (UnicodeDecodeError, ValueError, RecursionError) as exc:  # deep nesting too
             raise CorruptLine(f"{segment} at byte {base + pos}: not JSON ({exc})") from None
         if not isinstance(raw, dict):
             raise CorruptLine(f"{segment} at byte {base + pos}: not a JSON object")
