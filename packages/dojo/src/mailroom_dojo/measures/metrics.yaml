@@ -95,10 +95,11 @@
 #                 paired_bootstrap_delta: per-document values over the same documents,
 #                 paired by document id, the design's "Comparing runs") or
 #                 two_sample_percentile_bootstrap (D1 delta_significance, the old
-#                 compare_serving on latencies). Required on every kept headline row
-#                 and every row the keep rule reads, unless pairing_note says why not.
-#   pairing_note  default null; why a kept headline or keep-rule row has no pairing (a
-#                 statistic of the whole set, such as macro F1, or a bound)
+#                 compare_serving on latencies). Required on every kept headline row,
+#                 every row the keep rule reads, and every metric a default view shows
+#                 (as its number or its guard), unless pairing_note says why not.
+#   pairing_note  default null; why such a row has no pairing (a statistic of the whole
+#                 set, such as macro F1, a bound, or a share of the run's own decisions)
 #   noise_floor   default null everywhere, on purpose: the smallest difference that
 #                 counts is measured by D7 (repeat runs of one configuration), not
 #                 guessed here; the old code and docs define none. Until D7 sets it, a
@@ -638,6 +639,7 @@ metrics:
     status: "planned"
     readers: ["behaviour_report"]
     status_reason: "Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): the gold verdict is complete when the extraction scores at or above the high band against the resolved field labels and the class is right, partial between the low and high bands, incomplete below the low band or under a wrong class. The bands come from the scoring profile in config/, never from code. No scoring code in D2."
+    pairing: "paired_percentile_bootstrap"
     origin: "registry"
     old_source: "decision_lanes.score_judge_lane"
     citation: "Exact match of the judge verdict with the gold verdict: human resolution (approve_as_is complete, correct partial, reject/reclassify incomplete), else the dataset extraction score read through the ambiguous band."
@@ -671,6 +673,7 @@ metrics:
     status: "planned"
     readers: ["behaviour_report"]
     status_reason: "Gold derived (owner decision, 2026-11-18): over documents whose derived verdict (judge_verdict_accuracy's rule) is partial or incomplete. No scoring code in D2."
+    pairing: "paired_percentile_bootstrap"
     origin: "registry"
     old_source: "decision_lanes.score_judge_lane"
     citation: "Recall of the judge's escalation (verdict other than complete) over documents whose gold verdict is partial or incomplete."
@@ -721,6 +724,7 @@ metrics:
     status: "planned"
     readers: ["behaviour_report"]
     status_reason: "Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): a retry is right when the next attempt's score against the resolved field labels rose by at least epsilon; an accept is right when the final score is at or above the high band and the class is right. The bands come from the scoring profile in config/, never from code. No scoring code in D2."
+    pairing_note: "A share of the run's own arbiter rulings: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
     origin: "registry"
     old_source: "decision_lanes.score_arbiter_lane"
     citation: "Retry right when the next attempt's dataset score rose by epsilon; accept right when the person approved as is or the final score is at or above the high band; human_review right when the person changed the work or the final score is below the high band."
@@ -754,6 +758,7 @@ metrics:
     status: "planned"
     readers: ["behaviour_report"]
     status_reason: "Gold derived (owner decision, 2026-11-18): an accept_with_caveats ruling is wrong when the final extraction scores below the high band against the resolved field labels, or the class is wrong. The bands come from the scoring profile in config/, never from code. No scoring code in D2."
+    pairing_note: "A share of the run's own accept_with_caveats rulings: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
     origin: "registry"
     old_source: "decision_lanes.score_arbiter_lane"
     citation: "Accept wrong when the person corrected, reclassified or rejected the work, or, with no resolution, the final dataset score is below the high band."
@@ -787,6 +792,7 @@ metrics:
     status: "planned"
     readers: ["behaviour_report"]
     status_reason: "Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): an approval is wrong when the approved extraction scores below the high band against the resolved field labels, or the class is wrong. This replaces the old 'human outcome only' rule. The bands come from the scoring profile in config/, never from code. No scoring code in D2."
+    pairing_note: "A share of the run's own audited boss approvals: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
     origin: "registry"
     old_source: "decision_lanes.score_boss_lane"
     citation: "Human outcome only: approved, then the person corrected, reclassified or rejected the document."
@@ -804,6 +810,7 @@ metrics:
     status: "planned"
     readers: ["behaviour_report"]
     status_reason: "Gold derived (owner decision, 2026-11-18): a review ruling was needless when the extraction scores at or above the high band against the resolved field labels and the class is right. This replaces the old 'human outcome only' rule. The bands come from the scoring profile in config/, never from code. No scoring code in D2."
+    pairing_note: "A share of the run's own boss review rulings: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
     origin: "registry"
     old_source: "decision_lanes.score_boss_lane"
     citation: "Human outcome only: review, then the person approved as is."
@@ -1757,6 +1764,7 @@ metrics:
     status: "planned"
     readers: ["golden_parity_gate", "run_report", "cost_projection"]
     cost: true
+    pairing: "paired_percentile_bootstrap"
     origin: "registry"
     old_source: "cost.estimate_for_record"
     citation: "Total estimated cost / documents processed (cost.estimate_for_record)."

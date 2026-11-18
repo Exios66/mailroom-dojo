@@ -433,6 +433,16 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
         f"default_views.{NO_METRIC_AGENT}.guard",
     ),
     ("null with layers", _view(NO_METRIC_AGENT, label_layers=["hub"]), "reads no labels"),
+    (
+        "default without pairing",
+        _set("judge_verdict_accuracy", "pairing", None),
+        "default_views.judge.metric: 'judge_verdict_accuracy' names no pairing",
+    ),
+    (
+        "guard without pairing",
+        _set("boss_needless_review_rate", "pairing_note", None),
+        "default_views.boss.guard: 'boss_needless_review_rate' names no pairing",
+    ),
     ("reason with metric", _view(CONFIRMED_AGENT, reason="because"), "only an agent with no default metric"),
     ("empty source", _view(CONFIRMED_AGENT, source=" "), f"default_views.{CONFIRMED_AGENT}.source: must not"),
     ("confirmed not bool", _view(CONFIRMED_AGENT, confirmed="yes"), "confirmed: must be true or false"),
@@ -796,6 +806,18 @@ def test_every_compared_metric_names_its_pairing_or_why_not() -> None:
     for row in compared:
         assert (row.pairing is None) != (row.pairing_note is None), row.id
     assert {row.pairing for row in table.rows} - {None} <= set(PAIRING_METHODS)
+
+
+def test_every_default_and_guard_metric_names_its_pairing_or_why_not() -> None:
+    """A dashboard number is compared between runs, so it says how, or why it cannot be paired."""
+    table = load_metric_table()
+    shown = {
+        metric for view in table.default_views.values() for metric in (view.metric, view.guard) if metric
+    }
+    assert shown
+    for metric in sorted(shown):
+        row = table.get(metric)
+        assert (row.pairing is None) != (row.pairing_note is None), metric
 
 
 @pytest.mark.parametrize("metric", ["f1_macro", "extraction_f1", "extraction_f2"])

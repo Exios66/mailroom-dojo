@@ -813,6 +813,12 @@ def _view_guarded_metric(metric: Any, agent: str, by_id: Mapping[str, MetricRow]
     row = _view_metric(metric, agent, by_id, path)
     if row.direction == "none":
         raise _fail(path, f"{metric!r} has no direction (none); a default view or guard needs one")
+    if row.pairing is None and row.pairing_note is None:
+        raise _fail(
+            path,
+            f"{metric!r} names no pairing; a default view or guard is compared between runs, so its "
+            "row names the pairing or a pairing_note says why there is none",
+        )
     return row
 
 

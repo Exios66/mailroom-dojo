@@ -55,14 +55,19 @@ behind the spend gate).
    the rule in `status_reason`, with the score bands taken from the scoring profile in
    `config/`. No scoring code for it in D2. The planned row `fields_without_gold` is what the
    future gold-generation step reads.
-5. **Pairing.** Every kept headline or keep-rule row names a pairing or a `pairing_note`.
+5. **Pairing.** Every kept headline or keep-rule row, and every metric a default view shows
+   (its number or its guard), names a pairing or a `pairing_note`.
    `paired_percentile_bootstrap` is D1's `paired_bootstrap_delta` (per document, same documents
    on both sides); `two_sample_percentile_bootstrap` is D1's `delta_significance`. `f1_macro`,
    `content_topic_f1_macro`, `extraction_f1`, `extraction_f2` and
    `reviewer_wrong_accept_upper_95` are whole-set statistics (macro F1; field-micro F1 and F2
    pool the counts of every document before dividing, old `suites.py` line 1486
    `merge_extraction_counts`; a bound), so their notes say why there is no per-document
-   pairing; D7 decides their comparison.
+   pairing; D7 decides their comparison. The arbiter's and the boss's default and guard rates
+   are shares of the run's own rulings, so two runs rule on different documents; their notes
+   say so, and D7 builds the resample. The judge's verdict accuracy and escalation recall (a
+   per-document verdict, paired by document id over the documents both runs judged; the
+   recall's denominator comes from the gold) and `cost_per_document` are paired.
 6. **Noise floor deferred to D7.** The keep rule's smallest meaningful difference is measured by
    repeat runs and lands with D7 in `config/`, not in this table.
 7. **Duplicates point at the canonical row.** `alias_of` (a not-ported second name, same unit,
