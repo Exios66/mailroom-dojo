@@ -313,7 +313,46 @@ record and configuration; none is dropped.
 
 ## 8. Launcher chunks
 
-To follow, from the sandbox and mailroom-reloaded inventory (in progress).
+The launcher is the sandbox, rebuilt as `packages/launcher` (owner, 2026-11-18). The module-by-module
+inventory of the sandbox (`93f298c`) and of mailroom-reloaded (`2b79c28`, the TUI base) is
+`docs/plans/2026-11-18-launcher-inventory.md`. Of the sandbox's 207 modules (79,218 lines), 81
+(34,807) become launcher code, 27 (9,030) move to the Dojo, 11 become configuration, 9 go to labels,
+7 to the record and 5 to the engine; 64 (18,677), mostly study-specific reports and vendor plumbing,
+retire, and their tables come back only as Dojo reports rebuilt from records. Of mailroom-reloaded only
+the browser TUI (no npm), its ready route and the replay view models are kept; its CrewAI pipeline
+retires.
+
+| Chunk | What it ports | Depends on | Proof gate |
+|:---|:---|:---|:---|
+| L1 run spec, draws, preflight | `job/spec.py`, `job/preflight.py`, draws and dataset locks; adds the policy hash and run kind the spec lacks | record header, labels snapshot ids, client profile. No engine | spec round-trip and hash property tests; every sandbox run YAML converts or is listed with a reason; preflight fault matrix, one exact refusal per fault |
+| L6 spend gate, caps, price sheet | `job/spend.py` (initials, 24 h receipt bound to a fingerprint), budgets, ledger, price sheet `--check` | L1 | no paid action without a fresh receipt: each refusal path is a test; the signer lands on the Run |
+| L2 backends | OpenRouter, Modal with vLLM, Compose (the producer image and the local serving services), local | L1, L6, engine fake model | stage-4 gate, part 1: one mock run per backend with no spend, each writing a record that verifies |
+| L7 run driver | `job/runner.py`, eval runners | L1, L2, record writer, engine E2/E3 | `kill -9` mid-run resumes without repeating a recorded call; pause and cancel |
+| L3 CLI and TUI | sandbox CLI and TUI with the reloaded browser TUI as the base | record index, trace and tail | every sandbox command maps to a new one or a listed retirement; the reloaded JS tests green |
+| L4 floor | sandbox floor server and digest, reloaded replay sessions | record replay timeline, L3 | the record timeline equals sandbox `build_timeline` on the same folder (differential test); it replaces The-Mailroom at cutover |
+| L5 operator desk | The-Mailroom operator desk | L4, review station | as in the inventory |
+| L8 experiments and autoresearch driver | `autoresearch/loop.py`, levers, estimates, experiment matrix | L1, L6, L7; Dojo D6 utility and D7 keep rule | the mock study runs at zero spend; re-deciding the stored rounds reproduces the old keep and revert decisions |
+| L9 stage-4 gate | `scripts/smoke_campaign.py` | L1 to L8 | mock run per backend, then one paid parity run per paid backend, started by the owner through the spend gate |
+
+The sandbox's scoring code goes to the Dojo chunks it belongs to: D3b (the reference caller of the
+document scorers), D4 (scorability and the labelled count), D5 (run metrics, cards, serving parity,
+schema adherence), D6 (archive gate, cause codes, routing audit, document utility) and D7 (keep rule,
+paired delta, cost truth, comparisons). None of them may import launcher modules.
+
+Findings that shape the chunks:
+
+- **Before the engine exists**, the sandbox drives the pipeline by importing a vendored llm-mailroom,
+  which the workspace forbids. L7 either waits for the engine, or a temporary legacy-driver backend
+  installs llm-mailroom 0.30 as a pinned package and writes records (section 10).
+- **Two replay contracts.** The reloaded viewer reads a richer `replay/v1` payload (stations, segments,
+  generations, scores, rollups) than the sandbox `build_timeline`. The record timeline carries what
+  `replay/v1` needs, or the floor computes it from record events. This goes to the record work.
+- The sandbox node status `error` maps to R7's `failed` in the importer and the timeline.
+- The keep rule at `93f298c` already limits a class drop by the replicate noise of that class. D7
+  checks whether this is the rewrite the master design asks for before redoing it.
+- One `modal` pin for the workspace (the sandbox has 1.6.3, reloaded 1.5.5); Node in the CircleCI
+  image for the TUI's JS tests (a governance change); layout-map lines for the new `config/` folders
+  and launcher subpackages before they are created; any run ledger is a generated view of the record.
 
 ## 9. Trade-offs
 
@@ -336,5 +375,12 @@ Decided 2026-11-18:
 4. The headline registry metrics stay, improved on the new system, with consistent meanings
    (section 4.2).
 
-Still open: confirm the placements of the capabilities in section 7 that the master design does
+Still open:
+
+- What the launcher drives before the engine exists (section 8): a temporary legacy-driver backend
+  that installs llm-mailroom 0.30 as a pinned package and writes records, or the run driver waits for
+  the engine and the early launcher works only over imported runs. Recommended: wait, because the
+  floor, the CLI over records and the spend gate need no driver, and a legacy driver is code that is
+  thrown away at cutover.
+- Confirm the placements of the capabilities in section 7 that the master design does
 not name.
