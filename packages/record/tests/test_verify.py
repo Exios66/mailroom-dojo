@@ -799,6 +799,14 @@ def test_every_problem_kind_is_produced_by_some_test() -> None:
         assert f'"{kind}"' in source, kind
 
 
+def test_the_readme_lists_every_problem_kind() -> None:
+    import re
+
+    text = (Path(__file__).parents[1] / "README.md").read_text()
+    block = text[text.index("Problem kinds:") : text.index("The module", text.index("Problem kinds:"))]
+    assert set(re.findall(r"`([a-z_]+)`", block)) == set(PROBLEM_KINDS)
+
+
 # --- large runs ------------------------------------------------------------------------
 
 

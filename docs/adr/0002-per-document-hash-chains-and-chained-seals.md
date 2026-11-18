@@ -25,7 +25,8 @@ run-level hash computed "at the end" would never exist.
 - Verification can only check what a seal committed. Events appended after the latest seal
   (a cut unsealed tail, or a whole document added and deleted before the next seal) leave
   no trace a seal names, so their deletion is detectable only once a later seal covers
-  them. The detection window is the seal period.
+  them. The detection window is the seal period. On a closed run no later seal comes, so
+  `verify_run` notes such events (`unsealed_events`, never failing) per document.
 - Accepted risk, rollback of the latest seal: every seal file sits in the run's own
   directory. Someone who can write the run can delete the latest seal together with every
   event added since the seal before it; what remains is a valid, shorter record and

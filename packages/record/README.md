@@ -14,16 +14,21 @@ tombstone). It never raises on damaged data: each failure is a `Problem` naming 
 `seq`, segment and byte offset, or seal, and the scan carries on. Only an unknown run id
 raises. Segments are streamed one line at a time; no report holds document content.
 
-`ok` is false when any problem fails. Every kind fails except two:
+`ok` is false when any problem fails. Every kind fails except three:
 
 - `torn_tail` never fails. Its bytes were never a whole event, so no committed event is
-  lost; a lost committed event shows as `seq_gap`, `truncated_after_seal` or
+  lost; a lost sealed event shows as `seq_gap`, `truncated_after_seal` or
   `document_missing_from_log`. On a closed run (an experiment kind with a seal; an
   experiment run is sealed once, when it ends) the detail says the tail is final, a
   recovered crash; on a run still being written it may be a write in progress.
 - `columns_missing` of the latest seal does not fail: its column file is written just
   after the seal file, so a crash or a seal in progress leaves it missing until the next
-  `seal_run` rebuilds it. A missing older column file fails.
+  `seal_run` rebuilds it. On a closed run, where no later seal comes, the detail says to
+  run `seal_run` once more (it rebuilds the file and commits nothing new). A missing older
+  column file fails.
+- `unsealed_events` never fails. On a closed run it notes, per document, the events past
+  the last seal (the first `seq` and how many): no seal commits them, so losing them
+  would go undetected until `seal_run` commits them.
 
 A run can be verified while it is written: verify reads column files, then seals, then
 segments (the reverse of write order), and re-scans once, bounded by the first scan's
@@ -35,7 +40,7 @@ Problem kinds: `bad_hash`, `broken_link`, `seq_gap`, `forked_chain`, `corrupt_li
 `invalid_event`, `missing_blob`, `corrupt_blob`, `tombstone_with_content`,
 `corrupt_tombstone`, `seal_mismatch`, `seal_corrupt`, `seal_missing`,
 `document_missing_from_log`, `truncated_after_seal`, `columns_missing`, `columns_mismatch`,
-`corrupt_run_header`, `torn_tail`. The module
+`corrupt_run_header`, `torn_tail`, `unsealed_events`. The module
 docstring of `verify.py` states exactly when each is reported.
 
 ## Seal
