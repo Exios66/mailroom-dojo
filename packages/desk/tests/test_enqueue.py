@@ -647,6 +647,21 @@ def test_stale_index_never_hides_a_case(env: SimpleNamespace, caplog: pytest.Log
     assert env.desk.index_drift() == []  # no index, nothing to drift
 
 
+def test_index_behind_on_a_known_document_is_drift(env: SimpleNamespace) -> None:
+    """The index knows every document of the run but holds an older head for one: the
+    membership agrees, the heads do not. That is drift too, and the queue still shows the
+    case the index has not seen."""
+    index = Index(env.root / "index.sqlite")
+    index.reindex(env.log)
+    index.apply(engine_append(env.root, "r1", "d1", "decision"))
+    indexed = Desk(env.root, index=index, clock=env.clock)
+    assert indexed.index_drift() == [] and [r.doc_id for r in index.documents("r1")] == ["d1"]
+    env.desk.enqueue(request("d1", "flag_low"), env.policy)  # a desk without the index
+    assert [r.doc_id for r in index.documents("r1")] == ["d1"] and index.review_queue("r1") == []
+    assert indexed.index_drift() == ["r1"]
+    assert [c.doc_id for c in indexed.queue("r1")] == ["d1"]
+
+
 def test_unavailable_index_falls_back_to_the_log(env: SimpleNamespace) -> None:
     env.desk.enqueue(request("d1", "flag_low"), env.policy)
     desk = Desk(env.root, index=Index(env.root / "never-built.sqlite"), clock=env.clock)
@@ -720,6 +735,33 @@ def test_enqueue_at_the_start_of_time_writes_a_valid_timestamp(env: SimpleNamesp
     env.clock.moment = datetime(5, 1, 1, tzinfo=timezone.utc)
     done = env.desk.enqueue(request("d1", "flag_low"), env.policy)
     assert done.event.ts == "0005-01-01T00:00:00.000000Z"
+    verify_ok(env)
+
+
+def test_close_failing_after_a_good_flush_does_not_raise(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Once the flush succeeded the event is durable, so an ``OSError`` from closing the
+    writer (closing a descriptor can report a late error) must not make ``enqueue``
+    raise: it returns the event, the lock is free and the record verifies."""
+    import errno
+
+    from mailroom_record.log import LogWriter
+
+    real_close = LogWriter.close
+    fired: list[bool] = []
+
+    def failing_close(self: LogWriter) -> None:
+        real_close(self)
+        fired.append(True)
+        raise OSError(errno.EIO, "injected EIO on close")
+
+    monkeypatch.setattr(LogWriter, "close", failing_close)
+    done = env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    assert fired and done is not None
+    monkeypatch.undo()
+    assert [e.hash for e in review_events(env.root)] == [done.event.hash]
+    with desk_lock(env.root, "r1", timeout=0):
+        pass
+    assert env.desk.enqueue(request("d2", "flag_low"), env.policy)
     verify_ok(env)
 
 
