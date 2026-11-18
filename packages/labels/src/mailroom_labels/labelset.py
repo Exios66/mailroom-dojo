@@ -9,8 +9,9 @@ dict label value that ``documents()`` and ``document()`` hand out is a fresh cop
 caller that changes a value it was given never changes the labels. The frozen models are
 not defended against a deliberate write through ``__dict__`` or ``object.__setattr__`` (a
 document with no list or dict value is handed out as the stored object itself), and
-``profile`` and the snapshot manifests (``source``, ``known_warnings`` entries) are plain
-objects, not deep-frozen. A ``DocumentLabels`` copies (``copy.copy``, ``copy.deepcopy``)
+``profile`` is a plain object, not deep-frozen. Each snapshot manifest stores ``source``
+and ``known_warnings`` deep read-only (``stored_source``, ``stored_known_warnings``) and
+hands out fresh copies of them. A ``DocumentLabels`` copies (``copy.copy``, ``copy.deepcopy``)
 and pickles; the ``LabelSet`` itself neither pickles nor deep-copies (its id index is a
 read-only view). Its surface:
 

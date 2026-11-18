@@ -850,8 +850,10 @@ def test_check_dirs_reports_an_unreadable_snapshot_and_checks_the_next(
 
 
 def test_changing_a_loaded_manifest_s_metadata_changes_nothing_a_reader_sees(tmp_path: Path) -> None:
-    """``source`` and ``known_warnings`` are copies on every read: a caller that edits what it
-    was handed cannot make the readers and the gate see a manifest the hash does not pin."""
+    """``source`` and ``known_warnings`` are copies on every read, and the stored values behind
+    them (``stored_source``, ``stored_known_warnings``) are deep read-only: a caller that edits
+    what it was handed, or tries to edit the stored values, cannot make the readers and the
+    gate see a manifest the hash does not pin."""
     from labels_testkit import profile
     from mailroom_labels.layers import read_layer
     from mailroom_labels.quality import check
@@ -868,6 +870,17 @@ def test_changing_a_loaded_manifest_s_metadata_changes_nothing_a_reader_sees(tmp
     snap.manifest.source["text_unverified_documents"].clear()  # type: ignore[union-attr]
     snap.manifest.source["text_check"] = {"run": False}
     snap.manifest.known_warnings[0]["doc"] = "D2"  # type: ignore[index]
+    stored, stored_warnings = snap.manifest.stored_source, snap.manifest.stored_known_warnings
+    attempts: list[Callable[[], object]] = [
+        lambda: stored["text_unverified_documents"].clear(),  # type: ignore[union-attr]
+        lambda: stored["text_unverified_documents"].append("D2"),  # type: ignore[union-attr]
+        lambda: stored.__setitem__("text_check", {"run": False}),  # type: ignore[attr-defined]
+        lambda: stored.__delitem__("repository"),  # type: ignore[attr-defined]
+        lambda: stored_warnings[0].__setitem__("doc", "D2"),  # type: ignore[attr-defined]
+    ]
+    for attempt in attempts:
+        with pytest.raises((TypeError, AttributeError)):
+            attempt()
     assert snap.manifest.source["text_unverified_documents"] == ["D1"]
     assert snap.manifest.source["text_check"] == {"run": True}
     assert snap.manifest.known_warnings == accept
@@ -880,3 +893,30 @@ def test_changing_a_loaded_manifest_s_metadata_changes_nothing_a_reader_sees(tmp
     snap.check_manifest()  # the stored manifest is still the one on disk
     dumped = json.loads(snap.manifest.model_dump_json(by_alias=True))
     assert dumped == json.loads((d / MANIFEST_NAME).read_text())
+    plain = snap.manifest.model_dump(by_alias=True)
+    assert json.loads(json.dumps(plain)) == dumped  # json.dumps refuses a read-only view
+
+
+def test_a_manifest_copies_pickles_and_dumps_the_bytes_it_was_read_from(tmp_path: Path) -> None:
+    """The read-only storage of ``source`` and ``known_warnings`` changes nothing a reader of
+    the manifest relies on: it still copies and pickles (and the twin stays read-only), and
+    its ``by_alias`` dump, written the way ``build_manifest`` writes, is the file on disk."""
+    import copy
+    import pickle
+
+    d = make_snapshot(
+        tmp_path,
+        "hub",
+        [hub_row("D1")],
+        source={"repository": "synthetic", "nested": {"list": [1, {"deep": ["x"]}]}},
+        known_warnings=({"kind": "text_unverified", "doc": "D1", "field": None, "reason": "r"},),
+    )
+    manifest = load_snapshot(d).manifest
+    on_disk = (d / MANIFEST_NAME).read_text(encoding="utf-8")
+    for twin in (copy.copy(manifest), copy.deepcopy(manifest), pickle.loads(pickle.dumps(manifest))):
+        assert twin == manifest
+        assert twin.source == manifest.source and twin.known_warnings == manifest.known_warnings
+        with pytest.raises((TypeError, AttributeError)):
+            twin.stored_source["nested"]["list"].append(2)  # type: ignore[index]
+        dumped = twin.model_dump(mode="json", by_alias=True)
+        assert json.dumps(dumped, indent=2, sort_keys=True, ensure_ascii=False) + "\n" == on_disk

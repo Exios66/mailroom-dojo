@@ -282,11 +282,16 @@ class SnapshotManifest(BaseModel):
     committed. ``manifest_hash`` is ``hash_obj`` of every other key.
 
     ``source`` and ``known_warnings`` hold JSON lists and objects, which a frozen model does
-    not protect, so each read returns a fresh copy: a caller that edits what it was handed
-    never changes what the layer readers and the quality gate see, and the manifest stays
-    the one ``manifest_hash`` pins. They are stored under ``stored_source`` and
-    ``stored_known_warnings`` (validated from the ``source`` and ``known_warnings`` keys; dump
-    with ``by_alias=True`` to get those keys back).
+    not protect on its own. They are stored deep read-only under ``stored_source`` and
+    ``stored_known_warnings`` (validated from the ``source`` and ``known_warnings`` keys):
+    every object is a read-only view and every list a tuple, so nobody can edit them in
+    place. ``source`` and ``known_warnings`` hand out fresh plain copies, so a caller that
+    edits what it was handed never changes what the layer readers and the quality gate see,
+    and the manifest stays the one ``manifest_hash`` pins. A dump (``by_alias=True`` gives
+    back the ``source`` and ``known_warnings`` keys) has plain dicts and lists again, and the
+    model copies (``copy.copy``, ``copy.deepcopy``) and pickles. As for every frozen model
+    here, a deliberate write through ``__dict__`` or ``object.__setattr__`` is not defended
+    against.
     """
 
     model_config = _FROZEN
@@ -301,12 +306,66 @@ class SnapshotManifest(BaseModel):
     stored_known_warnings: tuple[Mapping[str, str | None], ...] = Field(default=(), alias="known_warnings")
     manifest_hash: str
 
+    @field_validator("stored_source", "stored_known_warnings", mode="after")
+    @classmethod
+    def _deep_read_only(cls, value: Any) -> Any:
+        return _deep_frozen(value)
+
+    @field_serializer("stored_source")
+    def _source_plain(self, value: Mapping[str, Any]) -> dict[str, Any]:
+        return _thawed_json(value)  # type: ignore[no-any-return]
+
+    @field_serializer("stored_known_warnings")
+    def _warnings_plain(self, value: tuple[Mapping[str, str | None], ...]) -> tuple[dict[str, str | None], ...]:
+        return tuple(dict(w) for w in value)
+
     @property
     def source(self) -> dict[str, JsonValue]:
         """A copy of the manifest's ``source`` object."""
-        return copy.deepcopy(dict(self.stored_source))
+        return _thawed_json(self.stored_source)  # type: ignore[no-any-return]
 
     @property
     def known_warnings(self) -> tuple[dict[str, str | None], ...]:
         """A copy of the manifest's ``known_warnings`` entries."""
         return tuple(dict(w) for w in self.stored_known_warnings)
+
+    # A ``MappingProxyType`` neither pickles nor deep-copies, so the state carries plain
+    # JSON values and ``__setstate__`` freezes them again.
+    def __getstate__(self) -> dict[Any, Any]:
+        state = super().__getstate__()
+        values = dict(state["__dict__"])
+        for name in _MANIFEST_READ_ONLY:
+            values[name] = _thawed_json(values[name])
+        return {**state, "__dict__": values}
+
+    def __setstate__(self, state: dict[Any, Any]) -> None:
+        values = dict(state["__dict__"])
+        for name in _MANIFEST_READ_ONLY:
+            values[name] = _deep_frozen(values[name])
+        super().__setstate__({**state, "__dict__": values})
+
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> SnapshotManifest:
+        twin = type(self).__new__(type(self))
+        twin.__setstate__(copy.deepcopy(self.__getstate__(), memo))
+        return twin
+
+
+_MANIFEST_READ_ONLY = ("stored_source", "stored_known_warnings")
+
+
+def _deep_frozen(value: Any) -> Any:
+    """``value`` with every JSON object a read-only view and every list a tuple."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({k: _deep_frozen(v) for k, v in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_deep_frozen(v) for v in value)
+    return value
+
+
+def _thawed_json(value: Any) -> Any:
+    """A fresh plain JSON value (dicts and lists) from a deep-frozen one."""
+    if isinstance(value, Mapping):
+        return {k: _thawed_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thawed_json(v) for v in value]
+    return value
