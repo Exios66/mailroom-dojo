@@ -269,6 +269,39 @@ def test_a_one_class_group_has_calibration_but_no_ranking_power():
     assert groups["sorter"].brier == 0.085
 
 
+def test_calibration_by_group_reads_correctness_strictly():
+    """Correctness is a bool (NumPy's included): text or a number is refused naming the row."""
+    with raises_exactly(TypeError, "rows[1] ('sorter'): correct must be a bool or None; got 'no'"):
+        calibration_by_group([("sorter", 0.9, True), ("sorter", 0.4, "no")])
+    with raises_exactly(TypeError, "rows[0] ('judge'): correct must be a bool or None; got 1"):
+        calibration_by_group([("judge", 0.9, 1)])
+    groups = calibration_by_group([("sorter", 0.9, numpy.bool_(True)), ("sorter", 0.2, numpy.bool_(False))])
+    assert groups["sorter"].to_dict() == {"n": 2, "dropped": 0, "ece": 0.15, "brier": 0.025, "auroc": 1.0}
+
+
+def test_calibration_by_group_counts_unknown_correctness_as_dropped():
+    """A row whose correctness is None is left out and counted, never read as wrong."""
+    groups = calibration_by_group([("sorter", 0.9, True), ("sorter", 0.2, False), ("sorter", 0.8, None)])
+    assert groups["sorter"].to_dict() == {"n": 2, "dropped": 1, "ece": 0.15, "brier": 0.025, "auroc": 1.0}
+
+
+def test_calibration_by_group_reads_numpy_confidences():
+    """NumPy float32, float64 and integer confidences are numbers, not dropped rows."""
+    rows = [
+        ("sorter", numpy.float32(0.75), True),
+        ("sorter", numpy.float64(0.25), False),
+        ("sorter", numpy.int64(1), True),
+        ("sorter", 10**400, True),  # an integer too large for a float: out of range, dropped
+        ("sorter", numpy.float32("nan"), True),
+    ]
+    groups = calibration_by_group(rows)
+    plain = [(0.75, True), (0.25, False), (1.0, True)]
+    assert groups["sorter"].n == 3 and groups["sorter"].dropped == 2
+    assert groups["sorter"].ece == expected_calibration_error(plain)
+    assert groups["sorter"].brier == brier_score(plain)
+    assert groups["sorter"].auroc == 1.0
+
+
 # --- bad input -----------------------------------------------------------------
 
 

@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from statistics import NormalDist
 from typing import Any
 
+import numpy
 from scipy.special import betaincinv
 
 from ._checks import is_non_finite, validate_confidence, validate_count
@@ -470,28 +471,52 @@ def cutoff_for_precision(scores: Sequence[Any], labels: Sequence[Any], precision
     return PrecisionCutoff(cutoff=None, precision=None, accept_rate=0.0, recall=0.0)
 
 
+def _group_confidence(confidence: Any) -> float | None:
+    """A usable confidence for :func:`calibration_by_group`: a finite real in ``[0, 1]``, else ``None``."""
+    if isinstance(confidence, (bool, numpy.bool_)) or not isinstance(confidence, numbers.Real):
+        return None
+    if isinstance(confidence, numbers.Integral):  # never float() a huge integer
+        return float(confidence) if 0 <= confidence <= 1 else None
+    if is_non_finite(confidence):
+        return None
+    value = float(confidence)
+    return value if 0.0 <= value <= 1.0 else None
+
+
 def calibration_by_group(
     rows: Iterable[tuple[Hashable, Any, Any]], *, bins: int = 10
 ) -> dict[Hashable, GroupCalibration]:
     """ECE, Brier score and AUROC of ``(group, confidence, correct)`` rows, per group.
 
     A group is whatever key the caller passes: an agent, a class, or an
-    ``(agent, class)`` tuple. Groups keep the order they first appear in. A row whose
-    confidence is not a finite number in ``[0, 1]`` is left out and counted in
-    ``dropped``; ``n`` counts the rows used. ``auroc`` is ``None`` for a group whose
-    rows are all correct or all wrong.
+    ``(agent, class)`` tuple. Groups keep the order they first appear in. ``correct``
+    must be a bool (NumPy's included) or ``None``; anything else raises ``TypeError``
+    naming the row. A row whose correctness is ``None``, or whose confidence is not a
+    finite real number in ``[0, 1]`` (NumPy scalars included, bools excluded), is left
+    out and counted in ``dropped``; ``n`` counts the rows used. ``auroc`` is ``None``
+    for a group whose rows are all correct or all wrong. Unlike the ported population
+    functions, which keep the old Dojo's lenient reading, this one never reads text or a
+    number as correctness.
     """
     if bins < 1:
         raise ValueError("bins must be positive")
-    grouped: dict[Hashable, list[tuple[Any, Any]]] = {}
-    for group, confidence, correct in rows:
-        grouped.setdefault(group, []).append((confidence, correct))
+    grouped: dict[Hashable, list[Pair]] = {}
+    dropped: dict[Hashable, int] = {}
+    for index, (group, confidence, correct) in enumerate(rows):
+        clean = grouped.setdefault(group, [])
+        dropped.setdefault(group, 0)
+        if correct is not None and not isinstance(correct, (bool, numpy.bool_)):
+            raise TypeError(f"rows[{index}] ({group!r}): correct must be a bool or None; got {correct!r}")
+        value = _group_confidence(confidence)
+        if correct is None or value is None:
+            dropped[group] += 1
+        else:
+            clean.append((value, bool(correct)))
     out: dict[Hashable, GroupCalibration] = {}
-    for group, pairs in grouped.items():
-        clean = _clean_pairs(pairs)
+    for group, clean in grouped.items():
         out[group] = GroupCalibration(
             n=len(clean),
-            dropped=len(pairs) - len(clean),
+            dropped=dropped[group],
             ece=expected_calibration_error(clean, bins=bins),
             brier=brier_score(clean),
             auroc=auroc([confidence for confidence, _ in clean], [correct for _, correct in clean]),

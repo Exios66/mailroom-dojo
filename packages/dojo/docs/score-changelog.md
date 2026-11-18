@@ -209,3 +209,8 @@ per agent, class or both). These are the design's "Comparing runs" and "Confiden
 The paired functions take `{document id: value}` mappings and pair by id, in sorted id
 order; a document missing or `None` in one run is a `ValueError` naming it, unless the
 caller passes `allow_unpaired=True`, which leaves it out and returns it in `unpaired_ids`.
+`calibration_by_group` reads correctness strictly (a bool, NumPy's included, or `None`,
+which is dropped and counted; text such as `"no"` or a number is a `TypeError` naming the
+row) and reads NumPy confidences (`float32`, integers) as numbers. The ported ECE, Brier
+and reliability functions keep the old lenient reading (`bool(correct)`, and only `int` or
+`float` confidences), for parity.
