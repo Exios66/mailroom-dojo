@@ -278,8 +278,9 @@ Key decisions:
   specialist); five `reviewer_*` ids (sorter reviewer: class accuracy, wrong-accept rate and its
   upper 95% bound, routed-to-review rate, accept-rule violations); `ttft_seconds` and
   `tokens_per_second` (the serving pseudo-agent `local_vs_api`); and `bert_elapsed_ms` (the `intake`
-  BERT fast path). They and the tier-1 metrics keep their names, definitions, units, direction and
-  aggregation, so a number means the same before and after cutover. What the master design drops is
+  BERT fast path). They and the tier-1 metrics keep their names, definitions, units and
+  aggregation, so a number means the same before and after cutover; the old registry stated no
+  direction, so the table states one per row, proposed for the owner to confirm (D2 plan). What the master design drops is
   the machinery around them (tiers as a filter API, bundles, metric profiles), not the metrics. The
   new form is one flat, versioned metric table in configuration: each row is a metric id, its
   definition, unit, direction, aggregation, the layer and agents that produce it, and a `headline`
@@ -304,7 +305,7 @@ Key decisions:
   `f1_macro` (the judge rules on extractions and has no class gold in the new system); `arbiter`
   `arbiter_decision_accuracy_vs_gold`; the specialists
   `extraction_overall_score` ("Specialist headline", line 326), except `extraction_f2` for the
-  insurance claims specialist (line 344); `local_vs_api` `tokens_per_second` (tier 0, line 1100;
+  insurance claims specialist (line 344); `local_vs_api` `tokens_per_second` (tier 0, lines 1097-1098;
   `ttft_seconds` stays a headline row); procedural agents, graph nodes and agents with no metric
   yet have a `null` view with a reason. Gold is the dataset ground truth (`hub`), the generated
   interim and near-gold labels (`interim`, `near_gold`), the review desk's gold (`review`) and
@@ -316,8 +317,9 @@ Key decisions:
   Every default-view and guard metric names its pairing, or a note says why it has none. The
   serving ids are planned for the run layer's serving figures (D5; spec line 285).
   `bert_elapsed_ms` is `not_ported`: the BERT intake path is dropped (section 7) and nothing else
-  reads it. Improvements: every value is a `Measure` (below); each metric names its noise floor and its pairing rule for
-  comparisons; per-class breakdowns are standard; new layers (behaviour, stability, cost truth, log
+  reads it. Improvements: every value is a `Measure` (below); each compared metric names its
+  pairing rule for comparisons, or why it has none; the noise floor column is null on every row
+  until D7 measures it from repeat runs; per-class breakdowns are standard; new layers (behaviour, stability, cost truth, log
   health) add rows, never a parallel registry. Parity: every metric id the old registry and the
   golden suites emit is in the table with the same meaning, or listed as an intended change with a
   reason.

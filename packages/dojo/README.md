@@ -104,7 +104,8 @@ truth, the gaps a future gold-generation step fills, intake's class accuracy, an
 `<old id>_vs_gold` rows that grade the decision agents on gold derived from the label layers,
 a new rule, while the old ids keep the old one). Each old row keeps the old
 description, aggregation, agents, ground truth, inclusion and citation, and its unit
-(normalised to one spelling per unit); tiers are replaced by `headline` (exactly the old
+(normalised to one spelling per unit); the nine kept numeric rows whose ground truth the old
+registry left unset (or never listed) now state it; tiers are replaced by `headline` (exactly the old
 tier-0 ids), a `layer`, a `status` and the `readers` (gate, report or projection) that use
 it. A row is `implemented` or `planned` only when a named reader uses it; every other id
 stays as a `not_ported` row with its reason, so it can be revived without changing its

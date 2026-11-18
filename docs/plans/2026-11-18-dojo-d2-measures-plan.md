@@ -239,6 +239,16 @@ The old tests, `tests/test_v018_scorecard_honesty.py` (13 test functions):
 | `test_completion_and_cost_basis` (269) | D5 (completion, ITT, cost basis per record); "never mix cost bases" is D2: `cost_basis_mismatch` |
 | `test_modal_serving_kind_not_local` (308) | D5 |
 
+## Open items
+
+- `MetricTable.check()` does not look at a measure's `subject` (agent, document class, field):
+  a measure filed for an agent the row does not apply to passes. Follow-up, no code change in
+  D2 (review round 3, item 7).
+- The `denominator` column is stated on every paired row and on the kept rows whose
+  denominator the run's decisions set (`RUN_DENOMINATOR`); other rows leave it null (not
+  stated). Precision-style rows (the predictions are the denominator) are not flagged; none of
+  them is paired.
+
 ## Review findings
 
 Round 1:
