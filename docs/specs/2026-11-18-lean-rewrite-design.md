@@ -1,4 +1,4 @@
-<!-- Exported from the Claude Doc "Lean Mailroom Rewrite Design" (approved by JJB 2026-11-17 CT). The Doc is the live copy; this file is the snapshot the build plans argue from. -->
+<!-- Exported from the Claude Doc "Lean Mailroom Rewrite Design" (approved by JJB 2026-11-17 CT). The Doc is the live copy; this file is the snapshot the build plans argue from. The "Requirements added during the build" section (2026-11-18) is recorded here first. -->
 
 # Lean Mailroom Rewrite Design
 
@@ -30,8 +30,25 @@ Why now: the v1 failure analysis shows utility is lost in routing, not classific
 | Storage | Fix slow databases, bloat, lost records, hard tracing, hard analysis, and missing document versions for human review |
 | Shape | One new workspace, built record first |
 | Engine style | A graph that can be viewed as a graph: multi-agent, with handoffs, able to take high volumes of incoming documents |
+| Labels in the workspace (2026-11-18, during the build) | All scoring is still built from the mailroom dataset and the interim and near_gold Claude labels. Those labels are saved into this repo, versioned, for the highest data quality in experiment runs, testing and calibration |
+| Operator surfaces (2026-11-18, during the build) | The CLI capabilities, the TUI and all floor replayability (the sandbox floor viewer and its replay) are rolled into this repo seamlessly |
 
 JJB added two items after the first draft: mergers must improve significantly using the new merger schema built on MAUD-style questions, and the EDA repository with all interim label work is rolled in. Both are in the Labels and mergers section. The merger item replaces the earlier "lowest priority" standing.
+
+### Requirements added during the build
+
+JJB added these on 2026-11-18, after the design was approved. They bind every project plan.
+
+**1. Scoring is built from the mailroom dataset and the Claude labels, and the labels live here.**
+
+- Every score in the new Dojo is computed against the pinned mailroom dataset (`Lucius-Morningstar/mailroom-dataset`, by revision) and the label layers in force today: Hub, then interim, then near_gold (Claude-generated), with gold reviewer decisions on top. Precedence does not change.
+- The interim and near_gold labels, and the gold-label review decisions, are committed to this repo as versioned label snapshots (project 2). Each snapshot has a manifest hash; a run records the snapshot it was scored against.
+- Data quality is a gate, not a hope: a snapshot is checked against the dataset's content hashes and against the closed label vocabularies before it can be used, and documents whose content hash does not match are flagged as unverified, never silently scored. Experiment runs, tests and calibration all read the same committed snapshots.
+
+**2. The CLI, the TUI and floor replay move into this repo.**
+
+- The sandbox's operator CLI capabilities, its TUI and the floor viewer with recorded replay are rolled in, reading the run record instead of sandbox run folders (launcher project, with the TUI as part of it).
+- The record must carry what the floor needs: node start and finish times, node status (running, done, paused, failed), step, stage, agent and model, document outcomes, and the run's terminal state, cursor and total. Project 1 stores these and provides a replay timeline built from the record that matches the sandbox's recorded-replay contract (`tui/floor_replay.py:build_timeline`), so any stored or imported run can be replayed on the floor.
 
 ## Goals, non-goals and anti-goals
 
@@ -212,6 +229,7 @@ Ground truth becomes a fifth package in the workspace, because every score is on
 | --- | --- | --- |
 | Refined ground-truth master and its labeling tools | The EDA repository (`Mailroom-Corpus-EDA`), outside this project's repos | Moved in as the labels package, with its history of who labeled what |
 | Interim overlay and near_gold catalog | Sandbox `data/labels` and the gold-label scripts | Moved in as label snapshots |
+| Gold-label review decisions (correspondence, corporate owner, missing fields) | Project files `gold-label-review/` | Moved in as reviewed overlays on the snapshots |
 | Label policy, scorable-field rules, stale-label handling | The Dojo | Stay in the Dojo, reading the labels package |
 
 - **A label snapshot** is a file set with a manifest hash. A run records the snapshot it was scored against, so a score can always be tied to the exact labels.
@@ -316,6 +334,7 @@ The launcher is what the sandbox becomes: it starts runs and writes records, and
 - **It keeps:** the run spec, preflight, the spend gate with initials and caps, the price sheet check, the Modal and Compose deploy helpers, and the autoresearch loop as a driver that proposes the next policy.
 - **It hands to the Dojo:** run metrics, the archive gate and causes, specialist cards and grid cards, serving parity, schema adherence, the routing audit, and the autoresearch scoring and keep rule.
 - **It retires:** the study-specific report modules. Their tables become Dojo reports rebuilt from records.
+- **It takes over the operator surfaces:** the `sandbox` CLI capabilities, the TUI and the floor viewer with recorded replay, all reading the record (the replay timeline comes from the record package).
 
 | Backend | How it runs | What it adds to the record |
 | --- | --- | --- |

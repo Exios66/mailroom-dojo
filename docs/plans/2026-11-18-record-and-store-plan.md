@@ -473,7 +473,9 @@ def test_cli_never_prints_blob_content(review_store):
 - Mapping rules:
   - `Run`: `origin="imported_sandbox"`, `kind="full_pipeline"` when `nodes.jsonl` has a `classify` node, else `"specialist_only"`; `backend` from `spec.lock.json` `engine`; `agent_models`, `prompt_hashes` (from `prompt.lock.json`), `code_version` (from `git`), `signed_by` (from `spend-authorization.json` if present, else `None`); `source = {"folder": <name>, "spec_hash": ...}`. `policy_name="legacy"`, `policy_hash=None`.
   - `doc_id` is `content_sha256`. `doc_text` becomes an `original`-role blob. `expected_*` fields are NOT imported into the record (labels belong to the labels package); only `expected_doc_class` is kept in the first event's `payload` as `draw_class`.
-  - Each `done` or `paused` node row becomes one event: `kind="decision"` when `decisions` is non-empty, `kind="review"` for `human_review`, else `kind="handoff"`. `decision` holds the row's `decisions` list as given, minus any `options` text. `latency_ms` from `ms`. `ts` converted to ISO. `running` rows are not imported.
+  - Each `done`, `paused` or `failed` node row becomes one event: `kind="decision"` when `decisions` is non-empty, `kind="review"` for `human_review`, `kind="error"` for `failed`, else `kind="handoff"`. `decision` holds the row's `decisions` list as given, minus any `options` text. `latency_ms` from `ms`. `ts` converted to ISO (the finish time).
+  - Floor replay (added 2026-11-18, see the spec's "Requirements added during the build"): the matching `running` row is not a separate event, but its time is kept on the finishing event as `payload.started_ts` (ISO). The finishing event's `payload` also keeps `status`, `step` (when present) and `stage` (when present). A `running` row with no finishing row (in flight when the run stopped) becomes one event with `kind="handoff"` and `payload.status="running"`. Pairing is by `(doc, node, step)` in file order, the same rule the sandbox's `tui/floor_replay.py:build_timeline` uses.
+  - `checkpoint.json` (`state`, `cursor`, `total`) becomes a final `_run` event with `node="checkpoint"`, `kind="handoff"` and those three values in `payload`; absent when the file is missing.
   - The item's `pred.extracted_data` (without `_report`) becomes an `extraction` blob and `_report` a `report` blob, attached to one final `kind="output"` event per document whose `decision` holds `doc_type`, `stage`, both confidences, `review_causes`, `review_verdict`, `escalation_reason`. Its `payload` holds `usage_by_agent` and the sandbox `score` dict under the key `legacy_score`.
   - `events.jsonl` rows become `_run` events with `kind="handoff"`, `node=<event name>`.
   - Per-call tokens, per-attempt extractions and prompt ids per call do not exist in the source. They are listed in `absent_fields` and left `None`.
@@ -522,6 +524,34 @@ def test_audit_reports_routing_inputs(fixture_folder):
 - [ ] **Step 4:** Run; expect 7 passed.
 - [ ] **Step 5:** Commit: `feat(record): import sandbox run folders and audit routing inputs`.
 
+### Task 10b: Floor replay timeline from the record
+
+Added 2026-11-18 (JJB: all floor replayability moves into this repo). The TUI and floor viewer themselves move in the launcher project; this task makes every stored or imported run replayable from the record alone.
+
+**Files:** Create `replay.py`, `tests/test_replay.py`.
+
+**Interfaces:**
+- Consumes: `EventLog`.
+- Produces: `replay_timeline(log, run_id) -> tuple[list[tuple[float, dict]], dict]`, the same contract as the sandbox's `tui/floor_replay.py:build_timeline`: a sorted list of `(at_seconds, event)` where `event` is `{"node": {...}}`, `{"item": {...}}` or `{"checkpoint": {...}}`, plus a `meta` dict (`source_run_id`, `engine_kind`, `engine_model`, `node_records`, `item_records`, `duration_s`, `synthetic_timing`, `incomplete`, `source_state`, `warnings`). Node rows carry `doc`, `node`, `status`, `agent`, `model`, `step`, `stage`, `ms`, `decisions` (without `options` text); item rows carry the outcome fields from the final `output` event (no extracted values, no document text). A `running` start is emitted at `started_ts` and its finish at the event `ts`.
+- No document text and no extracted field values in the timeline.
+
+- [ ] **Step 1: Failing tests**
+
+```python
+def test_timeline_matches_fixture_folder(tmp_store, fixture_folder):
+    r = import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    timeline, meta = replay_timeline(tmp_store.log, r.run_id)
+    assert expected_timeline(fixture_folder) == normalise(timeline)   # hand-computed from the fixture's nodes/items/checkpoint
+    assert meta["node_records"] == count_node_rows(fixture_folder) and not meta["synthetic_timing"]
+
+def test_in_flight_node_replays_as_running(tmp_store, fixture_folder_crashed): ...
+def test_timeline_has_no_document_text(tmp_store, fixture_folder): ...     # sentinel scan
+def test_native_run_replays(store_with_events): ...                        # a run written by LogWriter, not imported
+```
+
+- [ ] **Step 2:** Run; expect import failure. **Step 3:** Implement. **Step 4:** Run; expect pass.
+- [ ] **Step 5:** Commit: `feat(record): floor replay timeline from the record`.
+
 ### Task 11: Pack, unpack and prune
 
 **Files:** Create `pack.py`, `tests/test_pack.py`.
@@ -566,13 +596,13 @@ def test_corrupt_archive_is_refused(sealed_store, tmp_path):
 
 **Interfaces:**
 - Consumes: everything above.
-- Produces: `mailroom_record.__all__` with exactly these names: `Run`, `Event`, `Seal`, `BlobRef`, `BlobStore`, `EventLog`, `Index`, `seal_run`, `verify_run`, `version_chain`, `trace_run`, `trace_doc`, `import_sandbox_run`, `audit_sandbox_run`, `pack_run`, `unpack_run`, `prune_run`, `GENESIS`. And `stage1_gate.py --runs <dir> --root <dir>`, which imports every run folder under `--runs`, verifies each, reindexes, and writes the report.
+- Produces: `mailroom_record.__all__` with exactly these names: `Run`, `Event`, `Seal`, `BlobRef`, `BlobStore`, `EventLog`, `Index`, `seal_run`, `verify_run`, `version_chain`, `trace_run`, `trace_doc`, `import_sandbox_run`, `audit_sandbox_run`, `replay_timeline`, `pack_run`, `unpack_run`, `prune_run`, `GENESIS` (19 names; `replay_timeline` added 2026-11-18). And `stage1_gate.py --runs <dir> --root <dir>`, which imports every run folder under `--runs`, verifies each, reindexes, and writes the report.
 
 - [ ] **Step 1: Failing test**
 
 ```python
 def test_public_surface_is_exactly_this():
-    assert sorted(mailroom_record.__all__) == sorted(EXPECTED_18_NAMES)
+    assert sorted(mailroom_record.__all__) == sorted(EXPECTED_19_NAMES)
 ```
 
 - [ ] **Step 2:** Run; expect failure. Then set `__all__` and re-run; expect pass.
@@ -590,6 +620,7 @@ Expected, and each is a gate condition:
 - `mailroom-record trace doc <a v1 doc id>` lists all five v1 runs.
 - A second run of the script reports every run as `already_imported`.
 - `grep` of the report and of every Parquet file for a 40-character string taken from one imported document's text finds nothing.
+- Floor replay parity: for every run folder with `nodes.jsonl` or `items.jsonl`, `replay_timeline` from the record gives the same node sequence (doc, node, status) and the same times (within 1 ms) as the sandbox's `build_timeline` on the source folder. The script loads `tui/floor_replay.py` by path from a sandbox checkout when one is given (`--sandbox <dir>`; the module imports only the standard library) and reports the check as skipped otherwise.
 
 - [ ] **Step 5:** Run the whole suite: `pytest packages/record/tests -q`. Expected: all pass, no skips. Commit: `feat(record): stage 1 gate on the v1 and v2 runs` with the report's totals in the commit body.
 
