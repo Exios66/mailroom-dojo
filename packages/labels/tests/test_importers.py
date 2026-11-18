@@ -605,7 +605,8 @@ def test_the_committed_pins_match_the_hub_snapshot_sources() -> None:
 @pytest.mark.parametrize(("path", "ok"), [
     ("parquet/ground_truth/train/train-00000-of-00001.parquet", True),
     ("../escape.parquet", False), ("parquet/../../escape", False), ("/etc/passwd", False),
-    ("parquet\\..\\x", False), ("", False),
+    ("parquet\\..\\x", False), ("", False), ("C:/Windows/x.parquet", False), ("C:x.parquet", False),
+    ("c:\\x.parquet", False), ("parquet/a:b.parquet", False),
 ])
 def test_fetch_hub_refuses_paths_outside_the_download_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                                          path: str, ok: bool) -> None:
@@ -888,3 +889,23 @@ def test_cli_import_hub_with_missing_pins_exits_2(tmp_path: Path) -> None:
                                  "--dataset-dir", str(data), "--revision", "0" * 40, "--pins", str(tmp_path / "nope.yaml")])
     assert result.exit_code == 2 and isinstance(result.exception, SystemExit)
     assert "usage error: --pins" in result.output
+
+
+def test_fetch_hub_refuses_a_stream_cut_off_mid_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import http.client
+
+    fetch = _load_fetch()
+
+    class Truncated:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            return None
+
+        def read(self, n: int) -> bytes:
+            raise http.client.IncompleteRead(b"partial", 100)
+
+    monkeypatch.setattr(fetch.urllib.request, "urlopen", lambda url, timeout: Truncated())
+    assert fetch.fetch(tmp_path / "out", ["parquet/x.parquet"], revision="0" * 40) == 1
+    assert not (tmp_path / "out" / "manifest.txt").exists()
