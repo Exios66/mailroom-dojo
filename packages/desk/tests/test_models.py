@@ -100,3 +100,46 @@ def test_case_state_is_frozen_and_breach_needs_a_due_time() -> None:
     assert not case.breached(parse_ts("2100-01-01T00:00:00Z"))
     with pytest.raises(ValidationError):
         case.status = "resolved"  # type: ignore[misc]
+
+
+# --- references: requested_by, class_hint, prefill_ref -------------------------------
+
+BAD_REFS = [
+    "has space",
+    "nul\x00byte",
+    "bidi‮override",
+    "line separator",
+    "para separator",
+    "c1\x85control",
+    "tab\there",
+    "esc\x1bseq",
+    "zero​width",
+    "café",
+    "-leading-dash",
+    "",
+    "x" * 129,
+]
+
+
+def test_is_ref_accepts_only_short_ascii_tokens() -> None:
+    from mailroom_desk.models import is_ref
+
+    for good in ("node:classify", "rv-a", "kind_b", "prefill-combo", "Contract.v2", "a/b:c-d_e.f", "x" * 128):
+        assert is_ref(good), good
+    for bad in [*BAD_REFS, "trailing\n", None, 3]:
+        assert not is_ref(bad), bad
+
+
+@pytest.mark.parametrize("bad", BAD_REFS)
+def test_free_text_never_enters_a_reference_field(bad: str) -> None:
+    from mailroom_desk import ReviewRequest
+
+    base = {"run_id": "r1", "doc_id": "d1", "causes": ["flag_low"], "requested_by": "node:x"}
+    for key in ("requested_by", "class_hint"):
+        with pytest.raises(ValidationError):
+            ReviewRequest(**(base | {key: bad}))
+    for key in ("requested_by", "class_hint", "prefill_ref"):
+        with pytest.raises(ValidationError):
+            parse_payload(VALID["enqueue"] | {key: bad})
+    with pytest.raises(ValidationError):
+        parse_payload(VALID["reopen"] | {"prefill_ref": bad})

@@ -12,17 +12,18 @@ A policy lives at ``config/review/<name>.yaml``::
         sla_hours: <number > 0>
     rules:                            # ordered; the first match wins
       - name: <token>
-        when: {cause_in: [<token or pattern>...], class_in: [<name>...], confidence_below: <0..1>}
-        then: {priority: ..., sla_hours: ..., queue: <token>, required_role: <token>, prefill_ref: <name>}
+        when: {cause_in: [<token or pattern>...], class_in: [<ref>...], confidence_below: <0..1>}
+        then: {priority: ..., sla_hours: ..., queue: <token>, required_role: <token>, prefill_ref: <ref>}
       - name: <token>                 # the final rule is the default: no `when`
         then: {}
     sample: {rate: <0..1>, seed: <text or int>}   # optional; the spot-check sample
 
 Meaning
 -------
-- A cause is a token (``models.is_token``). A catalog *pattern* is a token whose segments
-  may be ``*``, each matching exactly one segment, so ``decision_point:*:*`` matches
-  ``decision_point:<slot>:<cause>``. An exact entry wins over a pattern; two patterns that
+- A cause is a token (``models.is_token``); a class and a prefill are references
+  (``models.is_ref``: ASCII letters, digits and ``_ . : - /``, no whitespace or controls).
+  A catalog *pattern* is a token whose segments may be ``*``, each matching exactly one
+  segment, so ``decision_point:*:*`` matches ``decision_point:<slot>:<cause>``. An exact entry wins over a pattern; two patterns that
   can match the same token are refused, so a lookup has at most one answer.
 - A rule matches when every condition it names holds: ``cause_in`` (any request cause
   matches any listed token or pattern), ``class_in`` (the class hint is listed; no hint
@@ -59,7 +60,7 @@ from pydantic import BaseModel, ConfigDict
 
 from mailroom_desk._yaml import load_yaml_file
 from mailroom_desk.errors import PolicyError
-from mailroom_desk.models import PRIORITIES, is_token, priority_rank
+from mailroom_desk.models import PRIORITIES, is_ref, is_token, priority_rank
 from mailroom_labels.profile import ClientProfile
 from mailroom_record.hashing import hash_obj
 
@@ -267,12 +268,6 @@ def _is_text(value: object) -> bool:
     return isinstance(value, str) and value.strip() != ""
 
 
-def _is_name(value: object) -> bool:
-    return isinstance(value, str) and value != "" and value.strip() == value and len(value) <= 200 and not any(
-        c in value for c in "\r\n\t"
-    )
-
-
 def _keys(raw: Mapping[str, Any], allowed: set[str], where: str, problems: list[str]) -> None:
     for key in sorted(set(raw) - allowed, key=str):
         problems.append(f"{where} has unknown key {key!r}")
@@ -335,9 +330,9 @@ def _token_list(raw: object, where: str, problems: list[str], *, patterns: bool)
         return None
     out: list[str] = []
     for item in raw:
-        ok = _is_pattern(item) if patterns else _is_name(item)
+        ok = _is_pattern(item) if patterns else is_ref(item)
         if not ok:
-            problems.append(f"{where} holds {item!r}, not a {'token or pattern' if patterns else 'name'}")
+            problems.append(f"{where} holds {item!r}, not a {'token or pattern' if patterns else 'reference'}")
         elif item in out:
             problems.append(f"{where} lists {item!r} twice")
         else:
@@ -389,8 +384,8 @@ def _check_then(raw: object, where: str, problems: list[str]) -> Then | None:
     for key in ("queue", "required_role"):
         if key in raw and not is_token(raw[key]):
             problems.append(f"{where}.{key} is not a token: {raw[key]!r}")
-    if "prefill_ref" in raw and not _is_name(raw["prefill_ref"]):
-        problems.append(f"{where}.prefill_ref must be a name: {raw['prefill_ref']!r}")
+    if "prefill_ref" in raw and not is_ref(raw["prefill_ref"]):
+        problems.append(f"{where}.prefill_ref must be a reference: {raw['prefill_ref']!r}")
     if len(problems) != bad:
         return None
     return Then(

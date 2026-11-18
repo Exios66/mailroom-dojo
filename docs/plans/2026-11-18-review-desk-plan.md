@@ -49,7 +49,7 @@ Queue state is a fold over a document's `review` events since its last non-revie
 
 | Action | Event | In queue after? |
 |---|---|---|
-| enqueue | `kind="review"`, `node="human_review"`, `cause=<primary cause>`, `payload={action:"enqueue", causes, rule, priority, sla_hours, queue, requested_by, sampled?}`, `inputs` = blobs shown | yes |
+| enqueue | `kind="review"`, `node="human_review"`, `cause=<primary cause>`, `payload={action:"enqueue", causes, rule, priority, sla_hours, queue, required_role, prefill_ref, sampled, policy_name, policy_hash, requested_by, class_hint, confidence_hint}`, `inputs` = blobs shown. D1 extended the first draft (`causes, rule, priority, sla_hours, queue, requested_by, sampled?`) with `required_role`, `prefill_ref`, `policy_name`, `policy_hash`, `class_hint` and `confidence_hint`, so the event records everything the routing read and decided. `requested_by`, `class_hint` and `prefill_ref` are references (ASCII letters, digits and `_ . : - /`, at most 128 characters), never free text | yes |
 | assign, claim, release, escalate, defer, reopen, comment-free state changes | `kind="review"`, `payload={action, actor, ...}` | yes |
 | resolve (approve_as_is, correct, reclassify) | `kind="output"`, `decision={resolution, route}`, `outputs=[human_correction blob]`, `payload={reviewer, ...}` | no |
 | resolve (reject) | `kind="decision"`, `cause=<reject reason token>`, `outputs=[human_correction blob]` | no |

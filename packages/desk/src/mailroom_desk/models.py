@@ -17,6 +17,15 @@ A token (cause, rule name, queue, role, reason) is lowercase ``:``-separated seg
 catalog entry may also be a *pattern* whose segments may be ``*`` (one whole segment), see
 ``policy.py``.
 
+References
+----------
+A reference (``requested_by``, ``class_hint``, ``prefill_ref``) names something outside
+the desk: a node or service, a class of the client profile, a prefill. It is ASCII letters,
+digits and ``_ . : - /``, starting with a letter or digit, at most 128 characters: no
+whitespace, no control, format or bidi character, nothing outside ASCII. A payload is
+never erasable (ADR-0007), so a field that could carry free text would carry it forever;
+a reference cannot.
+
 Review actions
 --------------
 Every desk action is one ``kind="review"`` event whose payload validates as exactly one
@@ -64,6 +73,7 @@ __all__ = [
     "ReviewerRef",
     "Routing",
     "format_ts",
+    "is_ref",
     "is_token",
     "parse_payload",
     "parse_ts",
@@ -84,6 +94,7 @@ CaseStatus = Literal["open", "assigned", "claimed", "deferred", "resolved"]
 CASE_STATUSES: tuple[str, ...] = ("open", "assigned", "claimed", "deferred", "resolved")
 
 TOKEN_RE = re.compile(r"[a-z0-9_]+(?::[a-z0-9_]+)*")
+REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}")
 _REVIEWER_ID_RE = r"^[a-z0-9][a-z0-9_.-]{0,63}$"
 _RUN_ID_RE = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$"  # the record's run id rule
 _TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z")
@@ -101,9 +112,14 @@ def _check_token(value: str) -> str:
     return value
 
 
-def _check_name(value: str) -> str:
-    if not value or value.strip() != value or len(value) > _MAX_TOKEN or any(c in value for c in "\r\n\t"):
-        raise ValueError(f"not a name (non-empty, no surrounding or control whitespace): {value!r}")
+def is_ref(value: object) -> bool:
+    """True when ``value`` is a reference (see the module doc)."""
+    return isinstance(value, str) and REF_RE.fullmatch(value) is not None
+
+
+def _check_ref(value: str) -> str:
+    if not is_ref(value):
+        raise ValueError("not a reference (ASCII letters, digits and _ . : - /, at most 128 characters)")
     return value
 
 
@@ -146,7 +162,7 @@ def priority_rank(priority: str | None) -> int:
 
 
 Token = Annotated[str, AfterValidator(_check_token)]
-Name = Annotated[str, AfterValidator(_check_name)]
+Ref = Annotated[str, AfterValidator(_check_ref)]
 ReviewerId = Annotated[str, StringConstraints(pattern=_REVIEWER_ID_RE)]
 RunId = Annotated[str, StringConstraints(pattern=_RUN_ID_RE)]
 DocId = Annotated[str, StringConstraints(min_length=1)]
@@ -188,8 +204,8 @@ class ReviewRequest(_Frozen):
     run_id: RunId
     doc_id: DocId
     causes: Tokens = ()
-    requested_by: Name
-    class_hint: Name | None = None
+    requested_by: Ref
+    class_hint: Ref | None = None
     confidence_hint: Confidence | None = None
     shown: Blobs = ()
 
@@ -206,7 +222,7 @@ class Routing(_Frozen):
     sla_hours: Hours
     queue: Token
     required_role: Token | None = None
-    prefill_ref: Name | None = None
+    prefill_ref: Ref | None = None
     sampled: bool
     policy_name: Token
     policy_hash: Sha256
@@ -216,8 +232,8 @@ class EnqueuePayload(Routing):
     """``enqueue``: the document enters review (opens an episode)."""
 
     action: Literal["enqueue"]
-    requested_by: Name
-    class_hint: Name | None = None
+    requested_by: Ref
+    class_hint: Ref | None = None
     confidence_hint: Confidence | None = None
 
 

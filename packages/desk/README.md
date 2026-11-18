@@ -56,5 +56,8 @@ desk.case("r1", "<doc sha256>")           # one document's case (its last episod
   `now > sla_due`.
 - Free text never goes in a payload: what the reviewer is shown is a list of blob
   references (`inputs`), and those blobs must be present before the event is written.
+- `requested_by`, `class_hint` and `prefill_ref` are references: ASCII letters, digits and
+  `_ . : - /`, at most 128 characters, no whitespace or control characters. A payload can
+  never be erased, so no payload field can hold free text.
 
 Test strategy: `docs/test-strategy-desk.md`.
