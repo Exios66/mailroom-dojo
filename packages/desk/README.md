@@ -36,7 +36,7 @@ desk.case("r1", "<doc sha256>")           # one document's case (its last episod
 | `policy.py` | `load_policy` / `parse_policy`: cause catalog, rules (first match wins, final default required), spot-check sample, outage refusal, the policy hash |
 | `reviewers.py` | `load_registry` / `parse_registry`: strict or open mode, roles, token identity, the registry hash |
 | `fold.py` | `fold_case`: a document's case from its events (episode, leases, deferrals, SLA) |
-| `lock.py` | `desk_lock` (per run, `<root>/desk/<run_id>.lock`) and `seal_guard` (the record's seal lock) |
+| `lock.py` | `desk_lock` (per run, `<root>/desk/<run_id>.lock`) and `seal_guard` (the record's seal lock; makes `seals/` durable first) |
 | `desk.py` | `Desk`: `enqueue`, `case`, `queue`, `index_drift`, `run`, `is_closed` |
 | `errors.py` | one typed error per refusal (`AlreadyInReview`, `RunClosed`, `OutageNotReviewable`, ...) |
 
@@ -54,16 +54,28 @@ desk.case("r1", "<doc sha256>")           # one document's case (its last episod
   `multiprocessing`'s `spawn` context or `subprocess` (fork then exec): the desk's lock
   descriptors are not inheritable, so those children never hold a lock.
 - A sealed experiment run is refused (`RunClosed`); a `service_period` run is never closed.
+  The closed check is repeated under the locks, so a seal that lands while an enqueue waits
+  for the desk lock is still refused.
+- `seal_guard` creates `runs/<run_id>/seals/` if it is missing and fsyncs it and the run
+  directory on every call, because `seal_run` skips those fsyncs for a directory that
+  already exists.
+- The run-level chain `_run` holds run events, not a document: `enqueue` refuses it
+  (`RunChainNotReviewable`), with causes or as a sample-only request.
 - With an index, `queue()` checks run by run that the index's document heads equal the log's.
   A run where they differ (or an unavailable index) is read from the log and a warning is
   logged (logger `mailroom_desk`), so a stale index never hides a case;
   `Desk.index_drift()` lists such runs and `Index.reindex` brings them back in step.
 - Outage tokens (`transient_exhausted`, `provider_unavailable`) are refused in policies and
   requests: an outage makes a document wait, never park (R1).
-- `enqueue` never raises after its event is durable. A failed write or fsync raises
-  `RecordWriteFailed` (the cause is the `OSError`; the event may be on disk, so read the case
-  again before retrying). An SLA due time past 9999-12-31 saturates and is listed as an
-  anomaly instead of raising.
+- `enqueue` never raises after its event is durable: an `OSError` from closing the writer
+  after a good flush is ignored, an index that refuses the apply is reported in
+  `Enqueued.index_error`, and an SLA due time past 9999-12-31 saturates and is listed as an
+  anomaly. A failed write or fsync raises `RecordWriteFailed` (the cause is the `OSError`;
+  the event may be on disk, so read the case again before retrying); a read failure while
+  appending is `RecordDamaged`. Times are written with a four-digit year (year 5 is `0005`).
+- Hostile config files are typed errors, never crashes: integers too large for a float,
+  integer literals too long to read and YAML nested thousands deep are a `PolicyError` or
+  `RegistryError`, and problem messages show refused values shortened.
 - Leases, deferrals and SLA breach are judged when read, against the desk clock
   (injectable). A lease holds while `now < lease_expires_at`; an SLA is breached when
   `now > sla_due`.

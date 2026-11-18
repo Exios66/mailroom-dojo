@@ -40,14 +40,17 @@ one-off unit tests.
 | Corrupt line, unreadable header, forked chain | Garbage line; broken `run.json`; a seq-0 line copied into a second segment | `RecordDamaged`, nothing appended, lock free | `test_corrupt_line_is_refused_as_damage`, `test_unreadable_run_header_is_damage`, `test_forked_chain_is_refused_as_damage` |
 | Missing or tombstoned shown blob | A ref to a hash never stored; a tombstoned blob; a blob tombstoned under the lock | `BlobNotPresent` with the state; nothing appended | `test_missing_or_tombstoned_shown_blob_is_refused`, `test_blob_tombstoned_between_check_and_append_is_refused` |
 | Sealed experiment run | `seal_run` on a `specialist_only` run | `RunClosed` (also for a sample-only request); a `service_period` run stays open | `test_sealed_experiment_run_is_refused`, `test_unsealed_experiment_and_sealed_service_runs_stay_open` |
-| Seal racing the closed check | `seal_run` started while the desk is between check and append | The seal waits, then covers the review event; the next enqueue is `RunClosed` | `test_seal_cannot_land_between_the_closed_check_and_the_append`, `test_seal_guard_is_the_lock_seal_run_takes` (pins the record layout) |
+| Run-level chain | `_run` with causes, and as a sample-only request the sample would select | `RunChainNotReviewable`; no segment changes; the same sample-only request for a document enters | `test_run_level_chain_is_refused` |
+| Seal racing the closed check | `seal_run` started while the desk is between check and append | The seal waits, then covers the review event; the next enqueue is `RunClosed` | `test_seal_cannot_land_between_the_closed_check_and_the_append`, `test_seal_guard_is_the_lock_seal_run_takes` (pins the record layout without a sleep: waits for `seal_run` to reach its `flock` and compares the inode with the guard's) |
 | Seal landing before the desk takes its locks | The run is sealed after the first closed check, while the enqueue waits for a desk lock held by the test | The check repeated under the locks refuses with `RunClosed`; no segment changes (deleting that re-check fails this test) | `test_seal_landing_while_waiting_for_the_desk_lock_is_seen_under_the_lock` |
+| `seals/` created by the desk | `seal_guard` on a run without `seals/`, and again with it; `os.fsync` spied | `seals/` then the run directory are fsynced after the `mkdir`, on every call; a missing run directory is `FileNotFoundError` and creates nothing. Durability across a power cut itself is not testable here | `test_seal_guard_creates_the_seals_directory_durably`, `test_seal_guard_on_a_missing_run_directory_creates_nothing` |
 | Unknown run | Missing run, path-like and over-long ids | `UnknownRun`; no directory or lock file created | `test_unknown_run_is_refused` |
 | Busy chain | A live writer of this process holds the document, or the `desk` writer id | `RecordBusy`, nothing appended | `test_document_held_by_a_live_writer_in_this_process_is_busy`, `test_desk_writer_id_held_elsewhere_is_busy` |
 | Outage cause | `transient_exhausted`, `provider_unavailable`, as a token or a segment | `OutageNotReviewable` in requests; refused in a policy's catalog and rules | `test_outage_causes_are_refused`, `test_outage_tokens_are_refused_in_the_catalog_and_rules` |
 | Full disk on the flush | `os.write` raises `ENOSPC` for segment files (like the record's fault tests) | `RecordWriteFailed` with the `OSError` as `__cause__`; nothing in the segment; the lock is free; the next enqueue and `verify_run` succeed | `test_full_disk_on_flush_is_a_typed_error_and_leaves_the_record_usable` |
+| Close fails after a good flush | `LogWriter.close` raises `EIO` after closing | `enqueue` returns the durable event; the lock is free; `verify_run` ok | `test_close_failing_after_a_good_flush_does_not_raise` |
 | Time at the edges | A desk clock at 9999-12-31T23:00 (the SLA due time overflows); a record-valid far-future review event from another writer; a clock in year 5 | `enqueue` returns its durable event (never raises after the append); the due time saturates at `END_OF_TIME` with an anomaly; the queue still lists every case; a four-digit year is written | `test_enqueue_at_the_end_of_time_returns_its_event`, `test_one_far_future_event_does_not_take_down_the_queue`, `test_enqueue_at_the_start_of_time_writes_a_valid_timestamp` |
-| Index behind the log | A desk without the index enqueues, an engine writes a review event, both unseen by the index | `queue()` reads that run from the log (same result as a desk with no index), logs a warning naming the run, `index_drift()` lists it; after `reindex` the index path is used again and no warning is logged | `test_stale_index_never_hides_a_case` |
+| Index behind the log | A desk without the index enqueues, an engine writes a review event, both unseen by the index | `queue()` reads that run from the log (same result as a desk with no index), logs a warning naming the run, `index_drift()` lists it; after `reindex` the index path is used again and no warning is logged; an index that knows the document but holds an older head is drift too | `test_stale_index_never_hides_a_case`, `test_index_behind_on_a_known_document_is_drift` |
 | Index refuses the apply | A run created after the index was built | The event is durable; `index_error` names `unknown_run`; a reindex shows it | `test_index_refusal_is_reported_not_raised` |
 | Free text in a payload | Sentinel text in a shown blob | The sentinel is absent from every segment; the blob hash is present (positive control) | `test_payload_holds_no_free_text` |
 
@@ -62,7 +65,7 @@ one-off unit tests.
 | The policy hash misses a change or changes without one | Property-like table: every rule, cause and sample field mutated in turn changes it; key order, comments and `24` vs `24.0` do not | `test_any_change_of_meaning_changes_the_hash`, `test_hash_ignores_key_order_comments_and_number_format` |
 | The sample is biased or not repeatable | 10,000 ids at three rates within five binomial sigmas; same seed same set, other seed other set; rate 0 none, 1 all; monotone in the rate; strict threshold | `test_sampling_*` |
 | A strict registry admits an unknown reviewer | Unit: strict and open modes, tokens, roles | `test_reviewers.py` |
-| The fold disagrees with the index | Property: random histories over two runs and four documents of non-review events, foreign review events (unreadable payloads, a claim with no opening) and desk enqueues; after every step the fold, the plain desk queue and the index-backed desk queue equal `Index.review_queue()` of both an applied index and a rebuilt one, and `drift == []` | `test_fold.py::test_fold_agrees_with_the_index_on_random_histories` |
+| The fold disagrees with the index | Property: random histories over two runs, four documents and the run-level chain `_run`, of non-review events, foreign review events (unreadable payloads, assign, live and lapsed claims, defer, release, a claim with no opening) and desk enqueues; after every step the plain and index-backed desk queues are the same list (cases, statuses, order), their membership equals `Index.review_queue()` of an applied and a rebuilt index and a model the test keeps from the operations alone, each status equals the model's, the queue is in `sort_key` order, enqueue refuses exactly when the model says so (`AlreadyInReview`, `RunChainNotReviewable`), no `human_review` event follows a review event, and `drift == []` | `test_fold.py::test_fold_agrees_with_the_index_on_random_histories` |
 | A lease or deferral outlives its time | Injected clock at the boundary (one microsecond before; exactly at) | `test_claim_holds_until_the_lease_expires_exactly`, `test_injected_clock_drives_lease_expiry_in_the_queue`, `test_release_escalate_defer_and_reopen` |
 | SLA breach is off by one | Boundary: due minus 1 us, due, due plus 1 us; a resolved case never breaches | `test_sla_breach_boundaries`, `test_resolution_ends_the_episode` |
 | Queue order is wrong | Priority, then due time, then opened time, then id; an unreadable case first | `test_queue_order_priority_then_due_then_opened_then_id` |
@@ -81,6 +84,23 @@ hash input, the SLA comparison, the closed-run check, taking the seal lock, prio
 order, the `confidence_below` comparison, strict registry mode, the default-rule check,
 duplicate YAML keys and the unknown-cause check.
 
+### Re-check after the D1 review fixes
+
+The same procedure on the fixed code (`git diff` empty after each). Caught, with the test
+that fails: reopen keeping the assignee (`test_reopen_clears_assignment_claim_and_deferral`),
+claim keeping a deferral (`test_claim_clears_a_deferral`), `authenticate` dropping the role
+(`test_authenticate_finds_the_holder_of_a_token`), `sort_key` with opened before due
+(`test_queue_order_priority_then_due_then_opened_then_id`), no closed-run re-check under the
+lock (`test_seal_landing_while_waiting_for_the_desk_lock_is_seen_under_the_lock`), a plain
+`mkdir` of `seals/` or no run-directory fsync
+(`test_seal_guard_creates_the_seals_directory_durably`), no `_run` refusal
+(`test_run_level_chain_is_refused` and the property), a flush `OSError` left untyped, no
+SLA saturation or no saturation anomaly, a year without four digits, trusting a stale index,
+raising on an index apply error, drift by membership only, a close `OSError` escaping, a
+space allowed in a reference, and deep YAML not caught. One mutation is equivalent and
+survives by design: treating an integer too large for a float as a number in
+`policy._is_number` (the range checks that follow refuse it anyway).
+
 ## Later tasks
 
 - D2: assign, claim, release, escalate, defer, reopen and resolve through the desk API,
@@ -96,4 +116,6 @@ duplicate YAML keys and the unknown-cause check.
   `queue()` then reads that run from the log (tested with an index that was never given the
   events), `Desk.index_drift()` names it and `reindex` repairs it, but no test kills a
   process at that exact point.
+- A process forked without `exec` while it holds a desk lock keeps the lock (tested and
+  documented, not prevented): workers must be started with `spawn` or `subprocess`.
 - Multi-host writers are out of scope (ADR-0004): `flock` serialises one host only.
