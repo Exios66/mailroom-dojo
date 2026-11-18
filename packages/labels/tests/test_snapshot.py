@@ -385,3 +385,13 @@ def test_label_set_ids_cannot_collide() -> None:
     # the separators a label set and a run use can never occur inside a member id
     assert not any(re.match(SNAPSHOT_ID_PATTERN, s) for s in ("a+b", "a@b", "a/b", "A"))
     assert all(re.match(SNAPSHOT_ID_PATTERN, s) for s in ("hub-ccd040f6", "near-gold-2026-11-17", "near_gold-test", "v1.2"))
+
+
+def test_a_snapshot_id_with_a_trailing_newline_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="must match"):
+        make_snapshot(tmp_path, "near_gold", [near_gold_row("D1", {"sender": "Ann"})], snapshot_id="ng-a\n")
+    d = make_snapshot(tmp_path, "near_gold", [near_gold_row("D1", {"sender": "Ann"})], snapshot_id="ng-a")
+    rehash_manifest(d, lambda m: m.update(snapshot_id="ng-a\n"))
+    with pytest.raises(ManifestMismatch) as info:
+        load_snapshot(d)
+    assert info.value.kind == "manifest_invalid"

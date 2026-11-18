@@ -147,7 +147,7 @@ def _safe_path(rel: str) -> bool:
 
 
 def _check_snapshot_id(snapshot_id: Any) -> None:
-    if not (isinstance(snapshot_id, str) and re.match(SNAPSHOT_ID_PATTERN, snapshot_id)):
+    if not (isinstance(snapshot_id, str) and re.fullmatch(SNAPSHOT_ID_PATTERN, snapshot_id)):
         raise ValueError(f"snapshot id {snapshot_id!r} must match {SNAPSHOT_ID_PATTERN}")
 
 
