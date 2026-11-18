@@ -100,6 +100,20 @@ def test_require_without_close_match_has_no_hint(write_dict: WriteDict, colors: 
     assert info.value.context["suggestions"] == []
 
 
+def test_require_cuts_a_huge_value_in_the_message_and_context(
+    write_dict: WriteDict, colors: dict[str, Any]
+) -> None:
+    huge = "x" * 1_000_000
+    with pytest.raises(VocabularyError) as info:
+        load(write_dict, colors).require(huge)
+    message = str(info.value)
+    assert len(message) < 400
+    assert "(1000000 characters)" in message
+    value = info.value.context["value"]
+    assert len(value) < 120 and value.startswith("x" * 77 + "...")
+    assert info.value.context["suggestions"] == []
+
+
 def test_require_non_string(write_dict: WriteDict, colors: dict[str, Any]) -> None:
     with pytest.raises(
         VocabularyError, match=r"expected a string, got int \(dictionary 'colors' version 1\)"
@@ -212,6 +226,57 @@ def test_hash_sees_entry_order(write_dict: WriteDict, colors: dict[str, Any]) ->
 def test_fold() -> None:
     assert fold(" Time-Sensitive ") == fold("time_sensitive") == fold("TIME SENSITIVE") == "timesensitive"
     assert fold("Straße") == "strasse"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "time–sensitive",  # en dash
+        "time—sensitive",  # em dash
+        "time\u00adsensitive",  # soft hyphen
+        "time\u200bsensitive",  # zero-width space
+        "ｔｉｍｅ－ｓｅｎｓｉｔｉｖｅ",  # full-width letters and hyphen
+        "Time/Sensitive.",
+        '"time & sensitive"',
+    ],
+)
+def test_fold_drops_everything_but_ascii_letters_and_digits(text: str) -> None:
+    assert fold(text) == "timesensitive"
+
+
+def test_fold_keeps_digits_and_drops_other_scripts() -> None:
+    assert fold("Form 10-K") == "form10k"
+    assert fold("現金") == ""
+
+
+def test_label_names_its_entry(write_dict: WriteDict, colors: dict[str, Any]) -> None:
+    colors["entries"][1]["label"] = "Light Blue / Sky"
+    d = load(write_dict, colors)
+    assert d.normalize("Light Blue / Sky") == "light-blue"
+    assert d.normalize("LIGHT-BLUE-SKY.") == "light-blue"
+    assert d.require("Red") == "red"  # a label restating its own key is fine
+
+
+def test_label_colliding_with_another_entry_is_refused(write_dict: WriteDict, colors: dict[str, Any]) -> None:
+    colors["entries"][2]["label"] = "Crimson"
+    refused(write_dict, colors, "label 'Crimson' collides with alias 'crimson' of entry 'red'")
+
+
+def test_labels_colliding_after_the_wider_fold(write_dict: WriteDict, colors: dict[str, Any]) -> None:
+    colors["entries"][2]["label"] = "Light–blue"  # en dash: folds onto light-blue's key
+    refused(write_dict, colors, "label 'Light–blue' collides with key 'light-blue'")
+
+
+def test_alias_that_folds_like_another_key_after_nfkc(write_dict: WriteDict, colors: dict[str, Any]) -> None:
+    colors["entries"][2]["aliases"] = ["ＲＥＤ"]
+    refused(write_dict, colors, "alias 'ＲＥＤ' collides with key 'red'")
+
+
+def test_label_folding_to_nothing_is_not_a_surface(write_dict: WriteDict, colors: dict[str, Any]) -> None:
+    colors["entries"][0]["label"] = "赤"
+    colors["entries"][2]["label"] = "緑"  # both fold to "": no collision, no lookup
+    d = load(write_dict, colors)
+    assert d.normalize("赤") is None and d.normalize("red") == "red"
 
 
 # --- unreadable or malformed files ---------------------------------------------------------
@@ -333,7 +398,7 @@ def test_replaced_by_pointing_nowhere(write_dict: WriteDict, colors: dict[str, A
 
 def test_replaced_by_pointing_at_a_deprecated_key(write_dict: WriteDict, colors: dict[str, Any]) -> None:
     colors["entries"] += [
-        {"key": "older", "label": "O", "description": "o", "deprecated": True, "replaced_by": "old"},
+        {"key": "older", "label": "Older", "description": "o", "deprecated": True, "replaced_by": "old"},
         {"key": "old", "label": "O", "description": "o", "deprecated": True, "replaced_by": "red"},
     ]
     refused(write_dict, colors, "replaced_by 'old' is itself deprecated")

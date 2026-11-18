@@ -5,10 +5,13 @@ on any content change), ``description``, ``ordered`` and a non-empty list of ``e
 with ``key``, ``label``, ``description`` and optionally ``aliases``, ``deprecated``,
 ``replaced_by``, ``rank`` (ordered dictionaries only) and ``attributes`` (JSON values).
 
-Values are compared after folding: case-folded, with every space, hyphen and underscore
-removed, so ``Time Sensitive``, ``time_sensitive`` and ``TIME-SENSITIVE`` all name the key
-``time-sensitive``. Because of that, no two keys or aliases of one dictionary may fold to the
-same text.
+Values are compared after folding (the Dojo's ``label`` comparison key, made Unicode-aware):
+NFKC-normalized, case-folded, then every character outside ``a-z`` and ``0-9`` dropped. So
+``Time Sensitive``, ``time_sensitive``, ``TIME-SENSITIVE`` and ``Time–Sensitive`` all name the
+key ``time-sensitive``, and full-width letters fold to their ASCII form. An entry is named by its
+key, its label and its aliases; because of that, no two of those surfaces belonging to different
+entries may fold to the same text. A key or alias that folds to nothing is refused; a label that
+folds to nothing (one written only in a non-Latin script, say) is simply not a lookup surface.
 
 Every malformed file raises :class:`~mailroom_common.errors.ConfigError` naming the file;
 a value that is not in a dictionary raises :class:`VocabularyError`.
@@ -19,6 +22,7 @@ from __future__ import annotations
 import difflib
 import math
 import re
+import unicodedata
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from functools import cache
@@ -49,11 +53,19 @@ __all__ = [
 #: Where the shipped dictionaries live (package data).
 DATA_DIR = Path(__file__).parent / "data"
 
+#: The dictionary no override may replace.
+_FIXED = "label_statuses"
+
 #: Files in ``DATA_DIR`` that are not dictionaries.
 _NOT_DICTIONARIES = frozenset({"glossary"})
 
 KEY_PATTERN = re.compile(r"[a-z][a-z0-9_-]*")
-_SEPARATORS = re.compile(r"[\s_\-]+")
+_NOT_ALNUM = re.compile(r"[^a-z0-9]+")
+
+#: Echoed values in error messages are cut to this many characters.
+_ECHO_LIMIT = 80
+#: Values longer than this (after folding) get no "did you mean" search.
+_SUGGEST_LIMIT = 200
 
 
 class VocabularyError(ConfigError):
@@ -63,8 +75,20 @@ class VocabularyError(ConfigError):
 
 
 def fold(text: str) -> str:
-    """The comparison form of ``text``: case-folded, with spaces, hyphens and underscores removed."""
-    return _SEPARATORS.sub("", text.casefold())
+    """The comparison form of ``text``: NFKC-normalized, case-folded, only ``a-z0-9`` kept."""
+    return _NOT_ALNUM.sub("", unicodedata.normalize("NFKC", text).casefold())
+
+
+def _clip(value: str) -> str:
+    """``value`` cut to :data:`_ECHO_LIMIT` characters, so a huge input never fills a message or log."""
+    if len(value) <= _ECHO_LIMIT:
+        return value
+    return f"{value[: _ECHO_LIMIT - 3]}... ({len(value)} characters)"
+
+
+def _surfaces(key: str, label: str, aliases: Iterable[str]) -> list[tuple[str, str]]:
+    """``(surface, kind)`` pairs an entry is named by: key, label and aliases."""
+    return [(key, "key"), (label, "label"), *((alias, "alias") for alias in aliases)]
 
 
 class _EntrySpec(BaseModel):
@@ -164,9 +188,16 @@ class Dictionary:
         self._active = tuple(entry.key for entry in self.entries if not entry.deprecated)
         lookup: dict[str, str] = {}
         for entry in self.entries:
-            for surface in (entry.key, *entry.aliases):
-                lookup[fold(surface)] = entry.key
+            for surface, _kind in _surfaces(entry.key, entry.label, entry.aliases):
+                folded = fold(surface)
+                if folded:
+                    lookup[folded] = entry.key
         self._lookup = lookup
+
+    @property
+    def origin(self) -> str:
+        """``"shipped"`` when loaded from this package's data directory, otherwise ``"override"``."""
+        return "shipped" if Path(self.source).resolve().parent == DATA_DIR.resolve() else "override"
 
     def __repr__(self) -> str:
         return f"Dictionary(name={self.name!r}, version={self.version}, entries={len(self.entries)})"
@@ -205,7 +236,7 @@ class Dictionary:
         return entry.replaced_by, None
 
     def normalize(self, value: object) -> str | None:
-        """The canonical key ``value`` names (folded; aliases and deprecated keys resolve), or ``None``."""
+        """The key ``value`` names (folded; labels, aliases, deprecated keys resolve), or ``None``."""
         return self._resolve(value)[0]
 
     def require(self, value: object) -> str:
@@ -216,18 +247,27 @@ class Dictionary:
         suggestions: list[str] = []
         if reason is None:
             folded = fold(value) if isinstance(value, str) else ""
-            close = difflib.get_close_matches(folded, list(self._lookup), n=3, cutoff=0.6)
+            close = (
+                difflib.get_close_matches(folded, list(self._lookup), n=3, cutoff=0.6)
+                if len(folded) <= _SUGGEST_LIMIT
+                else []
+            )
             for match in close:
                 target = self.normalize(self._lookup[match])
                 if target is not None and target not in suggestions:
                     suggestions.append(target)
-            reason = f"{value!r} is not in dictionary {self.name!r} version {self.version}"
+            assert isinstance(value, str)  # only a string reaches here without a reason
+            reason = f"{_clip(value)!r} is not in dictionary {self.name!r} version {self.version}"
             if suggestions:
                 reason += f"; did you mean {', '.join(repr(s) for s in suggestions)}?"
         else:
             reason = f"{reason} (dictionary {self.name!r} version {self.version})"
         raise VocabularyError(
-            reason, dictionary=self.name, version=self.version, value=value, suggestions=suggestions
+            reason,
+            dictionary=self.name,
+            version=self.version,
+            value=_clip(value if isinstance(value, str) else repr(value)),
+            suggestions=suggestions,
         )
 
     def rank(self, value: object) -> int:
@@ -262,7 +302,7 @@ def _validate_spec(spec: _DictionarySpec, source: str) -> None:
     if not spec.entries:
         raise _fail("dictionary has no entries", source, dictionary=name)
 
-    seen: dict[str, str] = {}  # folded surface -> what claimed it
+    seen: dict[str, tuple[str, str]] = {}  # folded surface -> (entry key, what claimed it)
     by_key: dict[str, _EntrySpec] = {}
     for entry in spec.entries:
         where = f"entry {entry.key!r}"
@@ -272,17 +312,22 @@ def _validate_spec(spec: _DictionarySpec, source: str) -> None:
             raise _fail(f"{where}: label is empty", source, dictionary=name)
         if not entry.description.strip():
             raise _fail(f"{where}: description is empty", source, dictionary=name)
-        for surface, kind in [(entry.key, "key"), *((alias, "alias") for alias in entry.aliases)]:
+        for surface, kind in _surfaces(entry.key, entry.label, entry.aliases):
             folded = fold(surface)
             if not folded:
+                if kind == "label":
+                    continue  # a label in a script that folds to nothing is not a lookup surface
                 raise _fail(f"{where}: {kind} {surface!r} is empty after folding", source, dictionary=name)
-            if folded in seen:
+            owner = seen.get(folded)
+            if owner is not None:
+                if kind == "label" and owner[0] == entry.key:
+                    continue  # a label may restate its own key ("Other" for `other`)
                 raise _fail(
-                    f"{where}: {kind} {surface!r} collides with {seen[folded]} after folding to {folded!r}",
+                    f"{where}: {kind} {surface!r} collides with {owner[1]} after folding to {folded!r}",
                     source,
                     dictionary=name,
                 )
-            seen[folded] = f"{kind} {surface!r} of entry {entry.key!r}"
+            seen[folded] = (entry.key, f"{kind} {surface!r} of entry {entry.key!r}")
         _check_json(entry.attributes, f"{where} attributes", source)
         by_key[entry.key] = entry
 
@@ -386,9 +431,28 @@ class DictionarySet(Mapping[str, Dictionary]):
         return len(self._members)
 
     def with_overrides(self, dictionaries: Iterable[Dictionary]) -> DictionarySet:
-        """A new set where ``dictionaries`` are added, replacing members of the same name."""
+        """A new set where ``dictionaries`` are added, replacing members of the same name.
+
+        Refused with :class:`ConfigError`: overriding ``label_statuses`` (label precedence does
+        not change), and a ``doc_classes`` override that drops a class of this set.
+        """
+        overrides = DictionarySet._unique(dictionaries)
+        if _FIXED in overrides:
+            raise ConfigError(
+                f"dictionary {_FIXED!r} cannot be overridden: label precedence does not change",
+                source=overrides[_FIXED].source,
+            )
+        classes = overrides.get("doc_classes")
+        if classes is not None and "doc_classes" in self._members:
+            missing = [key for key in self._members["doc_classes"] if key not in classes]
+            if missing:
+                raise ConfigError(
+                    f"a doc_classes override must keep every shipped class; missing {missing}",
+                    source=classes.source,
+                    missing=missing,
+                )
         merged = dict(self._members)
-        merged.update(DictionarySet._unique(dictionaries))
+        merged.update(overrides)
         return DictionarySet(merged.values())
 
     @staticmethod
@@ -404,9 +468,13 @@ class DictionarySet(Mapping[str, Dictionary]):
         return out
 
     def manifest(self) -> dict[str, dict[str, Any]]:
-        """``{name: {"version": int, "hash": str}}`` for every member, sorted by name."""
+        """``{name: {"version": int, "hash": str, "origin": "shipped" | "override"}}``, sorted by name."""
         return {
-            name: {"version": dictionary.version, "hash": dictionary.content_hash()}
+            name: {
+                "version": dictionary.version,
+                "hash": dictionary.content_hash(),
+                "origin": dictionary.origin,
+            }
             for name, dictionary in self._members.items()
         }
 

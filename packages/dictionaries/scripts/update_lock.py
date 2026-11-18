@@ -25,7 +25,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     lock_path = args.data_dir / LOCK_NAME
     try:
-        current = load_dictionary_dir(args.data_dir).manifest()
+        current = {
+            name: {"version": row["version"], "hash": row["hash"]}
+            for name, row in load_dictionary_dir(args.data_dir).manifest().items()
+        }
         locked = read_lock(lock_path) if lock_path.exists() else {}
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
