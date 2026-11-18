@@ -1811,3 +1811,19 @@ def test_hub_value_nested_too_deeply_is_refused_per_row(tmp_path: Path, depth: i
     assert "D9" not in hub_rows(tmp_path / "hub-x")
     assert manifest.source["decoded_json_lists"] == base["decoded_json_lists"]
     assert manifest.source["rows"] == base["rows"]
+
+
+def test_hub_value_with_a_lone_surrogate_is_refused_per_row(tmp_path: Path) -> None:
+    """A ``gt_fields`` string holding a lone surrogate escape cannot be written as canonical
+    JSON: its row is refused into ``unparseable_gt_fields``; the import never crashes."""
+    bad = gt_row("D9", "letter", "email", "train", {}, {})
+    bad["gt_fields"] = '{"sender": "Ann \\ud800", "gt_presence": "{\\"sender\\": \\"populated\\"}"}'
+    data = write_dataset(
+        tmp_path / "b", extra=[bad], extra_text=[{"filename": "D9.txt", "doc_text": "text-D9"}]
+    )
+    with pytest.raises(ImportRefused, match="unparseable_gt_fields 1"):
+        hub_build(tmp_path / "hub-x", data)
+    manifest = hub_build(tmp_path / "hub-x", data, allow_rejected=True)
+    [entry] = manifest.source["unparseable_gt_fields"]
+    assert entry["document_id"] == "D9" and "lone surrogate" in entry["reason"]
+    assert "D9" not in hub_rows(tmp_path / "hub-x")

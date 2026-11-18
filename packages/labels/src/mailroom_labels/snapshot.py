@@ -124,9 +124,17 @@ def _too_deep(obj: Any, limit: int) -> bool:
 
 def json_problem(obj: Any) -> str | None:
     """Why ``obj`` may not be a snapshot row, or None when it may: it nests deeper than
-    ``MAX_JSON_DEPTH``. Importers use it to refuse a source row before writing it."""
+    ``MAX_JSON_DEPTH``, or ``canonical_json`` cannot encode it (a string holding a lone
+    surrogate, which a ``\\ud800`` escape parses to). Importers use it to refuse a source
+    row before writing it."""
     if _too_deep(obj, MAX_JSON_DEPTH):
         return f"JSON nested too deeply (more than {MAX_JSON_DEPTH} levels)"
+    try:
+        canonical_json(obj)
+    except UnicodeEncodeError:
+        return "a string holds a lone surrogate (not encodable as UTF-8)"
+    except (ValueError, TypeError, RecursionError) as exc:
+        return f"not encodable as canonical JSON ({type(exc).__name__})"
     return None
 
 
@@ -134,7 +142,8 @@ def _parse_line(raw: bytes, path: Path, line_no: int) -> dict[str, Any]:
     """One JSONL line as a dict. Refuses (``CorruptLine``) a missing newline, a blank line,
     invalid UTF-8 or JSON, a repeated key, ``NaN`` / ``Infinity``, a number that overflows a
     float or exceeds the integer digit limit, nesting deeper than ``MAX_JSON_DEPTH`` (or too
-    deep to parse at all), and anything but an object."""
+    deep to parse at all), a value ``canonical_json`` cannot encode, and anything but an
+    object."""
     if not raw.endswith(b"\n"):
         raise CorruptLine(path, line_no, "last line has no newline (truncated write?)")
     body = raw[:-1]

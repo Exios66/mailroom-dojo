@@ -113,3 +113,22 @@ def test_a_value_the_record_model_refuses_is_a_malformed_record(
     assert [c.document_id for c in read.corpus] == (["D2"] if kind == "hub" else [])
     report, _ = check_dirs([tmp_path / f"{kind}-test"], profile())
     assert "malformed_record" in {f.kind for f in report.errors}
+
+
+@pytest.mark.parametrize("value", ['"\\ud800"', '"a\\udfffb"', '["ok", {"k": "\\ud83d"}]'])
+def test_a_string_canonical_json_cannot_encode_is_a_corrupt_line(tmp_path: Path, value: str) -> None:
+    """A lone surrogate escape parses, but ``mailroom_record.hashing.canonical_json`` cannot
+    encode it as UTF-8, so no record could hash it: the line is corrupt, and the gate says so."""
+    dirs = standard_set(tmp_path)
+    _append(dirs[3], _review_line(value))
+    with pytest.raises(CorruptLine, match="lone surrogate"):
+        list(load_snapshot(dirs[3]).rows())
+    with pytest.raises(QualityGateFailed) as info:
+        load_label_set(dirs, profile())
+    assert [f.kind for f in info.value.report.errors] == ["corrupt_line"]
+
+
+def test_a_valid_surrogate_pair_still_reads(tmp_path: Path) -> None:
+    d = make_snapshot(tmp_path, "review", [review_row("D1", "sent_on", "2020-01-03")])
+    _append(d, _review_line('"\\ud83d\\ude00"'))
+    assert [r.data["entry"]["value"] for r in load_snapshot(d).rows()][1] == "\U0001f600"

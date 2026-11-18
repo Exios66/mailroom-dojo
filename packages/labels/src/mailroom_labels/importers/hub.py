@@ -25,7 +25,7 @@ presence codes (``corpus.normalize_rows``: ``expected_fields`` is the parsed ``g
   So does any code that, after that mapping, is not a presence the Hub reader accepts
   (``layers.HUB_PRESENCES``: an unknown string, a number, a null, a list, ...), and a row
   the snapshot reader would refuse as a corrupt line (``snapshot.json_problem``: a value
-  nested deeper than ``MAX_JSON_DEPTH``).
+  nested deeper than ``MAX_JSON_DEPTH``, or a string holding a lone surrogate).
 - A ``not_applicable`` key that is **not a field of the document's class in the profile**
   (the dataset carries every class's keys on every row as placeholders) is omitted:
   omitted means not_applicable. A ``not_applicable`` key the class does define is kept.
