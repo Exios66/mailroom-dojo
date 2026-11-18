@@ -10,8 +10,11 @@ What is checked
 ---------------
 Lines. Each segment is streamed one line at a time (``EventLog.iter_raw``), so memory holds
 one line plus a few small fields per event, never every payload. A whole line that is not a
-JSON object, or has no usable ``doc_id``, ``seq``, ``hash`` and ``prev_hash``, is a
-``corrupt_line`` (segment and byte offset); the scan continues after it. Each event's hash is
+JSON object, or has no usable ``doc_id``, ``hash`` and ``prev_hash``, is a
+``corrupt_line`` (segment and byte offset); the scan continues after it. A line of a
+document whose ``seq`` is not an integer in ``0..2**63-1`` (negative, past int64, not a
+number) has no place in the chain: it is one ``invalid_event`` of that document, as the
+index reports it, and adds no ``seq_gap``. Each event's hash is
 recomputed on the stored dict as parsed, before any upgrade (ADR-0005): a mismatch is
 ``bad_hash``. A line whose bytes are not the canonical encoding of what it parses to (a
 writer only ever writes canonical lines) is a ``corrupt_line`` too. A line that hashes but
@@ -127,7 +130,7 @@ import zstandard
 from mailroom_record.blobs import BlobStore, _zstd_frame_whole
 from mailroom_record.hashing import canonical_json
 from mailroom_record.log import EventLog, OverlongLine, RawLine, StoredLine, TornTail, iter_raw_segment
-from mailroom_record.models import GENESIS, Event, Run, Seal, event_hash, seal_hash, validation_detail
+from mailroom_record.models import GENESIS, INT64_MAX, Event, Run, Seal, event_hash, seal_hash, validation_detail
 from mailroom_record.seal import EVENT_SCHEMA, _columns_path, _row, _seals_dir
 
 __all__ = ["PROBLEM_KINDS", "Problem", "ProblemKind", "VerifyReport", "verify_run"]
@@ -388,16 +391,13 @@ def _check_line(line: RawLine, st: _State) -> None:
         st.add("corrupt_line", None, None, f"{at}: not a JSON object", **where)
         return
     doc, seq, h, prev = raw.get("doc_id"), raw.get("seq"), raw.get("hash"), raw.get("prev_hash")
-    if not (
-        isinstance(doc, str)
-        and doc
-        and isinstance(seq, int)
-        and not isinstance(seq, bool)
-        and seq >= 0
-        and isinstance(h, str)
-        and isinstance(prev, str)
-    ):
+    if not (isinstance(doc, str) and doc and isinstance(h, str) and isinstance(prev, str)):
         st.add("corrupt_line", None, None, f"{at}: no usable doc_id, seq, hash and prev_hash", **where)
+        return
+    if not (isinstance(seq, int) and not isinstance(seq, bool) and 0 <= seq <= INT64_MAX):
+        # The document's line, but with no place in its chain (negative, past int64, not an
+        # integer): one invalid_event, as the index reports it, and no seq_gap of its own.
+        st.add("invalid_event", doc, None, f"{at}: not a valid event (seq: not an integer in 0..2**63-1)", **where)
         return
     if st.bound is not None and seq > st.bound.get(doc, -1):
         return  # written after the first scan: left to the next verify

@@ -318,3 +318,23 @@ def test_a_run_header_is_named_without_its_stored_values(store: SimpleNamespace)
         store.log.read_run("r1")
     msg = _leak_free(caught.value)
     assert "<key>: extra_forbidden" in msg and "kind:" in msg
+
+
+@pytest.mark.parametrize("seq", [-1, -(2**63) - 1, 2**63, 2**64 + 5])
+def test_a_seq_out_of_range_is_one_invalid_event_everywhere(store: SimpleNamespace, seq: int) -> None:
+    # Negative or past int64: the line is d2's but has no place in its chain. verify and
+    # the index report the same single kind, and no seq_gap is invented from it.
+    s = store
+    write_lines(s.root, "w0.jsonl", chain("d2", 1))
+    bad = hand_line("r1", "d2", 1, GENESIS)
+    bad["seq"] = seq
+    bad["hash"] = event_hash(bad)
+    write_lines(s.root, "w0.jsonl", [bad] + chain("d3", 1))
+    at = len(canonical_json(chain("d2", 1)[0].model_dump(mode="json")) + b"\n")
+
+    report = verify(s)
+    lines = [p for p in report.problems if p.kind != "missing_blob"]  # chain() names blobs it never stores
+    assert [(p.kind, p.doc_id, p.seq, p.byte_offset) for p in lines] == [("invalid_event", "d2", None, at)]
+    assert "seq: not an integer in 0..2**63-1" in lines[0].detail
+    stats = _index(s).reindex(s.log)
+    assert [(p.kind, p.byte_offset) for p in stats.problems] == [("invalid_event", at)]
