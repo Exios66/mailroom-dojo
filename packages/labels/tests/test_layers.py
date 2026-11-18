@@ -334,3 +334,17 @@ def test_a_populated_label_with_a_null_value_is_malformed_not_truth(tmp_path: Pa
     out = read_layer(load_snapshot(make_snapshot(tmp_path, kind, [row])))
     assert [(f.kind, f.severity, f.field) for f in out.findings] == [("malformed_record", "error", "sender")]
     assert [r.field for r in out.records] == ["recipient"]
+
+
+def test_a_near_gold_label_marked_unlabeled_is_refused(tmp_path: Path) -> None:
+    """``unlabeled`` is a Hub-only presence (it yields no label there). A near_gold label is
+    always a label, so ``unlabeled`` is an unknown presence: a malformed record, never a
+    silently dropped or absent label."""
+    row = near_gold_row("D1", {"sender": "Ann"})
+    row["labels"]["sender"]["presence"] = "unlabeled"
+    out = read(tmp_path, "near_gold", [row, near_gold_row("D9", {"sender": "Zed"})])
+    assert [(f.kind, f.severity, f.doc, f.field) for f in out.findings] == [
+        ("malformed_record", "error", "D1", "sender")
+    ]
+    assert "unknown presence 'unlabeled'" in out.findings[0].detail
+    assert [(r.document_id, r.field) for r in out.records] == [("D9", "sender")]
