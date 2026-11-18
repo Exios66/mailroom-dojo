@@ -29,6 +29,7 @@ from mailroom_dojo.field_scoring import (
     is_accepted_unscored_field,
     score_extraction,
 )
+from mailroom_dojo.field_scoring.row_variants import active_row_variant, marker_from_fallback
 from mailroom_dojo.profile import load_scoring_profile
 
 SAMPLE_VALUES = {
@@ -314,6 +315,54 @@ def test_variant_type_overrides_marker_skip_and_fallback():
     assert from_fallback.field_scores["fleet_kind"] == 1.0
     guarded = score_extraction(profile, FLEET, near_miss, {**expected, "coverage_tier": "basic"})
     assert guarded.field_scores["vehicles"] == 1.0  # the guard rejects the row, so no override
+
+
+def _numeric_marker_profile():
+    """A synthetic client whose row variant is marked by the number 0 on a label field ("plan tier 0")."""
+    mapping = minimal_profile_mapping()
+    fields = mapping["classes"][0]["fields"]
+    fields["plan_tier"] = {"type": "label", "vocabulary": {"tokens": ["0", "1", "2"], "fold": "exact"}}
+    fields["tier_note"] = "free_text"
+    mapping["classes"][0]["variants"] = [
+        {
+            "name": "tier_zero",
+            "marker": {"field": "plan_tier", "values": ["0"], "fallback_fields": ["tier_note"]},
+            "field_type_overrides": {"policy_number": "name"},
+        }
+    ]
+    return load_scoring_profile(mapping)
+
+
+@pytest.mark.parametrize("marker", [0, "0", " 0 ", "[0]"], ids=["json_number", "text", "padded", "json_list"])
+def test_a_numeric_marker_value_zero_marks_its_variant(marker):
+    """A profile marker "0" matches an expected JSON number 0 as it matches the text "0" (0 is a value, not a
+    blank). A JSON list is not a marker value."""
+    spec = _numeric_marker_profile().require_class(FLEET)
+    active = active_row_variant(spec, {"plan_tier": marker})
+    if marker == "[0]":
+        assert active is None
+    else:
+        assert active is not None and active.marker_value == "0"
+
+
+def test_a_numeric_fallback_marker_value_zero_is_read():
+    """A blank predicted marker reads a fallback field holding the number 0."""
+    spec = _numeric_marker_profile().require_class(FLEET)
+    assert marker_from_fallback(spec, "plan_tier", None, {"tier_note": 0}) == (True, "0")
+    assert marker_from_fallback(spec, "plan_tier", None, {"tier_note": None}) == (True, None)
+    assert marker_from_fallback(spec, "plan_tier", None, {"tier_note": []}) == (True, None)
+
+
+def test_the_numeric_marker_drives_scoring():
+    """On a row marked by the number 0 the variant's type override applies (a near-miss id scored as a name)."""
+    profile = _numeric_marker_profile()
+    predicted, expected = {"policy_number": "Jon Smith"}, {"policy_number": "John Smith", "plan_tier": 0}
+    marked = score_extraction(profile, FLEET, predicted, expected).field_scores["policy_number"]
+    unmarked = score_extraction(profile, FLEET, predicted, {**expected, "plan_tier": 1}).field_scores[
+        "policy_number"
+    ]
+    assert unmarked == 0.0  # an id must match exactly
+    assert marked > 0.0  # scored as a name
 
 
 def test_a_cms_table_token_on_claim_type_scores_as_an_exact_label(mailroom_profile):

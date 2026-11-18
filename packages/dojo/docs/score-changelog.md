@@ -134,8 +134,8 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
 - A supplied plug-in scorer replaces the bundled one by presence, not by truthiness.
 - **Found, not changed:** `binary_metrics(..., normalize=True)` compares the normalized value with `positive`
   exactly as given, so `positive` must be a class key (its docstring says so; a sorter label or a mixed-case
-  name never matches). The row-variant marker token is read with `str(value or "")`, so a JSON number `0`
-  becomes an empty token (no mailroom marker is numeric). Both are the old Dojo's behaviour.
+  name never matches). This is the old Dojo's behaviour. (The row-variant marker token noted here at first
+  was changed later; see "Review fixes, round 5".)
 
 ## Review fixes, round 3
 
@@ -153,3 +153,13 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   hyphens were already turned into spaces, so that branch of `explicit_month` never matches (the old Dojo is the
   same). Changing it would score some contained year-month dates differently, which is a scoring change for the
   Dojo owner to make first, not a port.
+
+## Review fixes, round 5
+
+- **A numeric row-variant marker is read as its text.** The marker token was read with `str(value or "")`, so
+  an expected JSON number `0` (or `False`) became an empty token and a profile marker `"0"` never matched it.
+  It is now `""` only for None and an empty list, dict, tuple or set; a number or boolean keeps its text. The
+  old Dojo had one fixed marker field whose values are table names, so it could not express such a marker. No
+  score changes for the mailroom profile: its marker values are `carrier`, `inpatient`, `outpatient` and `pde`,
+  none of which is the text of a number or a boolean, and both the empty and the new token miss them. The
+  fixtures and the intended-differences ledger are unchanged.
