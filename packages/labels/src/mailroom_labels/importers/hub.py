@@ -47,7 +47,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from mailroom_labels.importers.common import ImportRefused, builder_name, file_sha256, refuse_dropped
+from mailroom_labels.importers.common import ImportRefused, builder_name, file_sha256, loads_source, refuse_dropped
 from mailroom_labels.layers import CURRENT_LAYER_SCHEMA
 from mailroom_labels.models import SnapshotManifest
 from mailroom_labels.profile import ClientProfile
@@ -135,10 +135,12 @@ def _read_parquet(path: Path) -> list[dict[str, Any]]:
 
 
 def _json_or_raw(raw: Any) -> Any:
+    """A JSON string decoded (strictly: a repeated key or nesting too deep leaves it raw, so
+    the caller reports it), anything else as it is."""
     if isinstance(raw, str):
         try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
+            return loads_source(raw)
+        except (ValueError, RecursionError):  # JSONDecodeError and a duplicate key are ValueErrors
             return raw
     return raw
 

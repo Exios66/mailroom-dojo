@@ -26,7 +26,14 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from mailroom_labels.importers.common import ImportRefused, builder_name, file_sha256, read_jsonl_lenient, refuse_dropped
+from mailroom_labels.importers.common import (
+    ImportRefused,
+    builder_name,
+    file_sha256,
+    loads_source,
+    read_jsonl_lenient,
+    refuse_dropped,
+)
 from mailroom_labels.layers import CURRENT_LAYER_SCHEMA
 from mailroom_labels.models import SnapshotManifest
 from mailroom_labels.snapshot import write_snapshot
@@ -74,9 +81,9 @@ def build_overlay(
     if not man_path.is_file():
         raise ImportRefused(f"no {_MANIFEST} in {source_dir}")
     try:
-        man = json.loads(man_path.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError as exc:
-        raise ImportRefused(f"{_MANIFEST} is not JSON: {exc}") from exc
+        man = loads_source(man_path.read_text(encoding="utf-8-sig"))
+    except (ValueError, RecursionError) as exc:  # JSONDecodeError and a duplicate key are ValueErrors
+        raise ImportRefused(f"{_MANIFEST} is not JSON: {exc.__class__.__name__}: {exc}") from exc
     if not isinstance(man, dict) or man.get("schema") != OVERLAY_SCHEMA:
         raise ImportRefused(f"{_MANIFEST} schema is not {OVERLAY_SCHEMA!r}")
     listed = man.get("files")

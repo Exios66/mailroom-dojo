@@ -31,6 +31,7 @@ __all__ = [
     "check_snapshot",
     "file_sha256",
     "known_warnings_for",
+    "loads_source",
     "read_jsonl_lenient",
     "refuse_dropped",
 ]
@@ -98,10 +99,32 @@ class SourceLine:
 _BOM = b"\xef\xbb\xbf"
 
 
+class _DuplicateKey(ValueError):
+    pass
+
+
+def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:
+            raise _DuplicateKey(f"duplicate key {key!r}")
+        out[key] = value
+    return out
+
+
+def loads_source(text: str) -> Any:
+    """Parse one JSON source document strictly: a repeated key raises ``ValueError`` (it
+    would otherwise collapse silently, last one winning); nesting too deep to parse raises
+    ``RecursionError``."""
+    return json.loads(text, object_pairs_hook=_unique_keys)
+
+
 def read_jsonl_lenient(path: Path, name: str) -> tuple[list[SourceLine], list[dict[str, Any]]]:
     """Every JSON-object line of ``path`` and a ``rejected`` entry for every other non-blank
     line (``{file, line, reason}``). ``name`` is how the file is named in the manifest. A
-    UTF-8 byte-order mark at the start of the file is not data and is skipped."""
+    UTF-8 byte-order mark at the start of the file is not data and is skipped (anywhere else
+    it is, and the line is rejected). A line with a repeated key or nesting too deep to
+    parse is rejected."""
     rows: list[SourceLine] = []
     rejected: list[dict[str, Any]] = []
     with Path(path).open("rb") as fh:
@@ -111,9 +134,15 @@ def read_jsonl_lenient(path: Path, name: str) -> tuple[list[SourceLine], list[di
             if not raw.strip():
                 continue
             try:
-                obj = json.loads(raw.decode("utf-8"))
+                obj = loads_source(raw.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 rejected.append({"file": name, "line": number, "reason": f"not JSON: {exc.__class__.__name__}"})
+                continue
+            except _DuplicateKey as exc:
+                rejected.append({"file": name, "line": number, "reason": f"not JSON: {exc}"})
+                continue
+            except RecursionError:
+                rejected.append({"file": name, "line": number, "reason": "not JSON: nested too deeply"})
                 continue
             if not isinstance(obj, dict):
                 rejected.append({"file": name, "line": number, "reason": f"not a JSON object ({type(obj).__name__})"})

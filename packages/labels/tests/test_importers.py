@@ -773,3 +773,39 @@ def test_a_desk_line_with_a_malformed_decision_or_source_is_a_rejected_line(tmp_
     assert [r["doc_id"] for r in rows] == ["D2"]
     (rej,) = manifest.source["rejected_lines"]
     assert rej["line"] == 1 and reason in rej["reason"]
+
+
+# --- strict source parsing: repeated keys, deep nesting, a BOM that is not at the start ------------
+
+
+@pytest.mark.parametrize(("line", "reason"), [
+    (b'{"doc_id": "D2", "doc_id": "D3", "labels": {}}', "duplicate key 'doc_id'"),
+    (b'{"doc_id": "D2", "labels": {"sender": {"value": "A", "value": "B"}}}', "duplicate key 'value'"),
+    (b'{"doc_id": "D2", "x": ' + b"[" * 100_000 + b"]" * 100_000 + b"}", "nested too deeply"),
+    (b"\xef\xbb\xbf" + json.dumps(interim_row("D2", {})).encode(), "not JSON"),  # a BOM on line 2 is data
+])
+def test_a_source_line_that_is_not_strict_json_is_rejected(tmp_path: Path, line: bytes, reason: str) -> None:
+    good = interim_row("D1", {"sender": ("gap_fill", "A")})
+    src = write_overlay(tmp_path / "src", {"letter.jsonl": jsonl(good, line)})
+    with pytest.raises(ImportRefused, match="rejected_lines 1"):
+        overlay(tmp_path / "interim-x", src)
+    manifest = overlay(tmp_path / "interim-x", src, allow_rejected=True)
+    (rej,) = manifest.source["rejected_lines"]
+    assert rej["line"] == 2 and reason in rej["reason"]
+
+
+@pytest.mark.parametrize("text", ['{"schema": "a", "schema": "mailroom-interim-labels/v1", "files": {}}',
+                                  '{"x": ' + "[" * 100_000 + "]" * 100_000 + "}"])
+def test_an_overlay_manifest_that_is_not_strict_json_is_refused(tmp_path: Path, text: str) -> None:
+    src = write_overlay(tmp_path / "src", {"letter.jsonl": jsonl(interim_row("D1", {}))})
+    (src / "MANIFEST.json").write_text(text)
+    with pytest.raises(ImportRefused, match="MANIFEST.json is not JSON"):
+        overlay(tmp_path / "interim-x", src)
+
+
+def test_hub_gt_fields_with_a_repeated_key_is_unparseable(tmp_path: Path) -> None:
+    bad = gt_row("D9", "letter", "email", "train", {}, {})
+    bad["gt_fields"] = '{"sender": "A", "sender": "B", "gt_presence": "{}"}'
+    data = write_dataset(tmp_path / "data", extra=[bad])
+    manifest = hub_build(tmp_path / "hub-x", data, allow_rejected=True)
+    assert manifest.source["unparseable_gt_fields"] == [{"document_id": "D9", "reason": "gt_fields is not a JSON object"}]
