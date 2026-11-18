@@ -354,7 +354,8 @@ def test_a_numeric_fallback_marker_value_zero_is_read():
 
 
 def test_the_numeric_marker_drives_scoring():
-    """On a row marked by the number 0 the variant's type override applies (a near-miss id scored as a name)."""
+    """On a row marked by the number 0 the variant's type override applies (a near-miss id is scored as
+    a name)."""
     profile = _numeric_marker_profile()
     predicted, expected = {"policy_number": "Jon Smith"}, {"policy_number": "John Smith", "plan_tier": 0}
     marked = score_extraction(profile, FLEET, predicted, expected).field_scores["policy_number"]
