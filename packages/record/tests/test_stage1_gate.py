@@ -168,3 +168,32 @@ def test_expect_runs_checks_the_folder_count(gate: ModuleType, runs_dir: Path, t
     assert "Run folders: 3 (expected 3)" in report.read_text()
     assert gate.main(_args(runs_dir, tmp_path / "s2", report, "--expect-runs", "15")) == 1
     assert "- FAILED: found 3 run folders, expected 15" in report.read_text()
+
+
+# --- scoped to its own --runs folder (adversarial round 2, finding 8) ----------------------
+
+
+def test_an_empty_runs_folder_fails_the_gate(gate: ModuleType, tmp_path: Path) -> None:
+    (tmp_path / "empty").mkdir()
+    report = tmp_path / "report.md"
+    assert gate.main(_args(tmp_path / "empty", tmp_path / "store", report)) == 1
+    assert "- FAILED: no run folders under --runs" in report.read_text()
+    assert gate.main(_args(tmp_path / "empty", tmp_path / "store", report, "--expect-runs", "0")) == 1
+
+
+def test_a_store_holding_other_runs_fails_the_gate(gate: ModuleType, runs_dir: Path, tmp_path: Path) -> None:
+    """The trace, index, size and leak checks read the whole store, so they speak for the
+    runs under --runs only when the store holds nothing else. A store that already holds
+    a run no folder under --runs imports fails the gate, naming how many."""
+    import shutil
+
+    root, report = tmp_path / "store", tmp_path / "report.md"
+    assert gate.main(_args(runs_dir, root, report)) == 0  # all three runs stored
+    subset = tmp_path / "subset"
+    subset.mkdir()
+    shutil.copytree(runs_dir / "ar-gate-r00", subset / "ar-gate-r00")
+    assert gate.main(_args(subset, root, report)) == 1
+    text = report.read_text()
+    assert "- FAILED: the store holds 2 runs not under --runs (ar-gate-crashed, ar-gate-r01)" in text
+    assert gate.main(_args(subset, tmp_path / "own-store", report)) == 0  # a store of its own passes
+    assert gate.main(_args(runs_dir, root, report)) == 0  # and the full folder still passes on the first

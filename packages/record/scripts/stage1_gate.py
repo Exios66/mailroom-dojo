@@ -5,8 +5,11 @@ Usage::
     python packages/record/scripts/stage1_gate.py --runs <dir> --root <store>
         [--sandbox <sandbox checkout>] [--report <file>] [--expect-runs <n>]
 
-Every folder under ``--runs`` that holds a ``dataset.jsonl`` is a run folder; with
-``--expect-runs N`` there must be exactly ``N`` of them. Each is imported into the store at
+Every folder under ``--runs`` that holds a ``dataset.jsonl`` is a run folder; there must be
+at least one, and with ``--expect-runs N`` exactly ``N``. The gate is about the runs under
+``--runs`` alone: the trace, index, size and leak checks read the whole store, so a store
+that already holds a run no folder under ``--runs`` imports fails the gate (give each
+``--runs`` folder a store of its own). Each is imported into the store at
 ``--root`` (created when missing; a second run of the script with the same root must find
 every run it stored before ``already_imported``: a run already in the store that imports as
 ``imported`` means the stored run was incomplete or the folder changed, and fails the gate),
@@ -39,7 +42,8 @@ these totals and checks:
   as the run's ``import`` event);
 - append throughput with ``flush_every=16`` in a scratch store (reported, not a gate).
 
-Exit status: 0 when the run folder count is as expected (``--expect-runs``), every import
+Exit status: 0 when ``--runs`` holds a run folder, the count is as expected
+(``--expect-runs``), the store holds no run from elsewhere, every import
 succeeded, no run already in the store imported again, every run verifies, the store is
 smaller than the source, the trace check holds, the leak scan is clean and parity did not
 fail; 1
@@ -287,6 +291,8 @@ def run_gate(
     folders = _run_folders(runs)
     floor = load_sandbox_floor_replay(sandbox) if sandbox is not None else None
     failures: list[str] = []
+    if not folders:
+        failures.append("no run folders under --runs (a folder holding a dataset.jsonl)")
     if expect_runs is not None and len(folders) != expect_runs:
         failures.append(f"found {len(folders)} run folders, expected {expect_runs}")
     stored_before = {p.parent.name for p in (root / "runs").glob("*/run.json")}
@@ -318,6 +324,15 @@ def run_gate(
             row.parity = _parity(log, imported.run_id, folder, floor)
             if row.parity.startswith("FAILED"):
                 failures.append(f"{row.run_id}: floor replay parity {row.parity}")
+
+    # The checks below read the whole store, so they speak for this gate's runs only when
+    # the store holds nothing else: a run stored before that no folder here imports fails it.
+    foreign = sorted(stored_before - {r.run_id for r in rows if not r.error})
+    if foreign:
+        failures.append(
+            f"the store holds {len(foreign)} runs not under --runs ({', '.join(foreign)}); "
+            "use a store of its own for each --runs folder"
+        )
 
     index = Index(root / "index.sqlite")
     stats = index.reindex(log)
