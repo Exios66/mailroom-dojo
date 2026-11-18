@@ -188,7 +188,9 @@ def delta_significance(
 
     ``significant`` is True when the ``1 - alpha`` interval, unrounded, excludes zero.
     Returns ``None`` when either side has fewer than two usable values (the delta is
-    then unmeasurable, not "insignificant").
+    then unmeasurable, not "insignificant"). For two runs over the same documents use
+    :func:`mailroom_dojo.statistics.paired.paired_bootstrap_delta`, which pairs by
+    document and is the tighter test.
     """
     validate_resampling(n_boot, alpha, seed)
     a = scores_as_floats(values_a, "values_a")

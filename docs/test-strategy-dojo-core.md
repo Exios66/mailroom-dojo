@@ -91,10 +91,11 @@ order, flag stripping, empty class, rate defaults, one-sided length check, scora
 verified filters, status check, pending annotation, annotation keys, placeholder spans,
 subclass token): all 23 caught. Fixtures and their regeneration: `packages/dojo/docs/golden-parity.md`.
 
-## Chunk D1: statistics (bootstrap, calibration)
+## Chunk D1: statistics (bootstrap, calibration, paired tests)
 
 `mailroom_dojo.statistics` ports the old `analysis/bootstrap.py` and
-`analysis/calibration.py`. The plan is section 6 of `docs/plans/2026-11-18-workspace-port-design.md`
+`analysis/calibration.py` and adds the paired comparisons the design's "Comparing runs"
+layer names. The plan is section 6 of `docs/plans/2026-11-18-workspace-port-design.md`
 (chunk 1, D1); its gate is "old tests and a differential corpus, identical".
 
 | Claim | Test |
@@ -103,11 +104,14 @@ subclass token): all 23 caught. Fixtures and their regeneration: `packages/dojo/
 | The old tests still hold | `test_statistics_old_cases.py`: the 6 cases of the old `test_bootstrap.py` and the 19 of `test_calibration.py`, same expected values, read through the new result types |
 | Invalid input is refused with an exact error, or answered exactly | `test_statistics_faults.py`: empty and too-small input (None), NaN and infinities (refused naming the position, or dropped where the old Dojo dropped them), mismatched lengths, one-class populations (AUROC None), bad parameters and types, NumPy scalars; each error's type and full message |
 | Invariants over random input | `test_statistics_properties.py` (hypothesis): the bootstrap interval holds the mean of symmetric data and narrows with nine times the documents; Wilson bounds hold the rate, shrink with more trials and are rounded outward; ECE and Brier in [0, 1] and the ECE is the bins' weighted gap; AUROC in [0, 1] and reverses with the scores; Spearman bounded and symmetric; the Clopper-Pearson bound is above the observed rate and loosens with confidence; `required_samples` is the smallest clearing size; `cutoff_at_target` equals a brute-force search; a seed fixes every result whatever ran in between |
+| The new comparisons and per-group confidence are right | `test_statistics_comparison.py`: constant differences give a point interval; the paired interval equals `bootstrap_ci` on the per-document differences; pairing detects a 0.03 gain the unpaired test misses; unpaired documents dropped and counted; exact McNemar p-values by hand and against `scipy.stats.binomtest` up to 2,001 flips, symmetric in the runs; `calibration_by_group` by hand (agent and class keys, dropped rows, one-class groups) and equal to the population functions on random rows; exact errors for empty input, NaN, text, mismatched lengths and bad parameters; seed determinism, delta and p-value invariants (hypothesis) |
 | No global state, network or environment | `test_boundaries.py` and `test_no_global_state.py` cover the new modules automatically (AST walk and fresh-interpreter import) |
 
 Mutation check (D1): dropping the `- 1` from the lower percentile index in
 `bootstrap.py` turns `test_new_code_reproduces_every_old_output[bootstrap_ci]` and
-`[delta_significance]` red; restored. The corpus regenerates byte for byte with
+`[delta_significance]` red; taking the larger flip count's tail in `paired.py` (`max` for
+`min`) turns tests red (hand-computed p-values, the scipy cross-check, the alpha test).
+Both restored. The corpus regenerates byte for byte with
 `packages/dojo/scripts/capture_old_dojo_statistics_cases.py` (header of the file).
 
 ## Running

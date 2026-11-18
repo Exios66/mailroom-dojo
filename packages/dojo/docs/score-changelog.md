@@ -191,10 +191,18 @@ the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
 - **Scores are coerced as before.** `bootstrap_ci` and `delta_significance` drop `None` and
   anything `float()` cannot read (`"abc"`, `{}`), read booleans as 1.0 and 0.0 and numeric
   text (`" 0.5 "`) as numbers; `n` counts what was kept. An integer too large for a float
-  raises `OverflowError`.
+  raises `OverflowError`. The new paired functions are strict instead: numbers and booleans
+  only.
 - **`required_samples` names "confidence" for a bad `risk`** (`confidence must be in (0, 1);
   got 1.0`), because the old code validated both with one helper. The message is kept.
 - **`wilson_ci` keeps `z` as given** (an integer `2` stays `2`) and rounds `p` to 4 places.
 - **The cross-fit shuffle and the bootstrap resampler are `random.Random(seed)`**, as in the
   old Dojo, so the same seed gives the same numbers across Python 3.12 and 3.13 (the corpus
   was captured with 3.12 and is replayed with 3.13).
+
+## New (D1, statistics)
+
+Not in the old Dojo, so not a difference: `paired_bootstrap_delta` (paired percentile
+bootstrap of per-document score differences, B minus A), `outcome_flip_test` (exact
+two-sided McNemar test on outcome flips) and `calibration_by_group` (ECE, Brier and AUROC
+per agent, class or both). These are the design's "Comparing runs" and "Confidence" needs.

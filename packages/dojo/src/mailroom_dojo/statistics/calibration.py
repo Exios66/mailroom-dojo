@@ -4,7 +4,8 @@ Ported from llm-dojo-scoring 0.30.1 ``analysis/calibration.py``: an exact one-si
 Clopper-Pearson upper bound for wrong auto-accepts and the sample size that bound
 requires, cutoff searches (a target accuracy, a cross-fit, a target precision),
 expected calibration error, Brier score and reliability bins, AUROC (ranking power) and
-Spearman correlation.
+Spearman correlation. :func:`calibration_by_group` is new: the confidence layer's
+calibration error and ranking power for each agent and class.
 
 No function reads a run, the environment or a clock, and none invents a missing value:
 empty or one-class populations give ``None``. The cross-fit shuffle is seeded from its
@@ -18,7 +19,7 @@ from __future__ import annotations
 import math
 import numbers
 import random
-from collections.abc import Iterable, Sequence
+from collections.abc import Hashable, Iterable, Sequence
 from dataclasses import dataclass
 from statistics import NormalDist
 from typing import Any
@@ -30,11 +31,13 @@ from .bootstrap import WilsonInterval, wilson_ci
 
 __all__ = [
     "CrossFitResult",
+    "GroupCalibration",
     "Pair",
     "PrecisionCutoff",
     "ReliabilityBin",
     "auroc",
     "brier_score",
+    "calibration_by_group",
     "clopper_pearson_upper",
     "cross_fit_cutoffs",
     "cutoff_at_target",
@@ -119,6 +122,27 @@ class PrecisionCutoff:
             "precision": self.precision,
             "accept_rate": self.accept_rate,
             "recall": self.recall,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class GroupCalibration:
+    """Calibration and ranking power of one group's confidences (an agent, a class, or both)."""
+
+    n: int
+    dropped: int
+    ece: float | None
+    brier: float | None
+    auroc: float | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Plain data for reports."""
+        return {
+            "n": self.n,
+            "dropped": self.dropped,
+            "ece": self.ece,
+            "brier": self.brier,
+            "auroc": self.auroc,
         }
 
 
@@ -444,3 +468,32 @@ def cutoff_for_precision(scores: Sequence[Any], labels: Sequence[Any], precision
                 recall=round(sum(accepted) / total_positive, 6) if total_positive else None,
             )
     return PrecisionCutoff(cutoff=None, precision=None, accept_rate=0.0, recall=0.0)
+
+
+def calibration_by_group(
+    rows: Iterable[tuple[Hashable, Any, Any]], *, bins: int = 10
+) -> dict[Hashable, GroupCalibration]:
+    """ECE, Brier score and AUROC of ``(group, confidence, correct)`` rows, per group.
+
+    A group is whatever key the caller passes: an agent, a class, or an
+    ``(agent, class)`` tuple. Groups keep the order they first appear in. A row whose
+    confidence is not a finite number in ``[0, 1]`` is left out and counted in
+    ``dropped``; ``n`` counts the rows used. ``auroc`` is ``None`` for a group whose
+    rows are all correct or all wrong.
+    """
+    if bins < 1:
+        raise ValueError("bins must be positive")
+    grouped: dict[Hashable, list[tuple[Any, Any]]] = {}
+    for group, confidence, correct in rows:
+        grouped.setdefault(group, []).append((confidence, correct))
+    out: dict[Hashable, GroupCalibration] = {}
+    for group, pairs in grouped.items():
+        clean = _clean_pairs(pairs)
+        out[group] = GroupCalibration(
+            n=len(clean),
+            dropped=len(pairs) - len(clean),
+            ece=expected_calibration_error(clean, bins=bins),
+            brier=brier_score(clean),
+            auroc=auroc([confidence for confidence, _ in clean], [correct for _, correct in clean]),
+        )
+    return out
