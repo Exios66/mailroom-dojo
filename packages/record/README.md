@@ -125,7 +125,10 @@ event with `extraction` and `report` blobs; `events.jsonl` and `checkpoint.json`
 a torn last line the import skipped is in `warnings` and kept as the run's `import` event.
 Importing a folder again is a no-op (`already_imported`); an import that died part way is
 finished by the next one; a different folder under the same run id raises `ImportConflict`,
-and a pruned run raises `RunPruned` (unpack its archive first).
+and a pruned run raises `RunPruned` (unpack its archive first). Importing a run that is still
+being written, with a torn last line, fixes that run's history in the store without that
+line: once the line is complete, the same folder conflicts (`ImportConflict`) in that store,
+so import a run after it has stopped.
 
 `audit_sandbox_run(folder) -> RoutingAudit` (`mailroom_record.importer.audit`) reports which
 routing inputs the `legacy` router replay needs are present or absent in a folder. The module
@@ -158,7 +161,11 @@ keep_columns=True)` then removes the run's segments and seals (and Parquet files
 `keep_columns=False`) and every blob of its archive that no other run names, read from the
 other runs' logs. It needs a current pack, holds the store's maintenance lock exclusive
 (every live writer holds it shared, so it waits for them; `StoreBusy` after
-`lock_timeout`), and is resumable. Unpacking the archive restores a pruned run in place.
+`lock_timeout`), and is resumable. While a run is pruned (`runs/<run>/prune.json`), writers
+and `seal_run` refuse it with `RunPruned` (`mailroom_record.log.refuse_if_pruned`, checked under
+the maintenance lock). Unpacking the recorded archive (the one `pack.json` names) restores a
+pruned run in place; any other archive of that run, such as an older pack, is
+`UnpackConflict` in this store and changes nothing.
 
 ## Command line
 
@@ -201,5 +208,7 @@ absent routing inputs, a trace check, a leak scan of the report and every Parque
 `--sandbox` is given, each run's import warnings, and append throughput. Exit 0 when every
 condition holds, 1 otherwise. A second run with the same `--root` must find every run it
 stored before `already_imported`; one that imports as `imported` again fails the gate.
-`--expect-runs N` fails it unless `--runs` holds exactly `N` run folders.
+`--runs` must hold at least one run folder, and `--expect-runs N` fails it unless it holds
+exactly `N`. The gate speaks for the runs under `--runs` alone: a store that already holds a
+run no folder there imports fails it, so give each `--runs` folder a store of its own.
 `tests/test_stage1_gate.py` runs it on synthetic folders.
