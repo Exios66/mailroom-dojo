@@ -65,10 +65,13 @@ def test_coverage_writes_both_reports(tmp_path: Path, snapshot_dirs) -> None:
     assert result.exit_code == 0, result.output
     assert json.loads(out_json.read_text())["totals"]["scorable_labels"] == 11
     assert out_md.read_text().startswith("# Label coverage: synthetic-client")
-    first = out_json.read_bytes()
-    runner.invoke(app, args("coverage", "--profile", PROFILE_PATH, "--json-out", out_json,
-                            "--md-out", out_md, *reversed(snapshot_dirs)))
-    assert out_json.read_bytes() == first
+    # the reversed order writes fresh files, so a run that failed or wrote nothing cannot pass
+    again_json, again_md = tmp_path / "again.json", tmp_path / "again.md"
+    again = runner.invoke(app, args("coverage", "--profile", PROFILE_PATH, "--json-out", again_json,
+                                    "--md-out", again_md, *reversed(snapshot_dirs)))
+    assert again.exit_code == 0, again.output
+    assert again_json.read_bytes() == out_json.read_bytes()
+    assert again_md.read_bytes() == out_md.read_bytes()
 
 
 def test_coverage_refuses_and_writes_nothing_on_an_error(tmp_path: Path, snapshot_dirs) -> None:
