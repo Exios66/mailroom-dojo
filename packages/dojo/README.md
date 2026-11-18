@@ -111,4 +111,9 @@ holds every call the old golden run and eleven old test files made into the old 
 and calibration modules, plus seeded inputs. Every valid input gives the old number; the
 197 invalid inputs that now raise are listed with reasons in
 `statistics_intended_differences.json` and in `docs/score-changelog.md`.
-`scripts/capture_old_dojo_statistics_cases.py` regenerates the corpus byte for byte.
+`scripts/capture_old_dojo_statistics_cases.py` regenerates its case lines byte for byte on
+Python 3.12, the version in the corpus header (the header's `supplements` record, from the
+`--supplement` run that added 21 generated cases, is not rewritten by a full run). On
+Python 3.13 the old code sorts NaN differently, so three `bootstrap_ci` cases with a NaN
+score come out otherwise; all three are listed refusals in the new code. The script refuses
+an old checkout at another commit, or an `llm_dojo_scoring` imported from outside it.

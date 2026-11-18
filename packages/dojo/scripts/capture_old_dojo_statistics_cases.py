@@ -29,7 +29,9 @@ Run it only with an interpreter that can import the old Dojo, never in CI::
         --old-dojo <llm-dojo-scoring checkout at 23f8234c> \\
         --output packages/dojo/tests/fixtures/differential/statistics_cases.jsonl
 
-It reads the old checkout and writes nothing inside it (pytest runs from a temporary
+It refuses to run unless the checkout is at the pinned commit and ``llm_dojo_scoring``
+imports from inside it (not from another install). It reads the old checkout and writes
+nothing inside it (pytest runs from a temporary
 directory with its cache plugin off, and no bytecode is written). The old commit is read
 from the checkout's ``.git`` files, without running git.
 
@@ -160,6 +162,17 @@ def read_commit(checkout: Path) -> str:
     raise SystemExit(f"cannot resolve {ref} in {checkout}")
 
 
+def import_old_dojo(old_dojo: Path) -> ModuleType:
+    """Import ``llm_dojo_scoring`` and require that it comes from inside ``old_dojo``."""
+    module = sys.modules.get("llm_dojo_scoring") or importlib.import_module("llm_dojo_scoring")
+    location = Path(module.__file__).resolve()
+    if old_dojo.resolve() not in location.parents:
+        raise RuntimeError(
+            f"llm_dojo_scoring was imported from {location}, not from {old_dojo}; refusing to capture"
+        )
+    return module
+
+
 # ---------------------------------------------------------------------------
 # Child phases: capture calls while the old tests or the golden run execute
 # ---------------------------------------------------------------------------
@@ -199,6 +212,7 @@ def collect_test_calls(old_dojo: Path, output: Path) -> None:
     """Run the old tests under the hook and write every targeted call."""
     import pytest
 
+    import_old_dojo(old_dojo)
     profile, records, skipped = call_recorder(old_dojo)
     sys.setprofile(profile)
     try:
@@ -213,6 +227,7 @@ def collect_test_calls(old_dojo: Path, output: Path) -> None:
 
 def collect_golden_calls(old_dojo: Path, output: Path) -> None:
     """Regenerate the old golden baseline under the hook and write every targeted call."""
+    import_old_dojo(old_dojo)
     spec = importlib.util.spec_from_file_location(
         "freeze_goldens", old_dojo / "scripts" / "freeze_goldens.py"
     )
@@ -623,7 +638,14 @@ def main() -> int:
         return supplement(old_dojo, output, options.seed)
     commit = read_commit(old_dojo)
     if commit != EXPECTED_OLD_COMMIT:
-        print(f"warning: old Dojo is at {commit}, expected {EXPECTED_OLD_COMMIT}", file=sys.stderr)
+        print(f"old Dojo is at {commit}, expected {EXPECTED_OLD_COMMIT}; refusing to freeze", file=sys.stderr)
+        return 1
+    os.environ.pop("LLM_DOJO_SCORING_CONFIG", None)
+    try:
+        llm_dojo_scoring = import_old_dojo(old_dojo)
+    except RuntimeError as error:
+        print(error, file=sys.stderr)
+        return 1
 
     tests = capture_child(old_dojo, "--collect-test-calls")
     if tests["exit_code"] != 0:
@@ -635,9 +657,6 @@ def main() -> int:
             "the old golden run under the hook differs from scores.json; refusing to freeze", file=sys.stderr
         )
         return 1
-
-    os.environ.pop("LLM_DOJO_SCORING_CONFIG", None)
-    import llm_dojo_scoring
 
     functions = old_functions()
     sources = [("golden_run", record) for record in golden["records"]]
