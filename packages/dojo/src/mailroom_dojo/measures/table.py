@@ -58,27 +58,28 @@ __all__ = [
 #: The ``table_format`` this loader reads.
 TABLE_FORMAT = 1
 
-#: Units, as the old registry wrote them (``usd`` and ``USD`` both occur and are kept).
+#: Units: a closed vocabulary. The old registry's units, normalised: ``usd`` is written
+#: ``USD`` and ``int`` is ``count``; ``structure`` marks a row whose value is a structure
+#: (a matrix, a per-class table, an interval), not one number.
 UNITS: tuple[str, ...] = (
     "float[0,1]",
     "count",
-    "int",
     "boolean",
     "error_rate",
     "seconds",
     "milliseconds",
     "days",
     "USD",
-    "usd",
     "GB",
     "tokens/s",
     "req/s",
     "docs/s",
     "tag",
     "text",
+    "structure",
 )
-#: Units whose rows describe a label or text, not a number: no ``Measure`` carries them.
-NON_NUMERIC_UNITS: tuple[str, ...] = ("tag", "text")
+#: Units whose rows are not one number (a label, text or a structure): no ``Measure`` carries them.
+NON_NUMERIC_UNITS: tuple[str, ...] = ("tag", "text", "structure")
 DIRECTIONS: tuple[str, ...] = ("higher", "lower", "none")
 #: How per-document values roll up to the run (the old registry's three values).
 AGGREGATIONS: tuple[str, ...] = ("mean", "sum", "none")
@@ -371,7 +372,7 @@ class MetricTable:
         :class:`MeasureError` when the measure breaks the row: the metric is not ported
         or is not a number (a tag or text); the value is outside the unit's range
         (``float[0,1]`` and ``boolean`` in ``[0, 1]``, every other unit non-negative); a
-        ``count`` or ``int`` value is not a whole number (unless the row's aggregation
+        ``count`` value is not a whole number (unless the row's aggregation
         is ``mean``: a mean of counts need not be whole); a ``boolean`` is not 0 or 1;
         the interval leaves the unit's range or does not contain the value; a metric
         that needs labels claims ``label_status="none"``; or the cost basis does not
@@ -413,7 +414,7 @@ class MetricTable:
 
 
 #: Units whose values are whole numbers.
-_WHOLE_UNITS = frozenset({"count", "int"})
+_WHOLE_UNITS = frozenset({"count"})
 #: Units bounded by ``[0, 1]``; every other numeric unit is non-negative.
 _UNIT_INTERVAL = frozenset({"float[0,1]", "boolean"})
 

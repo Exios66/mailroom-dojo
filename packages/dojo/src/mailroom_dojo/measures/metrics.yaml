@@ -13,7 +13,11 @@
 #   id            the old registry name, unchanged
 #   description, unit, aggregation, ground_truth, citation, inclusion, notes
 #                 verbatim from the old registry (citation and inclusion merged from the
-#                 old metric_meta.py); ground_truth null = the old registry left it unset
+#                 old metric_meta.py); ground_truth null = the old registry left it unset.
+#                 Units are a closed vocabulary (table.UNITS), the old ones normalised:
+#                 usd is USD, int is count, and the three structure rows
+#                 (confusion_matrix, per_class_stats, bootstrap_ci) are structure, not
+#                 float[0,1] (tests/test_metric_table_parity.py, UNIT_NORMALISED)
 #   agents        as the old registry wrote them; family tokens expand through
 #                 agent_families below (the old roster, frozen)
 #   direction     higher | lower | none, stated per row; this column is the source of
@@ -438,7 +442,7 @@ metrics:
     inclusion: "None when no document reached the reviewer lane."
   - id: "reviewer_accept_rule_violations"
     description: "Accepted documents that violate the reviewer accept rule"
-    unit: "int"
+    unit: "count"
     direction: "lower"
     aggregation: "sum"
     agents: ["sorter_reviewer"]
@@ -1194,7 +1198,7 @@ metrics:
     inclusion: "None when no answered row carries a valid confidence and target."
   - id: "reviewer_cost_per_accepted_usd"
     description: "Reviewer cost per accepted document"
-    unit: "usd"
+    unit: "USD"
     direction: "lower"
     aggregation: "none"
     agents: ["sorter_reviewer"]
@@ -2656,7 +2660,7 @@ metrics:
     inclusion: ""
   - id: "confusion_matrix"
     description: "Class-confusion matrix"
-    unit: "float[0,1]"
+    unit: "structure"
     direction: "none"
     aggregation: "none"
     agents: ["CLASSIFIERS", "boss"]
@@ -2673,7 +2677,7 @@ metrics:
     inclusion: ""
   - id: "per_class_stats"
     description: "Per-class precision/recall/support"
-    unit: "float[0,1]"
+    unit: "structure"
     direction: "none"
     aggregation: "none"
     agents: ["CLASSIFIERS"]
@@ -2706,7 +2710,7 @@ metrics:
     inclusion: ""
   - id: "bootstrap_ci"
     description: "Percentile bootstrap CI for the headline metric"
-    unit: "float[0,1]"
+    unit: "structure"
     direction: "none"
     aggregation: "none"
     agents: ["ALL"]
