@@ -59,7 +59,9 @@ Mapping
   ``checkpoint`` or ``import``): what the event is to the floor replay.
 - Strings in ``payload`` and ``decision`` other than short tokens (ids, names, labels; never
   an email, a URL or a path) are stored as their SHA-256 and length (``_folder.scrub``): no
-  document or model free text enters the log.
+  document or model free text enters the log. Text that is not valid UTF-8 (a lone
+  surrogate in ``doc_text`` or a ``_report``) raises ``SandboxFolderInvalid`` naming the file
+  and line.
 - A field the folder did not capture is ``None`` and named in ``absent_fields``; a row
   without a usable time takes the time of the event before it and says so with
   ``payload.ts_absent``.
@@ -388,7 +390,7 @@ def _documents(dataset: list[tuple[int, dict[str, Any]]], absent: list[str], put
         if not (isinstance(sha, str) and _SHA_RE.fullmatch(sha)):
             if not isinstance(text, str):
                 raise SandboxFolderInvalid(f"dataset.jsonl line {line}: neither content_sha256 nor doc_text")
-            sha, derived = hashlib.sha256(text.encode("utf-8")).hexdigest(), True
+            sha, derived = hashlib.sha256(_utf8(text, f"dataset.jsonl line {line}: doc_text")).hexdigest(), True
         if sha in seen_doc:
             raise SandboxFolderInvalid(
                 f"dataset.jsonl line {line}: document {shown(source)} has the content of line {seen_doc[sha]}"
@@ -397,7 +399,7 @@ def _documents(dataset: list[tuple[int, dict[str, Any]]], absent: list[str], put
         seen_doc[sha] = line
         doc = _Doc(source, sha, row, line)
         if isinstance(text, str):
-            doc.original = put(text.encode("utf-8"), "original")
+            doc.original = put(_utf8(text, f"dataset.jsonl line {line}: doc_text"), "original")
         elif "doc_text" not in absent:
             absent.append("doc_text")
         docs.append(doc)
@@ -497,7 +499,7 @@ def _item_events(rows: list[tuple[int, dict[str, Any]]], offset: int, doc_for: A
             outputs.append(put(_json_bytes(body, where), "extraction"))
             report = extracted.get("_report")
             if report is not None:
-                data = report.encode("utf-8") if isinstance(report, str) else _json_bytes(report, where)
+                data = _utf8(report, f"{where}: _report") if isinstance(report, str) else _json_bytes(report, where)
                 outputs.append(put(data, "report"))
         payload: dict[str, Any] = {"floor": "item", "order": offset + index, "ok": not failed}
         for key, value in (
@@ -695,6 +697,14 @@ def _ms(value: Any) -> float | None:
 def _put_if(target: dict[str, Any], key: str, value: Any) -> None:
     if value is not None:
         target[key] = value
+
+
+def _utf8(text: str, what: str) -> bytes:
+    """``text`` as UTF-8; a lone surrogate (which JSON can carry) is a folder error naming ``what``."""
+    try:
+        return text.encode("utf-8")
+    except UnicodeEncodeError:
+        raise SandboxFolderInvalid(f"{what} is not valid UTF-8 (a lone surrogate)") from None
 
 
 def _json_bytes(value: Any, where: str) -> bytes:

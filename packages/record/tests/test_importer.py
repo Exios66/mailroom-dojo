@@ -650,3 +650,25 @@ def test_labels_ids_and_model_names_stay_tokens(value: str) -> None:
     assert token(value) == value
     assert scrub(value) == value
 
+
+@pytest.mark.parametrize("keep_sha", [True, False])  # the blob write, and the derived doc id
+def test_a_lone_surrogate_in_doc_text_is_a_folder_error(
+    tmp_store: SimpleNamespace, fixture_folder: Path, keep_sha: bool
+) -> None:
+    rows = read_jsonl(fixture_folder / "dataset.jsonl")
+    rows[1]["doc_text"] = "abc\ud800def"
+    if not keep_sha:
+        rows[1].pop("content_sha256", None)
+    write_jsonl(fixture_folder / "dataset.jsonl", rows)
+    with pytest.raises(SandboxFolderInvalid, match=r"^dataset\.jsonl line 2: doc_text is not valid UTF-8"):
+        import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    assert not list(tmp_store.root.glob("runs/*/segments/*.jsonl"))
+
+
+def test_a_lone_surrogate_in_a_report_is_a_folder_error(tmp_store: SimpleNamespace, fixture_folder: Path) -> None:
+    items = read_jsonl(fixture_folder / "items.jsonl")
+    row = next(i for i, r in enumerate(items) if isinstance((r.get("pred") or {}).get("extracted_data"), dict))
+    items[row]["pred"]["extracted_data"]["_report"] = "x\udfffy"
+    write_jsonl(fixture_folder / "items.jsonl", items)
+    with pytest.raises(SandboxFolderInvalid, match=rf"^items\.jsonl line {row + 1}: _report is not valid UTF-8"):
+        import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
