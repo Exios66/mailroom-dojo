@@ -1,0 +1,40 @@
+name: correspondence_intent
+version: 1
+description: >-
+  Closed vocabulary of the correspondence `intent` field. Values: llm-mailroom
+  src/config/taxonomy.yaml (correspondence label_vocabularies). Descriptions and aliases:
+  llm-dojo-scoring llm_dojo_scoring/schemas/intents.py (INTENT_LABELS, INTENT_DESCRIPTIONS,
+  INTENT_ALIASES; aliases that fold onto a key are left out).
+ordered: false
+entries:
+  - key: payment_demand
+    label: Payment demand
+    description: Demand for payment or cure.
+    aliases: [demand, demandpayment, demandforpayment, demandletter, attorneydemand]
+  - key: notice
+    label: Notice
+    description: Formal notice of a fact, breach, or intent.
+    aliases: [noticedefault, noticeofbreach, noticeofnoncompliance, noticeofintent]
+  - key: analysis
+    label: Analysis
+    description: Internal memo analyzing options or remedies.
+    aliases: [remediesanalysis, recommendation]
+  - key: request
+    label: Request
+    description: Request for information or action.
+    aliases: [requestinformation]
+  - key: update
+    label: Update
+    description: Informational status update.
+    aliases: [statusupdate]
+  - key: meeting_invite
+    label: Meeting invite
+    description: Meeting or calendar request.
+    aliases: [meetingrequest, schedulemeeting]
+  - key: press_communication
+    label: Press communication
+    description: Press release or public statement.
+    aliases: [pressrelease, publicstatement]
+  - key: other
+    label: Other
+    description: Residual; none of the above.

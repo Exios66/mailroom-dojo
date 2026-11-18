@@ -1,0 +1,21 @@
+name: entity_element_types
+version: 1
+description: >-
+  The element types an `entity_list` field may name after `:`. Each is a field type that
+  takes no element; every item of the list is scored as that type. Source: the field types
+  written in llm-mailroom src/config/taxonomy.yaml and llm-dojo-scoring
+  llm_dojo_scoring/scoring/field_scoring.py (CMS_ROW_FIELD_TYPES).
+ordered: false
+entries:
+  - key: name
+    label: Name
+    description: Items are names (parties, signatories, advisors, keywords).
+  - key: free_text
+    label: Free text
+    description: Items are prose (party roles, clauses, denial reasons, checklist lines).
+  - key: id
+    label: Identifier
+    description: Items are identifiers (citations).
+  - key: cms_doc_ref
+    label: CMS document reference
+    description: Items are CMS supporting-document references (supporting_documents on a CMS row).

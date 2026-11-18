@@ -21,4 +21,4 @@ dev = ["pytest", "pytest-xdist", "hypothesis"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-mailroom_dictionaries = ["py.typed", "data/*.yaml"]
+mailroom_dictionaries = ["py.typed", "data/*.yaml", "data/*.json"]
