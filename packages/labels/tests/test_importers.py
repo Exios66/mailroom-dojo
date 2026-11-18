@@ -496,3 +496,65 @@ def test_an_undecided_desk_verdict_refuses_the_review_import(tmp_path: Path) -> 
         review(tmp_path, [], [desk("D1", "sender", "Ann", "unsure")])
     review(tmp_path, [], [desk("D1", "sender", "Ann", "unsure"), desk("D2", "sender", "Bo")], allow_rejected=True)
     assert "dropped_source_data" in _gate_kinds(tmp_path, tmp_path / "gold-review-x")
+
+
+# --- reviewed_at is compared as an instant --------------------------------------------------
+
+
+def _conflict_reaches_the_gate(tmp_path: Path) -> bool:
+    return "conflicting_decision" in _gate_kinds(tmp_path, tmp_path / "gold-review-x")
+
+
+def test_offsets_are_ordered_by_instant_not_by_string(tmp_path: Path) -> None:
+    # 12:00+05:00 is 07:00Z: earlier than 10:00Z although it sorts later as a string
+    manifest, rows = review(tmp_path, [], [desk("D1", "sender", "Offset", at="2026-11-17T12:00:00+05:00"),
+                                           desk("D1", "sender", "Zulu", at="2026-11-17T10:00:00Z")])
+    assert [r["entry"]["value"] for r in rows] == ["Zulu"]
+    assert [s["value"] for s in manifest.source["superseded"]] == ["Offset"]
+
+
+def test_milliseconds_order_decisions(tmp_path: Path) -> None:
+    _, rows = review(tmp_path, [], [desk("D1", "sender", "Later", at="2026-11-17T10:00:00.500Z"),
+                                    desk("D1", "sender", "Earlier", at="2026-11-17T10:00:00.499+00:00")])
+    assert [r["entry"]["value"] for r in rows] == ["Later"]
+
+
+def test_the_same_instant_written_two_ways_is_a_tie_for_the_gate(tmp_path: Path) -> None:
+    manifest, rows = review(tmp_path, [], [desk("D1", "sender", "A", at="2026-11-17T10:00:00Z"),
+                                           desk("D1", "sender", "B", at="2026-11-17T15:30:00.000+05:30")])
+    assert sorted(r["entry"]["value"] for r in rows) == ["A", "B"] and manifest.source["superseded"] == []
+    assert _conflict_reaches_the_gate(tmp_path)
+
+
+@pytest.mark.parametrize(("at", "reason"), [
+    ("yesterday", "is not an ISO 8601 timestamp"),
+    ("2026-11-17T10:00:00", "has no UTC offset"),
+    (1763373600, "must be a string or null"),
+])
+def test_an_unusable_reviewed_at_is_a_rejected_line(tmp_path: Path, at: Any, reason: str) -> None:
+    with pytest.raises(ImportRefused, match="rejected_lines 1"):
+        review(tmp_path, [{**decision("D2", "sender", "X", human=True), "reviewed_at": at}], [])  # decision files too
+    manifest, rows = review(tmp_path, [], [desk("D1", "sender", "A", at=at), desk("D2", "sender", "B")], allow_rejected=True)
+    assert [r["doc_id"] for r in rows] == ["D2"]
+    (bad,) = manifest.source["rejected_lines"]
+    assert bad["line"] == 1 and reason in bad["reason"]
+
+
+def test_an_undated_human_decision_that_disagrees_with_a_dated_one_is_a_conflict(tmp_path: Path) -> None:
+    # Rule: an undated decision cannot be ordered against a dated one, so it never loses
+    # silently: a different value is kept beside the dated winner and the gate fails.
+    manifest, rows = review(tmp_path, [decision("D1", "sender", "Undated", human=True)],
+                            [desk("D1", "sender", "Dated", at="2026-11-17T10:00:00Z")])
+    assert sorted(r["entry"]["value"] for r in rows) == ["Dated", "Undated"]
+    assert manifest.source["superseded"] == []
+    assert _conflict_reaches_the_gate(tmp_path)
+
+
+def test_an_undated_human_decision_that_agrees_with_a_dated_one_is_merged(tmp_path: Path) -> None:
+    manifest, rows = review(tmp_path, [decision("D1", "sender", "Same", human=True)],
+                            [desk("D1", "sender", "Same", at="2026-11-17T10:00:00Z"),
+                             desk("D1", "sender", "Older", at="2026-11-17T09:00:00Z")])
+    (row,) = rows
+    assert (row["entry"]["value"], row["reviewed_at"]) == ("Same", "2026-11-17T10:00:00Z")
+    assert row["origin"] == ["review/decisions.jsonl:1", "sandbox/human_reviews.jsonl:1"]
+    assert [s["value"] for s in manifest.source["superseded"]] == ["Older"]

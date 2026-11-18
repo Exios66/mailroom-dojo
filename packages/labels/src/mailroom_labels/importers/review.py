@@ -14,12 +14,16 @@ Two native shapes come in:
 
 Rules, applied per (document, field):
 
-1. Among human decisions, the latest ``reviewed_at`` wins (the desk's own rule). A decision
-   with the same value as the winner is merged into it (its ``origin`` is added, and its
-   ``evidence`` is kept when the winner has none); one with another value is listed under
-   ``source.superseded``. Decisions that cannot be ordered (no timestamp, or the same one)
-   with different values are all kept, so the quality gate reports the conflict instead of
-   a guess.
+1. Among human decisions, the latest ``reviewed_at`` wins (the desk's own rule), compared
+   as instants: ``reviewed_at`` must be an ISO 8601 string with a UTC offset (``Z``,
+   ``+00:00``, ``+05:00``; fractional seconds allowed) or null, and any other value makes the
+   line a rejected line. A dated decision with the same value as the winner is merged into
+   it (its ``origin`` is added, and its ``evidence`` is kept when the winner has none); one
+   with another value is listed under ``source.superseded``. Decisions that cannot be
+   ordered against the winner are never resolved by a guess: the same instant written two
+   ways is a tie, and an **undated** human decision cannot be ordered against a dated one.
+   Such a decision is merged when its value equals the winner's and otherwise kept beside
+   it, so the quality gate reports a ``conflicting_decision`` error.
 2. A human decision beats a Claude decision on the same label: the Claude one is listed
    under ``source.superseded`` and is not truth.
 3. Claude decisions with the same value are merged; different values are all kept (the
@@ -34,6 +38,7 @@ into it) and ``reviewed_at`` (null when the source has none).
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -55,6 +60,33 @@ __all__ = ["DESK_VERDICTS", "HUMAN_MODEL", "SUPERSEDED_REASONS", "build_review"]
 HUMAN_MODEL = "human"
 #: Desk ``decision`` -> review verdict. A decision not listed here (``unsure``) decides nothing.
 DESK_VERDICTS: dict[str, str] = {"keep": "accept", "use_suggestion": "correct", "correct": "correct"}
+_EPOCH = datetime.min.replace(tzinfo=timezone.utc)
+
+
+def reviewed_instant(value: Any) -> datetime | None:
+    """The instant a ``reviewed_at`` names: ``None`` for an undated decision, otherwise a
+    timezone-aware datetime (``Z``, ``+00:00`` or any offset; fractional seconds allowed).
+    Raises ``ValueError`` for a non-string, an unparseable string or one without an offset,
+    since a time without a zone cannot be ordered against another."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"reviewed_at must be a string or null, not {type(value).__name__}")
+    try:
+        instant = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"reviewed_at {value!r} is not an ISO 8601 timestamp") from exc
+    if instant.tzinfo is None or instant.utcoffset() is None:
+        raise ValueError(f"reviewed_at {value!r} has no UTC offset")
+    return instant
+
+
+def _at(row: Mapping[str, Any]) -> tuple[bool, datetime]:
+    """Sort key: every dated decision sorts after (is later than) every undated one."""
+    instant = reviewed_instant(row["reviewed_at"])
+    return (instant is not None, instant or _EPOCH)
+
+
 _LATER = "a later reviewed_at decision on the same label"
 _HUMAN = "a human decision on the same label"
 #: Every reason a decision may be superseded for; any other would be a builder bug and is refused.
@@ -82,6 +114,11 @@ def _from_decision(line: SourceLine, rejected: list) -> dict[str, Any] | None:
     row = dict(d)
     row["origin"] = [line.origin]
     row.setdefault("reviewed_at", None)
+    try:
+        reviewed_instant(row["reviewed_at"])
+    except ValueError as exc:
+        rejected.append({"file": line.file, "line": line.line, "reason": str(exc)})
+        return None
     return row
 
 
@@ -90,6 +127,11 @@ def _from_desk(line: SourceLine, rejected: list, not_imported: list) -> dict[str
     missing = _missing(d, _DESK_REQUIRED)
     if missing:
         rejected.append({"file": line.file, "line": line.line, "reason": f"missing key(s) {missing}"})
+        return None
+    try:
+        reviewed_instant(d["reviewed_at"])
+    except ValueError as exc:
+        rejected.append({"file": line.file, "line": line.line, "reason": str(exc)})
         return None
     decision = d["decision"]
     if decision not in DESK_VERDICTS:
@@ -131,12 +173,14 @@ def _merge_into(winner: dict[str, Any], other: Mapping[str, Any]) -> None:
 
 
 def _collapse(group: list[dict[str, Any]], *, by_time: bool, superseded: list, merged: Counter) -> list[dict[str, Any]]:
-    """One decision per value; with ``by_time`` the latest reviewed_at decides between values."""
-    ordered = sorted(group, key=lambda r: (r["reviewed_at"] or "", r["origin"]), reverse=True)
+    """One decision per value; with ``by_time`` the latest reviewed_at instant decides
+    between values (compared as instants, so ``+05:00`` and ``Z`` order correctly and the same
+    instant written two ways is a tie)."""
+    ordered = sorted(group, key=lambda r: (_at(r), r["origin"]), reverse=True)
     if by_time:
-        latest = ordered[0]["reviewed_at"]
-        top = [r for r in ordered if r["reviewed_at"] == latest]
-        if latest is not None and len({_value(r) for r in top}) == 1:
+        latest = _at(ordered[0])
+        top = [r for r in ordered if _at(r) == latest]
+        if latest[0] and len({_value(r) for r in top}) == 1:
             winner = dict(top[0])
             undated: list[dict[str, Any]] = []
             for other in ordered[1:]:

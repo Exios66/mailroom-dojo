@@ -101,6 +101,14 @@ left-out items are listed under those keys and `verify` reports each non-empty o
 `dropped_source_data` error, so such a snapshot never passes the gate. A UTF-8 byte-order
 mark at the start of a source file is skipped, not rejected.
 
+`import-review` keeps one decision per label: a human decision beats a Claude one; among
+human decisions the latest `reviewed_at` wins, compared as instants (an ISO 8601 string
+with a UTC offset, or null; anything else is a rejected line). Nothing is decided by a
+guess: the same instant written two ways is a tie, and an undated human decision cannot be
+ordered against a dated one, so a tie or an undated decision with another value is kept
+beside the winner and `verify` reports a `conflicting_decision` error (an equal value is
+merged).
+
 `--known-warnings` takes `config/clients/<client>/known-warnings.yaml`; each entry needs a
 `reason`, and the importer records the snapshot's entries in its manifest.
 
