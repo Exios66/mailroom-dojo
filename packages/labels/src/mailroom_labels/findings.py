@@ -26,7 +26,9 @@ SEVERITY: dict[str, str] = {
     "unknown_document": "error",
     "duplicate_document": "error",
     "class_mismatch": "error",
-    "subclass_mismatch": "error",
+    # A label whose subclass disagrees with the index is stale: the resolver never uses
+    # it and flags the document unverified, exactly as for a stale content hash.
+    "subclass_mismatch": "warning",
     "stale_content_hash": "warning",
     "text_unverified": "warning",
     # within and across layers
