@@ -49,8 +49,12 @@ failure, not just simple one-off unit tests." So, for every module:
 | fsync error (`EIO`) | Monkeypatch `os.fsync` | blobs, log, seal | Error raised, writer poisoned |
 | Corrupt or truncated file | Flip, cut or append bytes | blobs, log, seal, pack | `BlobCorrupt`, `CorruptLine`, torn tail, `SealCorrupt`, `PackCorrupt` |
 | Concurrent writers | Threads and spawned processes | blobs, log, seal | Chains intact, seals numbered without gaps, one tombstone record |
-| Forked chain | Two owners of one document | log, seal, verify | `ForkedChain` refused by writers and seal, reported by verify |
+| Forked chain | Two owners of one document | log, seal, verify | `ForkedChain` refused by writers and seal, reported by verify as `forked_chain` |
 | Tampering | Edit, delete, reorder lines; delete documents | verify | The exact `Problem.kind` |
+| Corrupt line mid-segment | Garbage or torn bytes inserted before whole lines | verify | `corrupt_line` with segment and offset; the rest of the run is still checked |
+| Bit rot | Flip, truncate or replace a blob's stored bytes | verify | `corrupt_blob` (put does not repair it) |
+| Crash between tombstone and unlink | Content restored next to its tombstone | verify | `tombstone_with_content` |
+| Damaged seal or column file | Edit, rehash, delete, renumber a seal; truncate, garble, edit rows of a Parquet file | verify | `seal_mismatch`, `seal_corrupt`, `seal_missing`, `columns_missing`, `columns_mismatch` |
 
 ## The pyramid for this package
 
@@ -74,7 +78,12 @@ failure, not just simple one-off unit tests." So, for every module:
 | Crash mid-line | Fault injection | Torn tail reported, skipped, chain continues from last whole event | 5 |
 | Writer process killed mid-append | Fault injection | Child process appends in a loop, parent sends SIGKILL; reopen, every whole line verifies and the chain continues | 5 |
 | Parallel writers interleave or break chains | Concurrency | 8 threads, and separately 4 processes, each with their own writer and documents | 5 |
-| Edited, deleted or cut events go unnoticed | Fault injection | One test per `Problem.kind` | 7 |
+| Edited, deleted or cut events go unnoticed | Fault injection | One test per `Problem.kind` (`test_every_problem_kind_is_produced_by_some_test`); each also asserts untouched documents still verify | 7 |
+| A seal commits over damage it did not check | Fault injection | Tamper an unsealed line, append, seal: verify still reports `bad_hash` / `broken_link` | 7 |
+| Verify crashes or stops on damaged data | Property | `test_verify_never_raises_on_any_damage`: random delete, truncate, flip, garbage on any stored file | 7 |
+| A flipped byte goes unnoticed | Property | `test_clean_histories_verify_and_any_flipped_byte_is_caught`: random append/seal histories verify clean; any one-byte flip in a segment or seal fails, or lands in a reported torn tail | 7 |
+| Torn tail hides a crash on a finished run | Fault injection | Crash mid-append (injected short write + ENOSPC, and a real SIGKILL), reopen, append, seal: torn tail benign while live, failing once the experiment run is closed | 7 |
+| Verify holds a large run in memory | Integration | 24 MB of payloads: traced peak stays under 6 MB; one line with seq 10^9 and one seal numbered 10^9 are each reported in under 5 s (asserted) | 7 |
 | Whole document deleted between seals | Fault injection | Seal lists documents; deletion gives `document_missing_from_log` | 7 |
 | Tombstone confused with loss | Unit | Tombstone passes, missing blob fails and names the event | 7 |
 | Index drifts from the log | Integration, equivalence | Incremental index equals full reindex; deleting the index and rebuilding gives the same dump | 8 |

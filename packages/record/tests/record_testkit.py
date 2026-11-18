@@ -382,3 +382,180 @@ def tmp_files(root: Any) -> list[str]:
     from pathlib import Path
 
     return sorted(str(p.relative_to(root)) for p in Path(root).rglob("*.tmp"))
+
+
+# --- verify helpers (Task 7) ----------------------------------------------------------
+
+
+def blob_bytes(name: str) -> bytes:
+    """Synthetic blob content that carries the leak sentinel."""
+    return f"{SENTINEL} synthetic body of {name}".encode()
+
+
+def build_sealed_store(root: Any, kind: str = "specialist_only", run_id: str = "r1") -> Any:
+    """A real on-disk store with four documents, three writers (four segments) and three seals.
+
+    Every event names an ``original`` input blob of its document; the last event of each
+    document in each period names an ``extraction`` output blob of its own. History:
+
+    - period 0, writer w0: d1 x3, d2 x2 (interleaved); writer w1: d3 x2.   seal 0
+    - period 1, writer w2: d1 x2, d4 x3.                                     seal 1
+    - period 2, writer w0 again: d2 x1; writer w1 again: d3 x1.             seal 2
+
+    Returns a namespace with ``root``, ``blobs``, ``log``, ``run``, ``parts`` (for
+    ``verify_run(*parts, run_id)``), ``run_id``, ``seals``, ``originals`` (doc -> sha) and
+    ``outputs`` (list of ``(doc_id, seq, sha)``).
+    """
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from mailroom_record.blobs import BlobStore
+    from mailroom_record.log import EventLog
+    from mailroom_record.models import Run
+    from mailroom_record.seal import seal_run
+
+    root = Path(root)
+    blobs = BlobStore(root)
+    log = EventLog(root, blobs)
+    run = Run(**run_fields(run_id=run_id, kind=kind, document_ids=["d1", "d2", "d3", "d4"]))
+    log.create_run(run)
+    originals = {d: blobs.put(blob_bytes(f"original {d}"), "original") for d in ("d1", "d2", "d3", "d4")}
+    outputs: list[tuple[str, int, str]] = []
+    counter = iter(range(10_000))
+
+    def write(writer_id: str, plan: list[tuple[str, int]]) -> None:
+        with log.open_writer(run_id, writer_id, flush_every=3) as w:
+            for doc, n in plan:
+                for i in range(n):
+                    outs = []
+                    if i == n - 1:
+                        outs = [blobs.put(blob_bytes(f"extraction {doc} {next(counter)}"), "extraction")]
+                    e = w.append(
+                        doc_id=doc, node=f"node{i}", kind="output" if outs else "decision",
+                        agent="agent", model="test-model", tokens_in=10 + i, tokens_out=i, latency_ms=1.5 * i,
+                        decision=None if outs else {"chosen": "x", "confidence": 0.5},
+                        inputs=[originals[doc]], outputs=outs, payload={"i": i},
+                    )
+                    if outs:
+                        outputs.append((doc, e.seq, outs[0].sha256))
+
+    seals = []
+    write("w0", [("d1", 3), ("d2", 2)])
+    write("w1", [("d3", 2)])
+    seals.append(seal_run(log, run_id, sealed_at="2026-11-18T13:00:00Z"))
+    write("w2", [("d1", 2), ("d4", 3)])
+    seals.append(seal_run(log, run_id, sealed_at="2026-11-18T14:00:00Z"))
+    write("w0", [("d2", 1)])
+    write("w1", [("d3", 1)])
+    seals.append(seal_run(log, run_id, sealed_at="2026-11-18T15:00:00Z"))
+    return SimpleNamespace(
+        root=root, blobs=blobs, log=log, run=run, run_id=run_id, parts=(log, blobs), seals=seals,
+        originals={d: r.sha256 for d, r in originals.items()}, outputs=outputs,
+    )
+
+
+def verify(store: Any) -> Any:
+    from mailroom_record.verify import verify_run
+
+    return verify_run(store.log, store.blobs, getattr(store, "run_id", "r1"))
+
+
+def kinds(report: Any) -> set[str]:
+    return {p.kind for p in report.problems}
+
+
+def failing(report: Any) -> list[tuple[str, str | None, int | None]]:
+    """``(kind, doc_id, seq)`` of every failing problem, in report order."""
+    return [(p.kind, p.doc_id, p.seq) for p in report.problems if p.fails]
+
+
+def find_line(store: Any, doc_id: str, seq: int) -> tuple[Any, int, bytes]:
+    """``(segment path, byte offset, line bytes without newline)`` of the one stored event."""
+    import json
+
+    found = []
+    for seg in store.log.segment_paths(getattr(store, "run_id", "r1")):
+        data = seg.read_bytes()
+        pos = 0
+        while (nl := data.find(b"\n", pos)) != -1:
+            line = data[pos:nl]
+            try:
+                raw = json.loads(line)
+            except ValueError:
+                raw = None
+            if isinstance(raw, dict) and raw.get("doc_id") == doc_id and raw.get("seq") == seq:
+                found.append((seg, pos, line))
+            pos = nl + 1
+    assert len(found) == 1, f"expected one line for {doc_id}/{seq}, found {len(found)}"
+    return found[0]
+
+
+def replace_bytes(path: Any, offset: int, length: int, new: bytes) -> None:
+    from pathlib import Path
+
+    data = Path(path).read_bytes()
+    Path(path).write_bytes(data[:offset] + new + data[offset + length :])
+
+
+def rewrite_line(store: Any, doc_id: str, seq: int, recompute_hash: bool = False, **changes: Any) -> None:
+    """Edit one stored event in place (canonical JSON), keeping or recomputing its hash."""
+    import json
+
+    from mailroom_record.hashing import canonical_json
+
+    seg, off, line = find_line(store, doc_id, seq)
+    raw = json.loads(line) | changes
+    if recompute_hash:
+        raw["hash"] = event_hash(raw)
+    replace_bytes(seg, off, len(line), canonical_json(raw))
+
+
+def delete_line(store: Any, doc_id: str, seq: int) -> None:
+    seg, off, line = find_line(store, doc_id, seq)
+    replace_bytes(seg, off, len(line) + 1, b"")
+
+
+def last_seq(store: Any, doc_id: str) -> int:
+    return max(e.seq for e in store.log.iter_events(getattr(store, "run_id", "r1"), doc_id))
+
+
+def delete_document(store: Any, doc_id: str) -> None:
+    for seq in range(last_seq(store, doc_id), -1, -1):
+        delete_line(store, doc_id, seq)
+
+
+def two_output_blobs(store: Any) -> tuple[str, str]:
+    """Two extraction blobs, each named by exactly one event, of two different documents."""
+    by_doc: dict[str, str] = {}
+    for doc, _, sha in store.outputs:
+        by_doc.setdefault(doc, sha)
+    return by_doc["d1"], by_doc["d3"]
+
+
+def remove_blob_file(store: Any, sha: str) -> None:
+    store.blobs.content_path(sha).unlink()
+
+
+def flip_byte(path: Any, offset: int, mask: int = 0x01) -> None:
+    from pathlib import Path
+
+    data = bytearray(Path(path).read_bytes())
+    data[offset] ^= mask
+    Path(path).write_bytes(bytes(data))
+
+
+def forge_event(store: Any, doc_id: str, seq: int, prev_hash: str, segment: str = "w9.jsonl", **fields: Any) -> Any:
+    """Append a valid event line by hand to ``segment``, as a second owner would have."""
+    from mailroom_record.hashing import canonical_json
+
+    base = dict(
+        run_id=getattr(store, "run_id", "r1"), doc_id=doc_id, seq=seq, ts="2026-11-18T12:00:00Z",
+        node="forged", agent=None, attempt=0, kind="decision", model=None, prompt_id=None,
+        tokens_in=None, tokens_out=None, tokens_cached=None, price_basis=None, latency_ms=None,
+        decision=None, cause=None, inputs=[], outputs=[], payload={}, prev_hash=prev_hash,
+    )
+    event = Event.build(**(base | fields))
+    path = store.root / "runs" / getattr(store, "run_id", "r1") / "segments" / segment
+    with path.open("ab") as f:
+        f.write(canonical_json(event.model_dump(mode="json")) + b"\n")
+    return event

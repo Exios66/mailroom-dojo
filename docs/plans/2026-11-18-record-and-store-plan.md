@@ -343,8 +343,9 @@ def test_seal_without_new_events_is_a_no_op(store_with_events):
 **Interfaces:**
 - Consumes: `EventLog`, `BlobStore`, `list_seals`, `event_hash`.
 - Produces: `verify_run(log: EventLog, blobs: BlobStore, run_id: str) -> VerifyReport` with `VerifyReport(ok: bool, problems: list[Problem], events_checked: int, documents_checked: int, tombstoned_blobs: int)` and `Problem(kind: Literal["bad_hash", "broken_link", "seq_gap", "missing_blob", "seal_mismatch", "document_missing_from_log", "torn_tail", "truncated_after_seal"], doc_id: str | None, seq: int | None, detail: str)`. `torn_tail` is reported but does not set `ok` to false. Every other kind does.
+- Decided while building (2026-11-18): verify never raises on damaged data (only an unknown or malformed run id raises). `Problem` also carries `segment`, `byte_offset`, `seal` and `fails`; `VerifyReport` also carries `seals_checked` and `closed`. Kinds added: `corrupt_line`, `invalid_event`, `forked_chain`, `corrupt_blob`, `tombstone_with_content`, `seal_corrupt`, `seal_missing`, `columns_missing`, `columns_mismatch`, `corrupt_run_header`. `torn_tail` fails only on a closed run (an experiment-kind run with a seal); on a live or `service_period` run it is benign. Segments are read through `EventLog.iter_raw` (streamed, unparsed), added to `log.py` for this task.
 
-- [ ] **Step 1: Failing tests** (each tampers with a sealed fixture run, then asserts the exact problem kind)
+- [x] **Step 1: Failing tests** (each tampers with a sealed fixture run, then asserts the exact problem kind)
 
 ```python
 def test_clean_run_verifies(sealed_store):
@@ -374,10 +375,10 @@ def test_tombstoned_blob_passes_missing_blob_fails(sealed_store):   # Review Foc
     assert [p.kind for p in r.problems] == ["missing_blob"]
 ```
 
-- [ ] **Step 2:** Run; expect import failure.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run; expect 6 passed.
-- [ ] **Step 5:** Commit: `feat(record): verify chains, seals and blobs`.
+- [x] **Step 2:** Run; expect import failure.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** Run; expect 6 passed.
+- [x] **Step 5:** Commit: `feat(record): verify chains, seals and blobs`.
 
 ### Task 8: Derived index
 
