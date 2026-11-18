@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import multiprocessing
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -12,13 +13,26 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from record_testkit import SENTINEL, append_more, seal_in_child, stored_v0_event_dict
+from record_testkit import (
+    SENTINEL,
+    append_more,
+    check_chains,
+    hand_line,
+    run_fields,
+    seal_in_child,
+    slow_segment_reads,
+    start_handoff_workers,
+    stop_workers,
+    stored_v0_event_dict,
+)
 
 from mailroom_record.hashing import canonical_json
+from mailroom_record import log as log_module
 from mailroom_record.log import ForkedChain
 from mailroom_record.models import GENESIS, Event, Seal, seal_hash
 from mailroom_record import seal as seal_module
 from mailroom_record.seal import EVENT_COLUMNS, SealCorrupt, SealRefused, list_seals, seal_run
+from mailroom_record.verify import verify_run
 
 TS = "2026-11-18T13:00:00Z"
 
@@ -150,6 +164,7 @@ def test_seal_file_is_write_once(store_with_events: SimpleNamespace, monkeypatch
     append_more(store, doc_id="d4", n=1)
     raw0 = json.loads(seal_file(store, 0).read_bytes())
     monkeypatch.setattr(seal_module, "_load_seals", lambda log, run_id: [(s0, raw0)])
+    monkeypatch.setattr(seal_module, "_orphan_columns", lambda log, run_id, latest: [])
     with pytest.raises(SealRefused, match="already exists"):
         seal_run(store.log, "r1")
     assert seal_file(store, 1).read_bytes() == kept and s1.n == 1
@@ -401,21 +416,20 @@ def test_handoff_during_the_read_is_not_sealed_over(store: SimpleNamespace, monk
     append_more(store, doc_id="d2", n=1, writer_id="b")  # b.jsonl exists, sorts after a.jsonl
     append_more(store, doc_id="d1", n=3, writer_id="a")
     wa = store.log.open_writer("r1", "a")
-    original = Path.read_bytes
+    original = log_module._iter_segment_stored  # the streaming per-segment reader
     fired: list[bool] = []
 
-    def read_bytes(self: Path) -> bytes:
-        data = original(self)
-        if self.name == "a.jsonl" and not fired:
+    def read_segment(path: Path):  # type: ignore[no-untyped-def]
+        yield from original(path)
+        if path.name == "a.jsonl" and not fired:  # a.jsonl fully read, b.jsonl not yet
             fired.append(True)
             wa.append(doc_id="d1", node="n", kind="output")  # seq 3 -> a.jsonl
             wa.close()
             append_more(store, doc_id="d1", n=1, writer_id="b")  # seq 4 -> b.jsonl
-        return data
 
-    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    monkeypatch.setattr(log_module, "_iter_segment_stored", read_segment)
     s0 = seal_run(store.log, "r1")
-    monkeypatch.setattr(Path, "read_bytes", original)
+    monkeypatch.setattr(log_module, "_iter_segment_stored", original)
     assert fired
     heads = store.log.doc_head_seqs("r1")
     assert s0.event_count == sum(seq + 1 for seq, _ in heads.values()) == 6
@@ -446,9 +460,8 @@ def test_persistent_gap_on_disk_refuses_and_writes_nothing(store_with_events: Si
     assert not seal_file(store, 0).exists() and not columns(store, 0).exists()
 
 
-def test_snapshot_rereads_are_bounded(store_with_events: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_snapshot_reads_the_log_at_most_twice(store_with_events: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
     store = store_with_events
-    _write_gapped_chain(store, "g1", [0, 2])
     reads: list[int] = []
     original = store.log.iter_stored
 
@@ -457,26 +470,65 @@ def test_snapshot_rereads_are_bounded(store_with_events: SimpleNamespace, monkey
         return original(run_id)
 
     monkeypatch.setattr(store.log, "iter_stored", counting)
-    with pytest.raises(SealRefused, match="verify"):
-        seal_run(store.log, "r1")
-    assert len(reads) == 2  # a stable gap: two agreeing reads, then refuse
+    s0 = seal_run(store.log, "r1")
+    assert len(reads) == 1  # a gap-free first read is the snapshot
 
-    # A log that changes on every read (a writer racing forever) still stops.
+    # A stable gap: one re-read, then refuse.
+    reads.clear()
+    _write_gapped_chain(store, "g1", [0, 2])
+    with pytest.raises(SealRefused, match=r"'g1'.*seq 1.*verify"):
+        seal_run(store.log, "r1")
+    assert len(reads) == 2
+
+    # A log that gains a new gapped document on every read (a writer racing forever)
+    # still costs two reads: the second is bounded by what the first saw.
     reads.clear()
     n = [0]
 
     def changing(run_id: str):  # type: ignore[no-untyped-def]
         reads.append(1)
         n[0] += 1
-        _write_gapped_chain(store, f"g{n[0] + 1}", [0, 2])  # a new gapped doc every read
+        _write_gapped_chain(store, f"g{n[0] + 1}", [0, 2])
         return original(run_id)
 
     (store.root / "runs/r1/segments/gap.jsonl").unlink()
     monkeypatch.setattr(store.log, "iter_stored", changing)
     with pytest.raises(SealRefused, match="verify"):
         seal_run(store.log, "r1")
-    assert len(reads) == seal_module._SNAPSHOT_TRIES
+    assert len(reads) == 2
+    assert list_seals(store.log, "r1") == [s0]
+
+
+def test_head_that_vanishes_between_the_two_reads_refuses(
+    store_with_events: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = store_with_events
+    _write_gapped_chain(store, "g1", [0, 2])  # the first read shows a gap
+    gap = store.root / "runs/r1/segments/gap.jsonl"
+    original = store.log.iter_stored
+    reads: list[int] = []
+
+    def cutting(run_id: str):  # type: ignore[no-untyped-def]
+        reads.append(1)
+        if len(reads) == 2:  # before the second read: lose g1's head (seq 2), keep seq 0
+            gap.write_bytes(gap.read_bytes().splitlines(keepends=True)[0])
+        return original(run_id)
+
+    monkeypatch.setattr(store.log, "iter_stored", cutting)
+    with pytest.raises(SealRefused, match=r"head of document 'g1' at seq 2 disappeared"):
+        seal_run(store.log, "r1")
     assert not seal_file(store, 0).exists()
+
+
+def test_huge_seq_is_refused_quickly(store_with_events: SimpleNamespace) -> None:
+    # One line claiming seq 10**12: the gap walk must not build a range up to it.
+    store = store_with_events
+    first = hand_line("r1", "g", 0, GENESIS)
+    _write_lines(store, "hand.jsonl", [first, hand_line("r1", "g", 10**12, first["hash"])])
+    start = time.monotonic()
+    with pytest.raises(SealRefused, match=r"'g'.*seq 1 on disk"):
+        seal_run(store.log, "r1")
+    assert time.monotonic() - start < 5
 
 
 def test_gap_below_a_sealed_head_refuses(store_with_events: SimpleNamespace) -> None:
@@ -562,3 +614,320 @@ def test_older_version_seal_chains_on_its_stored_hash(
     append_more(store, doc_id="d4", n=1)
     with pytest.raises(SealRefused, match="seal 0 does not hash"):
         seal_run(store.log, "r1")
+
+
+# --- fix pass: a busy log seals without false refusals (M1) -------------------------
+
+
+def test_busy_log_with_handoffs_seals_without_false_refusals(
+    store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Four processes hand their documents between writers on every event while the sealer
+    # reads slowly (20 ms between segments). The log never has a gap, so no seal may be
+    # refused; reads that raced a hand-off must be resolved, not retried until refusal.
+    stop, procs = start_handoff_workers(store.root, 4)
+    try:
+        reads = slow_segment_reads(monkeypatch, store.log, 0.02)
+        refused: list[str] = []
+        seals = 0
+        deadline = time.monotonic() + 4
+        while time.monotonic() < deadline and (seals < 4 or len(reads) == seals):
+            try:
+                seal_run(store.log, "r1")
+            except SealRefused as exc:
+                refused.append(str(exc))
+            seals += 1
+        assert refused == [], f"{len(refused)} of {seals} seals falsely refused: {refused[0]}"
+        assert len(reads) > seals, "no read raced a hand-off: the test did not exercise the re-read"
+
+        # A real gap, made while the workers keep writing, is still refused.
+        chain = [hand_line("r1", "g1", 0, GENESIS)]
+        for q in range(1, 4):
+            chain.append(hand_line("r1", "g1", q, chain[-1]["hash"]))
+        _write_lines(store, "gap.jsonl", [chain[0], chain[1], chain[3]])
+        n_before = len(list_seals(store.log, "r1"))
+        with pytest.raises(SealRefused, match=r"'g1'.*seq 2.*verify"):
+            seal_run(store.log, "r1")
+        assert len(list_seals(store.log, "r1")) == n_before
+        _write_lines(store, "gap2.jsonl", [chain[2]])  # the lost line comes back: no gap now
+    finally:
+        stop_workers(stop, procs)
+    monkeypatch.undo()
+    final = seal_run(store.log, "r1")
+    counts = check_chains(store.root)
+    assert final.event_count == sum(counts.values())
+    seals_all = _check_seal_chain(store)
+    assert {d: h for d, (_, h) in store.log.doc_head_seqs("r1").items()} == seals_all[-1].doc_heads
+    assert verify_run(store.log, store.blobs, "r1").ok
+
+
+# --- fix pass: hashes and links are checked before sealing (M2) ----------------------
+
+
+def _write_lines(store: SimpleNamespace, name: str, raws: list[dict[str, Any]]) -> Path:
+    path = store.root / "runs/r1/segments" / name
+    path.write_bytes(b"".join(canonical_json(r) + b"\n" for r in raws))
+    return path
+
+
+def test_edited_line_with_its_old_hash_is_not_sealed(store_with_events: SimpleNamespace) -> None:
+    store = store_with_events
+    first = hand_line("r1", "g", 0, GENESIS)
+    second = hand_line("r1", "g", 1, first["hash"])
+    _write_lines(store, "hand.jsonl", [first | {"node": "EDITED"}, second])  # hash left stale
+    with pytest.raises(SealRefused, match=r"'g' seq 0 \(hand.jsonl at byte 0\).*hash.*verify"):
+        seal_run(store.log, "r1")
+    assert not seal_file(store, 0).exists() and not columns(store, 0).exists()
+
+
+def test_broken_link_is_not_sealed(store_with_events: SimpleNamespace) -> None:
+    store = store_with_events
+    first = hand_line("r1", "g", 0, GENESIS)
+    _write_lines(store, "hand.jsonl", [first, hand_line("r1", "g", 1, "f" * 64)])  # valid hash, wrong link
+    with pytest.raises(SealRefused, match=r"'g' seq 1 .*prev_hash.*seq 0"):
+        seal_run(store.log, "r1")
+    assert not seal_file(store, 0).exists()
+
+
+def test_first_event_must_link_to_genesis(store_with_events: SimpleNamespace) -> None:
+    store = store_with_events
+    _write_lines(store, "hand.jsonl", [hand_line("r1", "g", 0, "e" * 64)])
+    with pytest.raises(SealRefused, match=r"'g' seq 0 .*GENESIS"):
+        seal_run(store.log, "r1")
+
+
+def test_tampering_after_a_seal_is_caught_on_the_next_seal(store_with_events: SimpleNamespace) -> None:
+    # The first new event of a document must link to the head the previous seal committed.
+    store = store_with_events
+    s0 = seal_run(store.log, "r1")
+    forged = hand_line("r1", "d1", 2, "c" * 64)  # d1's sealed head is seq 1
+    _write_lines(store, "hand.jsonl", [forged])
+    with pytest.raises(SealRefused, match=r"'d1' seq 2 .*prev_hash.*seq 1"):
+        seal_run(store.log, "r1")
+    assert list_seals(store.log, "r1") == [s0]
+    # Repaired with the right link, it seals.
+    _write_lines(store, "hand.jsonl", [hand_line("r1", "d1", 2, s0.doc_heads["d1"])])
+    assert seal_run(store.log, "r1").event_count == 4
+
+
+def test_each_new_line_is_hashed_once_per_seal(
+    store_with_events: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mailroom_record import models
+
+    calls: list[str] = []
+    real = models.event_hash
+
+    def counting(raw: dict[str, Any]) -> str:
+        calls.append(raw["doc_id"])
+        return real(raw)
+
+    monkeypatch.setattr(seal_module, "event_hash", counting, raising=False)
+    store = store_with_events
+    seal_run(store.log, "r1")
+    assert len(calls) == 3  # the three new lines, each once
+    calls.clear()
+    append_more(store, doc_id="d1", n=2)
+    seal_run(store.log, "r1")
+    assert calls == ["d1", "d1"]  # only the new lines, not the sealed history
+
+
+# --- fix pass: lost column files and lost seal files ---------------------------------
+
+
+def _three_seals(store: SimpleNamespace) -> list[Seal]:
+    out = [seal_run(store.log, "r1")]
+    append_more(store, doc_id="d3", n=2)
+    out.append(seal_run(store.log, "r1"))
+    append_more(store, doc_id="d1", n=1, writer_id="w-other")
+    out.append(seal_run(store.log, "r1"))
+    return out
+
+
+def test_every_lost_column_file_is_rebuilt(store_with_events: SimpleNamespace) -> None:
+    store = store_with_events
+    seals = _three_seals(store)
+    want = {n: rows(store, n) for n in range(3)}
+    columns(store, 0).unlink()
+    columns(store, 1).unlink()  # non-latest seals: a deletion, not a crash
+    assert seal_run(store.log, "r1") == seals[-1]  # nothing new: no new seal
+    assert {n: rows(store, n) for n in range(3)} == want
+    assert verify_run(store.log, store.blobs, "r1").problems == []
+
+
+def test_rebuild_with_new_events_writes_the_rebuild_and_the_new_seal(store_with_events: SimpleNamespace) -> None:
+    store = store_with_events
+    _three_seals(store)
+    want0 = rows(store, 0)
+    columns(store, 0).unlink()
+    append_more(store, doc_id="d2", n=1)
+    s3 = seal_run(store.log, "r1")
+    assert s3.n == 3 and rows(store, 0) == want0 and [(r["doc_id"], r["seq"]) for r in rows(store, 3)] == [("d2", 1)]
+    assert verify_run(store.log, store.blobs, "r1").ok
+
+
+def test_rebuild_refuses_a_line_tampered_since_it_was_sealed(store_with_events: SimpleNamespace) -> None:
+    # The rebuilt rows are re-hashed like new ones: a rebuild never exports tampered lines.
+    store = store_with_events
+    _three_seals(store)
+    columns(store, 1).unlink()
+    seg = next(p for p in (store.root / "runs/r1/segments").glob("w-more*.jsonl"))
+    raw = [json.loads(line) for line in seg.read_bytes().splitlines()]
+    raw[0]["node"] = "EDITED"  # d3 seq 0, sealed by seal 1, hash kept
+    seg.write_bytes(b"".join(canonical_json(r) + b"\n" for r in raw))
+    with pytest.raises(SealRefused, match=r"'d3' seq 0 .*does not hash"):
+        seal_run(store.log, "r1")
+    assert not columns(store, 1).exists()
+
+
+def test_deleted_latest_seal_with_its_column_file_left_is_refused(store_with_events: SimpleNamespace) -> None:
+    # The seal file is written before its column file, so a column file without its seal
+    # is never a crash state: the seal was deleted. Re-sealing would hide that.
+    store = store_with_events
+    seals = _three_seals(store)
+    kept = seal_file(store, 2).read_bytes()
+    seal_file(store, 2).unlink()
+    append_more(store, doc_id="d4", n=1)
+    with pytest.raises(SealRefused, match=r"events-2.parquet exists but seals/2.json does not"):
+        seal_run(store.log, "r1")
+    assert not seal_file(store, 2).exists() and not seal_file(store, 3).exists()
+    seal_file(store, 2).write_bytes(kept)  # restored: sealing works again
+    assert seal_run(store.log, "r1").n == 3 == seals[-1].n + 1
+
+
+def test_no_seal_yet_but_a_column_file_is_refused(store_with_events: SimpleNamespace) -> None:
+    store = store_with_events
+    seal_run(store.log, "r1")
+    seal_file(store, 0).unlink()
+    with pytest.raises(SealRefused, match=r"events-0.parquet exists but seals/0.json does not"):
+        seal_run(store.log, "r1")
+
+
+def test_deleted_latest_seal_and_column_file_reseals(store_with_events: SimpleNamespace) -> None:
+    # Documented limit: with both files gone nothing on disk shows a seal existed, so
+    # seal_run seals again (a new hash); only a copy of the old seal hash kept elsewhere
+    # (for example an index or a published report) shows the deletion.
+    store = store_with_events
+    seals = _three_seals(store)
+    seal_file(store, 2).unlink()
+    columns(store, 2).unlink()
+    again = seal_run(store.log, "r1", sealed_at="2030-01-01T00:00:00Z")
+    assert again.n == 2 and again.hash != seals[2].hash and again.doc_heads == seals[2].doc_heads
+
+
+@pytest.mark.parametrize("which", [2, 1])
+@pytest.mark.parametrize("damage", ["truncate", "garbage", "empty", "wrong_rows"])
+def test_damaged_column_file_is_rebuilt(store_with_events: SimpleNamespace, damage: str, which: int) -> None:
+    # A column file that exists but cannot be read, or holds the wrong rows, is rebuilt
+    # like a missing one, even when there is nothing new to seal.
+    store = store_with_events
+    seals = _three_seals(store)
+    want = rows(store, which)
+    path = columns(store, which)
+    data = path.read_bytes()
+    if damage == "truncate":
+        path.write_bytes(data[: len(data) // 2])
+    elif damage == "garbage":
+        path.write_bytes(b"PAR1" + b"\x00garbage" * 64 + b"PAR1")
+    elif damage == "empty":
+        path.write_bytes(b"")
+    else:  # a readable file of another seal: valid Parquet, wrong rows
+        path.write_bytes(columns(store, 0).read_bytes())
+    assert seal_run(store.log, "r1") == seals[-1]
+    assert rows(store, which) == want
+    assert verify_run(store.log, store.blobs, "r1").problems == []
+    assert not list((store.root / "runs/r1/columns").glob("*.tmp"))
+
+
+# --- fix pass 2: what a seal relies on is durable, cheap and of this run ------------------
+
+
+def test_a_seal_with_nothing_new_does_not_read_the_last_export(store_with_events: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Independent review of fix pass 1: re-reading and re-validating the whole latest
+    # Parquet file made a no-op seal after a 100k-event seal take ~5x longer.
+    s = store_with_events
+    first = seal_run(s.log, "r1")
+    reads: list[Any] = []
+    real = pq.read_table
+    monkeypatch.setattr(pq, "read_table", lambda *a, **k: reads.append(a) or real(*a, **k))
+    assert seal_run(s.log, "r1") == first
+    assert reads == []
+    monkeypatch.undo()
+    # A damaged latest file is still rebuilt: the footer check catches it.
+    path = s.root / "runs/r1/columns/events-0.parquet"
+    path.write_bytes(path.read_bytes()[:-20])
+    assert seal_run(s.log, "r1") == first
+    assert pq.read_table(path).num_rows == 3
+
+
+def test_a_segment_of_another_run_is_refused_not_sealed(tmp_path: Path) -> None:
+    # A restore put r2's segment under r1: sequences, links and hashes are all fine.
+    from mailroom_record.blobs import BlobStore
+    from mailroom_record.log import EventLog
+    from mailroom_record.models import Run
+
+    log = EventLog(tmp_path, BlobStore(tmp_path))
+    for run_id in ("r1", "r2"):
+        log.create_run(Run(**run_fields(run_id=run_id)))
+    with log.open_writer("r2", "w0") as w:
+        w.append(doc_id="d1", node="n", kind="decision")
+    src = tmp_path / "runs/r2/segments/w0.jsonl"
+    (tmp_path / "runs/r1/segments/w0.jsonl").write_bytes(src.read_bytes())
+    with pytest.raises(SealRefused, match=r"w0.jsonl at byte 0\): the line belongs to another run"):
+        seal_run(log, "r1")
+    assert list_seals(log, "r1") == [] and not (tmp_path / "runs/r1/columns").exists()
+
+
+def test_sealed_lines_are_fsynced_before_the_seal_file_is_linked(store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A writer can have written a whole line and not yet fsynced it (or failed to). A seal
+    # must not commit a line that is only in the page cache.
+    import os
+
+    with store.log.open_writer("r1", "w0") as w:
+        w.append(doc_id="d1", node="n", kind="decision")
+    order: list[str] = []
+    real_fsync, real_link = os.fsync, os.link
+
+    def fsync(fd: int) -> None:
+        target = os.readlink(f"/proc/self/fd/{fd}")
+        if target.endswith(".jsonl"):
+            order.append("fsync " + Path(target).name)
+        real_fsync(fd)
+
+    def link(src: Any, dst: Any, *a: Any, **k: Any) -> None:
+        order.append("link " + Path(dst).name)
+        real_link(src, dst, *a, **k)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    monkeypatch.setattr(os, "link", link)
+    seal_run(store.log, "r1")
+    assert order.index("fsync w0.jsonl") < order.index("link 0.json"), order
+
+    # And if that fsync fails, nothing is sealed.
+    with store.log.open_writer("r1", "w0") as w:
+        w.append(doc_id="d1", node="n", kind="decision")
+
+    def failing(fd: int) -> None:
+        if os.readlink(f"/proc/self/fd/{fd}").endswith(".jsonl"):
+            raise OSError(5, "injected EIO on the segment")
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", failing)
+    with pytest.raises(OSError, match="injected EIO"):
+        seal_run(store.log, "r1")
+    monkeypatch.undo()
+    assert [x.n for x in list_seals(store.log, "r1")] == [0]
+
+
+def test_a_seal_with_nothing_new_still_syncs_the_seal_and_column_directories(
+    store_with_events: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A seal file or export whose rename was visible but whose directory fsync failed must
+    # be made durable before a later seal builds on it, also when nothing new is sealed.
+    s = store_with_events
+    seal_run(s.log, "r1")
+    calls: list[str] = []
+    real = seal_module._fsync_dir
+    monkeypatch.setattr(seal_module, "_fsync_dir", lambda p: (calls.append(Path(p).name), real(p))[1])
+    seal_run(s.log, "r1")
+    assert {"seals", "columns"} <= set(calls)

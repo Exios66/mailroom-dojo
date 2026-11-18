@@ -124,6 +124,10 @@ def test_tombstone_wins_over_content(data: bytes, reason: str, other: bytes) -> 
         # Other bytes are unaffected.
         if hashlib.sha256(other).hexdigest() != sha:
             assert store.get(store.put(other, "original").sha256) == other
-            missing = hashlib.sha256(other + b"\x00never-stored").hexdigest()
+            # A digest neither blob has (a derived one could equal ``sha`` itself).
+            missing = next(
+                h for h in (hashlib.sha256(bytes([i]) + other + data).hexdigest() for i in range(3))
+                if store.exists(h) == "missing"
+            )
             with pytest.raises(BlobMissing):
                 store.tombstone(missing, reason)

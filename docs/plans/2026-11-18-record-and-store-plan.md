@@ -343,8 +343,9 @@ def test_seal_without_new_events_is_a_no_op(store_with_events):
 **Interfaces:**
 - Consumes: `EventLog`, `BlobStore`, `list_seals`, `event_hash`.
 - Produces: `verify_run(log: EventLog, blobs: BlobStore, run_id: str) -> VerifyReport` with `VerifyReport(ok: bool, problems: list[Problem], events_checked: int, documents_checked: int, tombstoned_blobs: int)` and `Problem(kind: Literal["bad_hash", "broken_link", "seq_gap", "missing_blob", "seal_mismatch", "document_missing_from_log", "torn_tail", "truncated_after_seal"], doc_id: str | None, seq: int | None, detail: str)`. `torn_tail` is reported but does not set `ok` to false. Every other kind does.
+- Decided while building (2026-11-18): verify never raises on damaged data (only an unknown or malformed run id raises). `Problem` also carries `segment`, `byte_offset`, `seal` and `fails`; `VerifyReport` also carries `seals_checked` and `closed`. Kinds added: `corrupt_line`, `invalid_event`, `forked_chain`, `corrupt_blob`, `tombstone_with_content`, `seal_corrupt`, `seal_missing`, `columns_missing`, `columns_mismatch`, `corrupt_run_header`, `corrupt_tombstone`, and (fix pass 2) `unsealed_events`. `torn_tail` never fails; its detail says whether the run is closed (an experiment-kind run with a seal: the tail is final) or still being written. `unsealed_events` never fails either: on a closed run it notes each document's events past the last seal. The latest seal's `columns_missing` does not fail. Segments are read through `EventLog.iter_raw` (streamed, unparsed), added to `log.py` for this task.
 
-- [ ] **Step 1: Failing tests** (each tampers with a sealed fixture run, then asserts the exact problem kind)
+- [x] **Step 1: Failing tests** (each tampers with a sealed fixture run, then asserts the exact problem kind)
 
 ```python
 def test_clean_run_verifies(sealed_store):
@@ -374,10 +375,10 @@ def test_tombstoned_blob_passes_missing_blob_fails(sealed_store):   # Review Foc
     assert [p.kind for p in r.problems] == ["missing_blob"]
 ```
 
-- [ ] **Step 2:** Run; expect import failure.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run; expect 6 passed.
-- [ ] **Step 5:** Commit: `feat(record): verify chains, seals and blobs`.
+- [x] **Step 2:** Run; expect import failure.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** Run; expect 6 passed.
+- [x] **Step 5:** Commit: `feat(record): verify chains, seals and blobs`.
 
 ### Task 8: Derived index
 
@@ -391,12 +392,14 @@ def test_tombstoned_blob_passes_missing_blob_fails(sealed_store):   # Review Foc
   - `runs() -> list[RunRow]`, `documents(run_id: str) -> list[DocRow]`, `runs_for_document(doc_id: str) -> list[RunRow]`
   - `DocRow(run_id, doc_id, events, last_node, last_kind, head_hash, in_review: bool)`
 - Tables: `runs`, `documents`, `doc_runs`, `chain_heads`, `review_queue`. SQLite in WAL mode, `synchronous=NORMAL`. No table stores document text or payloads.
+- Decided while building (2026-11-18): `reindex` is the authority and rebuilds in one write transaction (WAL readers see the old index until commit; a crash leaves the old index, or an empty `missing` one); the file is never renamed into place. A `meta` table holds `schema_version` and `state`; a missing, empty, damaged (`quick_check`), old-version or unfinished file is never trusted: queries and `apply` raise `IndexUnavailable(status)`, and `reindex`/`ensure(log)` rebuild it (an unreadable file is deleted and recreated). `apply` takes exactly the next link of each chain: repeats and covered events are no-ops; a gap, a fork at the head and a broken link raise `ApplyRefused` and change nothing. A run must be registered first: `add_run(run)` after `create_run` (or a rebuild); `apply_seal(seal)` follows the seal chain the same way. In review means the document's head event has `kind == "review"` (no node names, decisions or payloads are read). A rebuild never aborts on a damaged log: corrupt and invalid lines, gaps, forks, broken links, unreadable seals and run headers become `problems` rows (`IndexStats.problems`), and a document stops at its last good event; a scan with a gap is re-read until two reads agree. Also added: `RunRow(run_id, kind, origin, backend, created_at, documents, events, in_review, seals)`, `review_queue()`, `problems()`, `dump()`, `drift(log)`, `status()`, `iter_events(log, run_id, doc_id)` (reads the byte ranges the rebuild recorded in `segments`/`doc_spans` plus every unindexed tail, falling back to a full scan when they no longer match). The event log's readers now stream (`EventLog.scan`, `iter_located`), keeping the `(doc_id, seq)` order with two passes.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```python
 def test_reindex_equals_incremental(store_with_events, tmp_path):
-    inc = Index(tmp_path / "a.sqlite"); [inc.apply(e) for e in store.log.iter_events("r1")]
+    inc = Index(tmp_path / "a.sqlite"); inc.add_run(run)   # decided while building: a run is registered first
+    [inc.apply(e) for e in store.log.iter_events("r1")]
     full = Index(tmp_path / "b.sqlite"); full.reindex(store.log)
     assert dump(inc) == dump(full)
 
@@ -414,10 +417,10 @@ def test_review_queue_tracks_last_event_kind(store_with_events, tmp_path):
     assert [d.doc_id for d in idx.documents("r1") if d.in_review] == ["d1"]
 ```
 
-- [ ] **Step 2:** Run; expect import failure.
-- [ ] **Step 3:** Implement with stdlib `sqlite3`.
-- [ ] **Step 4:** Run; expect 4 passed.
-- [ ] **Step 5:** Commit: `feat(record): rebuildable SQLite index`.
+- [x] **Step 2:** Run; expect import failure.
+- [x] **Step 3:** Implement with stdlib `sqlite3`.
+- [x] **Step 4:** Run; expect 4 passed.
+- [x] **Step 5:** Commit: `feat(record): rebuildable SQLite index`.
 
 ### Task 9: Version chain, trace and the CLI
 
@@ -430,8 +433,9 @@ def test_review_queue_tracks_last_event_kind(store_with_events, tmp_path):
   - `trace_run(log, index, run_id) -> RunTrace` (per document: nodes visited in order, attempts, last decision, cause, in review or not)
   - `trace_doc(log, index, doc_id) -> DocTrace` (every run that touched the document, with its version chain per run)
   - CLI `mailroom-record` with commands `verify <run>`, `seal <run>`, `reindex`, `trace run <run>`, `trace doc <doc>`, `versions <run> <doc>`. All take `--root`. Exit code 1 when verify is not ok. Output prints hashes, roles, nodes and counts, and never blob content.
+- Decided while building (2026-11-18): `Version` also carries `seq` and `used_as` (`input` or `output`, at first use); `order` counts from 0; a corrupt blob shows as `present` (verify is the integrity tool). `trace_run`/`trace_doc` take `index: Index | None`; `trace_doc` makes the index ready with `ensure(log)`, reads each document through `Index.iter_events` (materialised, so a read that raises late is read again from the log with a tolerant scan) and finds runs and events the index has not seen yet; without a usable index it reads the log. Damage never raises: `Damage(kind, doc_id, seq, detail, segment, byte_offset)` with kinds `corrupt_line`, `invalid_event`, `seq_gap`, `forked_chain`, `broken_link`, `torn_tail`, `corrupt_run_header`, `unreadable`, `missing_from_log`; only `BadRunId` and `UnknownRun` raise. Decisions and causes are shown as a `Digest` (shape, field names, size, SHA-256), never their values. CLI: every command takes `--json`; exit 0 done, 1 not ok / refused / unexpected error, 2 usage error (one line on stderr, never a traceback); console script `mailroom-record = "mailroom_record.cli:app"`, also `python -m mailroom_record`. Shared reading rules live in `_reading.py`.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```python
 def test_version_chain_orders_original_to_correction(review_store):
@@ -452,10 +456,10 @@ def test_cli_never_prints_blob_content(review_store):
     assert "SECRET-DOCUMENT-TEXT" not in out          # the fixture's original blob
 ```
 
-- [ ] **Step 2:** Run; expect import failure.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Run; expect 4 passed.
-- [ ] **Step 5:** Commit: `feat(record): version chain, trace and CLI`.
+- [x] **Step 2:** Run; expect import failure.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** Run; expect 4 passed.
+- [x] **Step 5:** Commit: `feat(record): version chain, trace and CLI`.
 
 ### Task 10: Sandbox run importer and routing-input audit
 
@@ -477,7 +481,7 @@ def test_cli_never_prints_blob_content(review_store):
 - Mapping rules:
   - `Run`: `origin="imported_sandbox"`, `kind="full_pipeline"` when `nodes.jsonl` has a `classify` node, else `"specialist_only"`; `backend` from `spec.lock.json` `engine`; `agent_models`, `prompt_hashes` (from `prompt.lock.json`), `code_version` (from `git`), `signed_by` (from `spend-authorization.json` if present, else `None`); `source = {"folder": <name>, "spec_hash": ...}`. `policy_name="legacy"`, `policy_hash=None`.
   - `doc_id` is `content_sha256`. `doc_text` becomes an `original`-role blob. `expected_*` fields are NOT imported into the record (labels belong to the labels package); only `expected_doc_class` is kept in the first event's `payload` as `draw_class`.
-  - Each `done`, `paused` or `failed` node row becomes one event: `kind="decision"` when `decisions` is non-empty, `kind="review"` for `human_review`, `kind="error"` for `failed`, else `kind="handoff"`. `decision` holds the row's `decisions` list as given, minus any `options` text. `latency_ms` from `ms`. `ts` converted to ISO (the finish time).
+  - Each `done`, `paused` or `failed` node row becomes one event, its kind decided in this order: `kind="review"` for `human_review`, `kind="error"` for `failed`, `kind="decision"` when `decisions` is non-empty, else `kind="handoff"` (so a paused `human_review` row with decisions is still a review, and Task 8's review queue sees it). `decision` holds the row's `decisions` list as given, minus any `options` text. `latency_ms` from `ms`. `ts` converted to ISO (the finish time).
   - Floor replay (added 2026-11-18, see the spec's "Requirements added 2026-11-18", R7): the matching `running` row is not a separate event, but its time is kept on the finishing event as `payload.started_ts` (ISO). The finishing event's `payload` also keeps `status`, `step` (when present) and `stage` (when present). A `running` row with no finishing row (in flight when the run stopped) becomes one event with `kind="handoff"` and `payload.status="running"`. Pairing is by `(doc, node, step)` in file order, the same rule the sandbox's `tui/floor_replay.py:build_timeline` uses.
   - `checkpoint.json` (`state`, `cursor`, `total`) becomes a final `_run` event with `node="checkpoint"`, `kind="handoff"` and those three values in `payload`; absent when the file is missing.
   - The item's `pred.extracted_data` (without `_report`) becomes an `extraction` blob and `_report` a `report` blob, attached to one final `kind="output"` event per document whose `decision` holds `doc_type`, `stage`, both confidences, `review_causes`, `review_verdict`, `escalation_reason`. Its `payload` holds `usage_by_agent` and the sandbox `score` dict under the key `legacy_score`.
@@ -562,9 +566,9 @@ def test_native_run_replays(store_with_events): ...                        # a r
 
 **Interfaces:**
 - Produces:
-  - `pack_run(root: Path, run_id: str, out: Path, *, include_blobs: bool = True) -> PackManifest` (a `.tar.zst` holding the run folder, the blobs it names, and `manifest.json` with every member's SHA-256 and the last seal hash). Refuses an unsealed run with `RunNotSealed`.
+  - `pack_run(root: Path, run_id: str, out: Path, *, include_blobs: bool = True) -> PackManifest` (a `.tar.zst` holding the run folder, the blobs it names, and `manifest.json` with every member's SHA-256 and the last seal hash). Refuses with `RunNotSealed` unless the latest seal covers the latest event: a run with no seal, or with flushed events after its latest seal, is refused (seal it first).
   - `unpack_run(archive: Path, root: Path) -> str` (verifies the manifest, then `verify_run`; raises `PackCorrupt`)
-  - `prune_run(root: Path, run_id: str, *, keep_columns: bool = True) -> PruneReport` (removes segments and seals of a packed run; deletes a blob only when no other run in the index names it). Refuses unless a pack path is recorded for the run.
+  - `prune_run(root: Path, run_id: str, *, keep_columns: bool = True) -> PruneReport` (removes segments and seals of a packed run; deletes a blob only when no other run names it, found by reading the other runs' logs, the authoritative record, never the index, which can lag a crash between flush and apply). It holds the store's exclusive maintenance lock, which writers take shared, so no append can name a blob between that check and the delete. Refuses unless a pack path is recorded for the run, and, like `pack_run`, unless the latest seal covers the latest event.
   - CLI: `pack`, `unpack`, `prune`.
 
 - [ ] **Step 1: Failing tests**
@@ -614,7 +618,8 @@ def test_public_surface_is_exactly_this():
 - [ ] **Step 4:** Run it on the real data:
 
 ```bash
-python packages/record/scripts/stage1_gate.py --runs /mnt/project-files/runs/autoresearch --root "$(mktemp -d)"
+ROOT="$(mktemp -d)"   # one store root, kept for the second run below
+python packages/record/scripts/stage1_gate.py --runs /mnt/project-files/runs/autoresearch --root "$ROOT"
 ```
 
 Expected, and each is a gate condition:
@@ -622,8 +627,8 @@ Expected, and each is a gate condition:
 - `original` blobs: 25 for the five v1 runs together and 75 for the ten v2 runs together, assuming v1 and v2 share no document. Report the real number; if it differs, explain it from the draws, do not force it.
 - Store size on disk is smaller than the 93 MB source.
 - `mailroom-record trace doc <a v1 doc id>` lists all five v1 runs.
-- A second run of the script reports every run as `already_imported`.
-- `grep` of the report and of every Parquet file for a 40-character string taken from one imported document's text finds nothing.
+- A second run of the script with the same `--root "$ROOT"` reports every run as `already_imported`.
+- A 40-character string taken from one imported document's text is in none of the report's bytes and none of the decoded values of any Parquet file (every string and list-of-string cell of `pyarrow.parquet.read_table(...)`; a byte `grep` misses compressed pages). Positive control first: the same scan finds the string in a scratch Parquet file that holds it.
 - Floor replay parity: for every run folder with `nodes.jsonl` or `items.jsonl`, `replay_timeline` from the record gives the same node sequence (doc, node, status) and the same times (within 1 ms) as the sandbox's `build_timeline` on the source folder. The script loads `tui/floor_replay.py` by path from a sandbox checkout when one is given (`--sandbox <dir>`; the module imports only the standard library) and reports the check as skipped otherwise.
 
 - [ ] **Step 5:** Run the whole suite: `pytest packages/record/tests -q`. Expected: all pass, no skips. Commit: `feat(record): stage 1 gate on the v1 and v2 runs` with the report's totals in the commit body.

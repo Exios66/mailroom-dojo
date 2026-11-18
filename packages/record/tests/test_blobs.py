@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 
 import pytest
+import zstandard
 from record_testkit import SENTINEL, put_in_child
 
 from mailroom_record.blobs import BlobCorrupt, BlobMissing, BlobStore, BlobTombstoned
@@ -374,3 +375,254 @@ def test_exists_sees_a_tombstone_written_between_its_two_checks(
 
     monkeypatch.setattr(s, "content_path", racing)
     assert s.exists(ref.sha256) == "tombstoned"
+
+
+# --- fix pass 2: durability, races and damage the bots found (PR #2) ---------------------
+
+import hashlib  # noqa: E402
+
+from mailroom_record import blobs as blobs_module  # noqa: E402
+from record_testkit import tmp_files  # noqa: E402
+
+
+def _record_dir_fsyncs(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    calls: list[Path] = []
+    real = blobs_module._fsync_dir
+
+    def rec(path: Path) -> None:
+        calls.append(Path(path))
+        real(path)
+
+    monkeypatch.setattr(blobs_module, "_fsync_dir", rec)
+    return calls
+
+
+def test_put_hashes_and_stores_one_snapshot_of_mutable_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Another thread changes a bytearray after put() hashed it and before it compressed it.
+    s = BlobStore(tmp_path)
+    data = bytearray(b"original bytes " * 1000)
+    real_sha = hashlib.sha256
+
+    def sha_then_mutate(view: object) -> object:
+        h = real_sha(view)  # type: ignore[arg-type]
+        data[:8] = b"MUTATED!"
+        return h
+
+    monkeypatch.setattr(blobs_module.hashlib, "sha256", sha_then_mutate)
+    ref = s.put(data, "original")
+    monkeypatch.undo()
+    assert s.get(ref.sha256) == b"original bytes " * 1000  # hash and bytes agree
+
+
+def test_every_directory_up_to_the_root_is_synced_even_when_it_existed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A writer that crashed after mkdir and before its parent fsync leaves an entry that is
+    # visible but not durable; the next writer must not take "exists" as "durable".
+    s = BlobStore(tmp_path)
+    data = b"shard test"
+    shard = s.content_path(hashlib.sha256(data).hexdigest()).parent
+    shard.mkdir(parents=True)  # created, never synced (the crashed writer)
+    calls = _record_dir_fsyncs(monkeypatch)
+    s.put(data, "original")
+    assert {shard, shard.parent, s.blob_root, tmp_path} <= set(calls)
+
+
+def test_put_of_present_content_syncs_its_directory_before_returning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The first put renamed the file and then failed its directory fsync: the retry sees the
+    # content "present" and must still make the rename durable before an event names it.
+    s = BlobStore(tmp_path)
+    ref = s.put(b"retry me", "original")
+    calls = _record_dir_fsyncs(monkeypatch)
+    assert s.put(b"retry me", "original") == ref
+    assert s.content_path(ref.sha256).parent in calls
+
+
+def test_a_put_racing_a_deletion_never_puts_the_content_back(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Writer B checks "missing" and compresses. Meanwhile writer A stores the same bytes and
+    # a deletion tombstones them. B then publishes, and crashes right after its rename. The
+    # deleted content must not be on disk afterwards.
+    s = BlobStore(tmp_path)
+    data = b"private document text " * 200
+    sha = hashlib.sha256(data).hexdigest()
+    real_fsync, real_replace = os.fsync, os.replace
+    fired: list[bool] = []
+
+    def crash_after_rename(src: object, dst: object) -> None:
+        real_replace(src, dst)  # type: ignore[arg-type]
+        raise OSError("crash right after the rename")
+
+    def fsync_hook(fd: int) -> None:
+        real_fsync(fd)
+        if not fired and os.readlink(f"/proc/self/fd/{fd}").endswith(".tmp"):
+            fired.append(True)
+            other = BlobStore(tmp_path)  # writer A and the deletion, while B is mid-write
+            other.put(data, "original")
+            other.tombstone(sha, "erasure request")
+            monkeypatch.setattr(os, "replace", crash_after_rename)
+
+    monkeypatch.setattr(os, "fsync", fsync_hook)
+    with pytest.raises(BlobTombstoned):
+        s.put(data, "original")
+    monkeypatch.undo()
+    assert fired
+    assert not s.content_path(sha).exists() and s.exists(sha) == "tombstoned"
+    assert tmp_files(tmp_path) == []
+
+
+def test_a_retried_tombstone_syncs_even_when_the_content_is_already_gone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    s = BlobStore(tmp_path)
+    ref = s.put(b"to delete", "original")
+    s.tombstone(ref.sha256, "erasure request")  # suppose its last directory fsync failed
+    calls = _record_dir_fsyncs(monkeypatch)
+    s.tombstone(ref.sha256, "erasure request")
+    assert s.content_path(ref.sha256).parent in calls
+
+
+def test_an_existing_tombstone_is_synced_before_the_content_is_unlinked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The first caller linked the record and stopped before syncing and unlinking.
+    s = BlobStore(tmp_path)
+    ref = s.put(b"half deleted", "original")
+    record = {"sha256": ref.sha256, "reason": "erasure request", "tombstoned_at": "2026-11-18T12:00:00Z"}
+    s.tombstone_path(ref.sha256).write_text(json.dumps(record))
+    order: list[str] = []
+    real_unlink = Path.unlink
+
+    def unlink(self: Path, missing_ok: bool = False) -> None:
+        if self == s.content_path(ref.sha256):
+            order.append("unlink")
+        real_unlink(self, missing_ok=missing_ok)
+
+    def fsync_dir(path: Path) -> None:
+        order.append("fsync")
+        os_fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(os_fd)
+        finally:
+            os.close(os_fd)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    monkeypatch.setattr(blobs_module, "_fsync_dir", fsync_dir)
+    s.tombstone(ref.sha256, "erasure request")
+    assert "unlink" in order and "fsync" in order[: order.index("unlink")]
+    assert order[-1] == "fsync"
+    assert json.loads(s.tombstone_path(ref.sha256).read_text()) == record  # the first record stays
+
+
+@pytest.mark.parametrize("damage", ["empty", "truncated", "other_hash", "not_json"])
+@pytest.mark.parametrize("content_left", [False, True])
+def test_an_unreadable_tombstone_is_rewritten_and_a_readable_one_kept(
+    tmp_path: Path, damage: str, content_left: bool
+) -> None:
+    from mailroom_record.verify import verify_run
+
+    from mailroom_record.log import EventLog
+    from mailroom_record.models import Run
+    from record_testkit import run_fields
+
+    s = BlobStore(tmp_path)
+    log = EventLog(tmp_path, s)
+    log.create_run(Run(**run_fields()))
+    ref = s.put(b"client document", "original")
+    with log.open_writer("r1", "w0") as w:
+        w.append(doc_id="d1", node="n", kind="output", inputs=[ref])
+    s.tombstone(ref.sha256, "erasure request")
+    tomb = s.tombstone_path(ref.sha256)
+    good = tomb.read_bytes()
+    tomb.write_bytes({"empty": b"", "truncated": good[:10], "not_json": b"\xff\x00",
+                      "other_hash": good.replace(ref.sha256.encode(), b"c" * 64)}[damage])
+    if content_left:
+        s.content_path(ref.sha256).write_bytes(b"left behind")
+    found = {p.kind for p in verify_run(log, s, "r1").problems}
+    assert found & {"corrupt_tombstone", "tombstone_with_content"}, found
+
+    s.tombstone(ref.sha256, "erasure request (repair)")  # the supported repair
+    info = s.tombstone_info(ref.sha256)
+    assert info["sha256"] == ref.sha256 and info["reason"] == "erasure request (repair)"
+    assert not s.content_path(ref.sha256).exists() and tmp_files(tmp_path) == []
+    report = verify_run(log, s, "r1")
+    assert report.ok and report.tombstoned_blobs == 1
+    s.tombstone(ref.sha256, "a later request")  # a readable record is never replaced
+    assert s.tombstone_info(ref.sha256)["reason"] == "erasure request (repair)"
+
+
+@pytest.mark.parametrize(
+    "data", [b"", random_bytes := os.urandom(5 * 1024 * 1024)], ids=["empty", "5MiB_incompressible"]
+)
+@pytest.mark.parametrize("cut", [1, 2, 3, "all", "trailing", "second_frame", "skippable_frame"])
+def test_a_blob_file_that_is_not_one_whole_frame_is_corrupt(tmp_path: Path, data: bytes, cut: object) -> None:
+    # A frame cut inside its last (empty) block still decodes to every byte, so the digest
+    # matches; only a frame check sees it. Verify reports the same file.
+    from mailroom_record.log import EventLog
+    from mailroom_record.models import Run
+    from mailroom_record.verify import verify_run
+    from record_testkit import run_fields
+
+    s = BlobStore(tmp_path)
+    log = EventLog(tmp_path, s)
+    log.create_run(Run(**run_fields()))
+    ref = s.put(data, "original")
+    with log.open_writer("r1", "w0") as w:
+        w.append(doc_id="d1", node="n", kind="output", inputs=[ref])
+    assert s.get(ref.sha256) == data and verify_run(log, s, "r1").ok
+    p = s.content_path(ref.sha256)
+    whole = p.read_bytes()
+    if cut == "all":
+        p.write_bytes(b"")
+    elif cut == "trailing":
+        p.write_bytes(whole + b"\x00")
+    elif cut == "second_frame":  # a decoder stops after the first frame: the digest still matches
+        p.write_bytes(whole + zstandard.ZstdCompressor().compress(b"more"))
+    elif cut == "skippable_frame":  # skippable frame: magic 0x184D2A50, a length, that many bytes
+        p.write_bytes(whole + (0x184D2A50).to_bytes(4, "little") + (4).to_bytes(4, "little") + b"meta")
+    else:
+        p.write_bytes(whole[: -int(cut)])  # type: ignore[call-overload]
+    with pytest.raises(BlobCorrupt):
+        s.get(ref.sha256)
+    assert [x.kind for x in verify_run(log, s, "r1").problems] == ["corrupt_blob"]
+
+
+@pytest.mark.parametrize("data", [b"", b"synthetic checksummed content " * 1000], ids=["empty", "30KB"])
+def test_a_frame_with_a_content_checksum_is_whole_only_with_its_checksum(tmp_path: Path, data: bytes) -> None:
+    # The store writes frames without a checksum, but a frame that has one (flag bit 2) is
+    # whole only with its four checksum bytes: accepted with them, corrupt without any.
+    from mailroom_record.log import EventLog
+    from mailroom_record.models import Run
+    from mailroom_record.verify import verify_run
+    from record_testkit import run_fields
+
+    s = BlobStore(tmp_path)
+    log = EventLog(tmp_path, s)
+    log.create_run(Run(**run_fields()))
+    ref = s.put(data, "original")
+    with log.open_writer("r1", "w0") as w:
+        w.append(doc_id="d1", node="n", kind="output", inputs=[ref])
+    framed = zstandard.ZstdCompressor(write_checksum=True).compress(data)
+    assert (framed[4] >> 2) & 1  # the checksum flag is set
+    p = s.content_path(ref.sha256)
+    p.write_bytes(framed)
+    assert s.get(ref.sha256) == data and verify_run(log, s, "r1").ok
+    for cut in (1, 4):
+        p.write_bytes(framed[:-cut])
+        with pytest.raises(BlobCorrupt):
+            s.get(ref.sha256)
+        assert [x.kind for x in verify_run(log, s, "r1").problems] == ["corrupt_blob"]
+
+
+def test_get_never_returns_content_whose_deletion_was_recorded_while_it_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    s = BlobStore(tmp_path)
+    ref = s.put(b"read during deletion", "original")
+    real_exists = BlobStore.exists
+    done: list[bool] = []
+
+    def exists_then_tombstone_record(self: BlobStore, sha256: str) -> str:
+        state = real_exists(self, sha256)
+        if not done:  # the deletion's record lands right after get() looked
+            done.append(True)
+            record = {"sha256": sha256, "reason": "erasure request", "tombstoned_at": "2026-11-18T12:00:00Z"}
+            self.tombstone_path(sha256).write_text(json.dumps(record))
+        return state
+
+    monkeypatch.setattr(BlobStore, "exists", exists_then_tombstone_record)
+    with pytest.raises(BlobTombstoned):
+        s.get(ref.sha256)

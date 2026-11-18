@@ -4,6 +4,9 @@ Workspace for the lean Mailroom rewrite. Each package lives under `packages/`;
 the first is `packages/record/` (`mailroom_record`: the append-only, hash-chained
 run record and its blob store). Design and build plan: `docs/specs/` and `docs/plans/`.
 
+Requires Python 3.11 or later (CI runs 3.11 and 3.12). If `python3` is older, name a
+newer interpreter instead, for example `python3.12 -m venv .venv`.
+
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]"
 .venv/bin/python -m pytest packages/record/tests -q

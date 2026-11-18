@@ -61,5 +61,8 @@ index is never a source of loss.
 ## Action items
 
 1. [x] Plan tasks 5 (log), 8 (index with `reindex` and `apply`), 6 (Parquet from the log).
-2. [ ] Test: index built incrementally equals index rebuilt from the log (Task 8).
-3. [ ] Test: deleting the index file and reindexing gives the same answers (Task 8).
+2. [x] Test: index built incrementally equals index rebuilt from the log (Task 8:
+   `test_reindex_equals_incremental`, and the property
+   `test_incremental_equals_reindex_over_random_histories`).
+3. [x] Test: deleting the index file and reindexing gives the same answers (Task 8:
+   `test_index_is_disposable`, `test_a_damaged_or_old_index_is_refused_then_rebuilt`).
