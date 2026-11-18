@@ -18,16 +18,16 @@ from hypothesis import strategies as st
 from record_testkit import (
     SENTINEL,
     Faults,
-    blob_bytes,
     build_sealed_store,
+    build_two_run_sealed_store,
     flip_byte,
     run_cli,
-    run_fields,
+    store_tree,
 )
 
 from mailroom_record.blobs import BlobStore
 from mailroom_record.log import EventLog, RunPruned
-from mailroom_record.models import Run, Seal
+from mailroom_record.models import Seal
 from mailroom_record.pack import (
     PackCorrupt,
     PruneRefused,
@@ -50,24 +50,6 @@ def open_store(root: Path) -> tuple[EventLog, BlobStore]:
 @pytest.fixture
 def sealed_store(tmp_path: Path) -> SimpleNamespace:
     return build_sealed_store(tmp_path / "store")
-
-
-def build_two_run_sealed_store(root: Path) -> SimpleNamespace:
-    """Runs r1 and r2 under one root, both sealed. Both name the ``shared`` original blob;
-    each also names blobs of its own (``only`` maps run -> its own shas)."""
-    log, blobs = open_store(root)
-    shared = blobs.put(blob_bytes("shared original"), "original")
-    only: dict[str, list[str]] = {}
-    for run_id in ("r1", "r2"):
-        log.create_run(Run(**run_fields(run_id=run_id, document_ids=["d1", "d2"])))
-        own = [blobs.put(blob_bytes(f"{run_id} {i}"), "extraction") for i in range(2)]
-        only[run_id] = [r.sha256 for r in own]
-        with log.open_writer(run_id, "w0") as w:
-            w.append(doc_id="d1", node="intake", kind="handoff", outputs=[shared])
-            w.append(doc_id="d1", node="extract", kind="output", inputs=[shared], outputs=[own[0]])
-            w.append(doc_id="d2", node="extract", kind="output", outputs=[own[1]])
-        seal_run(log, run_id)
-    return SimpleNamespace(root=root, log=log, blobs=blobs, parts=(log, blobs), shared=shared.sha256, only=only)
 
 
 @pytest.fixture
@@ -530,15 +512,6 @@ def test_the_maintenance_lock_is_shared_by_writers(two_run_sealed_store: SimpleN
 
 
 # --- a pruned run takes no writes (adversarial round 2, findings 1 to 3) --------------------
-
-
-def store_tree(root: Path) -> dict[str, bytes]:
-    """Every file under ``root`` (lock files and staging leftovers aside), by relative path."""
-    return {
-        str(p.relative_to(root)): p.read_bytes()
-        for p in sorted(root.rglob("*"))
-        if p.is_file() and not p.name.endswith(".lock") and not str(p.relative_to(root)).startswith(".unpack-")
-    }
 
 
 def _pack_and_prune(s: SimpleNamespace, archive: Path, *, keep_columns: bool = True) -> None:

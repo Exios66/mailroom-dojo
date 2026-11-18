@@ -32,7 +32,12 @@ Rules
   ``pack_run`` writes: a zstd or tar error, a truncated stream, a member that is not a
   regular file or whose name is not one of the names above (absolute, ``..``, links,
   unknown files), a member twice, a member missing from or not listed in the manifest, a
-  member whose hash or size differs. Blobs the run names but the archive lacks
+  member whose hash or size differs, a member larger than its cap (``MAX_RUN_FILE`` for a
+  segment or column file, ``MAX_SMALL_FILE`` for ``run.json``, a seal or the manifest,
+  ``MAX_BLOB`` for a blob, ``MAX_TOMBSTONE`` for a tombstone), read from its tar header
+  before a byte of it is staged (``pack_run`` refuses to write such a member:
+  ``PackRefused``). The archive's zstd frame is decompressed a few whole blocks at a time,
+  never more than 4 MiB per step, so a decompression bomb costs time, not memory. Blobs the run names but the archive lacks
   (``include_blobs=False``) are taken from the target root's blob store. It then runs
   ``verify_run`` on the staging store; any failing problem is ``PackCorrupt``. If the
   target recorded a pack of the run (``pack.json``, or ``prune.json`` for a pruned run),
@@ -88,12 +93,16 @@ import zstandard
 
 from mailroom_record.blobs import BlobStore, _dir_lock, _fsync_dir, _makedirs_durable, _open_fd_for_write
 from mailroom_record.hashing import canonical_json
-from mailroom_record.log import MAINTENANCE_LOCK, PACK_RECORD, PRUNE_RECORD, EventLog
+from mailroom_record.log import MAINTENANCE_LOCK, MAX_LINE, PACK_RECORD, PRUNE_RECORD, EventLog
 from mailroom_record.models import _RUN_ID_RE
 from mailroom_record.seal import list_seals
 from mailroom_record.verify import verify_run
 
 __all__ = [
+    "MAX_BLOB",
+    "MAX_RUN_FILE",
+    "MAX_SMALL_FILE",
+    "MAX_TOMBSTONE",
     "PACK_FORMAT",
     "PackCorrupt",
     "PackManifest",
@@ -113,7 +122,14 @@ _MANIFEST = "manifest.json"
 _PACK_RECORD = PACK_RECORD
 _PRUNE_RECORD = PRUNE_RECORD
 _CHUNK = 1 << 20
-_MAX_MANIFEST = 256 * 1024 * 1024
+# Size caps, checked from each member's tar header before a byte of it is staged (an
+# over-cap member is ``PackCorrupt``) and by ``pack_run`` before it writes one (``PackRefused``),
+# so an archive pack writes is always one unpack takes. They bound what a hostile archive can
+# make unpack write or decompress, not what a run may hold in memory.
+MAX_RUN_FILE = 64 * MAX_LINE  # a segment or column file: 4 GiB, 64 lines of the largest kind
+MAX_SMALL_FILE = 256 * 1024 * 1024  # run.json, a seal, manifest.json
+MAX_BLOB = 4 * 1024 * 1024 * 1024  # a blob's zstd file, and the bytes it decompresses to
+MAX_TOMBSTONE = 64 * 1024  # a tombstone record (a hash, a reason and a time)
 _HEX64 = re.compile(rb"[0-9a-f]{64}")
 _SHA = r"[0-9a-f]{64}"
 _RUN_MEMBER = re.compile(
@@ -223,6 +239,15 @@ def _named_blobs(log: EventLog, run_id: str) -> list[str]:
     return sorted(names)
 
 
+def _cap(name: str) -> int:
+    """The largest size a member (or a packed file) of this name may have, read at call time."""
+    if name == _MANIFEST or name.endswith("/run.json") or "/seals/" in name:
+        return MAX_SMALL_FILE
+    if name.startswith("blobs/"):
+        return MAX_TOMBSTONE if name.endswith(".tombstone") else MAX_BLOB
+    return MAX_RUN_FILE
+
+
 def _tarinfo(name: str, size: int) -> tarfile.TarInfo:
     info = tarfile.TarInfo(name)
     info.size = size
@@ -233,43 +258,116 @@ def _tarinfo(name: str, size: int) -> tarfile.TarInfo:
     return info
 
 
+_ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+_BLOCK_MAX = 128 * 1024  # a zstd block never regenerates more than 128 KiB (RFC 8878)
+_BATCH_BLOCKS = 32  # blocks per decompress call: at most 4 MiB of output at a time
+
+
 class _ZstdIn(io.RawIOBase):
     """Read one whole zstd frame from ``f``; a truncated frame or trailing bytes raise ``PackCorrupt``.
 
-    ``zstandard``'s stream reader returns a frame cut inside its checksum without error, so
-    the frame's end is checked here: at end of input the decompressor must have seen the
-    whole frame (``eof``) and nothing may follow it.
+    The frame is walked block by block (RFC 8878 frame and block headers, as
+    ``blobs._zstd_frame_whole`` does for a file) and at most ``_BATCH_BLOCKS`` whole blocks
+    are handed to the decompressor at a time. A block regenerates at most 128 KiB, so one
+    call yields at most 4 MiB however far the frame expands: a decompression bomb costs
+    time in proportion to its output, never memory. Walking the frame also finds its exact
+    end: input that stops before the last block and the checksum is truncated, and any byte
+    after them is refused (``zstandard``'s stream reader returns a frame cut inside its
+    checksum without error, so this cannot be left to it). ``max_output`` (when given)
+    refuses a frame that decompresses to more bytes.
     """
 
-    def __init__(self, f: Any) -> None:
+    def __init__(self, f: Any, *, what: str = "the archive", max_output: int | None = None) -> None:
         self._f = f
+        self._what = what
+        self._max_output = max_output
+        self._produced = 0
         self._d = zstandard.ZstdDecompressor().decompressobj()
-        self._pending = b""
+        self._buf = bytearray()
+        self._bpos = 0
+        self._started = False
+        self._checksum = False
         self._done = False
+        self._out = memoryview(b"")
+        self._opos = 0
 
     def readable(self) -> bool:
         return True
 
-    def readinto(self, b: Any) -> int:
-        view = memoryview(b).cast("B")
-        while not self._pending and not self._done:
+    def _need(self, k: int) -> None:
+        while len(self._buf) - self._bpos < k:
             raw = self._f.read(_CHUNK)
             if not raw:
-                if not self._d.eof:
-                    raise PackCorrupt("the archive ends before its zstd frame does (truncated)")
+                raise PackCorrupt(f"{self._what} ends before its zstd frame does (truncated)")
+            if self._bpos:
+                del self._buf[: self._bpos]
+                self._bpos = 0
+            self._buf += raw
+
+    def _take(self, k: int) -> bytes:
+        self._need(k)
+        out = bytes(self._buf[self._bpos : self._bpos + k])
+        self._bpos += k
+        return out
+
+    def _header(self) -> bytes:
+        head = self._take(5)
+        if head[:4] != _ZSTD_MAGIC or head[4] & 0x08:  # one frame, no reserved bit
+            raise PackCorrupt(f"{self._what} is not one zstd frame")
+        fhd = head[4]
+        single = (fhd >> 5) & 1
+        rest = (0 if single else 1) + (0, 1, 2, 4)[fhd & 3] + ((1 if single else 0), 2, 4, 8)[fhd >> 6]
+        self._checksum = bool((fhd >> 2) & 1)
+        return head + self._take(rest)
+
+    def _batch(self) -> bytes:
+        """The next whole blocks of the frame (with its header first, its checksum last)."""
+        parts = []
+        if not self._started:
+            parts.append(self._header())
+            self._started = True
+        for _ in range(_BATCH_BLOCKS):
+            head = self._take(3)
+            v = int.from_bytes(head, "little")
+            kind, length = (v >> 1) & 3, v >> 3
+            if kind == 3 or length > _BLOCK_MAX:  # reserved block type, or a block too large
+                raise PackCorrupt(f"{self._what}: a zstd block header is not valid")
+            parts += [head, self._take(1 if kind == 1 else length)]  # an RLE block stores one byte
+            if v & 1:  # the last block
+                if self._checksum:
+                    parts.append(self._take(4))
                 self._done = True
                 break
-            if self._d.eof:
-                raise PackCorrupt("bytes after the archive's zstd frame")
+        return b"".join(parts)
+
+    def _fill(self) -> bool:
+        """Decompress the next batch into ``_out``; ``False`` at the frame's end."""
+        while not self._done:
+            batch = self._batch()
             try:
-                self._pending = self._d.decompress(raw)
+                out = self._d.decompress(batch)
             except zstandard.ZstdError as exc:
-                raise PackCorrupt(f"zstd: {exc}") from None
-            if self._d.eof and self._d.unused_data:
-                raise PackCorrupt("bytes after the archive's zstd frame")
-        n = min(len(view), len(self._pending))
-        view[:n] = self._pending[:n]
-        self._pending = self._pending[n:]
+                raise PackCorrupt(f"{self._what}: zstd: {exc}") from None
+            self._produced += len(out)
+            if self._max_output is not None and self._produced > self._max_output:
+                raise PackCorrupt(f"{self._what} decompresses to more than {self._max_output} bytes")
+            if self._done:
+                if not self._d.eof:
+                    raise PackCorrupt(f"{self._what} ends before its zstd frame does (truncated)")
+                if len(self._buf) > self._bpos or self._f.read(1):
+                    raise PackCorrupt(f"bytes after {self._what}'s zstd frame")
+            if out:
+                self._out, self._opos = memoryview(out), 0
+                return True
+        return False
+
+    def readinto(self, b: Any) -> int:
+        view = memoryview(b).cast("B")
+        if self._opos >= len(self._out) and not self._fill():
+            return 0
+        n = min(len(view), len(self._out) - self._opos)
+        view[:n] = self._out[self._opos : self._opos + n]
+        self._opos += n
         return n
 
     def drain(self) -> None:
@@ -319,12 +417,12 @@ def _read_archive(archive: Path, sink: Callable[[str, Iterator[bytes]], None]) -
                         raise PackCorrupt("a member is not a regular file")
                     if name in seen:
                         raise PackCorrupt("a member appears twice")
+                    if m.size > _cap(name):
+                        raise PackCorrupt(f"a member is larger than its cap ({_cap(name)} bytes)")
                     member_file = tar.extractfile(m)
                     if member_file is None:
                         raise PackCorrupt("a member has no data")
                     if name == _MANIFEST:
-                        if m.size > _MAX_MANIFEST:
-                            raise PackCorrupt(f"{_MANIFEST} is too large")
                         manifest_raw = member_file.read()
                         continue
                     rm = _RUN_MEMBER.fullmatch(name)
@@ -411,9 +509,7 @@ def pack_run(root: Path, run_id: str, out: Path, *, include_blobs: bool = True) 
                 fileobj=zf, mode="w|", format=tarfile.PAX_FORMAT
             ) as tar:
                 for name, path in files:
-                    data = path.read_bytes()
-                    members[name] = {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
-                    tar.addfile(_tarinfo(name, len(data)), io.BytesIO(data))
+                    members[name] = _add_file(tar, name, path)
                 manifest = {
                     "format": PACK_FORMAT,
                     "run_id": run_id,
@@ -455,6 +551,18 @@ def pack_run(root: Path, run_id: str, out: Path, *, include_blobs: bool = True) 
         path=out,
         archive_sha256=archive_sha,
     )
+
+
+def _add_file(tar: tarfile.TarFile, name: str, path: Path) -> dict[str, Any]:
+    """Stream ``path`` into ``tar`` as member ``name``; its SHA-256 and size. A file over
+    its cap is ``PackRefused`` (unpack would refuse the member)."""
+    with path.open("rb") as f:
+        size = os.fstat(f.fileno()).st_size
+        if size > _cap(name):
+            raise PackRefused(f"{name} is larger than its cap ({_cap(name)} bytes); an archive cannot hold it")
+        hashed = _Hashing(f)
+        tar.addfile(_tarinfo(name, size), hashed)  # reads exactly ``size`` bytes, or raises
+    return {"sha256": hashed.sha.hexdigest(), "size": size}
 
 
 def _write_replace(path: Path, body: bytes) -> None:

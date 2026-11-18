@@ -1156,3 +1156,131 @@ def load_repo_script(relative: str, name: str) -> Any:
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
+
+
+# --- packs: two runs sharing a blob, store snapshots, archive surgery ----------------------
+
+
+def build_two_run_sealed_store(root: Any) -> Any:
+    """Runs r1 and r2 under one root, both sealed. Both name the ``shared`` original blob;
+    each also names blobs of its own (``only`` maps run -> its own shas)."""
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from mailroom_record.blobs import BlobStore
+    from mailroom_record.log import EventLog
+    from mailroom_record.models import Run
+    from mailroom_record.seal import seal_run
+
+    root = Path(root)
+    blobs = BlobStore(root)
+    log = EventLog(root, blobs)
+    shared = blobs.put(blob_bytes("shared original"), "original")
+    only: dict[str, list[str]] = {}
+    for run_id in ("r1", "r2"):
+        log.create_run(Run(**run_fields(run_id=run_id, document_ids=["d1", "d2"])))
+        own = [blobs.put(blob_bytes(f"{run_id} {i}"), "extraction") for i in range(2)]
+        only[run_id] = [r.sha256 for r in own]
+        with log.open_writer(run_id, "w0") as w:
+            w.append(doc_id="d1", node="intake", kind="handoff", outputs=[shared])
+            w.append(doc_id="d1", node="extract", kind="output", inputs=[shared], outputs=[own[0]])
+            w.append(doc_id="d2", node="extract", kind="output", outputs=[own[1]])
+        seal_run(log, run_id)
+    return SimpleNamespace(root=root, log=log, blobs=blobs, parts=(log, blobs), shared=shared.sha256, only=only)
+
+
+def store_tree(root: Any) -> dict[str, bytes]:
+    """Every file under ``root`` (lock files and staging leftovers aside), by relative path."""
+    from pathlib import Path
+
+    root = Path(root)
+    return {
+        str(p.relative_to(root)): p.read_bytes()
+        for p in sorted(root.rglob("*"))
+        if p.is_file() and not p.name.endswith(".lock") and not str(p.relative_to(root)).startswith(".unpack-")
+    }
+
+
+def archive_members(archive: Any) -> list[tuple[str, bytes]]:
+    """``(name, bytes)`` of every member of a ``.tar.zst`` archive, in order."""
+    import tarfile
+
+    import zstandard
+
+    out: list[tuple[str, bytes]] = []
+    with open(archive, "rb") as f, zstandard.ZstdDecompressor().stream_reader(f) as z, tarfile.open(
+        fileobj=z, mode="r|"
+    ) as tar:
+        for m in tar:
+            member = tar.extractfile(m)
+            out.append((m.name, member.read() if member is not None else b""))
+    return out
+
+
+def forge_archive(path: Any, members: list[tuple[str, bytes]], *, manifest_extra: bool = True) -> Any:
+    """Write ``members`` as a ``.tar.zst`` the way a hostile packer would. When the last
+    member is ``manifest.json`` and ``manifest_extra`` is set, the manifest's ``members``
+    are recomputed to list every other member, so only the checks past it can refuse."""
+    import hashlib
+    import io
+    import json
+    import tarfile
+    from pathlib import Path
+
+    import zstandard
+
+    from mailroom_record.hashing import canonical_json
+
+    members = list(members)
+    if manifest_extra and members and members[-1][0] == "manifest.json":
+        manifest = json.loads(members[-1][1])
+        manifest["members"] = {
+            n: {"sha256": hashlib.sha256(d).hexdigest(), "size": len(d)} for n, d in members[:-1]
+        }
+        members[-1] = ("manifest.json", canonical_json(manifest))
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w", format=tarfile.PAX_FORMAT) as tar:
+        for name, data in members:
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            info.mode = 0o600
+            tar.addfile(info, io.BytesIO(data))
+    path = Path(path)
+    path.write_bytes(zstandard.ZstdCompressor(write_checksum=True).compress(buf.getvalue()))
+    return path
+
+
+def blob_member(sha: str, ext: str = "zst") -> str:
+    """The archive member name of a blob file."""
+    return f"blobs/{sha[:2]}/{sha[2:4]}/{sha}.{ext}"
+
+
+def zero_bomb(path: Any, name: str, size: int) -> Any:
+    """A ``.tar.zst`` of a few KiB whose one member ``name`` is ``size`` zero bytes: a
+    decompression bomb, streamed so the test never holds ``size`` bytes itself."""
+    import io
+    import tarfile
+    from pathlib import Path
+
+    import zstandard
+
+    class _Zeros(io.RawIOBase):
+        left = size
+
+        def readable(self) -> bool:
+            return True
+
+        def readinto(self, b: Any) -> int:
+            n = min(len(b), self.left)
+            b[:n] = bytes(n)
+            self.left -= n
+            return n
+
+    path = Path(path)
+    with path.open("wb") as out:
+        cctx = zstandard.ZstdCompressor(level=19, write_checksum=True)
+        with cctx.stream_writer(out, closefd=False) as zf, tarfile.open(fileobj=zf, mode="w|") as tar:
+            info = tarfile.TarInfo(name)
+            info.size = size
+            tar.addfile(info, io.BufferedReader(_Zeros()))
+    return path
