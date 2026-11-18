@@ -281,3 +281,161 @@ def test_parity_with_the_sandbox_build_timeline(tmp_path: Path, variant: str) ->
     _same(normalise(got), normalise(want))
     _same_meta(got_meta, want_meta)
     assert [e for _, e in got if "node" in e][0]["node"]["doc"] in source_ids(folder)
+
+
+# --- untimed and synthetic timing (adversarial round 1, finding 3) -------------------------
+
+T0 = 1_795_000_000.0
+D0, D1, D2 = (f"DOC-{i:016x}" for i in range(3))
+
+
+def _node(doc: str, node: str, status: str, ts: float | None = None, *, step: int | None = None,
+          ms: float | None = None) -> dict:
+    row: dict[str, Any] = {"doc": doc, "node": node, "status": status, "agent": None, "model": None}
+    if ts is not None:
+        row["ts"] = ts
+    if step is not None:
+        row["step"] = step
+    if status != "running":
+        row |= {"ms": ms, "stage": "s", "decisions": []}
+    return row
+
+
+def _item(doc: str, ts: float | None = None) -> dict:
+    row: dict[str, Any] = {"item_id": doc, "ok": True, "error": None, "pred": {}, "score": {}}
+    return row | ({"ts": ts} if ts is not None else {})
+
+
+def _folder_with(base: Path, n_docs: int, nodes: list[dict], items: list[dict], state: str = "done") -> Path:
+    folder = copy_fixture(base / "folder", run_id="ar-untimed")
+    rows = read_jsonl(folder / "dataset.jsonl")[:n_docs]
+    for i, row in enumerate(rows):
+        row["id"] = f"DOC-{i:016x}"
+    write_jsonl(folder / "dataset.jsonl", rows)
+    write_jsonl(folder / "nodes.jsonl", nodes)
+    write_jsonl(folder / "items.jsonl", items)
+    cp = json.loads((folder / "checkpoint.json").read_text())
+    cp |= {"state": state, "cursor": len(items), "total": n_docs}
+    (folder / "checkpoint.json").write_text(json.dumps(cp))
+    return folder
+
+
+# Each case: the folder's rows and the timeline the sandbox's rules give them, worked out by
+# hand. A start without ``step`` pairs with its finish (key (doc, node, None)), so an untimed
+# finish lands at its start plus ``ms``; a start with a step does not (the finish has none),
+# so an untimed finish lands 0.1 s after the latest row; an untimed start lands at the latest
+# row; an untimed item lands at its document's last finish, or 0.5 s after the latest row.
+UNTIMED_CASES = {
+    "mixed": (
+        2,
+        [
+            _node(D0, "intake", "running", T0),  # 0.0
+            _node(D0, "intake", "done", ms=50.0),  # untimed, paired: 0.0 + 0.05
+            _node(D0, "classify", "running", step=2),  # untimed start: the latest row, 0.05
+            _node(D0, "classify", "done", T0 + 1.0, ms=750.0),  # 1.0
+            _node(D1, "intake", "running", T0 + 1.1, step=1),  # 1.1
+            _node(D1, "intake", "done", ms=40.0),  # untimed, not paired: 1.1 + 0.1
+        ],
+        [_item(D0, T0 + 1.5), _item(D1)],  # 1.5; D1 untimed: its last finish, 1.2
+        [
+            (0.0, ("checkpoint", "running", 0, 2)),
+            (0.0, ("node", D0, "intake", "running")),
+            (0.05, ("node", D0, "intake", "done")),
+            (0.05, ("node", D0, "classify", "running")),
+            (1.0, ("node", D0, "classify", "done")),
+            (1.1, ("node", D1, "intake", "running")),
+            (1.2, ("node", D1, "intake", "done")),
+            (1.2, ("item", D1)),
+            (1.5, ("item", D0)),
+            (2.0, ("checkpoint", "done", 2, 2)),
+        ],
+    ),
+    "synthetic": (
+        3,
+        [
+            _node(D0, "intake", "running"),  # 0.0
+            _node(D0, "intake", "done", ms=50.0),  # paired: 0.05
+            _node(D1, "extract", "done", ms=10.0),  # no start: 0.05 + 0.1
+            _node(D0, "classify", "running", step=2),  # the latest row: 0.15
+            _node(D0, "classify", "done", ms=750.0),  # not paired: 0.15 + 0.1
+        ],
+        [_item(D0), _item(D1), _item(D2)],  # D0 at 0.25, D1 at 0.15, D2 (no node row) 0.25 + 0.5
+        [
+            (0.0, ("checkpoint", "running", 0, 3)),
+            (0.0, ("node", D0, "intake", "running")),
+            (0.05, ("node", D0, "intake", "done")),
+            (0.15, ("node", D1, "extract", "done")),
+            (0.15, ("node", D0, "classify", "running")),
+            (0.15, ("item", D1)),
+            (0.25, ("node", D0, "classify", "done")),
+            (0.25, ("item", D0)),
+            (0.75, ("item", D2)),
+            (1.25, ("checkpoint", "done", 3, 3)),
+        ],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(UNTIMED_CASES))
+def test_untimed_rows_replay_at_pinned_times(tmp_path: Path, case: str) -> None:
+    n_docs, nodes, items, want = UNTIMED_CASES[case]
+    folder = _folder_with(tmp_path, n_docs, nodes, items)
+    store = _store(tmp_path / "store")
+    r = import_sandbox_run(folder, store.log, store.blobs)
+    timeline, meta = replay_timeline(store.log, r.run_id)
+    _same(normalise(timeline), want)
+    assert meta["synthetic_timing"] is (case == "synthetic")
+    untimed = sum("ts" not in row for row in [*nodes, *items])
+    assert meta["warnings"] == [f"{untimed} rows had no source time"]
+    sandbox = _sandbox_floor_replay()
+    if sandbox is not None:  # the pinned times are the sandbox's own
+        sandbox_timeline, sandbox_meta = sandbox.build_timeline(folder)
+        _same(normalise(sandbox_timeline), want)
+        _same_meta(meta, sandbox_meta)
+
+
+def _untime(folder: Path, variant: str) -> None:
+    """Drop the source time from some rows of the fixture folder."""
+    nodes = read_jsonl(folder / "nodes.jsonl")
+    items = read_jsonl(folder / "items.jsonl")
+    if variant == "untimed-start":
+        nodes[0].pop("ts")
+    elif variant == "untimed-finish":
+        nodes[1].pop("ts")
+    elif variant == "untimed-both":
+        nodes[0].pop("ts")
+        nodes[1].pop("ts")
+    elif variant == "untimed-items":
+        for row in items:
+            row.pop("ts")
+    elif variant == "untimed-run":
+        for row in [*nodes, *items]:
+            row.pop("ts")
+    elif variant == "untimed-unstepped":  # starts without a step pair with their untimed finishes
+        for row in nodes:
+            row.pop("step", None)
+        nodes[1].pop("ts")
+        nodes[5].pop("ts")
+    write_jsonl(folder / "nodes.jsonl", nodes)
+    write_jsonl(folder / "items.jsonl", items)
+
+
+UNTIMED_VARIANTS = (
+    "untimed-start", "untimed-finish", "untimed-both", "untimed-items", "untimed-run", "untimed-unstepped"
+)
+
+
+@pytest.mark.parametrize("variant", UNTIMED_VARIANTS)
+def test_untimed_parity_with_the_sandbox_build_timeline(tmp_path: Path, variant: str) -> None:
+    sandbox = _sandbox_floor_replay()
+    if sandbox is None:
+        pytest.skip("no sandbox checkout (set MAILROOM_SANDBOX_CHECKOUT to run the parity check)")
+    folder = copy_fixture(tmp_path / "src" / variant, run_id="ar-parity-untimed")
+    _untime(folder, variant)
+    store = _store(tmp_path / "store")
+    r = import_sandbox_run(folder, store.log, store.blobs)
+    got, got_meta = replay_timeline(store.log, r.run_id)
+    want, want_meta = sandbox.build_timeline(folder)
+    _same(normalise(got), normalise(want))
+    _same_meta(got_meta, want_meta)
+    assert got_meta["synthetic_timing"] is (variant == "untimed-run")
