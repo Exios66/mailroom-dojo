@@ -262,3 +262,13 @@ def test_capture_respects_every_switch():
     assert off == dict.fromkeys(TRACE_KEYS)
     with pytest.raises(ValueError):
         capture_trace("not a mapping", TraceCaptureOptions())  # type: ignore[arg-type]
+
+
+def test_a_span_covering_exactly_the_coverage_share_matches(mailroom_profile):
+    """Containment at exactly ``audit.token_coverage`` covers the clause (the comparison is inclusive)."""
+    answer = "alpha bravo charlie delta echo foxtrot golf hotel india juliet"
+    expectation = {"Custom": {"expected": True, "answer": answer, "field": "clauses"}}
+    covering = {"clauses": ["alpha bravo charlie delta echo foxtrot golf"]}
+    short = {"clauses": ["alpha bravo charlie delta echo foxtrot"]}
+    assert score_category_presence(mailroom_profile, covering, expectation)[0] == 1.0
+    assert score_category_presence(mailroom_profile, short, expectation)[0] == 0.0

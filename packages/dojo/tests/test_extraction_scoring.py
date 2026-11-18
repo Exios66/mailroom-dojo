@@ -356,3 +356,31 @@ def test_extraction_invariants(predicted, expected, apply_variants):
     assert set(result.entity_list_scores) <= set(scores)
     for audit in result.entity_list_audit.values():
         assert audit["true_items"] + audit["hallucinated"] == audit["n_predicted"]
+
+
+def test_a_guard_that_refuses_empty_values_rejects_unlabelled_rows():
+    """With ``allow_empty: false`` a row whose guard field is empty is not the variant."""
+    mapping = minimal_profile_mapping()
+    mapping["classes"][0]["fields"]["vehicles"] = "entity_list:name"
+    mapping["classes"][0]["variants"] = [{
+        "name": "commercial_fleet",
+        "marker": {"field": "fleet_kind", "values": ["fleet"]},
+        "guard": {"field": "coverage_tier", "allowed": ["premium"], "allow_empty": False},
+        "field_type_overrides": {"vehicles": "entity_list:id"},
+        "added_fields": {"fleet_kind": {"type": "label", "vocabulary": {"tokens": ["fleet"], "fold": "exact"}}},
+    }]
+    profile = load_scoring_profile(mapping)
+    predicted = {"vehicles": ["VIN 1x"], "fleet_kind": "fleet"}
+    unlabelled = score_extraction(profile, FLEET, predicted, {"fleet_kind": "fleet", "vehicles": ["VIN-1"]})
+    labelled = score_extraction(profile, FLEET, predicted, {"fleet_kind": "fleet", "vehicles": ["VIN-1"],
+                                                            "coverage_tier": "premium"})
+    assert unlabelled.field_scores["vehicles"] == 1.0 and labelled.field_scores["vehicles"] == 0.0
+
+
+def test_judge_review_uses_the_declared_type_not_the_containment_switch():
+    """A name field scored by containment is reviewed under the name type's band."""
+    profile = _mailroom_with(thresholds={"type_bands": {"name": "never", "containment": "always"}})
+    result = score_extraction(profile, "contract", {"governing_law": "Delaware corporate law"},
+                              {"governing_law": "the laws of the State of Delaware"})
+    assert 0.0 < result.field_scores["governing_law"] < 1.0
+    assert result.ambiguous_fields == []

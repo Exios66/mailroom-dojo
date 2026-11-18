@@ -269,3 +269,38 @@ def test_a_named_copy_keeps_every_metric(mailroom_profile):
     named = result.named("parties")
     assert isinstance(named, EntityListScore) and named.field_name == "parties"
     assert {**named.to_dict(), "field": ""} == result.to_dict()
+
+
+def test_role_phrases_have_one_to_three_role_words(mailroom_profile):
+    """A three-word role phrase is credited; a four-word one is not."""
+    three = score_entity_list(mailroom_profile, "id", ["Acme Corp"], ["Licensee Licensor Party", "Omega"],
+                              recall_coverage=True)
+    four = score_entity_list(mailroom_profile, "id", ["Acme Corp"], ["Licensee Licensor Party Vendor", "Omega"],
+                             recall_coverage=True)
+    assert (three.matched, four.matched) == (1, 0)
+
+
+def test_contained_labels_stop_at_six_tokens(mailroom_profile):
+    """With an all-or-nothing element type only the contained-label rule can credit these labels."""
+    predicted = ["the Seller shall deliver the goods within thirty days"]
+    six = score_entity_list(mailroom_profile, "id", predicted, ["Seller shall deliver the goods within"],
+                            recall_coverage=True)
+    seven = score_entity_list(mailroom_profile, "id", predicted, ["Seller shall deliver the goods within thirty"],
+                              recall_coverage=True)
+    assert (six.matched, seven.matched) == (1, 0)
+
+
+def test_free_text_items_quoting_the_label_score_their_coverage(mailroom_profile):
+    """An item holding exactly the coverage share of the label's tokens scores that share."""
+    from mailroom_dojo.field_scoring.scalar_scorers import score_free_text_field
+
+    label = "alpha bravo charlie delta echo foxtrot golf hotel india juliet"
+    item = "alpha bravo charlie delta echo foxtrot golf " + " ".join(f"filler{index}" for index in range(30))
+    similarity = entity_lists.element_similarity(mailroom_profile, "free_text", item, label, scorer=score_free_text_field)
+    assert score_free_text_field(item, label) < 0.7 and similarity == 0.7
+
+
+def test_the_greedy_matcher_lets_a_later_equal_candidate_win(mailroom_profile):
+    """On a tie the greedy matcher takes the later expected item, as the old fallback did."""
+    result = score_entity_list(mailroom_profile, "name", ["Acme Beta", "Acme"], ["Acme", "Beta"], matcher="greedy")
+    assert result.matched == 2
