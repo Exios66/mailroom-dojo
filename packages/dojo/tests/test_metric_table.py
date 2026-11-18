@@ -258,6 +258,27 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
     ("reader twice", _set("schema_valid", "readers", ["run_report", "run_report"]), "lists a reader twice"),
     ("bad pairing", _set("f1_macro", "pairing", "paired_t"), "(f1_macro).pairing"),
     (
+        "alias to nothing",
+        _set("contracteval_false_no_related", "alias_of", "nope"),
+        "'nope' is not another metric",
+    ),
+    (
+        "alias to itself",
+        _set("contracteval_false_no_related", "alias_of", "contracteval_false_no_related"),
+        "is not another",
+    ),
+    (
+        "alias to dropped",
+        _set("contracteval_false_no_related", "alias_of", "laziness_rate"),
+        "an alias or not ported",
+    ),
+    ("alias other unit", _set("contracteval_false_no_related", "unit", "count"), "unit 'count' differs"),
+    (
+        "kept alias",
+        _set("false_no_related_rate", "alias_of", "accuracy"),
+        "an alias is reported under its target",
+    ),
+    (
         "headline without pairing",
         _set("accuracy", "pairing", None),
         "(accuracy).pairing: a kept headline or keep-rule metric names its pairing",
@@ -605,3 +626,14 @@ def test_the_pairings_are_the_tests_d1_implements() -> None:
 
     assert default_method(paired.PairedDelta) == PAIRING_METHODS["paired_percentile_bootstrap"]
     assert default_method(bootstrap.DeltaInterval) == PAIRING_METHODS["two_sample_percentile_bootstrap"]
+
+
+def test_an_alias_resolves_to_its_target_and_is_not_reported_itself() -> None:
+    table = load_metric_table()
+    alias = table.get("contracteval_false_no_related")
+    assert alias.alias_of == "false_no_related_rate" and alias.status == "not_ported"
+    assert table.resolve("contracteval_false_no_related").id == "false_no_related_rate"
+    assert table.resolve("accuracy").id == "accuracy"
+    with pytest.raises(MeasureError, match="an alias of 'false_no_related_rate'"):
+        table.check(_measure("contracteval_false_no_related", value=0.1))
+    assert table.check(_measure("false_no_related_rate", value=0.1)).id == "false_no_related_rate"

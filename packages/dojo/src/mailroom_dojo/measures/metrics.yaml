@@ -90,6 +90,10 @@
 #                 counts is measured by D7 (repeat runs of one configuration), not
 #                 guessed here; the old code and docs define none. Until D7 sets it, a
 #                 comparison reports its interval and no "beats the noise" verdict.
+#   alias_of      default null; for a not_ported row that is another row's value under
+#                 a second name: the kept row it is reported under (same unit, direction
+#                 and aggregation). MetricTable.resolve(id) follows it; check() refuses a
+#                 Measure filed under the alias.
 #   origin        registry | golden
 #
 # default_views (top level): the one number each agent's dashboard shows by default,
@@ -948,7 +952,8 @@ metrics:
     metric_id: "registry:contracteval_false_no_related"
     layer: null
     status: "not_ported"
-    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived. The golden baseline emits the ContractEval figures under their own names (false_no_related_rate and the rest)."
+    status_reason: "An alias of false_no_related_rate (old metric_meta.py lines 301-308 and tasks.contracteval_metrics: the same ContractEval no-related rate). The value is reported once, under false_no_related_rate, the name the golden baseline emits; this row keeps the registry name and meaning."
+    alias_of: "false_no_related_rate"
     origin: "registry"
     old_source: "tasks.contracteval_metrics"
     citation: "ContractEval (arXiv 2508.03080) no-related rate: model says no related clause when GT expects content (tasks.contracteval_metrics)."

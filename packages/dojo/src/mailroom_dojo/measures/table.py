@@ -182,6 +182,7 @@ _ROW_DEFAULTS: Mapping[str, Any] = MappingProxyType(
         "cost": False,
         "pairing": None,
         "pairing_note": None,
+        "alias_of": None,
         "noise_floor": None,
         "old_source": None,
         "notes": "",
@@ -257,6 +258,7 @@ class MetricRow:
     cost: bool
     pairing: str | None
     pairing_note: str | None
+    alias_of: str | None
     noise_floor: float | None
     old_source: str | None
     notes: str
@@ -354,6 +356,11 @@ class MetricTable:
         """The agent's default view, or ``None`` when the table names none."""
         return self.default_views.get(agent)
 
+    def resolve(self, metric: str) -> MetricRow:
+        """The row a metric id is reported under: the target of an alias, else its own row."""
+        row = self.get(metric)
+        return row if row.alias_of is None else self.get(row.alias_of)
+
     def headline_rows(self) -> tuple[MetricRow, ...]:
         """The headline metrics, in table order."""
         return tuple(row for row in self.rows if row.headline)
@@ -392,6 +399,8 @@ class MetricTable:
         match the row (a cost needs a basis; any other metric has ``none``).
         """
         row = self.get(measure.method)
+        if row.alias_of is not None:
+            raise MeasureError(f"{row.id}: an alias of {row.alias_of!r}; report it under that id")
         if row.status == "not_ported":
             raise MeasureError(f"{row.id}: not ported ({row.status_reason})")
         if not row.numeric:
@@ -578,6 +587,9 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
             f"{path}.pairing",
             "a kept headline or keep-rule metric names its pairing, or a pairing_note says why it has none",
         )
+    alias_of = None if spec["alias_of"] is None else _string(spec["alias_of"], f"{path}.alias_of")
+    if alias_of is not None and status != "not_ported":
+        raise _fail(f"{path}.alias_of", "an alias is reported under its target's id, so it is not_ported")
     noise_floor = spec["noise_floor"]
     if noise_floor is not None and (
         isinstance(noise_floor, bool)
@@ -611,6 +623,7 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
         cost=spec["cost"],
         pairing=pairing,
         pairing_note=pairing_note,
+        alias_of=alias_of,
         noise_floor=None if noise_floor is None else float(noise_floor),
         old_source=None if spec["old_source"] is None else _string(spec["old_source"], f"{path}.old_source"),
         notes=_string(spec["notes"], f"{path}.notes", allow_empty=True),
@@ -645,6 +658,7 @@ def _row_canonical(row: MetricRow) -> dict[str, Any]:
         "cost": row.cost,
         "pairing": row.pairing,
         "pairing_note": row.pairing_note,
+        "alias_of": row.alias_of,
         "noise_floor": row.noise_floor,
         "old_source": row.old_source,
         "notes": row.notes,
@@ -690,6 +704,25 @@ def _view_metric(metric: Any, agent: str, by_id: Mapping[str, MetricRow], path: 
     if not row.applies_to(agent):
         raise _fail(path, f"{metric!r} does not apply to {agent!r}")
     return row
+
+
+def _check_aliases(rows: tuple[MetricRow, ...]) -> None:
+    """An alias names a kept row that is no alias, with the same unit, direction and aggregation."""
+    by_id = {row.id: row for row in rows}
+    for index, row in enumerate(rows):
+        if row.alias_of is None:
+            continue
+        path = f"metrics[{index}] ({row.id}).alias_of"
+        target = by_id.get(row.alias_of)
+        if target is None or target.id == row.id:
+            raise _fail(path, f"{row.alias_of!r} is not another metric in the table")
+        if target.alias_of is not None or target.status == "not_ported":
+            raise _fail(path, f"{target.id!r} is an alias or not ported; an alias names a kept metric")
+        for key in ("unit", "direction", "aggregation"):
+            if getattr(row, key) != getattr(target, key):
+                raise _fail(
+                    path, f"{key} {getattr(row, key)!r} differs from {target.id!r}'s {getattr(target, key)!r}"
+                )
 
 
 def _direction_overrides(raw: Any) -> dict[str, DirectionOverride]:
@@ -837,6 +870,7 @@ def _build(data: Any) -> MetricTable:
                 f"{row.metric_id!r} is already the id of {seen_metric_ids[row.metric_id]!r}",
             )
         seen_metric_ids[row.metric_id] = row.id
+    _check_aliases(rows)
     overrides = _direction_overrides(data["direction_overrides"])
     _check_directions(rows, overrides)
     views = _default_views(data["default_views"], rows, families)
