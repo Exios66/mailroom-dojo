@@ -331,11 +331,13 @@ def test_torn_tail_is_benign_while_the_run_is_live(store_with_events: SimpleName
     r = verify_run(s.log, s.blobs, "r1")
     assert r.ok and not r.closed
     assert [(p.kind, p.fails, p.segment) for p in r.problems] == [("torn_tail", False, "w0.jsonl")]
-    # Once the experiment run is sealed it is closed: the same bytes are now damage.
+    # Once the experiment run is sealed it is closed: the same bytes are final, reported,
+    # and still not a failure (they were never a whole event; nothing committed is lost).
     seal_run(s.log, "r1")
     r = verify_run(s.log, s.blobs, "r1")
-    assert r.closed and not r.ok
-    assert [(p.kind, p.fails) for p in r.problems] == [("torn_tail", True)]
+    assert r.closed and r.ok
+    assert [(p.kind, p.fails) for p in r.problems] == [("torn_tail", False)]
+    assert "final" in r.problems[0].detail and "no committed event is lost" in r.problems[0].detail
 
 
 def test_torn_tail_never_fails_a_service_period_run(tmp_path: Path) -> None:
@@ -374,10 +376,11 @@ def test_crash_mid_append_then_recovery_then_seal(store: SimpleNamespace, monkey
     assert [e.prev_hash for e in after] == [heads["d1"], heads["d2"]]
     seal_run(store.log, "r1")
     r = verify_run(store.log, store.blobs, "r1")
-    # Every chain, seal and column file verifies; the crash stays visible on the closed run.
+    # Every chain, seal and column file verifies; the crash stays visible on the closed
+    # run as a reported, non-failing torn tail (a recovered crash, nothing committed lost).
     assert r.events_checked == on_disk + 2 and r.seals_checked == 1
-    assert failing(r) == [("torn_tail", None, None)]
-    assert r.problems[0].segment == "w0.jsonl"
+    assert r.ok and failing(r) == []
+    assert [(p.kind, p.segment, p.fails) for p in r.problems] == [("torn_tail", "w0.jsonl", False)]
 
 
 def test_killed_writer_process_then_recovery_verifies(store: SimpleNamespace) -> None:
@@ -399,8 +402,10 @@ def test_killed_writer_process_then_recovery_verifies(store: SimpleNamespace) ->
     seal_run(store.log, "r1")
     r = verify_run(store.log, store.blobs, "r1")
     assert r.events_checked == sum(1 for _ in store.log.iter_stored("r1")) >= 4
-    assert failing(r) == [("torn_tail", None, None)] * len(torn)
-    assert [(p.segment, p.byte_offset) for p in r.problems] == [(t.segment, t.byte_offset) for t in torn]
+    assert r.ok and failing(r) == []
+    assert [(p.kind, p.segment, p.byte_offset) for p in r.problems] == [
+        ("torn_tail", t.segment, t.byte_offset) for t in torn
+    ]
 
 
 def test_parallel_writer_processes_verify(store: SimpleNamespace) -> None:

@@ -14,10 +14,12 @@ tombstone). It never raises on damaged data: each failure is a `Problem` naming 
 `seq`, segment and byte offset, or seal, and the scan carries on. Only an unknown run id
 raises. Segments are streamed one line at a time; no report holds document content.
 
-`ok` is false when any problem fails. Every kind fails except `torn_tail` on a run that is
-not closed: a run is closed when its header kind is an experiment kind (not
-`service_period`) and it has a seal, because an experiment run is sealed once when it ends.
-On a closed run a torn tail is final damage and fails.
+`ok` is false when any problem fails. Every kind fails except `torn_tail`, which never
+fails: its bytes were never a whole event, so no committed event is lost; a lost committed
+event shows as `seq_gap`, `truncated_after_seal` or `document_missing_from_log`. On a
+closed run (an experiment kind with a seal; an experiment run is sealed once, when it ends)
+the detail says the tail is final, a recovered crash; on a run still being written it may
+be a write in progress.
 
 Problem kinds: `bad_hash`, `broken_link`, `seq_gap`, `forked_chain`, `corrupt_line`,
 `invalid_event`, `missing_blob`, `corrupt_blob`, `tombstone_with_content`, `seal_mismatch`,

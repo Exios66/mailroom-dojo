@@ -83,7 +83,7 @@ failure, not just simple one-off unit tests." So, for every module:
 | A busy log is refused for a race | Concurrency | Four processes hand their documents between writers on every event while the sealer reads with 20 ms between segments: no seal is refused, a re-read happened, and a real gap is still refused | 6 |
 | Verify crashes or stops on damaged data | Property | `test_verify_never_raises_on_any_damage`: random delete, truncate, flip, garbage on any stored file | 7 |
 | A flipped byte goes unnoticed | Property | `test_clean_histories_verify_and_any_flipped_byte_is_caught`: random append/seal histories verify clean; any one-byte flip in a segment or seal fails, or lands in a reported torn tail | 7 |
-| Torn tail hides a crash on a finished run | Fault injection | Crash mid-append (injected short write + ENOSPC, and a real SIGKILL), reopen, append, seal: torn tail benign while live, failing once the experiment run is closed | 7 |
+| A recovered crash fails a finished run forever | Fault injection | Crash mid-append (injected short write + ENOSPC, and a real SIGKILL), reopen, append, seal: the torn tail is reported (final on a closed run) and never fails; lost committed events still fail as `seq_gap` / `truncated_after_seal` | 7 |
 | Verify holds a large run in memory | Integration | 24 MB of payloads: traced peak stays under 6 MB; one line with seq 10^9 and one seal numbered 10^9 are each reported in under 5 s (asserted) | 7 |
 | Whole document deleted between seals | Fault injection | Seal lists documents; deletion gives `document_missing_from_log` | 7 |
 | Tombstone confused with loss | Unit | Tombstone passes, missing blob fails and names the event | 7 |

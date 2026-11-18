@@ -60,20 +60,20 @@ names the first event (by ``(doc_id, seq)``) that refers to it and how many do.
 
 Torn tails, and when a run is closed
 ------------------------------------
-A torn tail (bytes after a segment's last newline) is always reported. Whether it fails
-the run depends on whether the run is still being written:
+A torn tail (bytes after a segment's last newline) is always reported and never fails
+the run: its bytes were never a whole event, so they were never part of any chain, and a
+writer that recovered continued every chain past them. Losing a committed event is
+caught elsewhere (``seq_gap``, ``truncated_after_seal``, ``document_missing_from_log``).
+The detail says which case it is:
 
 - A run is **closed** when its header's ``kind`` is an experiment kind (anything but
   ``service_period``) and it has at least one seal file. An experiment run is sealed once,
   when it ends (plan Task 6), so its seal is its end marker. A ``service_period`` run is
   sealed on a timer and never ends in this package, so it is never closed. A run whose
-  header cannot be read is treated as closed if it has a seal (the safe side).
-- On a run that is **not closed**, a torn tail is benign (``fails`` false): a writer may be
-  mid-write, or a crash left bytes that were never a whole event; the chain continued past
-  them and nothing durable was lost.
-- On a **closed** run no writer will ever finish those bytes, so a torn tail is final
-  damage (``fails`` true): the run carries the trace of a crash, and verify says so instead
-  of passing it quietly.
+  header cannot be read is treated as closed if it has a seal.
+- On a run that is **not closed**, a torn tail may be a write in progress.
+- On a **closed** run it is final: a crash that was recovered from; no writer will
+  complete those bytes.
 
 Every other kind always fails the run. ``ok`` is true when no problem fails.
 """
@@ -145,7 +145,8 @@ _BATCH = 4096
 
 @dataclass(frozen=True)
 class Problem:
-    """One thing wrong with a run. ``fails`` is false only for a torn tail on a run not closed.
+    """One thing wrong with a run. ``fails`` is false only for a torn tail (never final
+    damage: its bytes were never a whole event).
 
     ``detail`` names hashes, field names, segments, offsets and counts, never content.
     """
@@ -225,8 +226,9 @@ def verify_run(log: EventLog, blobs: BlobStore, run_id: str) -> VerifyReport:
     for t in st.torn:
         if closed:
             detail = (
-                f"{t.segment} at byte {t.byte_offset}: torn bytes on a closed run; no writer will "
-                "complete them, so they are damage from a crash"
+                f"{t.segment} at byte {t.byte_offset}: torn bytes on a closed run, left by a crash and "
+                "final (no writer will complete them); they were never a whole event, so no committed "
+                "event is lost"
             )
         else:
             detail = (
@@ -234,7 +236,7 @@ def verify_run(log: EventLog, blobs: BlobStore, run_id: str) -> VerifyReport:
                 "still being written (a crash or a write in progress); skipped, not an event"
             )
         st.problems.append(
-            Problem("torn_tail", None, None, detail, segment=t.segment, byte_offset=t.byte_offset, fails=closed)
+            Problem("torn_tail", None, None, detail, segment=t.segment, byte_offset=t.byte_offset, fails=False)
         )
 
     return VerifyReport(
