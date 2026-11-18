@@ -152,3 +152,25 @@ def test_the_default_refuses_a_hub_snapshot_whose_text_was_not_checked(tmp_path:
     with pytest.raises(QualityGateFailed, match="text_unchecked"):
         load_label_set([dirs[0]], profile())
     assert load_label_set([dirs[0]], profile(), strict=False).report.unknown_warnings
+
+
+def test_a_manifest_replaced_after_the_gate_raises_the_documented_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import mailroom_labels.labelset as labelset_module
+    from labels_testkit import rehash_manifest
+    from mailroom_labels.quality import check_dirs as real_check_dirs
+
+    dirs = standard_set(tmp_path)
+    target = tmp_path / "near_gold-test"
+
+    def gate_then_replace_manifest(directories, prof):
+        result = real_check_dirs(directories, prof)
+        rehash_manifest(target, lambda m: m["source"].update(note="swapped after the gate"))
+        return result
+
+    monkeypatch.setattr(labelset_module, "check_dirs", gate_then_replace_manifest)
+    with pytest.raises(QualityGateFailed) as info:
+        load_label_set(dirs, profile())
+    assert info.value.report.errors[0].kind == "manifest_mismatch"
+    assert "near_gold-test" in (info.value.report.errors[0].location or "")

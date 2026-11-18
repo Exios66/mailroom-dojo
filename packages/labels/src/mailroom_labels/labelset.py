@@ -103,7 +103,9 @@ def load_label_set(
         raise QualityGateFailed(report, strict=strict)
     try:
         read = read_layers(loaded)
-    except ManifestMismatch as exc:  # a file changed after the gate read it
+        for snap in loaded:  # the manifest too: the set must not name one the directory lost
+            snap.check_manifest()
+    except ManifestMismatch as exc:  # a file or manifest changed after the gate read it
         changed = finding("manifest_mismatch", location=str(exc.path), detail=f"{exc.kind}: {exc.detail}")
         raise QualityGateFailed(QualityReport((changed, *report.findings))) from exc
     docs = resolve(read.records, profile, corpus_index(read.corpus))

@@ -381,6 +381,19 @@ class LabelSnapshot:
     def kind(self) -> str:
         return self.manifest.kind
 
+    def check_manifest(self) -> None:
+        """Raise ``ManifestMismatch("manifest_hash")`` when ``manifest.json`` no longer holds
+        the manifest this snapshot was verified against (replaced, edited or removed)."""
+        path = self.directory / MANIFEST_NAME
+        try:
+            current = _read_manifest(self.directory)
+        except ManifestMismatch:
+            raise
+        except LabelsError as exc:
+            raise ManifestMismatch("manifest_hash", path, f"manifest no longer verifies: {exc}") from exc
+        if current.manifest_hash != self.manifest_hash:
+            raise ManifestMismatch("manifest_hash", path, "manifest changed after it was verified")
+
     def rows(self, on_corrupt: Callable[[CorruptLine], None] | None = None) -> Iterator[Row]:
         """Stream every row of every file, in manifest order, re-hashing as it reads.
 
