@@ -60,6 +60,7 @@ __all__ = [
     "ACTIONS",
     "CASE_STATUSES",
     "PRIORITIES",
+    "RUN_CHAIN",
     "AssignPayload",
     "CaseState",
     "ClaimPayload",
@@ -85,6 +86,9 @@ END_OF_TIME = datetime.max.replace(tzinfo=timezone.utc)
 
 #: The node every desk event is recorded under.
 NODE = "human_review"
+
+#: The record's run-level chain (run events, not a document); never put in review.
+RUN_CHAIN = "_run"
 
 ACTIONS: tuple[str, ...] = ("enqueue", "assign", "claim", "release", "escalate", "defer", "reopen")
 #: Actions that open an episode (they carry the routing).

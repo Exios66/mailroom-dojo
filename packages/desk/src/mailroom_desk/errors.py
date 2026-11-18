@@ -26,6 +26,7 @@ __all__ = [
     "RecordWriteFailed",
     "RegistryError",
     "RoleNotHeld",
+    "RunChainNotReviewable",
     "RunClosed",
     "TokenRejected",
     "UnknownCause",
@@ -82,6 +83,16 @@ class RunClosed(DeskError):
         super().__init__(f"run {run_id!r} ({kind}) is sealed and closed; the desk does not write to it")
         self.run_id = run_id
         self.kind = kind
+
+
+class RunChainNotReviewable(DeskError):
+    """The request names the run-level chain (``doc_id`` ``"_run"``): it holds the run's own
+    events, not a document, so it is never put in review."""
+
+    def __init__(self, run_id: str, doc_id: str) -> None:
+        super().__init__(f"{doc_id!r} of run {run_id!r} is the run-level chain, not a document; it is never reviewed")
+        self.run_id = run_id
+        self.doc_id = doc_id
 
 
 class AlreadyInReview(DeskError):

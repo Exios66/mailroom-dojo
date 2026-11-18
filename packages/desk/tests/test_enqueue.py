@@ -37,6 +37,7 @@ from mailroom_desk import (
     RecordDamaged,
     RecordWriteFailed,
     ReviewRequest,
+    RunChainNotReviewable,
     RunClosed,
     UnknownCause,
     UnknownRun,
@@ -109,6 +110,21 @@ def test_outage_causes_are_refused(env: SimpleNamespace, cause: str) -> None:
         env.desk.enqueue(request("d1", "flag_low", cause), env.policy)
     assert info.value.cause == cause
     assert segment_files(env.root) == before
+
+
+def test_run_level_chain_is_refused(env: SimpleNamespace) -> None:
+    """``_run`` holds the run's own events, not a document: never put in review, with
+    causes or as a sample-only request the sample would select."""
+    engine_append(env.root, "r1", "_run", "handoff")
+    before = segment_files(env.root)
+    everything = policy(sample={"rate": 1.0, "seed": "s"})
+    for req, pol in ((request("_run", "flag_high"), env.policy), (request("_run"), everything)):
+        with pytest.raises(RunChainNotReviewable) as info:
+            env.desk.enqueue(req, pol)
+        assert (info.value.run_id, info.value.doc_id) == ("r1", "_run")
+    assert segment_files(env.root) == before
+    assert review_events(env.root) == []
+    assert env.desk.enqueue(request("d1"), everything)  # the same sample-only request for a document enters
 
 
 def test_unknown_cause_is_refused(env: SimpleNamespace) -> None:

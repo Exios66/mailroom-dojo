@@ -9,8 +9,9 @@ Enqueue
 -------
 ``enqueue(request, policy)``:
 
-1. Refuses an outage cause (``OutageNotReviewable``) and a cause the policy's catalog does
-   not list (``UnknownCause``), an unknown run (``UnknownRun``), a closed run
+1. Refuses the run-level chain ``_run`` (``RunChainNotReviewable``: it holds run events,
+   not a document), an outage cause (``OutageNotReviewable``) and a cause the policy's
+   catalog does not list (``UnknownCause``), an unknown run (``UnknownRun``), a closed run
    (``RunClosed``) and a shown blob that is not in the store (``BlobNotPresent``), before
    touching the record.
 2. Decides the sample: ``policy.sample.selects(doc_id)``. A request with no causes enters
@@ -79,13 +80,14 @@ from mailroom_desk.errors import (
     RecordBusy,
     RecordDamaged,
     RecordWriteFailed,
+    RunChainNotReviewable,
     RunClosed,
     UnknownCause,
     UnknownRun,
 )
 from mailroom_desk.fold import fold_case
 from mailroom_desk.lock import DEFAULT_LOCK_TIMEOUT, check_timeout, desk_lock, seal_guard
-from mailroom_desk.models import NODE, CaseState, EnqueuePayload, ReviewRequest, format_ts
+from mailroom_desk.models import NODE, RUN_CHAIN, CaseState, EnqueuePayload, ReviewRequest, format_ts
 from mailroom_desk.policy import SPOT_CHECK, Policy, is_outage
 from mailroom_record.blobs import BlobStore
 from mailroom_record.index import Index, IndexUnavailable
@@ -197,6 +199,8 @@ class Desk:
             raise TypeError(f"request must be a ReviewRequest, got {type(request).__name__}")
         if not isinstance(policy, Policy):
             raise TypeError(f"policy must be a Policy, got {type(policy).__name__}")
+        if request.doc_id == RUN_CHAIN:
+            raise RunChainNotReviewable(request.run_id, request.doc_id)
         for cause in request.causes:
             if is_outage(cause):
                 raise OutageNotReviewable(cause)
