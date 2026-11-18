@@ -792,6 +792,37 @@ def test_the_head_check_alone_catches_moved_lines(store: SimpleNamespace, tmp_pa
     assert index_says == log_says == [(e.seq, e.hash) for e in a]
 
 
+def test_the_head_check_compares_the_head_hash_not_only_its_seq(store: SimpleNamespace, tmp_path: Path) -> None:
+    # Same-length rewrites in the middle of the segment, edges and size kept: d1's head
+    # line A moves out of the recorded ranges (into another document's line), and a forged
+    # seq-1 line B of the same length takes its place. The ranges still hold seqs 0 and 1,
+    # so only the head hash shows they no longer hold the indexed chain.
+    from mailroom_record.hashing import canonical_json
+
+    def line(e: Any) -> bytes:
+        return canonical_json(e.model_dump(mode="json")) + b"\n"
+
+    def same_length_as(target: bytes, build: Any) -> Any:
+        return next(e for k in range(300) if len(line(e := build("x" * k))) == len(target))
+
+    pad = {"pad": "p" * 1000}
+    d0, a = chain("d1", 2)
+    b = same_length_as(line(a), lambda agent: chain("d1", 1, start=1, prev=d0.hash, agent=agent)[0])
+    y = same_length_as(line(a), lambda agent: chain("y", 1, agent=agent)[0])
+    assert b.hash != a.hash
+    before = [*chain("p", 6, payload=pad), d0, a, *chain("m", 2, payload=pad), y, *chain("q", 6, payload=pad)]
+    seg = write_lines(store.root, "w0.jsonl", before)
+    idx = built(store, tmp_path / "i.sqlite")
+    data = seg.read_bytes()
+    a_at, y_at = data.index(line(a)), data.index(line(y))
+    assert 4096 < a_at and y_at + len(line(y)) < len(data) - 4096  # both away from the fingerprinted edges
+    data = data[:a_at] + line(b) + data[a_at + len(line(a)) : y_at] + line(a) + data[y_at + len(line(y)) :]
+    seg.write_bytes(data)  # same size, same first and last 4096 bytes
+    log_says, index_says = _both(store, idx, "d1")
+    assert log_says == [(0, d0.hash), (1, b.hash), (1, a.hash)]  # a fork: both seq-1 lines
+    assert index_says == log_says
+
+
 # --- fix pass 2: a busy index is a typed, retryable error (Task 8 review MINOR 4) --------
 
 

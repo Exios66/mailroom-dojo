@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 
 import pytest
+import zstandard
 from record_testkit import SENTINEL, put_in_child
 
 from mailroom_record.blobs import BlobCorrupt, BlobMissing, BlobStore, BlobTombstoned
@@ -546,7 +547,7 @@ def test_an_unreadable_tombstone_is_rewritten_and_a_readable_one_kept(
 @pytest.mark.parametrize(
     "data", [b"", random_bytes := os.urandom(5 * 1024 * 1024)], ids=["empty", "5MiB_incompressible"]
 )
-@pytest.mark.parametrize("cut", [1, 2, 3, "all", "trailing"])
+@pytest.mark.parametrize("cut", [1, 2, 3, "all", "trailing", "second_frame", "skippable_frame"])
 def test_a_blob_file_that_is_not_one_whole_frame_is_corrupt(tmp_path: Path, data: bytes, cut: object) -> None:
     # A frame cut inside its last (empty) block still decodes to every byte, so the digest
     # matches; only a frame check sees it. Verify reports the same file.
@@ -568,11 +569,42 @@ def test_a_blob_file_that_is_not_one_whole_frame_is_corrupt(tmp_path: Path, data
         p.write_bytes(b"")
     elif cut == "trailing":
         p.write_bytes(whole + b"\x00")
+    elif cut == "second_frame":  # a decoder stops after the first frame: the digest still matches
+        p.write_bytes(whole + zstandard.ZstdCompressor().compress(b"more"))
+    elif cut == "skippable_frame":  # skippable frame: magic 0x184D2A50, a length, that many bytes
+        p.write_bytes(whole + (0x184D2A50).to_bytes(4, "little") + (4).to_bytes(4, "little") + b"meta")
     else:
         p.write_bytes(whole[: -int(cut)])  # type: ignore[call-overload]
     with pytest.raises(BlobCorrupt):
         s.get(ref.sha256)
     assert [x.kind for x in verify_run(log, s, "r1").problems] == ["corrupt_blob"]
+
+
+@pytest.mark.parametrize("data", [b"", b"synthetic checksummed content " * 1000], ids=["empty", "30KB"])
+def test_a_frame_with_a_content_checksum_is_whole_only_with_its_checksum(tmp_path: Path, data: bytes) -> None:
+    # The store writes frames without a checksum, but a frame that has one (flag bit 2) is
+    # whole only with its four checksum bytes: accepted with them, corrupt without any.
+    from mailroom_record.log import EventLog
+    from mailroom_record.models import Run
+    from mailroom_record.verify import verify_run
+    from record_testkit import run_fields
+
+    s = BlobStore(tmp_path)
+    log = EventLog(tmp_path, s)
+    log.create_run(Run(**run_fields()))
+    ref = s.put(data, "original")
+    with log.open_writer("r1", "w0") as w:
+        w.append(doc_id="d1", node="n", kind="output", inputs=[ref])
+    framed = zstandard.ZstdCompressor(write_checksum=True).compress(data)
+    assert (framed[4] >> 2) & 1  # the checksum flag is set
+    p = s.content_path(ref.sha256)
+    p.write_bytes(framed)
+    assert s.get(ref.sha256) == data and verify_run(log, s, "r1").ok
+    for cut in (1, 4):
+        p.write_bytes(framed[:-cut])
+        with pytest.raises(BlobCorrupt):
+            s.get(ref.sha256)
+        assert [x.kind for x in verify_run(log, s, "r1").problems] == ["corrupt_blob"]
 
 
 def test_get_never_returns_content_whose_deletion_was_recorded_while_it_read(
