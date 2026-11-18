@@ -31,7 +31,7 @@ Mapping
   ``latency_ms`` is the row's ``ms``; ``ts`` is the finish time; ``attempt`` counts the
   document's earlier finished rows of the same node. ``cause`` is the error's type name,
   never its message.
-- Floor replay (spec R7). A ``running`` row is paired with the first open ``running`` row
+- Floor replay (spec R7). A finishing row is paired with the first open ``running`` row
   of the same ``(doc, node)`` in file order (and the same ``step`` when the finishing row
   names one; the sandbox writes ``step`` on ``running`` rows only). It is not an event of
   its own: its time is kept on the finishing event as ``payload.started_ts`` and its step
