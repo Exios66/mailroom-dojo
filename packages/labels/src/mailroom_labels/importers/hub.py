@@ -64,7 +64,7 @@ from mailroom_labels.importers.common import (
 from mailroom_labels.layers import CURRENT_LAYER_SCHEMA, HUB_PRESENCES
 from mailroom_labels.models import SnapshotManifest
 from mailroom_labels.profile import ClientProfile, load_unique_yaml
-from mailroom_labels.snapshot import json_problem, write_snapshot
+from mailroom_labels.snapshot import MAX_JSON_DEPTH, json_problem, write_snapshot
 
 __all__ = ["DEFAULT_SHARDS", "SPLITS", "build_hub", "load_hub_pins", "parse_dataset_manifest", "shard_path"]
 
@@ -162,13 +162,21 @@ def _read_parquet(data: bytes) -> list[dict[str, Any]]:
     return pq.read_table(pa.BufferReader(data)).to_pylist()
 
 
+class _TooDeep(Exception):
+    """A JSON string nested too deeply for the decoder (``RecursionError``)."""
+
+
 def _json_or_raw(raw: Any) -> Any:
-    """A JSON string decoded (strictly: a repeated key, a non-finite number such as `NaN` or
-    nesting too deep leaves it raw, so the caller reports it), anything else as it is."""
+    """A JSON string decoded (strictly: a repeated key or a non-finite number such as `NaN`
+    leaves it raw, so the caller reports it), anything else as it is. Nesting too deep for
+    the decoder raises ``_TooDeep``: how deep it can go depends on the Python version, so the
+    row is refused for its depth on every version, never kept as a raw string on one."""
     if isinstance(raw, str):
         try:
             return loads_source(raw)
-        except (ValueError, RecursionError):  # JSONDecodeError, a duplicate key and NaN are ValueErrors
+        except RecursionError as exc:
+            raise _TooDeep from exc
+        except ValueError:  # JSONDecodeError, a duplicate key and NaN are ValueErrors
             return raw
     return raw
 
@@ -393,7 +401,16 @@ def build_hub(
     rows: list[dict[str, Any]] = []
     for (_, data), split in zip(gt_shards, SPLITS, strict=True):
         for raw in _read_parquet(data):
-            parsed = _fields(raw, profile, tally)
+            try:
+                parsed = _fields(raw, profile, tally)
+            except _TooDeep:
+                tally.bad_gt_fields.append(
+                    {
+                        "document_id": raw.get("document_id"),
+                        "reason": f"JSON nested too deeply (more than {MAX_JSON_DEPTH} levels)",
+                    }
+                )
+                continue
             if parsed is None:
                 continue
             fields, kept = parsed

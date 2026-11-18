@@ -1929,3 +1929,26 @@ def test_a_review_line_the_reader_would_refuse_is_a_rejected_line(tmp_path: Path
         {"file": "review/decisions.jsonl", "line": 3, "reason": f"not a snapshot row: {SURROGATE}"},
         {"file": "sandbox/human_reviews.jsonl", "line": 1, "reason": f"not a snapshot row: {TOO_DEEP}"},
     ]
+
+
+def test_hub_entity_list_string_too_deep_for_the_decoder_is_refused_per_row(tmp_path: Path) -> None:
+    """An entity-list value given as a JSON string too deep for the decoder (a
+    ``RecursionError`` at a depth that depends on the Python version) refuses its row for
+    its depth on every version; it is never kept as a raw string on one version and refused
+    on another."""
+    depth = 200_000
+    bad = gt_row("D9", "letter", "email", "train", {}, {})
+    bad["gt_fields"] = json.dumps(
+        {
+            "action_items": "[" * depth + "]" * depth,
+            "gt_presence": json.dumps({"action_items": "populated"}),
+        }
+    )
+    data = write_dataset(
+        tmp_path / "b", extra=[bad], extra_text=[{"filename": "D9.txt", "doc_text": "text-D9"}]
+    )
+    manifest = hub_build(tmp_path / "hub-x", data, allow_rejected=True)
+    assert manifest.source["unparseable_gt_fields"] == [
+        {"document_id": "D9", "reason": "JSON nested too deeply (more than 64 levels)"}
+    ]
+    assert "D9" not in hub_rows(tmp_path / "hub-x")
