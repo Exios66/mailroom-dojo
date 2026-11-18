@@ -570,6 +570,26 @@ def test_known_warnings_need_a_reason(tmp_path: Path) -> None:
         known_warnings_for(path, "snap-a")
 
 
+def test_a_known_warning_with_a_file_keeps_it(tmp_path: Path) -> None:
+    path = tmp_path / "kw.yaml"
+    path.write_text(
+        "snap-a:\n- {kind: orphan_decision, doc: D1, field: sender, reason: r, file: decisions.jsonl}\n"
+    )
+    assert known_warnings_for(path, "snap-a") == [
+        {"kind": "orphan_decision", "doc": "D1", "field": "sender", "reason": "r", "file": "decisions.jsonl"}
+    ]
+
+
+def test_an_overlay_manifest_with_a_utf8_bom_is_read(tmp_path: Path) -> None:
+    good = interim_row("D1", {"sender": ("gap_fill", "Ann")})
+    src = write_overlay(tmp_path / "src", {"letter.jsonl": jsonl(good)})
+    man = src / "MANIFEST.json"
+    man.write_bytes(b"\xef\xbb\xbf" + man.read_bytes())
+    manifest = overlay(tmp_path / "interim-x", src)
+    assert [r.data for r in load_snapshot(tmp_path / "interim-x").rows()] == [good]
+    assert manifest.source["source_manifest"]["sha256"] == sha(man.read_bytes())  # the BOM is hashed
+
+
 @pytest.mark.parametrize(
     "entry",
     [
