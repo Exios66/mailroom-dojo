@@ -178,7 +178,7 @@ def paired_bootstrap_delta(
     ``significant`` is True when the unrounded ``1 - alpha`` interval excludes zero.
     Returns ``None`` when fewer than two pairs remain.
     """
-    validate_resampling(n_boot, alpha, seed)
+    n_boot, seed = validate_resampling(n_boot, alpha, seed)
     paired, unpaired = _pair_by_document(
         values_a, values_b, "values_a and values_b", allow_unpaired=allow_unpaired
     )

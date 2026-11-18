@@ -126,13 +126,19 @@ generated inputs, many under non-default settings that the replay builds into a 
 `scripts/capture_old_dojo_extraction_cases.py` regenerates it byte for byte.
 
 The statistics corpus (`tests/fixtures/differential/statistics_cases.jsonl`, 2,000 cases)
-holds every call the old golden run and eleven old test files made into the old bootstrap
-and calibration modules, plus seeded inputs. Every valid input gives the old number; the
-197 invalid inputs that now raise are listed with reasons in
+holds every encodable call the old golden run and eleven old test files made into the old
+bootstrap and calibration modules, plus seeded inputs. Four old-test calls with NumPy
+arguments are not encodable and are counted in the header's `captured_test_skipped`
+instead: `auroc` with a float32 and with an int64 argument, `clopper_pearson_upper` with
+an int64 and `required_samples` with an int32. Every valid input gives the old number;
+the 195 invalid inputs that now raise are listed with reasons in
 `statistics_intended_differences.json` and in `docs/score-changelog.md`.
 `scripts/capture_old_dojo_statistics_cases.py` regenerates its case lines byte for byte on
 Python 3.12, the version in the corpus header (the header's `supplements` record, from the
 `--supplement` run that added 21 generated cases, is not rewritten by a full run). On
 Python 3.13 the old code sorts NaN differently, so three `bootstrap_ci` cases with a NaN
 score come out otherwise; all three are listed refusals in the new code. The script refuses
-an old checkout at another commit, or an `llm_dojo_scoring` imported from outside it.
+an old checkout at another commit or with an edited `analysis/bootstrap.py` or
+`analysis/calibration.py` (their SHA-256 is pinned with the commit), or an
+`llm_dojo_scoring` imported from outside it; `--supplement` also refuses a corpus whose
+header names another seed or old commit.

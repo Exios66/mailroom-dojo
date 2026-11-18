@@ -17,6 +17,7 @@ exact error; random input keeps the invariants (hypothesis).
 
 from __future__ import annotations
 
+import json
 import random
 import re
 
@@ -300,6 +301,44 @@ def test_calibration_by_group_reads_numpy_confidences():
     assert groups["sorter"].ece == expected_calibration_error(plain)
     assert groups["sorter"].brier == brier_score(plain)
     assert groups["sorter"].auroc == 1.0
+
+
+def test_calibration_by_group_drops_out_of_range_float_confidences():
+    """A float confidence outside [0, 1] (1.2, -0.1, a percentage 85.0) is dropped, not scored."""
+    rows = [
+        ("judge", 0.9, True),
+        ("judge", 1.2, False),
+        ("judge", 0.2, False),
+        ("judge", -0.1, True),
+        ("judge", 85.0, False),
+        ("judge", 0.7, True),
+    ]
+    judge = calibration_by_group(rows)["judge"]
+    assert (judge.n, judge.dropped, judge.auroc) == (3, 3, 1.0)
+    in_range = calibration_by_group([rows[0], rows[2], rows[5]])["judge"]
+    assert judge.to_dict() == in_range.to_dict() | {"dropped": 3}
+
+
+@pytest.mark.parametrize("integer", [numpy.int64, numpy.int32, numpy.uint16])
+def test_numpy_integer_resampling_parameters_are_plain_integers(integer):
+    """A NumPy seed or n_boot gives the plain-int answer, and every to_dict() is JSON."""
+    a = by_document([0.1, 0.5, 0.9, 0.4, 0.7])
+    b = by_document([0.3, 0.6, 0.8, 0.6, 0.9])
+    calls = [
+        lambda **kw: bootstrap_ci(list(a.values()), **kw),
+        lambda **kw: delta_significance(list(a.values()), list(b.values()), **kw),
+        lambda **kw: paired_bootstrap_delta(a, b, **kw),
+    ]
+    for call in calls:
+        expected = call(seed=7, n_boot=50).to_dict()
+        for got in (
+            call(seed=integer(7), n_boot=50),
+            call(seed=7, n_boot=integer(50)),
+            call(seed=integer(7), n_boot=integer(50)),
+        ):
+            assert got.to_dict() == expected
+            assert type(got.seed) is int and type(got.n_boot) is int
+            assert json.loads(json.dumps(got.to_dict())) == expected
 
 
 # --- bad input -----------------------------------------------------------------

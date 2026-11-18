@@ -17,6 +17,8 @@ from decimal import Decimal
 from functools import cache
 from types import ModuleType
 
+import pytest
+
 from dojo_testkit import PACKAGE_ROOT, decode, encode
 
 SCRIPT_PATH = PACKAGE_ROOT / "scripts" / "capture_old_dojo_statistics_cases.py"
@@ -84,14 +86,17 @@ def fake_checkout(root, commit):
     return root
 
 
-def run_main(monkeypatch, script, old_dojo, output):
-    """Run the script's main() with arguments; the old tests must never start."""
+def run_main(monkeypatch, script, old_dojo, output, *extra):
+    """Run the script's main() with arguments; the old tests and old modules must never run."""
 
     def never(*_args, **_kwargs):
         raise AssertionError("the capture went on to run the old Dojo")
 
     monkeypatch.setattr(script, "capture_child", never)
-    monkeypatch.setattr("sys.argv", [str(SCRIPT_PATH), "--old-dojo", str(old_dojo), "--output", str(output)])
+    monkeypatch.setattr(script, "old_functions_from_files", never)
+    monkeypatch.setattr(
+        "sys.argv", [str(SCRIPT_PATH), "--old-dojo", str(old_dojo), "--output", str(output), *extra]
+    )
     monkeypatch.setattr(sys, "path", list(sys.path))
     return script.main()
 
@@ -110,6 +115,7 @@ def test_the_capture_refuses_an_old_dojo_imported_from_elsewhere(tmp_path, monke
     """If llm_dojo_scoring resolves outside --old-dojo (another install), nothing runs."""
     script = capture_script()
     old_dojo = fake_checkout(tmp_path / "old", script.EXPECTED_OLD_COMMIT)
+    old_sources(old_dojo, monkeypatch, script)
     decoy = ModuleType("llm_dojo_scoring")
     decoy.__file__ = str(tmp_path / "site-packages" / "llm_dojo_scoring" / "__init__.py")
     monkeypatch.setitem(sys.modules, "llm_dojo_scoring", decoy)
@@ -127,3 +133,105 @@ def test_the_old_dojo_import_check_accepts_the_checkout_itself(tmp_path, monkeyp
     inside.__file__ = str(old_dojo / "llm_dojo_scoring" / "__init__.py")
     monkeypatch.setitem(sys.modules, "llm_dojo_scoring", inside)
     assert script.import_old_dojo(old_dojo) is inside
+
+
+def old_sources(root, monkeypatch, script, *, edited=None):
+    """Write stand-in old module files under ``root`` and pin their hashes in the script.
+
+    ``edited`` names one file whose content is changed after its hash was pinned.
+    """
+    pinned = {}
+    for relative in script.TARGETS:
+        path = root / "llm_dojo_scoring" / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(f"# stand-in for {relative}\n".encode())
+        pinned[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+        if relative == edited:
+            path.write_bytes(path.read_bytes() + b"x = 1\n")
+    monkeypatch.setattr(script, "EXPECTED_OLD_SOURCE_SHA256", pinned)
+
+
+def corpus_copy(path, **header_changes):
+    """A copy of the committed corpus at ``path`` with header fields replaced; returns its bytes."""
+    lines = CORPUS_PATH.read_text(encoding="utf-8").splitlines()
+    header = json.loads(lines[0])["header"] | header_changes
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join([json.dumps({"header": header}, sort_keys=True), *lines[1:]]) + "\n")
+    return path.read_bytes()
+
+
+def test_the_pinned_old_source_hashes_cover_both_old_modules():
+    """Every old module the supplement loads by path has a pinned SHA-256."""
+    script = capture_script()
+    assert set(script.EXPECTED_OLD_SOURCE_SHA256) == set(script.TARGETS)
+    assert all(len(digest) == 64 for digest in script.EXPECTED_OLD_SOURCE_SHA256.values())
+
+
+def test_the_supplement_refuses_an_old_dojo_at_another_commit(tmp_path, monkeypatch, capsys):
+    """--supplement checks the commit before it reads or writes the corpus."""
+    script = capture_script()
+    old_dojo = fake_checkout(tmp_path / "old", "0" * 40)
+    old_sources(old_dojo, monkeypatch, script)
+    output = tmp_path / "out" / "cases.jsonl"
+    before = corpus_copy(output)
+    assert run_main(monkeypatch, script, old_dojo, output, "--supplement") == 1
+    assert f"old Dojo is at {'0' * 40}, expected {script.EXPECTED_OLD_COMMIT}" in capsys.readouterr().err
+    assert output.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("header_changes", "extra"),
+    [
+        ({"seed": 7}, ()),
+        ({}, ("--seed", "7")),
+        ({"old_commit": "1" * 40}, ()),
+    ],
+)
+def test_the_supplement_refuses_a_corpus_from_another_seed_or_commit(
+    tmp_path, monkeypatch, capsys, header_changes, extra
+):
+    """A corpus whose header names another seed or old commit than this run is left alone."""
+    script = capture_script()
+    old_dojo = fake_checkout(tmp_path / "old", script.EXPECTED_OLD_COMMIT)
+    old_sources(old_dojo, monkeypatch, script)
+    output = tmp_path / "out" / "cases.jsonl"
+    before = corpus_copy(output, **header_changes)
+    assert run_main(monkeypatch, script, old_dojo, output, "--supplement", *extra) == 1
+    assert "the corpus was captured with another seed or old commit" in capsys.readouterr().err
+    assert output.read_bytes() == before
+
+
+@pytest.mark.parametrize("mode", ["--supplement", "full"])
+@pytest.mark.parametrize("relative", ["analysis/bootstrap.py", "analysis/calibration.py"])
+def test_the_capture_refuses_an_edited_old_module(tmp_path, monkeypatch, capsys, mode, relative):
+    """At the pinned commit but with an old module edited on disk, nothing is loaded or written."""
+    script = capture_script()
+    old_dojo = fake_checkout(tmp_path / "old", script.EXPECTED_OLD_COMMIT)
+    old_sources(old_dojo, monkeypatch, script, edited=relative)
+    output = tmp_path / "out" / "cases.jsonl"
+    before = corpus_copy(output)
+    extra = ("--supplement",) if mode == "--supplement" else ()
+    assert run_main(monkeypatch, script, old_dojo, output, *extra) == 1
+    assert f"llm_dojo_scoring/{relative} does not have the pinned SHA-256" in capsys.readouterr().err
+    assert output.read_bytes() == before
+
+
+def test_the_capture_refuses_a_missing_old_module(tmp_path, monkeypatch, capsys):
+    """A checkout without one of the old modules is refused, not half-loaded."""
+    script = capture_script()
+    old_dojo = fake_checkout(tmp_path / "old", script.EXPECTED_OLD_COMMIT)
+    old_sources(old_dojo, monkeypatch, script)
+    (old_dojo / "llm_dojo_scoring" / "analysis" / "calibration.py").unlink()
+    output = tmp_path / "out" / "cases.jsonl"
+    before = corpus_copy(output)
+    assert run_main(monkeypatch, script, old_dojo, output, "--supplement") == 1
+    assert "llm_dojo_scoring/analysis/calibration.py is missing" in capsys.readouterr().err
+    assert output.read_bytes() == before
+
+
+def test_loading_the_old_modules_by_path_refuses_an_edited_file(tmp_path, monkeypatch):
+    """old_functions_from_files checks the hashes itself, so no caller can skip the check."""
+    script = capture_script()
+    old_sources(tmp_path, monkeypatch, script, edited="analysis/bootstrap.py")
+    with pytest.raises(SystemExit, match="does not have the pinned SHA-256"):
+        script.old_functions_from_files(tmp_path)

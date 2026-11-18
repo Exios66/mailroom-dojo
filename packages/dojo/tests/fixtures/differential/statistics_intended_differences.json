@@ -1739,24 +1739,6 @@
    "reason": "A text rate is a TypeError (wilson_ci reads numbers, a Decimal included, not text); the old Dojo converted '0.5' with float()."
   },
   {
-   "case": "fd0a63be9521a361",
-   "function": "wilson_ci",
-   "new_outcome": {
-    "message": "n must be an integer; got 2.5",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not a whole number (2.5, True) is a TypeError even without a rate; the old Dojo returned None for p=None before looking at n."
-  },
-  {
-   "case": "d7e8588e91098095",
-   "function": "wilson_ci",
-   "new_outcome": {
-    "message": "n must be an integer; got True",
-    "raises": "TypeError"
-   },
-   "reason": "A support that is not a whole number (2.5, True) is a TypeError even without a rate; the old Dojo returned None for p=None before looking at n."
-  },
-  {
    "case": "9cbfe0174ee21c80",
    "function": "bootstrap_ci",
    "new_outcome": {
