@@ -38,7 +38,8 @@ provenance only and never change how a decision resolves. ``verdict`` is ``corre
 ``near_gold`` (rank ``review:near_gold``) with source ``review:<model>-<role>``. An
 ``absent`` reason makes the presence ``schema_documented_absence``.
 
-A row that does not have its shape is a ``malformed_record`` finding and yields nothing; a
+A row that does not have its shape, or holds a value a record model refuses, is a
+``malformed_record`` finding and yields nothing; a
 label with a status its layer does not allow is a ``status_not_allowed`` finding. Readers
 never raise on bad rows. A new native version is an entry in ``UPGRADES`` (a function from
 the old row to the new one, applied at read time; ADR-0005), never a rewrite of the files.
@@ -50,6 +51,8 @@ import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
+
+from pydantic import ValidationError
 
 from mailroom_labels.errors import CorruptLine, UnknownSnapshotSchema
 from mailroom_labels.findings import finding
@@ -474,14 +477,24 @@ def read_layer(snapshot: LabelSnapshot) -> LayerRead:
                 out.findings.append(_Ctx(snapshot, row).bad(f"cannot upgrade {schema}: {exc!r}"))
                 continue
             row = Row(row.file, row.line, data)
-        if kind == "hub":
-            _read_hub(snapshot, row, out, unverified)
-        elif kind == "interim":
-            _read_interim(snapshot, row, out)
-        elif kind == "near_gold":
-            _read_near_gold(snapshot, row, out)
-        else:
-            _read_review(snapshot, row, out)
+        marks = (len(out.records), len(out.corpus), len(out.findings))
+        try:
+            if kind == "hub":
+                _read_hub(snapshot, row, out, unverified)
+            elif kind == "interim":
+                _read_interim(snapshot, row, out)
+            elif kind == "near_gold":
+                _read_near_gold(snapshot, row, out)
+            else:
+                _read_review(snapshot, row, out)
+        except ValidationError as exc:
+            # Defence in depth (the snapshot depth cap should stop it first): a value a
+            # record model refuses makes the whole row malformed, so it yields nothing,
+            # not even what its earlier fields already added.
+            del out.records[marks[0] :], out.corpus[marks[1] :], out.findings[marks[2] :]
+            doc = row.data.get("document_id", row.data.get("doc_id"))
+            detail = f"a value the {exc.title} model refuses ({exc.error_count()} error(s))"
+            out.findings.append(_Ctx(snapshot, row).bad(detail, doc))
     return out
 
 

@@ -1786,3 +1786,28 @@ def test_hub_rejected_row_adds_nothing_to_the_tallies(
     with_bad = hub_build(tmp_path / "hub-b", data, allow_rejected=True).source
     assert len(with_bad["unparseable_gt_fields"]) == 1
     assert {k: with_bad[k] for k in counted} == {k: base[k] for k in counted}
+
+
+@pytest.mark.parametrize("depth", [300, 5000])
+def test_hub_value_nested_too_deeply_is_refused_per_row(tmp_path: Path, depth: int) -> None:
+    """A ``gt_fields`` value nested deeper than the snapshot reader accepts is refused for
+    its row (into ``unparseable_gt_fields``), never written: the gate would otherwise meet a
+    corrupt line. The refused row's counts (its decoded list) stay out of the tallies."""
+    base = hub_build(tmp_path / "hub-a", write_dataset(tmp_path / "a")).source
+    bad = gt_row("D9", "letter", "email", "train", {}, {})
+    bad["gt_fields"] = (
+        '{"action_items": "[\\"a\\"]", "sender": ' + "[" * depth + "]" * depth + ', "gt_presence": '
+        '"{\\"sender\\": \\"populated\\", \\"action_items\\": \\"populated\\"}"}'
+    )
+    data = write_dataset(
+        tmp_path / "b", extra=[bad], extra_text=[{"filename": "D9.txt", "doc_text": "text-D9"}]
+    )
+    with pytest.raises(ImportRefused, match="unparseable_gt_fields 1"):
+        hub_build(tmp_path / "hub-x", data)
+    manifest = hub_build(tmp_path / "hub-x", data, allow_rejected=True)
+    assert manifest.source["unparseable_gt_fields"] == [
+        {"document_id": "D9", "reason": "JSON nested too deeply (more than 64 levels)"}
+    ]
+    assert "D9" not in hub_rows(tmp_path / "hub-x")
+    assert manifest.source["decoded_json_lists"] == base["decoded_json_lists"]
+    assert manifest.source["rows"] == base["rows"]

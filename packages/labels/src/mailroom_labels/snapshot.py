@@ -44,9 +44,11 @@ from mailroom_record.hashing import canonical_json, hash_obj
 __all__ = [
     "MANIFEST_NAME",
     "MANIFEST_SCHEMA",
+    "MAX_JSON_DEPTH",
     "LabelSnapshot",
     "Row",
     "build_manifest",
+    "json_problem",
     "label_snapshot_ids",
     "load_snapshot",
     "load_snapshot_set",
@@ -59,6 +61,10 @@ __all__ = [
 MANIFEST_NAME = "manifest.json"
 MANIFEST_SCHEMA = "mailroom-labels/manifest/v1"
 _KNOWN_MANIFEST_SCHEMAS = (MANIFEST_SCHEMA,)
+#: The deepest a row may nest, counting the row object itself as level 1. The committed
+#: labels nest at most 5 deep; a deeper row is a ``CorruptLine``, so no reader or record
+#: model ever sees it (pydantic refuses JSON a few hundred levels deep with its own error).
+MAX_JSON_DEPTH = 64
 
 
 @dataclass(frozen=True)
@@ -103,11 +109,32 @@ def _loads(text: str) -> Any:
     )
 
 
+def _too_deep(obj: Any, limit: int) -> bool:
+    """True when ``obj`` nests more than ``limit`` lists and objects deep (iterative, so
+    it never recurses on the value it measures)."""
+    stack = [(obj, 1)]
+    while stack:
+        item, depth = stack.pop()
+        if isinstance(item, (dict, list)):
+            if depth > limit:
+                return True
+            stack.extend((v, depth + 1) for v in (item.values() if isinstance(item, dict) else item))
+    return False
+
+
+def json_problem(obj: Any) -> str | None:
+    """Why ``obj`` may not be a snapshot row, or None when it may: it nests deeper than
+    ``MAX_JSON_DEPTH``. Importers use it to refuse a source row before writing it."""
+    if _too_deep(obj, MAX_JSON_DEPTH):
+        return f"JSON nested too deeply (more than {MAX_JSON_DEPTH} levels)"
+    return None
+
+
 def _parse_line(raw: bytes, path: Path, line_no: int) -> dict[str, Any]:
     """One JSONL line as a dict. Refuses (``CorruptLine``) a missing newline, a blank line,
     invalid UTF-8 or JSON, a repeated key, ``NaN`` / ``Infinity``, a number that overflows a
-    float or exceeds the integer digit limit, nesting too deep to parse, and anything but an
-    object."""
+    float or exceeds the integer digit limit, nesting deeper than ``MAX_JSON_DEPTH`` (or too
+    deep to parse at all), and anything but an object."""
     if not raw.endswith(b"\n"):
         raise CorruptLine(path, line_no, "last line has no newline (truncated write?)")
     body = raw[:-1]
@@ -121,6 +148,9 @@ def _parse_line(raw: bytes, path: Path, line_no: int) -> dict[str, Any]:
         raise CorruptLine(path, line_no, "JSON nested too deeply") from exc
     if not isinstance(obj, dict):
         raise CorruptLine(path, line_no, f"a row must be a JSON object, got {type(obj).__name__}")
+    problem = json_problem(obj)
+    if problem is not None:
+        raise CorruptLine(path, line_no, problem)
     return obj
 
 

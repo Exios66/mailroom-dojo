@@ -23,7 +23,9 @@ presence codes (``corpus.normalize_rows``: ``expected_fields`` is the parsed ``g
   except that a ``populated`` code with no value (missing or null) makes the row
   unreadable: it is listed in ``unparseable_gt_fields`` and the import is refused.
   So does any code that, after that mapping, is not a presence the Hub reader accepts
-  (``layers.HUB_PRESENCES``: an unknown string, a number, a null, a list, ...).
+  (``layers.HUB_PRESENCES``: an unknown string, a number, a null, a list, ...), and a row
+  the snapshot reader would refuse as a corrupt line (``snapshot.json_problem``: a value
+  nested deeper than ``MAX_JSON_DEPTH``).
 - A ``not_applicable`` key that is **not a field of the document's class in the profile**
   (the dataset carries every class's keys on every row as placeholders) is omitted:
   omitted means not_applicable. A ``not_applicable`` key the class does define is kept.
@@ -61,7 +63,7 @@ from mailroom_labels.importers.common import (
 from mailroom_labels.layers import CURRENT_LAYER_SCHEMA, HUB_PRESENCES
 from mailroom_labels.models import SnapshotManifest
 from mailroom_labels.profile import ClientProfile, load_unique_yaml
-from mailroom_labels.snapshot import write_snapshot
+from mailroom_labels.snapshot import json_problem, write_snapshot
 
 __all__ = ["DEFAULT_SHARDS", "SPLITS", "build_hub", "load_hub_pins", "parse_dataset_manifest", "shard_path"]
 
@@ -218,7 +220,11 @@ class _Tally:
         }
 
 
-def _fields(row: dict[str, Any], profile: ClientProfile, tally: _Tally) -> dict[str, dict[str, Any]] | None:
+def _fields(
+    row: dict[str, Any], profile: ClientProfile, tally: _Tally
+) -> tuple[dict[str, dict[str, Any]], _Tally] | None:
+    """The row's fields and its own counts (merged by the caller only when it keeps the row),
+    or None when the row is refused (recorded in ``tally.bad_gt_fields``)."""
     doc_class = row.get("expected")
     gt = _json_or_raw(row.get("gt_fields"))
     if gt in (None, ""):
@@ -294,8 +300,7 @@ def _fields(row: dict[str, Any], profile: ClientProfile, tally: _Tally) -> dict[
             else:
                 kept.undecoded[key] += 1
         out[key] = {"value": value, "presence": code}
-    tally.add(kept)
-    return out
+    return out, kept
 
 
 def _text_check(
@@ -381,20 +386,26 @@ def build_hub(
     rows: list[dict[str, Any]] = []
     for (_, data), split in zip(gt_shards, SPLITS, strict=True):
         for raw in _read_parquet(data):
-            fields = _fields(raw, profile, tally)
-            if fields is None:
+            parsed = _fields(raw, profile, tally)
+            if parsed is None:
                 continue
-            rows.append(
-                {
-                    "document_id": raw.get("document_id"),
-                    "doc_class": raw.get("expected"),
-                    "subclass": _name_or_none(raw.get("expected_subclass")),
-                    "split": _name_or_none(raw.get("split")) or split,
-                    "content_sha256": _name_or_none(raw.get("content_sha256")),
-                    "filename": _name_or_none(raw.get("filename")),
-                    "fields": fields,
-                }
-            )
+            fields, kept = parsed
+            row = {
+                "document_id": raw.get("document_id"),
+                "doc_class": raw.get("expected"),
+                "subclass": _name_or_none(raw.get("expected_subclass")),
+                "split": _name_or_none(raw.get("split")) or split,
+                "content_sha256": _name_or_none(raw.get("content_sha256")),
+                "filename": _name_or_none(raw.get("filename")),
+                "fields": fields,
+            }
+            problem = json_problem(row)
+            if problem is not None:
+                # The reader would refuse the written line (CorruptLine): refuse the row here.
+                tally.bad_gt_fields.append({"document_id": raw.get("document_id"), "reason": problem})
+                continue
+            tally.add(kept)
+            rows.append(row)
 
     refuse_dropped({"unparseable_gt_fields": tally.bad_gt_fields}, allow=allow_rejected)
 
