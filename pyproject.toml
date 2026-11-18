@@ -83,7 +83,8 @@ module = ["mailroom_record", "mailroom_record.*", "record_testkit"]
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-module = ["pyarrow", "pyarrow.*", "zstandard", "duckdb"]
+module = ["pyarrow", "pyarrow.*", "zstandard", "duckdb", "mailroom_record", "mailroom_record.*"]
+# mailroom_record ships no py.typed marker yet (follow-up in record); the parity test imports it.
 ignore_missing_imports = true
 
 [tool.codespell]
