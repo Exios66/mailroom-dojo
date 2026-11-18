@@ -186,8 +186,7 @@ Key decisions:
   names, definitions, units, direction and aggregation, so a number means the same before and
   after cutover. What the master design drops is the machinery around them (tiers as a filter
   API, bundles, metric profiles), not the metrics. The new form is one flat, versioned metric
-  table, shipped as package data in `packages/dojo/src/mailroom_dojo/measures/metrics.yaml`
-  and read by `mailroom_dojo.measures.load_metric_table()`: each row is a metric id, its definition, unit, direction,
+  table in configuration: each row is a metric id, its definition, unit, direction,
   aggregation, the layer and agents that produce it, and a `headline` flag (one per agent), so
   the dashboard view is a query over the table, not a tier system. Improvements: every value is
   a `Measure` (below); each metric names its noise floor and its pairing rule for comparisons;
