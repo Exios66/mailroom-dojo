@@ -18,6 +18,7 @@ mailroom-dojo/
 ├── packages/                  one folder per package; each is installable alone
 │   ├── record/                mailroom_record: run record, blob store, index, verify, replay (project 1)
 │   ├── labels/                mailroom_labels: label snapshots and coverage (project 2)
+│   ├── desk/                  mailroom_desk: the human review desk, a node plus queue, CLI and API (project 7)
 │   ├── dojo/                  mailroom_dojo: scoring, comparison, reports (project 3)
 │   ├── engine/                mailroom_engine: agents, handoffs, policies, API (project 5)
 │   └── launcher/              mailroom_launcher: run specs, backends, CLI, TUI, floor (project 6)
