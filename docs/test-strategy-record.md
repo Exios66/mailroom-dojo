@@ -109,11 +109,13 @@ failure, not just simple one-off unit tests." So, for every module:
 | Reader errors echo stored content | Leak scan | `test_every_strict_read_names_an_invalid_event_without_its_stored_values`: the sentinel in `kind`, `ts`, `tokens_in`, `cause` (a list), an input key, a decision key (with NaN) and an extra top-level key; every strict read (`iter_events`, `scan().events()`, per run and per document, `Index.iter_events` stale and rebuilt) raises `InvalidEvent` with no sentinel in its message, repr or traceback; `read_run` likewise | 4, 5, 8 |
 | Document text leaks into an export | Leak scan | Sentinel string absent from Parquet, SQLite (every table, and the raw file and WAL bytes, with the sentinel in cause, decision, payload and an invalid line), CLI output, pack manifest, gate report | 6, 8, 9, 11, 12 |
 | Payload carries free text | Unit | Parquet has no `payload` column; importer drops decision `options` text | 6, 10 |
+| Importer stores a copied field as given | Leak scan | `test_no_copied_field_is_stored_unless_it_is_a_token`: 18 copied fields (draw ids and labels, node, agent and model names, the run header's strings) set to non-token values; none reaches segments, `run.json`, seals, the index or a decoded Parquet cell; `test_the_audit_names_no_free_text`: the audit and its CLI print none | 10 |
 | Re-import duplicates a run or blobs | Idempotency | Second import is `already_imported`, blob bytes on disk unchanged | 10 |
 | Importer guesses a missing field | Unit | Missing optional files listed in `absent_fields`, value is `None` | 10 |
 | Labels leak into the record | Unit | No `expected_fields` anywhere in imported events | 10 |
 | Sandbox format drifts | Contract | Fixture folders mirror the real file shapes; the stage gate re-proves on real folders | 10, 12 |
 | A pack is corrupt or incomplete | Fault injection | Flipped byte gives `PackCorrupt`; unsealed run refused | 11 |
+| A hostile archive exhausts memory | Fault injection | Member, blob and whole-archive caps; a 64 MiB GNU long-name, long-link or PAX header and a chain of 5000 headers are `PackCorrupt` at the 64 KiB header cap with a few MiB traced (and a bounded process maxrss) | 11 |
 | Prune deletes a shared blob | Integration | Two runs share a document; prune one; the other verifies | 11 |
 | Public surface drifts | Contract | `__all__` equals the 19 names | 12 |
 | Boundary creep | Static | AST walk: no import of sibling workspace packages | 1 |
