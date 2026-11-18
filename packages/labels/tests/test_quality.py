@@ -25,7 +25,8 @@ from labels_testkit import (
 
 from mailroom_labels.findings import SEVERITY
 from mailroom_labels.layers import corpus_index, read_layers
-from mailroom_labels.quality import check_dirs, value_matches_type, verify
+from mailroom_labels.quality import check, check_dirs, value_matches_type, verify
+from mailroom_labels.snapshot import load_snapshot_set
 from mailroom_labels.resolve import resolve
 
 BASE_IDS = {"hub-test", "interim-test", "near_gold-test", "review-test"}
@@ -155,6 +156,18 @@ CASES: list[Case] = [
      {("type_mismatch", "D4", "amount")}),
     ("vocabulary_violation", lambda r: [ng(r, [near_gold_row("D4", {"urgency": "panic"})])],
      {("vocabulary_violation", "D4", "urgency")}),
+    ("vocabulary_violation_hub",
+     lambda r: [make_snapshot(r, "hub", [hub_row("D5", fields={"urgency": "panic"})], snapshot_id="hub-extra")],
+     {("vocabulary_violation", "D5", "urgency")}),
+    ("unknown_document_interim",
+     lambda r: [make_snapshot(r, "interim", [interim_row("GHOST", {"sender": ("gap_fill", "Boo")})],
+                              snapshot_id="in-extra")],
+     {("unknown_document", "GHOST", None)}),
+    ("duplicate_label_across_interim_ranks",
+     lambda r: [make_snapshot(r, "interim", [interim_row("D4", {"recipient": ("gap_fill", "A")}),
+                                            interim_row("D4", {"recipient": ("correction", "B")})],
+                              snapshot_id="in-extra")],
+     {("duplicate_label", "D4", "recipient")}),
 ]
 
 
@@ -242,3 +255,27 @@ def test_errors_sort_before_warnings(tmp_path: Path) -> None:
 )
 def test_value_matches_type(ftype: str, value: object, ok: bool) -> None:
     assert value_matches_type(ftype, value) is ok
+
+
+def test_a_file_changed_after_load_is_reported_not_raised(tmp_path: Path) -> None:
+    dirs = standard_set(tmp_path)
+    loaded = load_snapshot_set(dirs)
+    path = dirs[2] / "rows.jsonl"
+    path.write_bytes(path.read_bytes().replace(b"Cyrus", b"Cyril"))
+    report = check(loaded, profile())
+    assert ("manifest_mismatch", "near_gold") in {(f.kind, f.layer) for f in report.findings}
+    assert verify(report) == 1
+
+
+def test_nan_and_deep_nesting_are_reported_not_raised(tmp_path: Path) -> None:
+    base = standard_set(tmp_path)
+    d = make_snapshot(tmp_path, "near_gold", [near_gold_row("D4", {"recipient": "X"})], snapshot_id="ng-nan")
+    with (d / "rows.jsonl").open("ab") as fh:
+        fh.write(b'{"doc_id": "D4", "value": NaN}\n')
+        fh.write(b'{"doc_id": ' + b"[" * 100000 + b"]" * 100000 + b"}\n")
+    rehash_manifest(d)
+    report, loaded = check_dirs([*base, d], profile())
+    assert [f.kind for f in report.findings].count("corrupt_line") == 2
+    read = read_layers(loaded)
+    docs = {x.document_id: x for x in resolve(read.records, profile(), corpus_index(read.corpus))}
+    assert docs["D4"].fields["recipient"].value == "X"  # the valid neighbour line still resolves

@@ -9,10 +9,10 @@ key, so any edit to the manifest (a file hash, a row count, the source) changes 
 Loading (``load_snapshot``) verifies the whole manifest **before** a single row is handed
 out: the manifest's own hash, safe and sorted paths, every listed file present with the
 listed size, sha256 and row count, and no unlisted file. Each failure raises
-``ManifestMismatch`` with its own ``kind``. Rows are then streamed line by line; a line
+``ManifestMismatch`` with its own ``kind``. Rows are then streamed line by line (``rows()``); a line
 that is not one JSON object raises ``CorruptLine`` with the file and line number, and a
 file that changed after verification raises ``ManifestMismatch("changed")`` when its
-stream ends.
+stream opens or ends.
 """
 
 from __future__ import annotations
@@ -64,16 +64,38 @@ class Row:
     data: dict[str, Any]
 
 
+class _BadJson(ValueError):
+    pass
+
+
+def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:
+            raise _BadJson(f"duplicate key {key!r}")
+        out[key] = value
+    return out
+
+
+def _no_constant(name: str) -> Any:
+    raise _BadJson(f"non-finite number {name}")
+
+
 def _parse_line(raw: bytes, path: Path, line_no: int) -> dict[str, Any]:
+    """One JSONL line as a dict. Refuses (``CorruptLine``) a missing newline, a blank line,
+    invalid UTF-8 or JSON, a repeated key, ``NaN`` / ``Infinity``, nesting too deep to
+    parse, and anything but an object."""
     if not raw.endswith(b"\n"):
         raise CorruptLine(path, line_no, "last line has no newline (truncated write?)")
     body = raw[:-1]
     if not body.strip():
         raise CorruptLine(path, line_no, "blank line")
     try:
-        obj = json.loads(body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        obj = json.loads(body.decode("utf-8"), object_pairs_hook=_unique_keys, parse_constant=_no_constant)
+    except (UnicodeDecodeError, json.JSONDecodeError, _BadJson) as exc:
         raise CorruptLine(path, line_no, f"not JSON: {exc}") from exc
+    except RecursionError as exc:
+        raise CorruptLine(path, line_no, "JSON nested too deeply") from exc
     if not isinstance(obj, dict):
         raise CorruptLine(path, line_no, f"a row must be a JSON object, got {type(obj).__name__}")
     return obj
@@ -218,6 +240,15 @@ class LabelSnapshot:
         """
         for entry in self.manifest.files:
             path = self.directory / entry.path
+            # Verified again when the stream opens, so a consumer that stops early still
+            # never reads a file that changed after load_snapshot; the end-of-file check
+            # below catches a change while the file is being read.
+            try:
+                opened = _file_facts(path, parse=False)
+            except OSError as exc:
+                raise ManifestMismatch("missing", path, f"cannot read: {exc}") from exc
+            if opened[0] != entry.sha256 or opened[1] != entry.rows:
+                raise ManifestMismatch("changed", path, "file changed after it was verified")
             digest = sha256()
             line_no = 0
             with path.open("rb") as fh:
@@ -235,19 +266,15 @@ class LabelSnapshot:
             if digest.hexdigest() != entry.sha256 or line_no != entry.rows:
                 raise ManifestMismatch("changed", path, "file changed after it was verified")
 
-    def documents(self) -> Iterator[dict[str, Any]]:
-        """Every native record of the snapshot (one per row), in manifest order."""
-        for row in self.rows():
-            yield row.data
-
 
 def _read_manifest(directory: Path) -> SnapshotManifest:
     path = directory / MANIFEST_NAME
     if not path.is_file():
         raise ManifestMissing(directory)
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raw = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_keys,
+                         parse_constant=_no_constant)
+    except (UnicodeDecodeError, json.JSONDecodeError, _BadJson, RecursionError) as exc:
         raise ManifestMismatch("manifest_invalid", path, f"not JSON: {exc}") from exc
     if not isinstance(raw, dict):
         raise ManifestMismatch("manifest_invalid", path, "not a JSON object")

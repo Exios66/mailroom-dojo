@@ -171,7 +171,7 @@ def test_untouched_snapshot_loads(snap: Path) -> None:
     loaded = load_snapshot(snap)
     assert [f.path for f in loaded.manifest.files] == ["a.jsonl", "part/b.jsonl"]
     assert [f.rows for f in loaded.manifest.files] == [4, 3]
-    assert len(list(loaded.documents())) == 7
+    assert len(list(loaded.rows())) == 7
     assert loaded.manifest.source == {"repository": "synthetic", "revision": "r1"}
 
 
@@ -243,6 +243,53 @@ def test_corrupt_line_is_reported_with_file_and_line(snap: Path, content: bytes,
     assert [r.line for r in rows if r.file == "a.jsonl"] == [n for n in (1, 2, 3) if n != line]
     assert len([r for r in rows if r.file == "part/b.jsonl"]) == 3
     assert [e.line for e in seen] == [line]
+
+
+def test_newline_flip_keeps_the_size_but_is_a_changed_file(snap: Path) -> None:
+    """A byte turned into a newline keeps the size and changes the line count: the sha256
+    check runs first and names it ``changed`` (row_count is for a manifest whose count lies)."""
+    path = snap / "a.jsonl"
+    data = bytearray(path.read_bytes())
+    data[5] = ord("\n")
+    path.write_bytes(bytes(data))
+    with pytest.raises(ManifestMismatch) as info:
+        load_snapshot(snap)
+    assert info.value.kind == "changed"
+
+
+@pytest.mark.parametrize(
+    ("content", "detail"),
+    [
+        (b'{"a":1,"a":2}\n', "duplicate key"),
+        (b'{"a":NaN}\n', "non-finite"),
+        (b'{"a":Infinity}\n', "non-finite"),
+        (b'{"a":' + b"[" * 100000 + b"]" * 100000 + b"}\n", "nested too deeply"),
+    ],
+    ids=["duplicate-key", "nan", "infinity", "deep-nesting"],
+)
+def test_unsafe_json_is_a_corrupt_line(snap: Path, content: bytes, detail: str) -> None:
+    (snap / "a.jsonl").write_bytes(content)
+    rehash_manifest(snap)
+    with pytest.raises(CorruptLine) as info:
+        list(load_snapshot(snap).rows())
+    assert detail in info.value.detail
+
+
+def test_nan_in_the_manifest_is_manifest_invalid(snap: Path) -> None:
+    path = snap / MANIFEST_NAME
+    path.write_text(path.read_text().replace('"revision": "r1"', '"revision": NaN'))
+    with pytest.raises(ManifestMismatch) as info:
+        load_snapshot(snap)
+    assert info.value.kind == "manifest_invalid"
+
+
+def test_early_stop_never_reads_a_file_changed_after_load(snap: Path) -> None:
+    loaded = load_snapshot(snap)
+    flip_byte(snap)
+    stream = loaded.rows()
+    with pytest.raises(ManifestMismatch) as info:
+        next(stream)  # the first row: the check runs when the file is opened
+    assert info.value.kind == "changed"
 
 
 def test_file_changed_after_load_is_caught_while_streaming(snap: Path) -> None:

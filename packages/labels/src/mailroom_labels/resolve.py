@@ -27,6 +27,7 @@ quality gate reports as an error) break on snapshot id, file, line and value.
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 
@@ -55,8 +56,16 @@ def is_stale(record: LayerRecord, entry: CorpusEntry | None) -> bool:
     return record.subclass is not None and record.subclass != entry.subclass
 
 
+def _value_key(value: object) -> str:
+    """A total, never-raising sort key for a JSON value (a non-finite float included)."""
+    try:
+        return canonical_json(value).decode("utf-8")
+    except (TypeError, ValueError):
+        return json.dumps(value, sort_keys=True, default=repr)
+
+
 def _origin(record: LayerRecord) -> tuple:
-    return (record.snapshot_id, record.file, record.line, canonical_json(record.value))
+    return (record.snapshot_id, record.file, record.line, _value_key(record.value))
 
 
 def resolve_document(

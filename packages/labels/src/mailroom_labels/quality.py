@@ -266,14 +266,21 @@ def check_read(
 
 
 def check(snapshots: Sequence[LabelSnapshot], profile: ClientProfile) -> QualityReport:
-    """Read and check already-loaded snapshots."""
+    """Read and check already-loaded snapshots. A snapshot whose files changed after it was
+    loaded is a ``manifest_mismatch`` finding (its rows are left out), never an exception."""
     read = LayerRead()
     extra = []
     for snap in snapshots:
         try:
-            read.extend(read_layer(snap))
+            part = read_layer(snap)
         except UnknownSnapshotSchema as exc:
             extra.append(finding("unknown_schema", layer=snap.kind, location=str(exc.path), detail=str(exc)))
+            continue
+        except ManifestMismatch as exc:
+            extra.append(finding("manifest_mismatch", layer=snap.kind, location=str(exc.path),
+                                 detail=f"{exc.kind}: {exc.detail}"))
+            continue
+        read.extend(part)
     return check_read(read, profile, snapshots, extra)
 
 

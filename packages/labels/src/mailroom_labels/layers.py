@@ -18,7 +18,9 @@ populated field, ``hub:absent`` for a documented absence or ``not_applicable``):
 document: ``{"doc_id", "doc_class", "doc_subclass", "doc_sha256", "labels": {<field>:
 {"status", "value", "basis", "use_as_truth", ...}}, "source": {"gate_run", ...}}``.
   ``status`` ``gap_fill``, ``derived`` and ``correction`` are truth; ``disputed`` is recorded
-  under the untrusted rank ``interim:disputed``. ``use_as_truth`` must follow the status.
+  under the untrusted rank ``interim:disputed``. ``use_as_truth`` must follow the status: a
+  label whose flag contradicts it is an ``inconsistent_truth_flag`` finding and is recorded
+  under the untrusted rank ``interim:flag_mismatch``, never applied as truth.
   Presence is ``schema_documented_absence`` for a null value, else ``populated`` (the
   sandbox's ``apply_overlay`` rule).
 
@@ -75,6 +77,8 @@ CURRENT_LAYER_SCHEMA: dict[str, str] = {
 UPGRADES: dict[tuple[str, str], tuple[str, Callable[[dict[str, Any]], dict[str, Any]]]] = {}
 
 INTERIM_TRUTH = ("gap_fill", "derived", "correction")
+#: The rank of an interim label whose ``use_as_truth`` contradicts its status: recorded, never truth.
+FLAG_MISMATCH_RANK = "interim:flag_mismatch"
 INTERIM_STATUSES = (*INTERIM_TRUTH, "disputed")
 REVIEW_VERDICTS = ("correct", "accept")
 _HASH = re.compile(r"^[0-9a-f]{16,64}$")
@@ -97,10 +101,12 @@ class LayerRead:
 def hash_matches(label_hash: str | None, index_hash: str | None) -> bool:
     """True when a label's recorded hash names the indexed text: the index hash starts
     with it (the sandbox overlays store a 16-hex prefix). A label with no hash claims
-    nothing and matches; a label with a hash cannot match an index without one."""
+    nothing and matches; a label with a hash cannot match an index without one, and a
+    label hash that is not 16 to 64 lowercase hex digits (empty, short, uppercase) never
+    matches."""
     if label_hash is None:
         return True
-    return index_hash is not None and index_hash.startswith(label_hash)
+    return bool(_HASH.match(label_hash)) and index_hash is not None and index_hash.startswith(label_hash)
 
 
 def _is_name(value: object) -> bool:
@@ -238,6 +244,7 @@ def _read_interim(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
                 )
             )
             continue
+        rank = f"interim:{status}"
         if lab.get("use_as_truth") is not (status in INTERIM_TRUTH):
             out.findings.append(
                 finding(
@@ -246,6 +253,7 @@ def _read_interim(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
                     location=ctx.location,
                 )
             )
+            rank = FLAG_MISMATCH_RANK  # never truth: the label contradicts itself
         basis = lab.get("basis")
         out.records.append(
             ctx.record(
@@ -253,7 +261,7 @@ def _read_interim(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
                 field=fname,
                 value=lab["value"],
                 presence=_absence(lab["value"]),
-                rank=f"interim:{status}",
+                rank=rank,
                 native_status=status,
                 source=source,
                 basis=basis if isinstance(basis, str) else None,

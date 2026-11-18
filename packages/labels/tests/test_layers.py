@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from labels_testkit import (
     hub_row,
+    profile,
     interim_row,
     make_snapshot,
     near_gold_row,
@@ -18,8 +19,9 @@ from labels_testkit import (
 
 from mailroom_labels import layers
 from mailroom_labels.errors import UnknownSnapshotSchema
-from mailroom_labels.layers import corpus_index, hash_matches, read_layer
-from mailroom_labels.snapshot import load_snapshot
+from mailroom_labels.layers import corpus_index, hash_matches, read_layer, read_layers
+from mailroom_labels.resolve import resolve
+from mailroom_labels.snapshot import load_snapshot, load_snapshot_set
 
 
 def read(tmp_path: Path, kind: str, rows: list[dict], **kw):
@@ -142,7 +144,30 @@ def test_truth_flag_must_follow_the_status(tmp_path: Path) -> None:
     row["labels"]["sender"]["use_as_truth"] = True
     out = read(tmp_path, "interim", [row])
     assert [f.kind for f in out.findings] == ["inconsistent_truth_flag"]
-    assert out.records[0].rank == "interim:disputed"  # the flag never promotes a dispute
+    assert out.records[0].rank == "interim:flag_mismatch"  # the flag never promotes a dispute
+
+
+def test_a_truth_status_with_a_false_flag_is_not_truth(tmp_path: Path) -> None:
+    """A gap_fill that says use_as_truth=false contradicts itself: reported, never applied."""
+    hub = make_snapshot(tmp_path, "hub", [hub_row("D1", fields={"sender": ("", "unlabeled")})])
+    row = interim_row("D1", {"sender": ("gap_fill", "Ann")})
+    row["labels"]["sender"]["use_as_truth"] = False
+    interim = make_snapshot(tmp_path, "interim", [row])
+    read_ = read_layers(load_snapshot_set([hub, interim]))
+    assert [f.kind for f in read_.findings] == ["inconsistent_truth_flag"]
+    (doc,) = resolve(read_.records, profile(), corpus_index(read_.corpus))
+    assert "sender" not in doc.fields and [f.rank for f in doc.untrusted["sender"]] == ["interim:flag_mismatch"]
+
+
+def test_uppercase_or_short_label_hash_is_malformed_and_never_matches(tmp_path: Path) -> None:
+    full = text_hash("D1")
+    out = read(tmp_path, "interim", [interim_row("D1", {"sender": ("gap_fill", "A")}, sha=full[:16].upper()),
+                                     interim_row("D2", {"sender": ("gap_fill", "B")}, sha=full[:8])])
+    assert sorted((f.kind, f.doc) for f in out.findings) == [("malformed_record", "D1"), ("malformed_record", "D2")]
+    assert out.records == []
+    assert not hash_matches(full[:16].upper(), full.upper())
+    assert not hash_matches("", full)
+    assert not hash_matches(full[:8], full)
 
 
 def test_corrupt_line_is_a_finding_with_location(tmp_path: Path) -> None:
@@ -190,6 +215,7 @@ def test_hash_matches_prefix_rule() -> None:
     assert hash_matches(full[:16], full)
     assert not hash_matches(text_hash("D2")[:16], full)
     assert not hash_matches(full[:16], None)
+    assert not hash_matches(full[8:24], full), "a substring that is not a prefix does not name the text"
 
 
 def test_corpus_index_keeps_the_first_entry(tmp_path: Path) -> None:

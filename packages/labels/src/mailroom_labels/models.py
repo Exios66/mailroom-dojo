@@ -72,7 +72,7 @@ RANKS: tuple[str, ...] = tuple(RANK_STATUS)
 
 #: Ranks that are recorded (so a reviewer can see them) but are never truth, whatever a
 #: profile says. ``load_profile`` refuses a precedence that names one.
-UNTRUSTED_RANKS: tuple[str, ...] = ("interim:disputed",)
+UNTRUSTED_RANKS: tuple[str, ...] = ("interim:disputed", "interim:flag_mismatch")
 
 _FROZEN = ConfigDict(frozen=True, extra="forbid", strict=True)
 
