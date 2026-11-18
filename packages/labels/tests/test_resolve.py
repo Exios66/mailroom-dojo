@@ -345,3 +345,19 @@ def test_records_order_shuffled_end_to_end(snapshot_dirs) -> None:
         recs = list(read.records)
         random.Random(seed).shuffle(recs)
         assert resolve(recs, PROFILE, index) == base
+
+
+def test_an_audit_decision_never_beats_a_hub_value_or_a_correction(tmp_path: Path) -> None:
+    # the synthetic positive control for the real-data check in test_real_snapshots.py
+    hub = make_snapshot(tmp_path, "hub", [
+        hub_row("D1", fields={"sender": "Hub Ann", "recipient": (None, "schema_documented_absence")}),
+        hub_row("D2", fields={"sender": (None, "schema_documented_absence")}),
+    ])
+    interim = make_snapshot(tmp_path, "interim", [interim_row("D2", {"sender": ("correction", "Corrected")})])
+    audit = make_snapshot(tmp_path, "review", [review_row("D1", "sender", "Audit"), review_row("D1", "recipient", "Audit R"),
+                                               review_row("D2", "sender", "Audit")])
+    docs = resolve_dirs([hub, interim, audit])
+    assert (docs["D1"].fields["sender"].value, docs["D1"].fields["sender"].rank) == ("Hub Ann", "hub")
+    assert (docs["D2"].fields["sender"].value, docs["D2"].fields["sender"].rank) == ("Corrected", "interim:correction")
+    # over a Hub absence the audit decision does win
+    assert (docs["D1"].fields["recipient"].value, docs["D1"].fields["recipient"].rank) == ("Audit R", "review:near_gold")

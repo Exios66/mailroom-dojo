@@ -208,12 +208,18 @@ def test_disputed_interim_labels_are_never_truth() -> None:
     assert ("DOC-0a29136832720e65", "merger_consideration") in disputed
 
 
-def test_audit_never_overrides_a_hub_value_or_a_correction() -> None:
+def test_no_audit_decision_meets_a_hub_value_or_a_correction_on_the_real_data() -> None:
+    # On the committed data no Claude audit decision is aimed at a label that a populated
+    # Hub value or an interim correction holds, so the precedence between them is never
+    # exercised here: this pins that fact (0 cases). The rule itself is tested on synthetic
+    # data by test_resolve.py::test_an_audit_decision_never_beats_a_hub_value_or_a_correction.
+    meets = Counter()
     for d in label_set().documents():
         for lab in d.fields.values():
             ranks = {f.rank for f in lab.layers_seen}
-            if "review:near_gold" in ranks and ranks & {"hub", "interim:correction"}:
-                assert lab.rank in ("hub", "interim:correction", "review:gold")
+            if "review:near_gold" in ranks:
+                meets[tuple(sorted(ranks & {"hub", "interim:correction"}))] += 1
+    assert meets == {(): 1042}
 
 
 def test_subclass_stale_documents_are_unverified_and_not_scored() -> None:
