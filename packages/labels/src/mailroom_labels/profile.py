@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, JsonValue
+from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
 
 from mailroom_labels.errors import ProfileError
 from mailroom_labels.models import RANKS, STATUS_WORDS, UNTRUSTED_RANKS
@@ -170,7 +170,7 @@ def _str_list(raw: object, where: str, problems: list[str]) -> list[str]:
 
 
 def _check_top(raw: Mapping[str, Any], problems: list[str]) -> None:
-    for key in sorted(set(raw) - _TOP_KEYS):
+    for key in sorted(set(raw) - _TOP_KEYS, key=repr):  # keys may be of mixed types
         problems.append(f"unknown key {key!r}")
     for key in sorted(_TOP_KEYS - set(raw)):
         problems.append(f"missing key {key!r}")
@@ -211,7 +211,7 @@ def _check_field(where: str, raw: object, vocabularies: Mapping[str, Any], probl
     if not isinstance(raw, dict):
         problems.append(f"{where} must be a mapping")
         return
-    for key in sorted(set(raw) - _FIELD_KEYS):
+    for key in sorted(set(raw) - _FIELD_KEYS, key=repr):
         problems.append(f"{where} has unknown key {key!r}")
     ftype = raw.get("type")
     if not is_field_type(ftype):
@@ -241,7 +241,7 @@ def _check_classes(raw: object, vocabularies: Mapping[str, Any], problems: list[
         if not isinstance(spec, dict):
             problems.append(f"{where} must be a mapping")
             continue
-        for key in sorted(set(spec) - _CLASS_KEYS):
+        for key in sorted(set(spec) - _CLASS_KEYS, key=repr):
             problems.append(f"{where} has unknown key {key!r}")
         if spec.get("specialist") is not None and not _is_name(spec["specialist"]):
             problems.append(f"{where}.specialist must be a name")
@@ -272,6 +272,15 @@ def parse_profile(raw: object, path: Path | None = None) -> ClientProfile:
     _check_classes(raw.get("classes"), vocabularies, problems)
     if problems:
         raise ProfileError(path, problems)
+    try:
+        return _build(raw)
+    except ValidationError as exc:  # a value YAML typed as something JSON has not (a date, ...)
+        raise ProfileError(
+            path, [f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in exc.errors()]
+        ) from exc
+
+
+def _build(raw: Mapping[str, Any]) -> ClientProfile:
     return ClientProfile(
         client=raw["client"],
         dataset=raw["dataset"],
@@ -294,7 +303,7 @@ def load_profile(path: Path | str) -> ClientProfile:
     path = Path(path)
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise ProfileError(path, [f"cannot read: {exc}"]) from exc
     try:
         raw = load_unique_yaml(text)

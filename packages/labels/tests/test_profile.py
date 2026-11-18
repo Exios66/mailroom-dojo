@@ -162,3 +162,37 @@ def test_a_new_document_class_is_a_profile_entry_only(tmp_path: Path) -> None:
     assert doc.scorable_fields == frozenset({"total", "state"})
     report = coverage([doc], prof)
     assert report["classes"]["invoice"]["fields"]["state"]["by_status"]["near_gold"] == 1
+
+
+# --- review follow-ups: odd YAML that must still exit through ProfileError --------------------
+
+
+def test_unknown_keys_of_mixed_types_are_all_reported(tmp_path: Path) -> None:
+    data = raw()
+    data[1] = "an integer key"
+    data["typo"] = "a string key"
+    data["classes"][next(iter(data["classes"]))][2] = "x"
+    data["classes"][next(iter(data["classes"]))]["typo"] = "x"
+    with pytest.raises(ProfileError) as info:
+        parse_profile(data)
+    text = str(info.value)
+    assert "unknown key 1" in text and "unknown key 'typo'" in text
+    assert "has unknown key 2" in text and "has unknown key 'typo'" in text
+
+
+def test_dataset_value_that_is_not_json_is_a_profile_error(tmp_path: Path) -> None:
+    text = PROFILE_PATH.read_text(encoding="utf-8")
+    pinned = 'revision: "0000000000000000000000000000000000000000"'
+    path = tmp_path / "profile.yaml"
+    path.write_text(text.replace(pinned, "revision: 2026-11-18"))
+    with pytest.raises(ProfileError, match="dataset.revision"):
+        load_profile(path)
+    path.write_text(text.replace(pinned, 'revision: "2026-11-18"'))
+    assert load_profile(path).dataset["revision"] == "2026-11-18"
+
+
+def test_invalid_utf8_is_a_profile_error(tmp_path: Path) -> None:
+    path = tmp_path / "profile.yaml"
+    path.write_bytes(PROFILE_PATH.read_bytes() + b"# \xff\xfe\n")
+    with pytest.raises(ProfileError, match="profile.yaml"):
+        load_profile(path)
