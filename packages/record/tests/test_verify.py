@@ -1416,3 +1416,20 @@ def test_one_event_naming_a_blob_twice_counts_once(store: SimpleNamespace) -> No
     r = verify(store)
     assert failing(r) == [("missing_blob", "d1", 0)]
     assert "(named by 1 event)" in r.problems[0].detail
+
+
+def test_a_fifo_at_the_tombstone_path_is_reported_not_blocked_on(sealed_store: SimpleNamespace) -> None:
+    s = sealed_store
+    sha = s.outputs[1][2]
+    s.blobs.tombstone(sha, "deletion request")
+    tomb = s.blobs.tombstone_path(sha)
+    tomb.unlink()
+    os.mkfifo(tomb)
+    signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(TimeoutError("verify blocked on a FIFO")))
+    signal.alarm(20)
+    try:
+        r = verify(s)
+    finally:
+        signal.alarm(0)
+    assert [p.kind for p in r.problems] == ["corrupt_tombstone"]
+    assert "not a regular file" in r.problems[0].detail

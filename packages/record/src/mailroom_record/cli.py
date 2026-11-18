@@ -415,6 +415,10 @@ def trace_doc_cmd(doc_id: DocArg, root: Root, as_json: AsJson = False) -> None:
             _print_json({**asdict(t), "damaged": t.damaged})
             return 0
         _echo(f"document {t.doc_id}: {_n(len(t.runs), 'run')}; index {t.index}")
+        if t.damage:
+            _echo("store damage:")
+            for line in _damage_lines(t.damage, "  "):
+                _echo(line)
         for r in t.runs:
             _echo(f"run {r.run_id}: {_header_text(r.header)} (read from the {r.source})")
             for line in _summary_lines(r.summary, "  "):

@@ -354,8 +354,8 @@ def _run_dir_state(log: EventLog, run_id: str) -> str:
     type of the error that stopped the check (never taken for "gone")."""
     try:
         return "present" if log.run_dir(run_id).is_dir() else "gone"
-    except OSError as exc:
-        return type(exc).__name__
+    except (OSError, ValueError) as exc:  # ValueError: a run id the index holds but the log cannot name
+        return "gone" if isinstance(exc, ValueError) else type(exc).__name__
 
 
 def trace_doc(log: EventLog, index: Index | None, doc_id: str) -> DocTrace:

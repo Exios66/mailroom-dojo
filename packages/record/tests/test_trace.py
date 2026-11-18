@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -676,3 +677,43 @@ def test_a_gap_from_an_event_in_flight_is_not_damage(store: SimpleNamespace, mon
     d1 = t.documents[0]
     assert d1.doc_id == "d1" and d1.damage == (), d1.damage
     assert d1.events >= 3 and d1.head_seq == d1.events - 1
+
+
+def test_an_index_row_with_a_malformed_run_id_is_reported_not_raised(
+    two_run_store: SimpleNamespace, tmp_path: Path
+) -> None:
+    # A damaged or hand-edited index can hold a run id the log cannot name; trace_doc must not raise.
+    idx = built_index(two_run_store, tmp_path)
+    con = sqlite3.connect(tmp_path / "built-index.sqlite")
+    row = list(con.execute("SELECT * FROM runs WHERE run_id='r1'").fetchone())
+    row[0] = ".bad"
+    con.execute(f"INSERT INTO runs VALUES ({','.join('?' * len(row))})", row)
+    dcols = [c[1] for c in con.execute("PRAGMA table_info(doc_runs)")]
+    dr = list(con.execute("SELECT * FROM doc_runs WHERE run_id='r1' AND doc_id='d1'").fetchone())
+    dr[dcols.index("run_id")] = ".bad"
+    con.execute(f"INSERT INTO doc_runs VALUES ({','.join('?' * len(dr))})", dr)
+    con.commit()
+    con.close()
+    t = trace_doc(two_run_store.log, idx, "d1")
+    bad = [r for r in t.runs if r.run_id == ".bad"]
+    assert [("missing_from_log" in _kinds(r.summary.damage)) for r in bad] == [True]
+    assert t.damaged
+
+
+def test_a_run_directory_that_cannot_be_checked_is_still_read_not_called_missing(
+    two_run_store: SimpleNamespace, tmp_path: Path, monkeypatch
+) -> None:
+    idx = built_index(two_run_store, tmp_path)
+    run_dir = two_run_store.log.run_dir("r2")
+    original = Path.is_dir
+
+    def is_dir(self: Path, *a, **k):
+        if self == run_dir:
+            raise PermissionError(13, "injected")
+        return original(self, *a, **k)
+
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+    t = trace_doc(two_run_store.log, idx, "d1")
+    monkeypatch.undo()
+    r2 = next(r for r in t.runs if r.run_id == "r2")
+    assert "missing_from_log" not in _kinds(r2.summary.damage)

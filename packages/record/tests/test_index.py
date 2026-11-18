@@ -986,7 +986,7 @@ def test_a_per_document_read_does_not_report_handoffs_as_a_gap(
     assert [e.seq for e in got.events] == list(range(len(got.events)))  # contiguous, from 0
 
 
-def test_reindex_survives_runs_listing_error_but_trace_listing_reports_it(
+def test_a_runs_listing_error_does_not_make_trace_report_runs_deleted(
     store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from mailroom_record._reading import list_runs

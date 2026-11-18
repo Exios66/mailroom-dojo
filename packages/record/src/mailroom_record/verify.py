@@ -825,7 +825,7 @@ def _check_blobs(blobs: BlobStore, st: _State) -> int:
             if why is None:
                 tombstoned += 1
             else:
-                st.add("corrupt_tombstone", doc, seq, f"{named}: {why}; BlobStore.tombstone(sha, reason) rewrites the record")
+                st.add("corrupt_tombstone", doc, seq, f"{named}: {why}; BlobStore.tombstone(sha, reason) rewrites the record (remove a non-empty directory there first)")
         elif not has_content:
             st.add("missing_blob", doc, seq, f"{named}: no content and no tombstone")
         elif why is not None:
@@ -849,8 +849,11 @@ def _tombstone_damage(path: Path, sha: str) -> str | None:
     lawful deletion is a JSON object naming this hash, a non-empty reason and a time.
     """
     try:
+        mode = path.lstat().st_mode
+        if not stat.S_ISREG(mode):  # a symlink, directory, FIFO or device: never opened (a FIFO would block)
+            return "the tombstone is not a regular file"
         data = path.read_bytes()
-    except OSError as exc:  # a directory at the path, or unreadable
+    except OSError as exc:  # unreadable
         return f"the tombstone cannot be read ({_oserror(exc)})"
     try:
         rec = json.loads(data)

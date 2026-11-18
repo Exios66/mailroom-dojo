@@ -451,3 +451,21 @@ def test_trace_doc_reports_an_unlistable_runs_directory_as_damage(
     res = run_cli("trace", "doc", "d1", root=review_store.root)
     assert res.exit_code == 1, (res.stdout, res.stderr)
     assert "store is damaged" in res.stderr and "run verify" in res.stderr and res.stderr.count("\n") == 1
+
+
+def test_trace_doc_text_shows_store_damage_beside_the_runs(
+    review_store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    res = run_cli("reindex", root=review_store.root)
+    assert res.exit_code == 0, res.stderr
+    runs_dir = review_store.root / "runs"
+    original = Path.iterdir
+
+    def iterdir(self: Path):
+        if self == runs_dir:
+            raise PermissionError(13, "injected")
+        return original(self)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+    res = run_cli("trace", "doc", "d1", root=review_store.root)
+    assert res.exit_code == 0 and "store damage:" in res.stdout and "runs/ could not be listed" in res.stdout, res.stdout
