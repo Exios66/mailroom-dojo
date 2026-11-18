@@ -174,11 +174,14 @@ def test_every_python_file_in_a_package_is_scanned(tmp_path: Path) -> None:
     write(tmp_path, "packages/common/benchmarks/bench.py", "import mailroom_record\n")
     for skipped in (".venv/lib", "build/lib", "dist", "__pycache__", "mailroom_common.egg-info"):
         write(tmp_path, f"packages/common/{skipped}/mod.py", "import mailroom_record\n")
+    # A real subpackage that happens to be named build or dist is package code, not tooling output.
+    write(tmp_path, "packages/common/src/mailroom_common/build/real.py", "import mailroom_record\n")
     rule = "common must not import mailroom_record (it may import: nothing of ours)"
     assert messages(check_workspace(tmp_path), tmp_path) == [
         f"packages/common/benchmarks/bench.py:1: {rule}",
         f"packages/common/conftest.py:1: {rule}",
         f"packages/common/setup.py:1: {rule}",
+        f"packages/common/src/mailroom_common/build/real.py:1: {rule}",
     ]
 
 

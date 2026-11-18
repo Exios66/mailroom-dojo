@@ -34,6 +34,7 @@ mailroom-dojo/
 │   ├── plans/                 one build plan per project, dated
 │   ├── adr/                   architecture decision records
 │   ├── test-strategy-*.md     one test strategy per package
+│   ├── handoff/               dated notes handing a chunk of work to the next session
 │   └── reports/               gate reports, written by scripts (created on first use)
 ├── scripts/                   workspace checks: dependency boundaries, this layout map, session links
 ├── tests/                     workspace-level tests (the dependency rule, the checks in scripts/)

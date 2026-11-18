@@ -38,8 +38,11 @@ __all__ = [
 ]
 
 MODULE_PREFIX = "mailroom_"
-#: Folders inside a package that are never scanned (tooling output, not package code).
-SKIPPED_FOLDERS = frozenset({".venv", "build", "dist", "__pycache__"})
+#: Folders directly under a package root that are never scanned (tooling output, not package code).
+#: A real subpackage that happens to be named ``build`` or ``dist`` deeper down is still scanned.
+SKIPPED_FOLDERS = frozenset({".venv", "build", "dist"})
+#: Folder names skipped at any depth: bytecode caches and packaging metadata.
+SKIPPED_ANYWHERE = frozenset({"__pycache__"})
 
 _EVERY_OTHER = frozenset({"common", "dictionaries", "record", "labels", "dojo", "engine"})
 
@@ -119,7 +122,9 @@ def _package_dirs(packages_root: Path) -> list[Path]:
 def _python_files(package_dir: Path) -> Iterator[Path]:
     for path in sorted(package_dir.rglob("*.py")):
         folders = path.relative_to(package_dir).parts[:-1]
-        if not any(part in SKIPPED_FOLDERS or part.endswith(".egg-info") for part in folders):
+        if folders and folders[0] in SKIPPED_FOLDERS:
+            continue
+        if not any(part in SKIPPED_ANYWHERE or part.endswith(".egg-info") for part in folders):
             yield path
 
 
