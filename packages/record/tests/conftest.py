@@ -21,3 +21,13 @@ def store(tmp_path: Path) -> SimpleNamespace:
     run = Run(**run_fields())
     log.create_run(run)
     return SimpleNamespace(root=tmp_path, blobs=blobs, log=log, run=run)
+
+
+@pytest.fixture
+def store_with_events(store: SimpleNamespace) -> SimpleNamespace:
+    """``store`` with flushed events: ``d1`` has 2, ``d2`` has 1 (writer ``w0``, closed)."""
+    with store.log.open_writer("r1", "w0") as w:
+        w.append(doc_id="d1", node="classify", kind="decision", decision={"chosen": "contract"})
+        w.append(doc_id="d1", node="extract", kind="output")
+        w.append(doc_id="d2", node="classify", kind="decision")
+    return store

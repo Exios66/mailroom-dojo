@@ -187,3 +187,24 @@ def append_until_killed(root: str, run_id: str, writer_id: str, docs: list[str],
     while True:
         w.append(doc_id=docs[i % len(docs)], node="loop", kind="handoff", payload={"i": i, "pad": pad})
         i += 1
+
+
+# --- seal helpers (Task 6) ----------------------------------------------------------
+
+
+def append_more(store: Any, doc_id: str, n: int, writer_id: str = "w-more") -> list[Any]:
+    """Append ``n`` events to ``doc_id`` with a fresh writer, close it, return the events."""
+    with store.log.open_writer("r1", writer_id) as w:
+        return [w.append(doc_id=doc_id, node=f"more{i}", kind="handoff") for i in range(n)]
+
+
+def seal_in_child(root: str, run_id: str, rounds: int) -> list[int]:
+    """Process target: seal ``run_id`` ``rounds`` times, return the seal numbers seen."""
+    from pathlib import Path
+
+    from mailroom_record.blobs import BlobStore
+    from mailroom_record.log import EventLog
+    from mailroom_record.seal import seal_run
+
+    log = EventLog(Path(root), BlobStore(Path(root)))
+    return [seal_run(log, run_id).n for _ in range(rounds)]
