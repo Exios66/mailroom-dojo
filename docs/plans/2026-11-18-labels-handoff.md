@@ -9,7 +9,7 @@ Branch: `claude/project-thread-pbvxf9` (pushed), stacked on `claude/project-thre
 - Reviews: independent Opus review of Task 1 (9 findings fixed) and of the data and importers (data faithful to every source, my own resolver agreed on all 33,716 fields, 0 blocking). Its 3 majors and minors were fixed in the last nine commits.
 
 ## Not done
-- No independent review of the final nine fix commits (`78cdede..156d48f`); one fresh Opus review of that range is the next step. The fixer was stopped before its final report, so its gate output was not seen; the head gate above was re-run by the lead.
+- No independent review of the final nine fix commits (`86f292d..156d48f`, i.e. 78cdede through 156d48f); one fresh Opus review of that range is the next step. The fixer was stopped before its final report, so its gate output was not seen; the head gate above was re-run by the lead.
 - CircleCI has not run on this branch (project not set up for the repo).
 - Not verified: live `fetch_hub.py` download, `build_profile.py` regeneration (needs the EDA clone), rebuilding the review snapshot from public sources (inputs are project files).
 - Merge only after PRs #2 and #3 land, then retarget this PR to `main`.

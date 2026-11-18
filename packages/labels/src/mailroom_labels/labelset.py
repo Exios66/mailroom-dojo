@@ -14,6 +14,10 @@ document once. The result is immutable:
 - ``label_snapshot_ids()``: the same as the strings ``mailroom_record.models.Run`` stores in
   ``label_snapshot_ids`` (``<snapshot_id>@<manifest_hash>``);
 - ``report``: the quality report (warnings stay visible; known ones are marked).
+
+``load_label_set(..., strict=True)`` also refuses a set with a warning that the snapshot
+raising it does not accept, the same rule as ``mailroom-labels verify --strict``; a scorer
+that must not run on unreviewed warnings asks for it.
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ from mailroom_labels.errors import LabelsError
 from mailroom_labels.layers import corpus_index, read_layers
 from mailroom_labels.models import DocumentLabels
 from mailroom_labels.profile import ClientProfile
-from mailroom_labels.quality import QualityReport, check_dirs
+from mailroom_labels.quality import QualityReport, check_dirs, verify
 from mailroom_labels.resolve import resolve
 from mailroom_labels.snapshot import LabelSnapshot, label_snapshot_ids, snapshot_refs
 from mailroom_record.hashing import hash_obj
@@ -35,12 +39,16 @@ __all__ = ["LabelSet", "QualityGateFailed", "load_label_set"]
 
 
 class QualityGateFailed(LabelsError):
-    """The quality gate found at least one error; ``report`` holds every finding."""
+    """The quality gate failed: at least one error, or (strict) a warning its snapshot does
+    not accept. ``report`` holds every finding."""
 
-    def __init__(self, report: QualityReport) -> None:
+    def __init__(self, report: QualityReport, *, strict: bool = False) -> None:
         self.report = report
-        kinds = sorted({f.kind for f in report.errors})
-        super().__init__(f"{len(report.errors)} quality error(s): {', '.join(kinds)}")
+        failing = (*report.errors, *(report.unknown_warnings if strict else ()))
+        kinds = sorted({f.kind for f in failing})
+        super().__init__(f"{len(report.errors)} quality error(s)"
+                         + (f", {len(report.unknown_warnings)} unknown warning(s)" if strict else "")
+                         + f": {', '.join(kinds)}")
 
 
 @dataclass(frozen=True)
@@ -77,12 +85,14 @@ class LabelSet:
         return label_snapshot_ids(self.snapshots)
 
 
-def load_label_set(directories: Iterable[Path | str], profile: ClientProfile) -> LabelSet:
+def load_label_set(directories: Iterable[Path | str], profile: ClientProfile, *, strict: bool = False) -> LabelSet:
     """Load, check and resolve snapshot directories; raise ``QualityGateFailed`` on any error
-    (a snapshot that fails to load is an error too)."""
+    (a snapshot that fails to load is an error too). With ``strict`` (what ``mailroom-labels
+    verify --strict`` checks) a warning that the snapshot raising it does not list in its
+    ``known_warnings`` fails the gate too."""
     report, loaded = check_dirs(list(directories), profile)
-    if not report.ok:
-        raise QualityGateFailed(report)
+    if verify(report, strict=strict) != 0:
+        raise QualityGateFailed(report, strict=strict)
     read = read_layers(loaded)
     docs = resolve(read.records, profile, corpus_index(read.corpus))
     return LabelSet(snapshots=tuple(loaded), profile=profile, report=report, _documents=docs)

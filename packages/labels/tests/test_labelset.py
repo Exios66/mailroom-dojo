@@ -62,3 +62,18 @@ def test_label_snapshot_ids_fit_the_run_header(tmp_path: Path) -> None:
     assert ids == sorted(ids) and all("@" in i for i in ids)
     assert ids[0] == f"hub-test@{load_snapshot(tmp_path / 'hub-test').manifest_hash}"
     assert Run.model_fields["label_snapshot_ids"].annotation == list[str]
+
+
+def test_strict_label_set_refuses_a_warning_its_snapshot_does_not_accept(tmp_path: Path) -> None:
+    from labels_testkit import review_row
+
+    stray = make_snapshot(tmp_path, "review", [review_row("D3", "filing_id", "F1")], snapshot_id="rv-extra")
+    dirs = [*standard_set(tmp_path), stray]
+    assert load_label_set(dirs, profile()).report.unknown_warnings  # lenient: loads, warning visible
+    with pytest.raises(QualityGateFailed, match="1 unknown warning") as info:
+        load_label_set(dirs, profile(), strict=True)
+    assert [f.kind for f in info.value.report.unknown_warnings] == ["orphan_decision"]
+    accepted = ({"kind": "orphan_decision", "doc": "D3", "field": "filing_id", "reason": "added by review"},)
+    ok = make_snapshot(tmp_path / "ok", "review", [review_row("D3", "filing_id", "F1")], snapshot_id="rv-extra",
+                       known_warnings=accepted)
+    assert load_label_set([*standard_set(tmp_path / "ok"), ok], profile(), strict=True).report.unknown_warnings == ()

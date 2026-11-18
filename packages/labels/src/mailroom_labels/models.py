@@ -23,12 +23,13 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 __all__ = [
-    "SNAPSHOT_ID_PATTERN",
+    "DROPPED_SOURCE_KEYS",
     "LAYERS",
     "PRESENCES",
     "RANKS",
     "RANK_STATUS",
     "SEVERITIES",
+    "SNAPSHOT_ID_PATTERN",
     "STATUS_WORDS",
     "UNTRUSTED_RANKS",
     "CorpusEntry",
@@ -53,12 +54,6 @@ PRESENCES: tuple[str, ...] = Presence.__args__  # type: ignore[attr-defined]
 Severity = Literal["error", "warning"]
 SEVERITIES: tuple[str, ...] = Severity.__args__  # type: ignore[attr-defined]
 
-#: Every rank a layer reader can emit, with the status word a winning label of that rank
-#: carries. The profile's ``precedence`` orders a subset of these. The Hub has two ranks:
-#: ``hub`` for a populated value and ``hub:absent`` for a documented absence or
-#: ``not_applicable``, because the sandbox lets interim ``gap_fill`` / ``derived`` replace a
-#: Hub absence (``interim_labels.apply_overlay`` skips only a populated Hub field) while a
-#: near_gold label never does (``gold_labels.apply_near_gold``).
 #: Manifest ``source`` keys where an importer lists source data it left out. A non-empty
 #: one means the snapshot is incomplete: the importer refuses it unless told to keep it
 #: for inspection, and the quality gate reports it as an error.
@@ -69,6 +64,12 @@ DROPPED_SOURCE_KEYS: tuple[str, ...] = ("rejected_lines", "unparseable_gt_fields
 #: ``+`` (a label set id joins member ids with ``+``) or ``@`` (``<snapshot_id>@<hash>``).
 SNAPSHOT_ID_PATTERN = r"^[a-z0-9][a-z0-9._-]*$"
 
+#: Every rank a layer reader can emit, with the status word a winning label of that rank
+#: carries. The profile's ``precedence`` orders a subset of these. The Hub has two ranks:
+#: ``hub`` for a populated value and ``hub:absent`` for a documented absence or
+#: ``not_applicable``, because the sandbox lets interim ``gap_fill`` / ``derived`` replace a
+#: Hub absence (``interim_labels.apply_overlay`` skips only a populated Hub field) while a
+#: near_gold label never does (``gold_labels.apply_near_gold``).
 RANK_STATUS: dict[str, str] = {
     "review:gold": "gold",
     "interim:correction": "interim",
