@@ -521,9 +521,9 @@ These are Claude's estimates from v1 and the budget plan, at an assumed 10,000 d
 | --- | --- | --- |
 | Event log plus live index | Two writes can disagree after a crash | The log is the only truth. The index is derived and can be rebuilt from the log with one command. Nothing is written to the index that is not already in the log |
 | Blobs and events | An event could point at a blob that never reached disk | Write order is fixed: blob first, then the event that names it, then the index. Events are flushed in small groups |
-| Resume | Replaying a step after a crash would pay for the model call twice and could give a different answer | Each model response is recorded before the engine acts on it. Resume skips any step whose result is in the record |
+| Resume | Replaying a step after a crash would pay for the model call twice and could give a different answer | Each model response is recorded before the engine acts on it. Resume skips any step whose result is in the record. Accepted: a crash after the provider finished a call but before its response was recorded loses that response, and resume repeats the call (paid twice, possibly another answer). No provider idempotency key is relied on; the exposure is one call per step in flight |
 | One executor checkpoint | LangGraph has its own checkpointer, which would be a second source of state | The record is the only checkpoint. The framework's own persistence stays off |
-| Run hash at seal | A production service never ends, so its run would never seal | Seal on a fixed period (for example hourly) and chain each seal to the one before |
+| Run hash at seal | A production service never ends, so its run would never seal | Seal on a fixed period (for example hourly) and chain each seal to the one before. Accepted for project 1: the latest seal is not anchored outside the run directory, so deleting it together with the events after the seal before it leaves a valid shorter record (a rollback only an external copy of the seal hash can show; ADR-0002) |
 | Hash chain and stored documents | A client may require a document to be deleted, but an append-only chain cannot drop entries | The chain holds only hashes. Content lives in blobs. Deleting a blob leaves a tombstone and the chain still verifies. Blobs are encrypted at rest in a deploy |
 | Projections | Five points is too few to trust a fitted curve, and per-class data today is 5 documents | Resampling measured documents is the primary method. A fitted curve is reported only with at least 30 documents in the class, and always beside the resampled figure |
 
@@ -545,9 +545,9 @@ The dependency direction is enforced by a test: the Dojo and the engine import t
 
 ### The go or no-go gate
 
-Stages 1 and 2 are worth having even if the engine is never rewritten, because the record importer and the Dojo work on the current pipeline's runs. The engine's `legacy` match is the riskiest stage: the current graph is about 8,900 lines with years of edge cases.
+Projects 1 to 3 (record, labels, Dojo) are worth having even if the engine is never rewritten, because the record importer, the labels and the Dojo work on the current pipeline's runs. The engine's `legacy` match is the riskiest project: the current graph is about 8,900 lines with years of edge cases.
 
-**Gate after stage 2:** JJB decides whether to build the new engine or fall back to approach 3 and slim the current pipeline in place. The engine stage is time-boxed. If router replay is not matching within the box, the fallback is taken and nothing built so far is wasted.
+**Gate after project 3 (the Dojo) and its proof gates, before project 5 (the engine):** JJB decides whether to build the new engine or fall back to approach 3 and slim the current pipeline in place. The engine stage is time-boxed. If router replay is not matching within the box, the fallback is taken and nothing built so far is wasted.
 
 ### Trade-offs accepted
 
@@ -585,7 +585,7 @@ A fresh reviewer read this design as its builder would. These further calls answ
 | What if stored runs lack inputs the router reads? | Stage 1 audits each stored folder first and reports what routing inputs are present. Router replay covers what is present, and the new recorded run covers the rest |
 | Which numbers are authoritative? | Field scores: the Dojo commit pinned at the 0.30.0 tag. Outcomes and utility: the sandbox's stored numbers. They are different layers, so they do not collide. PR #182 is ported after it merges |
 | What happens to the old deploy's data at cutover? | A fresh start. The old deploy stays readable for history, and its repos take fixes only. Importing its audit database comes after cutover |
-| How is a missing document detected between seals? | Each periodic seal commits the list of documents it covers, so a deleted chain or a cut tail fails verification |
+| How is a missing document detected between seals? | Each periodic seal commits the list of documents it covers, so deleting a chain or cutting a tail that a seal covers fails verification. A document added and deleted between two seals, or events appended after the latest seal and removed before the next, are not detectable: no seal names them (the window is the seal period) |
 | What is the throughput floor measured with? | Durable per-event writes switched on. SQLite on one host is the design point; Postgres claims are for the deploy |
 
 ### Open questions for JJB

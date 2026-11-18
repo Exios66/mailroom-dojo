@@ -5,6 +5,9 @@ Workspace for the lean Mailroom rewrite. Each package lives under `packages/`:
 blob store) and `packages/labels/` (`mailroom_labels`: label snapshots, precedence, the
 quality gate and coverage). Design and build plan: `docs/specs/` and `docs/plans/`.
 
+Requires Python 3.11 or later (CI runs 3.11 and 3.12). If `python3` is older, name a
+newer interpreter instead, for example `python3.12 -m venv .venv`.
+
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]" -e "packages/labels[dev]"
 .venv/bin/python -m pytest packages/record/tests packages/labels/tests -q
@@ -41,8 +44,7 @@ mailroom-dojo/
 │       └── labels/            label data-quality, coverage and sandbox cross-check reports
 ├── scripts/                   workspace checks: dependency boundaries, this layout map, session links
 ├── tests/                     workspace-level tests (the dependency rule, the checks in scripts/)
-├── tools/                     tools that belong to no package
-│   └── governance/            tests for the leak guard and the agent hooks (see AGENTS.md, section 14)
+├── tools/                     governance: the session-link guard and agent-hook tests (`tools/governance/`)
 ├── .claude/                   agent rules, subagents, hooks and settings
 ├── .github/                   PR templates and the contributing guide
 └── .circleci/                 CI (CircleCI only)

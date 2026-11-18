@@ -3,7 +3,10 @@
 Stored bytes are never rewritten. A reader parses a stored line into a dict and passes it
 through ``upgrade_event`` / ``upgrade_run`` / ``upgrade_seal``, which apply a table of
 ``{from_version: step}`` functions in order until the dict is at the current version. A
-version newer than this code raises ``UnknownSchemaVersion``.
+version newer than this code raises ``UnknownSchemaVersion``. Input that is not a mapping
+raises ``TypeError``; a mapping nested deeper than the reader can copy raises ``ValueError``,
+so a damaged record never escapes a reader as ``AttributeError`` or ``RecursionError``.
+Error messages name types and versions, never stored values.
 
 Hashes are never checked on the upgraded dict: an event's ``hash`` covers the form it was
 written in, so a verifier hashes the parsed stored dict *before* upgrading it. Upgrades
@@ -58,13 +61,20 @@ SEAL_STEPS: Mapping[int, Step] = {}
 
 
 def _upgrade(raw: Mapping[str, Any], steps: Mapping[int, Step], current: int, what: str) -> dict[str, Any]:
+    if not isinstance(raw, Mapping):  # a stored file or line that parsed to a list, a number, ...
+        raise TypeError(f"{what}: a stored {what} must be a JSON object, got {type(raw).__name__}")
     version = raw.get("schema_version")
     # bool is an int subclass; True must not pass as version 1.
     if not isinstance(version, int) or isinstance(version, bool) or version < 0:
-        raise UnknownSchemaVersion(f"{what}: schema_version must be a non-negative int, got {version!r}")
+        # Name the type, never the value: a damaged record may hold document text there.
+        shown = repr(version) if isinstance(version, int) else type(version).__name__
+        raise UnknownSchemaVersion(f"{what}: schema_version must be a non-negative int, got {shown}")
     if version > current:
         raise UnknownSchemaVersion(f"{what}: schema_version {version} is newer than this code ({current})")
-    out = copy.deepcopy(dict(raw))
+    try:
+        out = copy.deepcopy(dict(raw))
+    except RecursionError:  # parsed, but nests deeper than copying can recurse (any Python version)
+        raise ValueError(f"{what}: nested too deeply to read") from None
     while version < current:
         step = steps.get(version)
         if step is None:

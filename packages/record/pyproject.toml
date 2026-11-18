@@ -15,6 +15,9 @@ dependencies = [
     "typer",
 ]
 
+[project.scripts]
+mailroom-record = "mailroom_record.cli:app"
+
 [project.optional-dependencies]
 analysis = ["duckdb"]
 dev = ["pytest", "pytest-xdist", "hypothesis"]
