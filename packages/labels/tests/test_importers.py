@@ -1914,7 +1914,9 @@ def test_a_review_line_the_reader_would_refuse_is_a_rejected_line(tmp_path: Path
     lone["note"] = "a\ud800b"
     edge = desk("D4", "sender", _nested(63))  # the line is 64 deep; the written row 65
     with pytest.raises(ImportRefused, match="rejected_lines 3"):
-        review(tmp_path, [decision("D1", "sender", "Ann"), decision("D3", "sender", _nested(80)), lone], [edge])
+        review(
+            tmp_path, [decision("D1", "sender", "Ann"), decision("D3", "sender", _nested(80)), lone], [edge]
+        )
     manifest, rows = review(
         tmp_path,
         [decision("D1", "sender", "Ann"), decision("D3", "sender", _nested(80)), lone],

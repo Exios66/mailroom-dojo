@@ -92,7 +92,11 @@ def _crosscheck() -> dict[str, Any]:
 def test_the_data_quality_report_prints_no_value_text(tmp_path: Path) -> None:
     module = _report_module()
     built = module.build(
-        _sentinel_set(tmp_path), PROFILE_PATH, _crosscheck(), [("D1", "sender"), ("D2", "recipient"), ("D2", "action_items")], "2026-01-01"
+        _sentinel_set(tmp_path),
+        PROFILE_PATH,
+        _crosscheck(),
+        [("D1", "sender"), ("D2", "recipient"), ("D2", "action_items")],
+        "2026-01-01",
     )
     assert built is not None, "the synthetic set must pass the quality gate"
     quality_md, cov, cov_md = built

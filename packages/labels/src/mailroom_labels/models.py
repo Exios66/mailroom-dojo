@@ -321,7 +321,9 @@ class SnapshotManifest(BaseModel):
         return _thawed_json(value)  # type: ignore[no-any-return]
 
     @field_serializer("stored_known_warnings")
-    def _warnings_plain(self, value: tuple[Mapping[str, str | None], ...]) -> tuple[dict[str, str | None], ...]:
+    def _warnings_plain(
+        self, value: tuple[Mapping[str, str | None], ...]
+    ) -> tuple[dict[str, str | None], ...]:
         return tuple(dict(w) for w in value)
 
     @property
