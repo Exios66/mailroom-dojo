@@ -257,10 +257,13 @@ class MetricTable:
 
         Raises :class:`UnknownMetricError` for an id outside the table and
         :class:`MeasureError` when the measure breaks the row: the metric is not ported
-        or is not a number (a tag or text), the value is outside the unit's range
-        (``float[0,1]`` and ``boolean`` in ``[0, 1]``, every other unit non-negative), a
-        metric that needs labels claims ``label_status="none"``, or the cost basis does
-        not match the row (a cost needs a basis; any other metric has ``none``).
+        or is not a number (a tag or text); the value is outside the unit's range
+        (``float[0,1]`` and ``boolean`` in ``[0, 1]``, every other unit non-negative); a
+        ``count`` or ``int`` value is not a whole number (unless the row's aggregation
+        is ``mean``: a mean of counts need not be whole); a ``boolean`` is not 0 or 1;
+        the interval leaves the unit's range or does not contain the value; a metric
+        that needs labels claims ``label_status="none"``; or the cost basis does not
+        match the row (a cost needs a basis; any other metric has ``none``).
         """
         row = self.get(measure.method)
         if row.status == "not_ported":
@@ -271,12 +274,19 @@ class MetricTable:
             )
         value = measure.value
         if value is not None:
-            if row.unit in ("float[0,1]", "boolean") and not 0.0 <= value <= 1.0:
-                raise MeasureError(f"{row.id}: {value!r} is outside [0, 1] for unit {row.unit!r}")
-            if value < 0:
-                raise MeasureError(f"{row.id}: {value!r} is negative for unit {row.unit!r}")
+            _check_in_unit(row, value, "value")
             if row.unit == "boolean" and value not in (0, 1):
                 raise MeasureError(f"{row.id}: a boolean value is 0 or 1, got {value!r}")
+            if row.unit in _WHOLE_UNITS and row.aggregation != "mean" and not float(value).is_integer():
+                raise MeasureError(f"{row.id}: a {row.unit} is a whole number, got {value!r}")
+        if measure.ci is not None and value is not None:
+            _check_in_unit(row, measure.ci.low, "ci.low")
+            _check_in_unit(row, measure.ci.high, "ci.high")
+            if not measure.ci.low <= value <= measure.ci.high:
+                raise MeasureError(
+                    f"{row.id}: the interval [{measure.ci.low!r}, {measure.ci.high!r}] "
+                    f"does not contain the value {value!r}"
+                )
         if row.ground_truth == "required" and measure.label_status == "none":
             raise MeasureError(f"{row.id}: needs labels, so label_status cannot be 'none'")
         if row.cost and measure.cost_basis == "none":
@@ -286,6 +296,19 @@ class MetricTable:
                 f"{row.id}: not a cost, so cost_basis must be 'none' (got {measure.cost_basis!r})"
             )
         return row
+
+
+#: Units whose values are whole numbers.
+_WHOLE_UNITS = frozenset({"count", "int"})
+#: Units bounded by ``[0, 1]``; every other numeric unit is non-negative.
+_UNIT_INTERVAL = frozenset({"float[0,1]", "boolean"})
+
+
+def _check_in_unit(row: MetricRow, number: float, what: str) -> None:
+    if row.unit in _UNIT_INTERVAL and not 0.0 <= number <= 1.0:
+        raise MeasureError(f"{row.id}: {what} {number!r} is outside [0, 1] for unit {row.unit!r}")
+    if number < 0:
+        raise MeasureError(f"{row.id}: {what} {number!r} is negative for unit {row.unit!r}")
 
 
 def _fail(path: str, message: str) -> MetricTableError:

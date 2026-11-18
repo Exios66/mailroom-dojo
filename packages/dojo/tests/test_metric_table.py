@@ -23,6 +23,7 @@ from hypothesis import strategies as st
 
 from mailroom_dojo.measures import (
     READERS,
+    ConfidenceInterval,
     Measure,
     MeasureError,
     MetricTableError,
@@ -275,6 +276,10 @@ def test_queries_replace_tiers() -> None:
         table.get("tier0")
 
 
+def _ci(low: float, high: float) -> ConfidenceInterval:
+    return ConfidenceInterval(low=low, high=high, level=0.95, method="wilson")
+
+
 def _measure(method: str, **overrides: Any) -> Measure:
     fields: dict[str, Any] = {"value": 0.5, "n": 4, "cost_basis": "none", "label_status": "gold"}
     fields.update(overrides)
@@ -284,7 +289,12 @@ def _measure(method: str, **overrides: Any) -> Measure:
 @pytest.mark.parametrize(
     ("measure", "expected"),
     [
-        (lambda: _measure("accuracy", value=1.2), r"outside \[0, 1\]"),
+        (lambda: _measure("accuracy", value=1.2), r"value 1.2 is outside \[0, 1\]"),
+        (lambda: _measure("prompt_tokens", value=10.5), "a count is a whole number"),
+        (lambda: _measure("reviewer_accept_rule_violations", value=2.5), "a int is a whole number"),
+        (lambda: _measure("accuracy", value=0.5, ci=_ci(0.6, 0.9)), "does not contain the value 0.5"),
+        (lambda: _measure("accuracy", value=0.95, ci=_ci(0.9, 1.05)), r"ci.high 1.05 is outside \[0, 1\]"),
+        (lambda: _measure("wer", value=0.1, ci=_ci(-0.2, 0.3)), "ci.low -0.2 is negative"),
         (lambda: _measure("accuracy", value=-0.1), r"outside \[0, 1\]"),
         (lambda: _measure("wer", value=-0.5), "negative"),
         (lambda: _measure("accuracy", label_status="none"), "needs labels"),
@@ -295,6 +305,11 @@ def _measure(method: str, **overrides: Any) -> Measure:
     ],
     ids=[
         "rate above 1",
+        "fractional count",
+        "fractional int",
+        "interval misses value",
+        "interval above 1",
+        "interval below 0",
         "rate below 0",
         "negative error",
         "labels",
@@ -323,6 +338,13 @@ def test_check_accepts_measures_that_keep_their_rows() -> None:
     assert table.check(_measure("accuracy")).id == "accuracy"
     assert table.check(_measure("wer", value=1.7)).unit == "error_rate"
     assert table.check(_measure("cost_per_document", value=0.02, cost_basis="token_price_estimate")).cost
-    assert table.check(Measure.missing(method="accuracy", reason="gt_missing", label_status="unverified"))
+    assert table.check(Measure.missing(method="accuracy", reason="gt_missing"))
+    assert table.check(_measure("prompt_tokens", value=120, label_status="none")).unit == "count"
+    assert table.check(_measure("prompt_tokens", value=120.0, label_status="none")).unit == "count"
+    assert (
+        table.check(_measure("intake_hyphen_unwraps", value=1.5, label_status="none")).aggregation == "mean"
+    )
+    assert table.check(_measure("accuracy", value=0.5, ci=_ci(0.5, 1.0))).id == "accuracy"
+    assert table.check(_measure("wer", value=1.7, ci=_ci(1.2, 2.4))).id == "wer"
     with pytest.raises(UnknownMetricError):
         table.check(_measure("not_a_metric"))
