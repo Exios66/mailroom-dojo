@@ -1,0 +1,44 @@
+name: label_statuses
+version: 2
+description: >-
+  The status every ground-truth label keeps, by precedence. The rank rule: when two layers
+  label the same field, the lower rank wins. Gold reviewer decisions sit on top (rank 1);
+  below them the layers apply Hub, then interim, then near_gold, each filling only what the
+  layers above it leave unlabelled (an interim correction is the one exception: see its entry).
+  Two nuances from the Dojo's label policy: the near_gold layer is opt-in there, and an interim
+  correction is compared with the Hub value as published, before stale labels are dropped.
+  Precedence does not change. Source: docs/specs/2026-11-18-lean-rewrite-design.md (R6,
+  "Labels package") and llm-dojo-scoring llm_dojo_scoring/schemas/label_policy.py.
+ordered: true
+entries:
+  - key: gold
+    label: Gold
+    rank: 1
+    description: A gold-label review decision, recorded with the reviewer's initials.
+    attributes:
+      applies_when: always; a reviewer decision overrides every other layer
+  - key: hub
+    label: Hub
+    rank: 2
+    description: >-
+      A label published in the pinned mailroom dataset (Lucius-Morningstar/mailroom-dataset),
+      less the labels the Dojo's label policy drops as stale.
+    attributes:
+      applies_when: the dataset publishes a label that is not stale
+  - key: interim
+    label: Interim
+    rank: 3
+    description: >-
+      A Claude-generated label built from gate-accepted, grounded extractions (schema
+      mailroom-interim-labels/v1). A gap fill applies only where the Hub has no label; a
+      correction applies only while the Hub value still equals the value it corrects.
+    attributes:
+      applies_when: the Hub has no label, or a correction still matches the Hub value it corrects
+  - key: near_gold
+    label: Near-gold
+    rank: 4
+    description: >-
+      A Claude-generated label from two agreeing passes or an Opus review. It fills only fields
+      that neither the Hub nor an interim label covers.
+    attributes:
+      applies_when: neither the Hub nor an interim label covers the field

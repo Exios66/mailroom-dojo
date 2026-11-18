@@ -1,0 +1,30 @@
+name: insurance_claim_intent
+version: 1
+description: >-
+  Closed vocabulary of the insurance_claim `intent` field. Values: llm-mailroom
+  src/config/taxonomy.yaml (insurance_claim label_vocabularies). Descriptions and aliases:
+  llm-dojo-scoring llm_dojo_scoring/schemas/intents.py (INTENT_LABELS, INTENT_DESCRIPTIONS,
+  INTENT_ALIASES; aliases that fold onto a key are left out).
+ordered: false
+entries:
+  - key: claim_filing
+    label: Claim filing
+    description: First notice of loss or claim submission.
+    aliases: [filing, firstnoticeofloss, noticeofloss, fnol, initialfnol]
+  - key: coverage_determination
+    label: Coverage determination
+    description: Approved, denied or partial determination letter.
+    aliases: [determination, denial, denialletter, denialnotice, denied, approved, partial, claimdenied,
+              claimapproved, claimpartiallyapproved, partialapproval, coverage_approval, coverage_denial,
+              coverage_partial]
+  - key: loss_report
+    label: Loss report
+    description: Adjuster report, appraisal or examination.
+    aliases: [adjusterreport]
+  - key: claim_data_record
+    label: Claim data record
+    description: CMS / DE-SynPUF table row (pde, inpatient, outpatient, carrier).
+    aliases: [data record]
+  - key: other
+    label: Other
+    description: Residual; none of the above.

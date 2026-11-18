@@ -1,0 +1,39 @@
+name: decision_slots
+version: 2
+description: >-
+  The eight decision slots of mailroom #309, carried over by R10 of
+  docs/specs/2026-11-18-lean-rewrite-design.md. Each slot is off by default, has its own caps,
+  and is switched on and tuned in a policy file or run spec; every slot call is recorded as a
+  decision event with the slot as its node. Of these keys only `sorter_reviewer` is a real
+  identifier today (the agent and prompt name in llm-mailroom); the others are the snake_case
+  of the names R10 gives. llm-mailroom's own decision-point slot names are free-form strings
+  of the form `<node>.post` (src/graph/decision_points.py; `extract.post` in its tests), not
+  these keys. The nearest real implementations of the extraction-side slots are llm-mailroom
+  src/agents/extraction_gate.py and the sandbox's ExtractionGateSpec
+  (local-mailroom-sandbox src/mailroom_sandbox/job/spec.py).
+ordered: false
+entries:
+  - key: sorter_reviewer
+    label: Sorter reviewer
+    description: A decision model reviews the sorter's classification (experiment Set A).
+  - key: archive_gate
+    label: Archive gate
+    description: A decision model gates whether a document is archived (experiment Set B).
+  - key: judge_replacement
+    label: Judge replacement
+    description: The judge replacement slot named in R10.
+  - key: judge_check
+    label: Judge check
+    description: The judge check slot named in R10.
+  - key: boss_check
+    label: Boss check
+    description: The boss check slot named in R10.
+  - key: arbiter_veto
+    label: Arbiter veto
+    description: The arbiter veto slot named in R10.
+  - key: closed_field_resolver
+    label: Closed-field resolver
+    description: The closed-field resolver slot named in R10.
+  - key: field_review
+    label: Field review
+    description: Field review, the field-level routing slot named in R10.

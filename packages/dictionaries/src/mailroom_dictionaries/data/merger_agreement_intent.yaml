@@ -1,0 +1,20 @@
+name: merger_agreement_intent
+version: 1
+description: >-
+  Closed vocabulary of the merger_agreement `intent` field. Values: llm-mailroom
+  src/config/taxonomy.yaml (merger_agreement label_vocabularies). Descriptions and aliases:
+  llm-dojo-scoring llm_dojo_scoring/schemas/intents.py (INTENT_LABELS, INTENT_DESCRIPTIONS,
+  INTENT_ALIASES; aliases that fold onto a key are left out).
+ordered: false
+entries:
+  - key: effect_merger
+    label: Effect merger
+    description: The agreement (and plan) of merger that effects the transaction.
+    aliases: [planofmerger, agreementandplanofmerger, mergeragreement]
+  - key: amend_merger
+    label: Amend merger
+    description: An amendment to an existing merger agreement.
+    aliases: [amendmenttomergeragreement, mergeramendment]
+  - key: other
+    label: Other
+    description: Residual; none of the above.

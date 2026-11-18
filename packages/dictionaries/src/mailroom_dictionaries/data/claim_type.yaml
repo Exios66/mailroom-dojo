@@ -1,0 +1,17 @@
+name: claim_type
+version: 1
+description: >-
+  Closed vocabulary of the insurance_claim `claim_type` field: the product line of the claim,
+  only. A CMS source-table token (pde, inpatient, outpatient, carrier) is not a product line
+  and is off this list; a CMS row's product line is health. Values: llm-mailroom
+  src/config/taxonomy.yaml (insurance_claim label_vocabularies). Row counts: llm-dojo-scoring
+  llm_dojo_scoring/schemas/corpus.py (INSURANCE_PRODUCT_LINES).
+ordered: false
+entries:
+  - {key: auto, label: Auto, description: "Auto claims (dataset rows: INSURBIAS and BDR motor decision letters)."}
+  - {key: property, label: Property, description: "Property claims (dataset rows: GNOTHEIA FNOL bundles)."}
+  - {key: liability, label: Liability, description: Liability claims; a legacy FNOL line no ground-truth row uses yet.}
+  - {key: health, label: Health, description: Health claims; every CMS / DE-SynPUF row.}
+  - {key: life, label: Life, description: Life claims; a legacy FNOL line no ground-truth row uses yet.}
+  - {key: workers_comp, label: Workers' compensation, description: Workers' compensation claims; a legacy FNOL line no ground-truth row uses yet.}
+  - {key: other, label: Other, description: Any other product line; no ground-truth row uses it yet.}
