@@ -14,6 +14,7 @@ function, the chunk that owns it or why it was dropped.
 
 1. A value is a finite real number or ``None``: never a bool, NaN or infinity (the old
    ``_is_real_score`` and the golden canonical form, which rejects non-finite floats).
+   Any ``numbers.Real`` but bool is accepted (numpy numbers too) and stored as ``float``.
 2. ``n == 0`` has no value: nothing scored proves nothing. New: old scorers returned
    ``0.0`` for some empty inputs; only ``aggregate_quality_honest`` (#16) returned
    ``None`` for an empty population. ``n`` is a non-negative integer (any
@@ -112,9 +113,19 @@ class IncomparableMeasuresError(ValueError):
         self.problems = problems
 
 
-def _is_real(value: Any) -> bool:
-    """A finite int or float that is not a bool."""
-    return isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+def _as_real(value: Any) -> float | None:
+    """``value`` as a finite ``float`` when it is a real number that is not a bool, else ``None``.
+
+    Any ``numbers.Real`` counts (numpy integers and floats, ``Fraction``); ``Decimal`` is not
+    one. NaN, infinity and an integer too large for a float give ``None``.
+    """
+    if not isinstance(value, numbers.Real) or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (OverflowError, ValueError, TypeError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _is_count(value: Any) -> bool:
@@ -184,8 +195,10 @@ class ConfidenceInterval:
 
     def __post_init__(self) -> None:
         for name in ("low", "high", "level"):
-            if not _is_real(getattr(self, name)):
+            number = _as_real(getattr(self, name))
+            if number is None:
                 raise MeasureError(f"ci.{name} must be a finite number, got {getattr(self, name)!r}")
+            object.__setattr__(self, name, number)
         if self.low > self.high:
             raise MeasureError(f"ci.low {self.low!r} is above ci.high {self.high!r}")
         if not 0.0 < self.level < 1.0:
@@ -208,7 +221,7 @@ class Measure:
     ``provenance`` which run produced it (needed for a comparison).
     """
 
-    value: float | int | None
+    value: float | None
     n: int
     cost_basis: str
     label_status: str
@@ -222,8 +235,11 @@ class Measure:
         if not _is_count(self.n):
             raise MeasureError(f"n must be a non-negative int, got {self.n!r}")
         object.__setattr__(self, "n", int(self.n))
-        if self.value is not None and not _is_real(self.value):
-            raise MeasureError(f"value must be a finite number or None, got {self.value!r}")
+        if self.value is not None:
+            number = _as_real(self.value)
+            if number is None:
+                raise MeasureError(f"value must be a finite number or None, got {self.value!r}")
+            object.__setattr__(self, "value", number)
         if self.cost_basis not in COST_BASES:
             raise MeasureError(f"cost_basis {self.cost_basis!r} is not one of {', '.join(COST_BASES)}")
         if self.label_status not in LABEL_STATUSES:

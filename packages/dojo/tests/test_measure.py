@@ -8,6 +8,8 @@ and one broken rule raises ``MeasureError`` naming it.
 from __future__ import annotations
 
 import dataclasses
+import decimal
+import fractions
 import math
 
 import numpy
@@ -154,6 +156,30 @@ def test_n_accepts_any_integral_type_and_stores_an_int(n: object) -> None:
 def test_a_value_is_a_finite_real_number(value: object) -> None:
     with pytest.raises(MeasureError, match="value must be a finite number"):
         _measure(value=value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [numpy.int64(1), numpy.float32(0.5), numpy.float64(0.25), numpy.uint8(1), fractions.Fraction(1, 4), 1],
+    ids=["numpy int64", "numpy float32", "numpy float64", "numpy uint8", "fraction", "int"],
+)
+def test_a_value_of_any_real_type_is_stored_as_a_float(value: object) -> None:
+    measure = _measure(value=value)
+    assert type(measure.value) is float and measure.value == float(value)  # type: ignore[arg-type]
+    interval = ConfidenceInterval(low=value, high=value, level=0.95, method="wilson")  # type: ignore[arg-type]
+    assert type(interval.low) is float and type(interval.high) is float
+
+
+@pytest.mark.parametrize(
+    "value",
+    [numpy.float32("nan"), numpy.float64("inf"), numpy.bool_(True), 10**400, decimal.Decimal("0.5")],
+    ids=["numpy nan", "numpy inf", "numpy bool", "int beyond float", "decimal"],
+)
+def test_a_value_of_a_real_type_is_still_finite_and_not_a_bool(value: object) -> None:
+    with pytest.raises(MeasureError, match="value must be a finite number"):
+        _measure(value=value)
+    with pytest.raises(MeasureError, match="ci.low must be a finite number"):
+        ConfidenceInterval(low=value, high=1.0, level=0.95, method="wilson")  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
