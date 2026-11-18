@@ -1,12 +1,13 @@
 # mailroom-dojo
 
-Workspace for the lean Mailroom rewrite. Each package lives under `packages/`;
-the first is `packages/record/` (`mailroom_record`: the append-only, hash-chained
-run record and its blob store). Design and build plan: `docs/specs/` and `docs/plans/`.
+Workspace for the lean Mailroom rewrite. Each package lives under `packages/`:
+`packages/record/` (`mailroom_record`: the append-only, hash-chained run record and its
+blob store) and `packages/labels/` (`mailroom_labels`: label snapshots, precedence, the
+quality gate and coverage). Design and build plan: `docs/specs/` and `docs/plans/`.
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]"
-.venv/bin/python -m pytest packages/record/tests -q
+python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]" -e "packages/labels[dev]"
+.venv/bin/python -m pytest packages/record/tests packages/labels/tests -q
 ```
 
 ## Layout
@@ -23,15 +24,17 @@ mailroom-dojo/
 │       (each package: pyproject.toml, README.md, src/<module>/, tests/, scripts/)
 ├── config/                    everything tuned without code (from project 2 on)
 │   ├── clients/<client>/      a client profile: document classes, schemas, thresholds, label snapshot
+│   │   └── mailroom-dataset/  profile.yaml (from build_profile.py), known-warnings.yaml, hub-revisions.yaml
 │   ├── policies/              routing policies (one file each; its hash is stored on every run)
 │   └── prompts/<prompt_set>/  prompt sets; variants are overlays on the default set
-├── labels/<snapshot>/         committed, versioned label snapshots with manifests (project 2)
+├── labels/                    README.md, and one committed label snapshot per <snapshot>/ with its manifest (project 2)
 ├── docs/
 │   ├── specs/                 the design (the master plan)
 │   ├── plans/                 one build plan per project, dated
 │   ├── adr/                   architecture decision records
 │   ├── test-strategy-*.md     one test strategy per package
 │   └── reports/               gate reports, written by scripts
+│       └── labels/            label data-quality, coverage and sandbox cross-check reports
 └── .circleci/                 CI (CircleCI only)
 ```
 

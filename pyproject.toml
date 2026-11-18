@@ -3,8 +3,7 @@
 #   pip install -e "packages/record[dev,analysis]"
 
 [tool.pytest.ini_options]
-testpaths = ["packages/record/tests", "packages/dojo/tests"]
+testpaths = ["packages/record/tests", "packages/labels/tests", "packages/dojo/tests"]
 addopts = "--import-mode=importlib"
-# Lets tests import shared helpers from packages/record/tests/record_testkit.py
-# and packages/dojo/tests/dojo_testkit.py.
-pythonpath = ["packages/record/tests", "packages/dojo/tests"]
+# Lets tests import shared helpers from packages/<pkg>/tests/<pkg>_testkit.py.
+pythonpath = ["packages/record/tests", "packages/labels/tests", "packages/dojo/tests"]
