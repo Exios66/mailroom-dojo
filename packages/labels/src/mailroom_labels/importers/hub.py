@@ -186,6 +186,21 @@ class _Tally:
         self.metadata_fields: Counter = Counter()
         self.bad_gt_fields: list[dict[str, Any]] = []
 
+    def add(self, row: _Tally) -> None:
+        """Merge the counts of one kept row (its rejections are recorded directly)."""
+        for cls, counts in row.omitted.items():
+            self.omitted[cls].update(counts)
+        for name in (
+            "metadata",
+            "mapped",
+            "decoded",
+            "undecoded",
+            "presence_without_value",
+            "not_applicable_nulled",
+            "metadata_fields",
+        ):
+            getattr(self, name).update(getattr(row, name))
+
     def source(self) -> dict[str, Any]:
         def nested(d: dict[str, Counter]) -> dict[str, dict[str, int]]:
             return {k: dict(sorted(v.items())) for k, v in sorted(d.items())}
@@ -223,16 +238,19 @@ def _fields(row: dict[str, Any], profile: ClientProfile, tally: _Tally) -> dict[
         )
         return None
     out: dict[str, dict[str, Any]] = {}
+    # This row's counts stay local until the row is kept: a row refused part-way through
+    # its keys must leave no count of its earlier keys in the manifest.
+    kept = _Tally()
     for key in sorted((set(gt) | set(presence)) - {PRESENCE_KEY}):
         spec = profile.field_spec(doc_class, key)
         value = gt.get(key)
         if key in presence:
             code = presence[key]
             if code == "not_applicable" and spec is None:
-                tally.omitted[str(doc_class)][key] += 1
+                kept.omitted[str(doc_class)][key] += 1
                 continue
             if isinstance(code, str) and code in _MAPPED_PRESENCE:
-                tally.mapped[f"{code}->{_MAPPED_PRESENCE[code]}"] += 1
+                kept.mapped[f"{code}->{_MAPPED_PRESENCE[code]}"] += 1
                 code = _MAPPED_PRESENCE[code]
             if not (isinstance(code, str) and code in HUB_PRESENCES):
                 # The reader refuses any other code as an unknown presence (a list code is
@@ -255,27 +273,28 @@ def _fields(row: dict[str, Any], profile: ClientProfile, tally: _Tally) -> dict[
                 )
                 return None
             if key not in gt:
-                tally.presence_without_value[key] += 1
+                kept.presence_without_value[key] += 1
             if code == "not_applicable" and value in _EMPTY and value is not None:
                 # The dataset fills a not-applicable field with an empty placeholder ("",
                 # "[]", ...) of whatever type the column has; it carries no label. Stored as
                 # null so the placeholder is never type- or vocabulary-checked as a value.
-                tally.not_applicable_nulled[f"{key}={value!r}"] += 1
+                kept.not_applicable_nulled[f"{key}={value!r}"] += 1
                 value = None
         else:
             if spec is None:
-                tally.metadata[key] += 1
+                kept.metadata[key] += 1
                 continue
-            tally.metadata_fields[key] += 1
+            kept.metadata_fields[key] += 1
             code = "unlabeled" if value in _EMPTY else "populated"
         if spec is not None and spec.type.startswith("entity_list") and isinstance(value, str):
             decoded = _json_or_raw(value)
             if isinstance(decoded, list):
                 value = decoded
-                tally.decoded[key] += 1
+                kept.decoded[key] += 1
             else:
-                tally.undecoded[key] += 1
+                kept.undecoded[key] += 1
         out[key] = {"value": value, "presence": code}
+    tally.add(kept)
     return out
 
 

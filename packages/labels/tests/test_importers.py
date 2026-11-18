@@ -1750,3 +1750,39 @@ def test_hub_presence_code_the_reader_refuses_refuses_the_import(tmp_path: Path,
     kinds = _gate_kinds(tmp_path, tmp_path / "hub-x")
     assert "dropped_source_data" in kinds and "malformed_record" not in kinds
 
+
+@pytest.mark.parametrize(
+    ("sender_value", "sender_code"),
+    [(None, "populated"), ("Zed", "flagged")],
+    ids=["populated_null", "unknown_code"],
+)
+def test_hub_rejected_row_adds_nothing_to_the_tallies(
+    tmp_path: Path, sender_value: Any, sender_code: str
+) -> None:
+    """A row refused part-way through its keys must not leave the counts of its earlier keys
+    (metadata, omitted placeholders, mapped presence) in the manifest: the source tallies
+    describe the rows that were written, so they equal those of the import without it."""
+    counted = (
+        "excluded_metadata_keys",
+        "omitted_not_applicable_placeholders",
+        "presence_mapped",
+        "presence_without_value",
+        "not_applicable_placeholders_nulled",
+        "fields_without_presence",
+        "decoded_json_lists",
+        "undecodable_list_values",
+        "rows",
+    )
+    base = hub_build(tmp_path / "hub-a", write_dataset(tmp_path / "a")).source
+    bad = gt_row(
+        "D9",
+        "letter",
+        "email",
+        "train",
+        {"aaa_meta": "x", "amount_zz": "", "sender": sender_value},
+        {"amount_zz": "not_applicable", "sender": sender_code, "action_items": "pending_annotation"},
+    )
+    data = write_dataset(tmp_path / "b", extra=[bad])
+    with_bad = hub_build(tmp_path / "hub-b", data, allow_rejected=True).source
+    assert len(with_bad["unparseable_gt_fields"]) == 1
+    assert {k: with_bad[k] for k in counted} == {k: base[k] for k in counted}
