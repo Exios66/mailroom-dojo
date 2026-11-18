@@ -108,6 +108,36 @@ def test_release_escalate_defer_and_reopen(env: SimpleNamespace) -> None:
     assert (c.enqueued_at, c.sla_due, c.anomalies) == (t2, t2 + timedelta(hours=24), ())
 
 
+def test_reopen_clears_assignment_claim_and_deferral(env: SimpleNamespace) -> None:
+    enqueue(env, "d1", "flag_low")
+    far = format_ts(T0 + timedelta(days=5))
+    desk_event(env, "d1", AssignPayload(action="assign", actor=ACTOR, assignee="rv-b"), T0)
+    desk_event(env, "d1", ClaimPayload(action="claim", actor=ACTOR, lease_expires_at=far), T0)
+    desk_event(env, "d1", DeferPayload(action="defer", actor=ACTOR, until=far), T0)
+    before = env.desk.case("r1", "d1", now=T0)
+    assert (before.status, before.assignee, before.deferred_until) == ("deferred", "rv-b", T0 + timedelta(days=5))
+    reopen = ReopenPayload(
+        action="reopen", actor=ACTOR, causes=("flag_normal",), rule="default", priority="normal", sla_hours=24,
+        queue="main", sampled=False, policy_name="synthetic", policy_hash=env.policy.hash,
+    )
+    desk_event(env, "d1", reopen, T0 + timedelta(hours=1))
+    c = env.desk.case("r1", "d1", now=T0 + timedelta(hours=1))
+    assert (c.status, c.assignee, c.claimed_by, c.lease_expires_at, c.deferred_until) == ("open", None, None, None, None)
+
+
+def test_claim_clears_a_deferral(env: SimpleNamespace) -> None:
+    enqueue(env, "d1", "flag_low")
+    until = T0 + timedelta(days=2)
+    lease = T0 + timedelta(hours=1)
+    desk_event(env, "d1", DeferPayload(action="defer", actor=ACTOR, until=format_ts(until)), T0)
+    assert env.desk.case("r1", "d1", now=T0).status == "deferred"
+    desk_event(env, "d1", ClaimPayload(action="claim", actor=ACTOR, lease_expires_at=format_ts(lease)), T0)
+    held = env.desk.case("r1", "d1", now=T0)
+    assert (held.status, held.claimed_by, held.deferred_until) == ("claimed", "rv-a", None)
+    lapsed = env.desk.case("r1", "d1", now=lease)  # the deferral does not come back
+    assert (lapsed.status, lapsed.deferred_until) == ("open", None)
+
+
 def test_escalate_without_sla_keeps_the_due_time(env: SimpleNamespace) -> None:
     enqueue(env, "d1", "flag_low")
     desk_event(env, "d1", EscalatePayload(action="escalate", actor=ACTOR, priority="high"), T0 + timedelta(hours=5))
@@ -193,10 +223,12 @@ def test_queue_order_priority_then_due_then_opened_then_id(env: SimpleNamespace)
     enqueue(env, "high-late", "flag_high", at=T0 + timedelta(hours=2))  # high, due +6h
     enqueue(env, "high-early", "flag_high", at=T0 + timedelta(hours=1))  # high, due +5h
     enqueue(env, "conf", "flag_conf", at=T0)  # low, due T0+48h: earlier than low-early
+    enqueue(env, "conf-late", "flag_conf", at=T0 + timedelta(hours=1))  # low, due +49h: opened later, due sooner
     enqueue(env, "b-tie", "flag_high", at=T0 + timedelta(hours=1))  # ties high-early on time
     engine_append(env.root, "r1", "unreadable", "review", payload={"x": 1})  # unknown priority
     order = [c.doc_id for c in env.desk.queue("r1", now=T0)]
-    assert order == ["unreadable", "b-tie", "high-early", "high-late", "normal", "conf", "low-early"]
+    assert order == ["unreadable", "b-tie", "high-early", "high-late", "normal", "conf", "conf-late", "low-early"]
+    assert order.index("conf-late") < order.index("low-early")  # due time before opened time
     assert [c.doc_id for c in env.desk.queue("r1", now=T0, queue="senior")] == ["b-tie", "high-early", "high-late"]
     assert [c.doc_id for c in env.desk.queue(now=T0, statuses=["open"])] == order
 

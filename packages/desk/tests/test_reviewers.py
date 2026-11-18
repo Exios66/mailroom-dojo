@@ -101,6 +101,9 @@ def test_authenticate_finds_the_holder_of_a_token() -> None:
     assert reg.authenticate("token-a", role="senior").role == "senior"
     with pytest.raises(UnknownReviewer):
         reg.authenticate("token-b")
+    with pytest.raises(RoleNotHeld) as info:  # the role asked for is checked, not dropped
+        reg.authenticate("token-a", role="qa")
+    assert (info.value.reviewer, info.value.role) == ("rv-a", "qa")
 
 
 def test_shipped_example_registry_loads() -> None:
