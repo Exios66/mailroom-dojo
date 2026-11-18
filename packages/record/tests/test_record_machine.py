@@ -207,8 +207,9 @@ class RecordMachine(RuleBasedStateMachine):
             with w.segment.open("ab") as f:
                 f.write(buffered[:cut])
             prefix = buffered[:cut]
-            self._make_durable(wid, prefix.count(b"\n"))
-            event(f"crash wrote {prefix.count(b'\n')} whole lines")
+            lines_written = prefix.count(b"\n")
+            self._make_durable(wid, lines_written)
+            event(f"crash wrote {lines_written} whole lines")
             if not prefix.endswith(b"\n"):
                 event("crash left a torn tail")
                 self.torn.append(TornTail(w.segment.name, size + prefix.rfind(b"\n") + 1))
