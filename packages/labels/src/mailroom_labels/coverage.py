@@ -104,7 +104,8 @@ def render_markdown(report: Mapping[str, Any]) -> str:
             f"Documents: {c['documents']}; verified: {c['verified_documents']}; "
             f"with a scorable field: {c['scorable_documents']}.",
             "",
-            "| Field | Scorable | " + " | ".join(STATUS_WORDS) + " | " + " | ".join(RANKS) + " |",
+            "| Field | Scorable | " + " | ".join(f"status {s}" for s in STATUS_WORDS) + " | "
+            + " | ".join(f"rank {r}" for r in RANKS) + " |",
             "| --- | ---: | " + " | ".join("---:" for _ in (*STATUS_WORDS, *RANKS)) + " |",
         ]
         for fname, cell in c["fields"].items():

@@ -111,3 +111,12 @@ def test_markdown_escapes_a_pipe_in_a_field_name(snapshot_dirs) -> None:
     assert row.startswith("| a\\|b |")
     header = next(line for line in md.splitlines() if line.startswith("| Field"))
     assert row.replace("\\|", "").count("|") == header.count("|")
+
+
+def test_markdown_headers_name_status_and_rank_columns_apart(snapshot_dirs) -> None:
+    docs, refs = docs_and_refs(snapshot_dirs)
+    md = render_markdown(coverage(docs, profile(), refs))
+    header = next(line for line in md.splitlines() if line.startswith("| Field"))
+    cols = [c.strip() for c in header.strip("|").split("|")]
+    assert len(cols) == len(set(cols)), "two columns share a name"
+    assert "status hub" in cols and "rank hub" in cols
