@@ -1,12 +1,13 @@
 # mailroom-dojo
 
-Workspace for the lean Mailroom rewrite. Each package lives under `packages/`;
-the first is `packages/record/` (`mailroom_record`: the append-only, hash-chained
-run record and its blob store). Design and build plan: `docs/specs/` and `docs/plans/`.
+Workspace for the lean Mailroom rewrite. Each package lives under `packages/`:
+`packages/record/` (`mailroom_record`: the append-only, hash-chained run record and its
+blob store) and `packages/labels/` (`mailroom_labels`: label snapshots, precedence, the
+quality gate and coverage). Design and build plan: `docs/specs/` and `docs/plans/`.
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]"
-.venv/bin/python -m pytest packages/record/tests -q
+python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]" -e "packages/labels[dev]"
+.venv/bin/python -m pytest packages/record/tests packages/labels/tests -q
 ```
 
 ## Layout
