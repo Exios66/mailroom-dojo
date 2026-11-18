@@ -115,7 +115,7 @@ failure, not just simple one-off unit tests." So, for every module:
 | Sandbox format drifts | Contract | Fixture folders mirror the real file shapes; the stage gate re-proves on real folders | 10, 12 |
 | A pack is corrupt or incomplete | Fault injection | Flipped byte gives `PackCorrupt`; unsealed run refused | 11 |
 | Prune deletes a shared blob | Integration | Two runs share a document; prune one; the other verifies | 11 |
-| Public surface drifts | Contract | `__all__` equals the 18 names | 12 |
+| Public surface drifts | Contract | `__all__` equals the 19 names | 12 |
 | Boundary creep | Static | AST walk: no import of sibling workspace packages | 1 |
 
 ## Additions beyond the plan's sketches

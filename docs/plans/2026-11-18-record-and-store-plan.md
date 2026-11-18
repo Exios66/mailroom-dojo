@@ -475,14 +475,14 @@ def test_cli_never_prints_blob_content(review_store):
 **Interfaces:**
 - Consumes: `EventLog`, `BlobStore`, `Run`, `seal_run`.
 - Produces:
-  - `import_sandbox_run(folder: Path, log: EventLog, blobs: BlobStore) -> ImportResult` with `ImportResult(run_id: str, status: Literal["imported", "already_imported"], documents: int, events: int, absent_fields: list[str])`.
+  - `import_sandbox_run(folder: Path, log: EventLog, blobs: BlobStore) -> ImportResult` with `ImportResult(run_id: str, status: Literal["imported", "already_imported"], documents: int, events: int, absent_fields: list[str], warnings: list[str])`.
   - `audit_sandbox_run(folder: Path) -> RoutingAudit` with `RoutingAudit(run_id, documents, nodes_seen: dict[str, int], decisions_seen: dict[str, int], present: list[str], absent: list[str])`.
   - CLI: `mailroom-record import sandbox-run <folder>` and `mailroom-record audit sandbox-run <folder>`.
 - Mapping rules:
   - `Run`: `origin="imported_sandbox"`, `kind="full_pipeline"` when `nodes.jsonl` has a `classify` node, else `"specialist_only"`; `backend` from `spec.lock.json` `engine`; `agent_models`, `prompt_hashes` (from `prompt.lock.json`), `code_version` (from `git`), `signed_by` (from `spend-authorization.json` if present, else `None`); `source = {"folder": <name>, "spec_hash": ...}`. `policy_name="legacy"`, `policy_hash=None`.
   - `doc_id` is `content_sha256`. `doc_text` becomes an `original`-role blob. `expected_*` fields are NOT imported into the record (labels belong to the labels package); only `expected_doc_class` is kept in the first event's `payload` as `draw_class`.
-  - Each `done`, `paused` or `failed` node row becomes one event, its kind decided in this order: `kind="review"` for `human_review`, `kind="error"` for `failed`, `kind="decision"` when `decisions` is non-empty, else `kind="handoff"` (so a paused `human_review` row with decisions is still a review, and Task 8's review queue sees it). `decision` holds the row's `decisions` list as given, minus any `options` text. `latency_ms` from `ms`. `ts` converted to ISO (the finish time).
-  - Floor replay (added 2026-11-18, see the spec's "Requirements added 2026-11-18", R7): the matching `running` row is not a separate event, but its time is kept on the finishing event as `payload.started_ts` (ISO). The finishing event's `payload` also keeps `status`, `step` (when present) and `stage` (when present). A `running` row with no finishing row (in flight when the run stopped) becomes one event with `kind="handoff"` and `payload.status="running"`. Pairing is by `(doc, node, step)` in file order, the same rule the sandbox's `tui/floor_replay.py:build_timeline` uses.
+  - Each `done`, `paused`, `error` or `failed` node row becomes one event, its kind decided in this order: `kind="review"` for `human_review`, `kind="error"` for `error` or `failed`, `kind="decision"` when `decisions` is non-empty, else `kind="handoff"` (so a paused `human_review` row with decisions is still a review, and Task 8's review queue sees it). `decision` holds the row's `decisions` list as given, minus any `options` text. `latency_ms` from `ms`. `ts` converted to ISO (the finish time). `attempt` is the visit index: how many earlier finished rows of the same node the document has. `cause` is the error's type name (the text before the first `:`), never its message.
+  - Floor replay (added 2026-11-18, see the spec's "Requirements added 2026-11-18", R7): the matching `running` row is not a separate event, but its time is kept on the finishing event as `payload.started_ts` (ISO). The finishing event's `payload` also keeps `status`, `step` (when present) and `stage` (when present). A `running` row with no finishing row (in flight when the run stopped) becomes one event with `kind="handoff"` and `payload.status="running"`. Pairing is first in, first out by `(doc, node)` in file order, and by `step` too when the finishing row names one: the sandbox writes `step` on `running` rows only, so pairing by `(doc, node, step)` alone would never pair. The replay's timing follows the sandbox's `tui/floor_replay.py:build_timeline` rule separately (Task 10b).
   - `checkpoint.json` (`state`, `cursor`, `total`) becomes a final `_run` event with `node="checkpoint"`, `kind="handoff"` and those three values in `payload`; absent when the file is missing.
   - The item's `pred.extracted_data` (without `_report`) becomes an `extraction` blob and `_report` a `report` blob, attached to one final `kind="output"` event per document whose `decision` holds `doc_type`, `stage`, both confidences, `review_causes`, `review_verdict`, `escalation_reason`. Its `payload` holds `usage_by_agent` and the sandbox `score` dict under the key `legacy_score`.
   - `events.jsonl` rows become `_run` events with `kind="handoff"`, `node=<event name>`.
@@ -532,6 +532,8 @@ def test_audit_reports_routing_inputs(fixture_folder):
 - [x] **Step 4:** Run; expect 7 passed.
 - [x] **Step 5:** Commit: `feat(record): import sandbox run folders and audit routing inputs`.
 
+- Decided while building (2026-11-18, and the round 1 fixes): `ImportResult` also carries `warnings` (a torn last line of a JSONL file, skipped, as a run stopped mid-write leaves; any other line that is not a JSON object raises `SandboxFolderInvalid`). The record keeps them: a run with a skipped line starts its `_run` chain with one `node="import"` event whose `payload.skipped_torn_lines` lists `{"file", "bytes"}`, never the content. A node row's kind is `error` for `error` as well as `failed`. Pairing is first in, first out by `(doc, node)` (see the mapping rule above); the finishing event keeps `payload.started_order` and `payload.order` (the rows' places in `nodes.jsonl`) so the replay can restore the source's order, `payload.finish_step` when the finishing row named its own step, and the row's own `status` (`None` when it had none). `attempt` is the visit index. `cause` is the error's type name only. Every payload string other than a short token (an id, a name or a label) is stored as its SHA-256 and length. The import is idempotent and resumable: every event is planned and hashed before anything is written; a stored prefix is finished, a stored event that differs raises `ImportConflict`. A run that is pruned, or part way through a prune, raises `RunPruned` (an `ImportConflict`) naming the archive to unpack, and writes nothing: without the segments the import cannot check the stored events against the folder.
+
 ### Task 10b: Floor replay timeline from the record
 
 Added 2026-11-18 (JJB: all floor replayability moves into this repo). The TUI and floor viewer themselves move in the launcher project; this task makes every stored or imported run replayable from the record alone.
@@ -560,6 +562,8 @@ def test_native_run_replays(store_with_events): ...                        # a r
 - [x] **Step 2:** Run; expect import failure. **Step 3:** Implement. **Step 4:** Run; expect pass.
 - [x] **Step 5:** Commit: `feat(record): floor replay timeline from the record`.
 
+- Decided while building (2026-11-18, and the round 1 fixes): `meta` also carries `profile`. Rows are put back in the source's order by `payload.order` (`started_order` for a start); a native run's rows follow by time, then document and `seq`. The timing rules are the sandbox's, step for step: a known time places a row; an untimed start lands at the latest row; an untimed finish lands at its start plus `ms` when the two pair by `(doc, node, step)`, the finish's step being its own row's (`payload.finish_step`) or none, as in the sandbox; else 0.1 s after the latest row; an untimed item lands at its document's last finish, else 0.5 s after the latest row; a run with no time at all is `synthetic_timing`. An imported node row keeps its own status (`None` when it had none, as the sandbox shows it); a native event's status is `error` for `kind="error"`, else `done`. `cancelled` replays as `failed`. Untimed and synthetic timing are pinned by hand-worked timelines and checked against the sandbox's `build_timeline` when `MAILROOM_SANDBOX_CHECKOUT` names a checkout.
+
 ### Task 11: Pack, unpack and prune
 
 **Files:** Create `pack.py`, `tests/test_pack.py`.
@@ -567,8 +571,8 @@ def test_native_run_replays(store_with_events): ...                        # a r
 **Interfaces:**
 - Produces:
   - `pack_run(root: Path, run_id: str, out: Path, *, include_blobs: bool = True) -> PackManifest` (a `.tar.zst` holding the run folder, the blobs it names, and `manifest.json` with every member's SHA-256 and the last seal hash). Refuses with `RunNotSealed` unless the latest seal covers the latest event: a run with no seal, or with flushed events after its latest seal, is refused (seal it first).
-  - `unpack_run(archive: Path, root: Path) -> str` (verifies the manifest, then `verify_run`; raises `PackCorrupt`)
-  - `prune_run(root: Path, run_id: str, *, keep_columns: bool = True) -> PruneReport` (removes segments and seals of a packed run; deletes a blob only when no other run names it, found by reading the other runs' logs, the authoritative record, never the index, which can lag a crash between flush and apply). It holds the store's exclusive maintenance lock, which writers take shared, so no append can name a blob between that check and the delete. Refuses unless a pack path is recorded for the run, and, like `pack_run`, unless the latest seal covers the latest event.
+  - `unpack_run(archive: Path, root: Path, *, lock_timeout: float = 60.0) -> str` (verifies the manifest, then `verify_run`; raises `PackCorrupt`)
+  - `prune_run(root: Path, run_id: str, *, keep_columns: bool = True, lock_timeout: float = 60.0) -> PruneReport` (removes segments and seals of a packed run; deletes a blob only when no other run names it, found by reading the other runs' logs, the authoritative record, never the index, which can lag a crash between flush and apply). It holds the store's exclusive maintenance lock, which writers take shared, so no append can name a blob between that check and the delete. Refuses unless a pack path is recorded for the run, and, like `pack_run`, unless the latest seal covers the latest event.
   - CLI: `pack`, `unpack`, `prune`.
 
 - [x] **Step 1: Failing tests**
@@ -598,6 +602,8 @@ def test_corrupt_archive_is_refused(sealed_store, tmp_path):
 - [x] **Step 4:** Run; expect 4 passed.
 - [x] **Step 5:** Commit: `feat(record): pack, unpack and prune`.
 
+- Decided while building (2026-11-18, and the round 1 fixes): `pack_run` also refuses (`PackRefused`) a run that `verify_run` does not find ok, so an archive never holds a run that could not be restored; it checks the seal coverage again after writing, reads the archive back against its manifest, never replaces an existing file, and records the pack in `runs/<id>/pack.json`. The archive's members, order and tar metadata are fixed, so packing a run twice gives the same bytes. `unpack_run` reads into a staging store under the target root, refuses anything `pack_run` would not write (`PackCorrupt`), refuses a run file that differs from the target's (`UnpackConflict`), places blobs first and `run.json` last, and holds the store's maintenance lock shared, as a writer does, from taking blobs from the target until `run.json` is placed, so a prune of another run cannot delete a shared blob it relies on (`StoreBusy` after `lock_timeout`). `prune_run`'s keep set is every 64-hex string in every other run's segments (whole, torn or corrupt lines alike) plus the blobs of other runs packed without blobs; it waits `lock_timeout` seconds for the exclusive lock (`StoreBusy`), writes `prune.json` before deleting so an interrupted prune is finished by the next call, and deletes a run file only when the archive holds the same bytes. The retention rule (when to prune) is not set here.
+
 ### Task 12: Stage gate on the real runs, and the public surface
 
 **Files:** Create `packages/record/tests/test_public_surface.py`, `packages/record/scripts/stage1_gate.py`, `docs/stage1-gate-report.md` (written by the script).
@@ -619,7 +625,8 @@ def test_public_surface_is_exactly_this():
 
 ```bash
 ROOT="$(mktemp -d)"   # one store root, kept for the second run below
-python packages/record/scripts/stage1_gate.py --runs /mnt/project-files/runs/autoresearch --root "$ROOT"
+python packages/record/scripts/stage1_gate.py --runs /mnt/project-files/runs/autoresearch --root "$ROOT" \
+    --expect-runs 15 --sandbox <a sandbox checkout>
 ```
 
 Expected, and each is a gate condition:
@@ -632,6 +639,10 @@ Expected, and each is a gate condition:
 - Floor replay parity: for every run folder with `nodes.jsonl` or `items.jsonl`, `replay_timeline` from the record gives the same node sequence (doc, node, status) and the same times (within 1 ms) as the sandbox's `build_timeline` on the source folder. The script loads `tui/floor_replay.py` by path from a sandbox checkout when one is given (`--sandbox <dir>`; the module imports only the standard library) and reports the check as skipped otherwise.
 
 - [ ] **Step 5:** Run the whole suite: `pytest packages/record/tests -q`. Expected: all pass, no skips. Commit: `feat(record): stage 1 gate on the v1 and v2 runs` with the report's totals in the commit body.
+
+Steps 4 and 5 stay open: the real runs are not in the container this was built in. The script, its report and its failure paths are tested on synthetic run folders (`tests/test_stage1_gate.py`), and the commit named in step 5 holds the script, not the real-run totals.
+
+- Decided while building (2026-11-18, and the round 1 fixes): the script also takes `--sandbox <checkout>` (floor replay parity, reported as skipped without it), `--report <file>` (default `docs/stage1-gate-report.md`, so a synthetic run can write elsewhere) and `--expect-runs N` (fails unless `--runs` holds exactly `N` run folders). It reports numbers rather than asserting the expected ones: the `original` blob count against document-runs, the absent routing inputs, append throughput (with `flush_every=16`, against the design's floor, not gated) and each run's import warnings. It fails (exit 1) when the folder count is not the expected one, an import fails, a run already in the store before this gate run imports as `imported` (the stored run was incomplete or the folder changed), a run does not verify, the store is not smaller than the source, the trace check or the leak scan fails, or parity fails; an error on either side of the parity check is a failed parity row, never a crash. Exit 2 for bad arguments.
 
 ---
 

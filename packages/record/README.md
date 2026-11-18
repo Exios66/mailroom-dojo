@@ -121,9 +121,11 @@ imported, except `expected_doc_class` as `draw_class`. Each finished node row is
 (`review`, `error`, `decision` or `handoff`, in that order of rules) carrying its start time,
 step, stage and status for the floor replay; each item row is one `output` (or `error`)
 event with `extraction` and `report` blobs; `events.jsonl` and `checkpoint.json` become
-`_run` events. Fields the folder does not capture are `None` and listed in `absent_fields`.
+`_run` events. Fields the folder does not capture are `None` and listed in `absent_fields`;
+a torn last line the import skipped is in `warnings` and kept as the run's `import` event.
 Importing a folder again is a no-op (`already_imported`); an import that died part way is
-finished by the next one; a different folder under the same run id raises `ImportConflict`.
+finished by the next one; a different folder under the same run id raises `ImportConflict`,
+and a pruned run raises `RunPruned` (unpack its archive first).
 
 `audit_sandbox_run(folder) -> RoutingAudit` (`mailroom_record.importer.audit`) reports which
 routing inputs the `legacy` router replay needs are present or absent in a folder. The module
@@ -147,10 +149,11 @@ sealed run, and the blobs it names, to one `.tar.zst` archive with a `manifest.j
 every member's SHA-256 and the latest seal's hash. It refuses a run whose latest seal does
 not cover every flushed event (`RunNotSealed`: seal it first) or that does not verify
 (`PackRefused`), never overwrites `out`, and records the pack in `runs/<run>/pack.json`.
-`unpack_run(archive, root)` checks every member against the manifest and runs `verify_run`
+`unpack_run(archive, root, *, lock_timeout=60.0)` checks every member against the manifest and runs `verify_run`
 in a staging store before anything reaches `root`; a damaged, truncated or hostile archive
 is `PackCorrupt`, and a different run already in place is `UnpackConflict`. A second unpack
-is a no-op; an interrupted one is finished by the next. `prune_run(root, run_id, *,
+is a no-op; an interrupted one is finished by the next. While it places files it holds the
+store's maintenance lock shared, as a writer does, so a prune cannot delete a blob it relies on. `prune_run(root, run_id, *,
 keep_columns=True)` then removes the run's segments and seals (and Parquet files with
 `keep_columns=False`) and every blob of its archive that no other run names, read from the
 other runs' logs. It needs a current pack, holds the store's maintenance lock exclusive
@@ -187,7 +190,7 @@ kinds and counts only; control, format and separator characters in stored ids ar
 
 ```bash
 python packages/record/scripts/stage1_gate.py --runs <folder of sandbox run folders> --root <store> \
-    [--sandbox <sandbox checkout>] [--report <file>]
+    [--sandbox <sandbox checkout>] [--report <file>] [--expect-runs <n>]
 ```
 
 Imports every run folder under `--runs` into `--root`, audits and verifies each, rebuilds
@@ -195,6 +198,8 @@ the index, and writes the report (default `docs/stage1-gate-report.md`; never ed
 hand): one row per run, source and store sizes, `original` blobs against document-runs, the
 absent routing inputs, a trace check, a leak scan of the report and every Parquet file
 (with a positive control), floor replay parity against the sandbox's `build_timeline` when
-`--sandbox` is given, and append throughput. Exit 0 when every condition holds, 1 otherwise.
-A second run with the same `--root` finds every run `already_imported`.
+`--sandbox` is given, each run's import warnings, and append throughput. Exit 0 when every
+condition holds, 1 otherwise. A second run with the same `--root` must find every run it
+stored before `already_imported`; one that imports as `imported` again fails the gate.
+`--expect-runs N` fails it unless `--runs` holds exactly `N` run folders.
 `tests/test_stage1_gate.py` runs it on synthetic folders.
