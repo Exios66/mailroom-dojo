@@ -520,3 +520,24 @@ def test_parse_json_accepts_plain_json() -> None:
     assert parse_json(b'{"a":[1,2.5,null,true]}') == {"a": [1, 2.5, None, True]}
     with pytest.raises(ValueError, match="duplicate object key 'k'"):
         parse_json('{"o":{"k":1,"k":1}}')
+
+
+@pytest.mark.parametrize("ending", [b"\n", b"\r\n"])
+def test_a_line_exactly_at_the_limit_is_accepted_with_lf_or_crlf(tmp_path: Path, ending: bytes) -> None:
+    body = b'{"k":"' + b"x" * 10 + b'"}'
+    path = tmp_path / "limit.jsonl"
+    path.write_bytes(body + ending + b'{"n":2}\n')
+    rows = list(iter_jsonl(path, max_line_bytes=len(body)))
+    assert rows == [{"k": "x" * 10}, {"n": 2}]
+
+
+@pytest.mark.parametrize("ending", [b"\n", b"\r\n"])
+def test_a_line_one_byte_over_the_limit_is_reported_and_the_next_line_still_reads(
+    tmp_path: Path, ending: bytes
+) -> None:
+    body = b'{"k":"' + b"x" * 10 + b'"}'
+    path = tmp_path / "over.jsonl"
+    path.write_bytes(body + b" " + ending + b'{"n":2}\n')
+    rows = list(iter_jsonl(path, tolerant=True, max_line_bytes=len(body)))
+    assert isinstance(rows[0], BadLine) and "longer than max_line_bytes" in rows[0].error
+    assert rows[1] == {"n": 2}

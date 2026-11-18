@@ -161,3 +161,11 @@ def test_model_map_missing_agent_on_empty_map() -> None:
 def test_model_map_rejects_malformed_specs(bad: dict[str, Any]) -> None:
     with pytest.raises(ValidationError, match="sorter"):
         ModelMap.model_validate(bad)
+
+
+def test_messages_are_immutable_even_when_built_from_a_list() -> None:
+    messages = [ChatMessage(role="user", content="hi")]
+    req = request(messages=messages)
+    messages.append(ChatMessage(role="user", content="later"))
+    assert len(req.messages) == 1
+    assert isinstance(req.messages, tuple)

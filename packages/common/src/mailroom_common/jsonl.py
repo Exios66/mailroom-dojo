@@ -179,11 +179,17 @@ def parse_json(text: str | bytes) -> Any:
 
 def _read_line(handle: IO[bytes], max_line_bytes: int) -> tuple[bytes, bool, bool] | None:
     """Next physical line as ``(content, had_newline, oversized)``; ``None`` at end of file."""
-    chunk = handle.readline(max_line_bytes + 1)
+    # Read one byte past the limit plus room for a CRLF, so a line exactly at the limit is
+    # accepted whether it ends in LF or CRLF (the limit counts content, not the line ending).
+    chunk = handle.readline(max_line_bytes + 2)
     if not chunk:
         return None
     if chunk.endswith(b"\n"):
-        return chunk[:-1], True, False
+        content = chunk[:-1]
+        if len(content.removesuffix(b"\r")) <= max_line_bytes:
+            return content, True, False
+        # The whole over-long line (newline included) is already consumed.
+        return chunk[: min(max_line_bytes, _RAW_PREVIEW_BYTES)], True, True
     if len(chunk) <= max_line_bytes:
         return chunk, False, False
     # Over the limit: skip the rest of the line in bounded chunks, keep only a preview.

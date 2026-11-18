@@ -97,6 +97,9 @@ _MAX_PASSES = 8
 _URL_AUTHORITY = re.compile(r"(?i)(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*+://)([^\s/?#]*+)")
 _KEY_SEPARATOR = re.compile(r"(?<![\w.-])([\w.-]++)(['\"]?\s*+[=:]\s*+)(['\"]?)")
 _VALUE = re.compile(r"(?!\[REDACTED\]|(?i:bearer)\s)[^\s'\",;&]++")
+# A quoted value runs to its closing quote (it may hold spaces); capped so an unclosed quote
+# cannot make the scan rescan the rest of the line for every key.
+_QUOTED_VALUE = {q: re.compile(rf"(?!\[REDACTED\])[^{q}\r\n]{{1,4096}}+") for q in ("'", '"')}
 _TEXT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"(?i)(?<![\w-])bearer\s++(?!\[REDACTED\])[A-Za-z0-9._~+/=-]++"), f"Bearer {REDACTED}"),
     (re.compile(r"(?<![\w-])sk-[A-Za-z0-9_-]{8,}+"), REDACTED),
@@ -135,7 +138,11 @@ def _mask_key_values(text: str) -> str:
     while (match := _KEY_SEPARATOR.search(text, pos)) is not None:
         parts.append(text[pos : match.end()])
         pos = match.end()
-        if _is_sensitive_key(match.group(1)) and (value := _VALUE.match(text, pos)) is not None:
+        if not _is_sensitive_key(match.group(1)):
+            continue
+        quote = match.group(3)
+        pattern = _QUOTED_VALUE[quote] if quote else _VALUE
+        if (value := pattern.match(text, pos)) is not None:
             parts.append(REDACTED)
             pos = value.end()
     parts.append(text[pos:])

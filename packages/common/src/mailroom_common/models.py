@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import difflib
 import math
-from collections.abc import Sequence
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
@@ -51,7 +50,7 @@ class ModelRequest(BaseModel):
 
     model_config = _FROZEN
 
-    messages: Sequence[ChatMessage] = Field(min_length=1)
+    messages: tuple[ChatMessage, ...] = Field(min_length=1)
     max_output_tokens: int = Field(gt=0)
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     response_format: dict[str, Any] | None = None

@@ -546,3 +546,27 @@ def test_run_together_credential_keys_are_masked(text: str) -> None:
 
 def test_secretary_is_not_a_credential_key() -> None:
     assert redact_text("secretary=alice") == "secretary=alice"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"password": "my secret phrase", "x": 1}',
+        "password='two secret words' next=1",
+        'api_key="has spaces inside"',
+    ],
+)
+def test_quoted_secret_values_with_spaces_are_masked_whole(text: str) -> None:
+    out = redact_text(text)
+    assert REDACTED in out
+    assert not any(word in out for word in ("secret", "phrase", "words", "spaces", "inside"))
+    assert redact_text(out) == out
+
+
+def test_unclosed_quote_does_not_make_redaction_quadratic() -> None:
+    import time
+
+    text = 'password="' * 100_000
+    start = time.perf_counter()
+    redact_text(text)
+    assert time.perf_counter() - start < 2.0

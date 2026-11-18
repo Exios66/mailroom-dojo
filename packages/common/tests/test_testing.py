@@ -35,7 +35,7 @@ from mailroom_common.yamlio import load_yaml
 
 
 def ask(content: str = "abcdefgh") -> ModelRequest:
-    return ModelRequest(messages=[ChatMessage(role="user", content=content)], max_output_tokens=16)
+    return ModelRequest(messages=(ChatMessage(role="user", content=content),), max_output_tokens=16)
 
 
 # --- FakeModelClient ------------------------------------------------------------------------
@@ -109,7 +109,7 @@ def test_script_and_handler_together_is_refused() -> None:
 def test_usage_is_deterministic_from_text_length() -> None:
     assert [fake_token_count("x" * n) for n in (0, 1, 4, 5, 8, 9)] == [0, 1, 1, 2, 2, 3]
     request = ModelRequest(
-        messages=[ChatMessage(role="system", content="s" * 6), ChatMessage(role="user", content="u" * 6)],
+        messages=(ChatMessage(role="system", content="s" * 6), ChatMessage(role="user", content="u" * 6)),
         max_output_tokens=4,
     )
     usage = FakeModelClient(["y" * 10]).complete(request).usage
