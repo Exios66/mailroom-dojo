@@ -32,7 +32,7 @@ needs a line in the map. Governance files (`.claude/`, `.github/`, `.circleci/`,
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python -m pytest tools/governance/tests -q --import-mode=importlib -p no:cacheprovider   # guard and hook tests
-bash .circleci/check_no_session_links.sh   # the session-link guard (fetches origin/main)
+bash .circleci/check_no_session_links.sh   # the session-link guard (fetches origin/main when on a branch)
 # after PR #2 merges:
 python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]"
 .venv/bin/python -m pytest packages/record/tests -q

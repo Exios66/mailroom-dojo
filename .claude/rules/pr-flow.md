@@ -68,7 +68,7 @@ git status --short                          # prints nothing: commit first
 git fetch origin main
 git diff origin/main...HEAD --stat          # the diff is the size you expect
 PYTHONDONTWRITEBYTECODE=1 python -m pytest tools/governance/tests -q --import-mode=importlib -p no:cacheprovider
-bash .circleci/check_no_session_links.sh    # commits and tracked files (fetches origin/main)
+bash .circleci/check_no_session_links.sh    # commits and tracked files (fetches origin/main when on a branch)
 # plus each touched package's suite, for example (after PR #2 merges):
 .venv/bin/python -m pytest packages/record/tests -q
 ```

@@ -35,7 +35,7 @@ ENV_REASON = (
 ENV_RULES = [
     # .env as a file or a folder (.env/secret), and .env.<anything> except .env.example.
     (r"(^|/)\.env(/|$)", ENV_REASON),
-    (r"(^|/)\.env\.(?!example(/|$))[^/]+(/|$)", ENV_REASON),
+    (r"(^|/)\.env\.(?!example$)[^/]+(/|$)", ENV_REASON),
     # Basenames such as prod.env.
     (r"(^|/)[^/]+\.env$", ENV_REASON),
 ]

@@ -7,7 +7,7 @@ trailer or tool footer anywhere (.claude/rules/pr-flow.md).
 
 ## Project and gate
 
-<!-- "Project N's gate, from its plan": name the project, link its plan in docs/plans/, and quote the gate criteria from that plan, one per row below. Do not reuse the design's stage numbers. -->
+<!-- "Project N's gate, from its plan": name the project, link its plan in docs/plans/, and restate the gate criteria from that plan (our own plan text, never document content), one per row below. Do not reuse the design's stage numbers. -->
 
 | Criterion (from the plan) | Requirement | Result | Pass |
 |:---|:---|:---|:---|
