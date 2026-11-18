@@ -39,7 +39,11 @@ Rules
   ``UnpackConflict`` and nothing is changed; equal files are left alone, missing ones are
   hard-linked into place (blobs first, ``run.json`` last), so a second unpack is a no-op and
   an unpack interrupted part way is finished by the next. A blob already present or
-  tombstoned in the target is never replaced. The staging store is removed on return or
+  tombstoned in the target is never replaced. From taking blobs from the target until
+  ``run.json`` is placed, it holds the maintenance lock shared, as a writer does (waiting
+  up to ``lock_timeout`` seconds while a prune holds it: ``StoreBusy``), so a concurrent
+  ``prune_run`` of another run cannot delete a blob this unpack relies on before the
+  unpacked run names it. The staging store is removed on return or
   error; a process killed mid-unpack leaves it behind (remove ``.unpack-*`` by hand).
 - ``prune_run`` removes the segments and seals (and, unless ``keep_columns``, the Parquet
   files) of a packed run, and the blobs its archive holds that no other run names. It
@@ -138,7 +142,7 @@ class PruneRefused(RuntimeError):
 
 
 class StoreBusy(TimeoutError):
-    """The maintenance lock was not free within the timeout (a writer is live)."""
+    """The maintenance lock was not free within the timeout (a writer, unpack or prune is live)."""
 
 
 @dataclass(frozen=True)
@@ -462,93 +466,101 @@ def _same_bytes(a: Path, b: Path) -> bool:
     return a.stat().st_size == b.stat().st_size and _sha_file(a) == _sha_file(b)
 
 
-def unpack_run(archive: Path, root: Path) -> str:
+def unpack_run(archive: Path, root: Path, *, lock_timeout: float = 60.0) -> str:
     """Restore the run in ``archive`` under ``root`` and return its id (see the module doc)."""
     archive, root = Path(archive), Path(root)
     root.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(dir=root, prefix=".unpack-"))
     try:
         read = _read_archive(archive, lambda name, chunks: _write_staged(staging / name, chunks))
-        run_id = read.run_id
-        s_log, s_blobs = _open_store(staging)
-        target = BlobStore(root)
-        for sha in read.manifest["blobs"]:
-            if s_blobs.exists(sha) != "missing":
-                continue
-            for src, dst in (
-                (target.content_path(sha), s_blobs.content_path(sha)),
-                (target.tombstone_path(sha), s_blobs.tombstone_path(sha)),
-            ):
-                if src.is_file():
-                    dst.parent.mkdir(parents=True, exist_ok=True)
-                    try:
-                        os.link(src, dst)
-                    except OSError:
-                        shutil.copyfile(src, dst)
-        report = verify_run(s_log, s_blobs, run_id)
-        if not report.ok:
-            kinds = sorted({p.kind for p in report.problems if p.fails})
-            raise PackCorrupt(f"the unpacked run does not verify: {', '.join(kinds)}")
-
-        run_rel = [rel for rel in read.manifest["members"] if rel.startswith("runs/")]
-        blob_rel = [rel for rel in read.manifest["members"] if rel.startswith("blobs/")]
-        for rel in run_rel:  # check everything before placing anything
-            dst = root / rel
-            if dst.exists() and not (dst.is_file() and _same_bytes(dst, staging / rel)):
-                raise UnpackConflict(f"runs/{run_id}: {rel.split('/', 2)[2]} differs from the archive's")
-
-        for rel in blob_rel:
-            m = _BLOB_MEMBER.fullmatch(rel)
-            assert m is not None  # checked by _read_archive
-            sha = m["sha"]
-            shard = target.content_path(sha).parent
-            _makedirs_durable(shard, root)
-            with _dir_lock(shard):
-                if target.exists(sha) == "missing":
-                    with contextlib.suppress(FileExistsError):
-                        os.link(staging / rel, root / rel)
-            _fsync_dir(shard)
-
-        def order(rel: str) -> tuple[int, str]:  # the order they were written in: run.json last here
-            kind = rel.split("/")[2]
-            return ({"segments": 0, "seals": 1, "columns": 2}.get(kind, 3), rel)
-
-        placed_dirs: set[Path] = set()
-        for rel in sorted(run_rel, key=order):
-            dst = root / rel
-            _makedirs_durable(dst.parent, root)
-            try:
-                os.link(staging / rel, dst)
-            except FileExistsError:
-                if not _same_bytes(dst, staging / rel):  # appeared since the check
-                    raise UnpackConflict(f"runs/{run_id}: {rel.split('/', 2)[2]} differs from the archive's") from None
-            placed_dirs.add(dst.parent)
-        for d in sorted(placed_dirs):
-            _fsync_dir(d)
-        prune_record = root / "runs" / run_id / _PRUNE_RECORD
-        if prune_record.exists():  # the run is whole again
-            prune_record.unlink()
-            _fsync_dir(prune_record.parent)
-        return run_id
+        with _maintenance(root, lock_timeout, exclusive=False):
+            return _place(read, staging, root)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
+
+
+def _place(read: _Read, staging: Path, root: Path) -> str:
+    """Verify the staged run and place it under ``root``; the caller holds the maintenance lock."""
+    run_id = read.run_id
+    s_log, s_blobs = _open_store(staging)
+    target = BlobStore(root)
+    for sha in read.manifest["blobs"]:
+        if s_blobs.exists(sha) != "missing":
+            continue
+        for src, dst in (
+            (target.content_path(sha), s_blobs.content_path(sha)),
+            (target.tombstone_path(sha), s_blobs.tombstone_path(sha)),
+        ):
+            if src.is_file():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    os.link(src, dst)
+                except OSError:
+                    shutil.copyfile(src, dst)
+    report = verify_run(s_log, s_blobs, run_id)
+    if not report.ok:
+        kinds = sorted({p.kind for p in report.problems if p.fails})
+        raise PackCorrupt(f"the unpacked run does not verify: {', '.join(kinds)}")
+
+    run_rel = [rel for rel in read.manifest["members"] if rel.startswith("runs/")]
+    blob_rel = [rel for rel in read.manifest["members"] if rel.startswith("blobs/")]
+    for rel in run_rel:  # check everything before placing anything
+        dst = root / rel
+        if dst.exists() and not (dst.is_file() and _same_bytes(dst, staging / rel)):
+            raise UnpackConflict(f"runs/{run_id}: {rel.split('/', 2)[2]} differs from the archive's")
+
+    for rel in blob_rel:
+        m = _BLOB_MEMBER.fullmatch(rel)
+        assert m is not None  # checked by _read_archive
+        sha = m["sha"]
+        shard = target.content_path(sha).parent
+        _makedirs_durable(shard, root)
+        with _dir_lock(shard):
+            if target.exists(sha) == "missing":
+                with contextlib.suppress(FileExistsError):
+                    os.link(staging / rel, root / rel)
+        _fsync_dir(shard)
+
+    def order(rel: str) -> tuple[int, str]:  # the order they were written in: run.json last here
+        kind = rel.split("/")[2]
+        return ({"segments": 0, "seals": 1, "columns": 2}.get(kind, 3), rel)
+
+    placed_dirs: set[Path] = set()
+    for rel in sorted(run_rel, key=order):
+        dst = root / rel
+        _makedirs_durable(dst.parent, root)
+        try:
+            os.link(staging / rel, dst)
+        except FileExistsError:
+            if not _same_bytes(dst, staging / rel):  # appeared since the check
+                raise UnpackConflict(f"runs/{run_id}: {rel.split('/', 2)[2]} differs from the archive's") from None
+        placed_dirs.add(dst.parent)
+    for d in sorted(placed_dirs):
+        _fsync_dir(d)
+    prune_record = root / "runs" / run_id / _PRUNE_RECORD
+    if prune_record.exists():  # the run is whole again
+        prune_record.unlink()
+        _fsync_dir(prune_record.parent)
+    return run_id
 
 
 # --- prune ------------------------------------------------------------------------
 
 
 @contextlib.contextmanager
-def _exclusive_maintenance(root: Path, timeout: float) -> Iterator[None]:
+def _maintenance(root: Path, timeout: float, *, exclusive: bool = True) -> Iterator[None]:
+    """Hold the store's maintenance lock (exclusive for a prune, shared for an unpack)."""
     fd = os.open(root / MAINTENANCE_LOCK, os.O_RDWR | os.O_CREAT, 0o644)
+    mode = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
     try:
         deadline = time.monotonic() + timeout
         while True:
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(fd, mode | fcntl.LOCK_NB)
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise StoreBusy(f"the store is busy (a writer is live) after {timeout:g}s; try again") from None
+                    raise StoreBusy(f"the store is busy (a writer, unpack or prune is live) after {timeout:g}s; try again") from None
                 time.sleep(0.05)
         yield
     finally:
@@ -591,7 +603,7 @@ def prune_run(root: Path, run_id: str, *, keep_columns: bool = True, lock_timeou
     run_dir = log.run_dir(run_id)
     if not (run_dir / "run.json").is_file():
         raise FileNotFoundError(f"no run {run_id!r} under {root}")
-    with _exclusive_maintenance(root, lock_timeout):
+    with _maintenance(root, lock_timeout):
         record_path = run_dir / _PACK_RECORD
         if not record_path.is_file():
             raise PruneRefused(f"run {run_id!r}: no pack recorded; pack it first")
