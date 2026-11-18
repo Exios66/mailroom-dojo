@@ -251,3 +251,18 @@ def test_committed_reports_match_a_fresh_build(tmp_path: Path) -> None:
     assert quality_md == (REPORTS / "data-quality-2026-11-18.md").read_text(encoding="utf-8")
     assert cov_md == (REPORTS / "coverage-2026-11-18.md").read_text(encoding="utf-8")
     assert json.dumps(cov, indent=2, sort_keys=True) + "\n" == (REPORTS / "coverage-2026-11-18.json").read_text(encoding="utf-8")
+
+
+# --- the layout map names what this package added ---------------------------------------------
+
+
+def test_layout_map_names_the_label_folders() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    block = readme.split("## Layout", 1)[1].split("```")[1]
+    for line_start in ("├── labels/", "│   │   └── mailroom-dataset/", "│       └── labels/"):
+        assert any(line.startswith(line_start) for line in block.splitlines()), line_start
+    entries = sorted(p.name for p in (ROOT / "labels").iterdir())
+    assert entries == sorted([*SNAPSHOTS, "README.md"])
+    assert all((ROOT / "labels" / name / MANIFEST_NAME).is_file() for name in SNAPSHOTS)
+    assert sorted(p.name for p in (ROOT / "config/clients/mailroom-dataset").iterdir()) == [
+        "known-warnings.yaml", "profile.yaml"]

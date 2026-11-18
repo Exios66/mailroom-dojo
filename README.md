@@ -24,15 +24,17 @@ mailroom-dojo/
 │       (each package: pyproject.toml, README.md, src/<module>/, tests/, scripts/)
 ├── config/                    everything tuned without code (from project 2 on)
 │   ├── clients/<client>/      a client profile: document classes, schemas, thresholds, label snapshot
+│   │   └── mailroom-dataset/  profile.yaml (from build_profile.py) and known-warnings.yaml
 │   ├── policies/              routing policies (one file each; its hash is stored on every run)
 │   └── prompts/<prompt_set>/  prompt sets; variants are overlays on the default set
-├── labels/<snapshot>/         committed, versioned label snapshots with manifests (project 2)
+├── labels/                    README.md, and one committed label snapshot per <snapshot>/ with its manifest (project 2)
 ├── docs/
 │   ├── specs/                 the design (the master plan)
 │   ├── plans/                 one build plan per project, dated
 │   ├── adr/                   architecture decision records
 │   ├── test-strategy-*.md     one test strategy per package
 │   └── reports/               gate reports, written by scripts
+│       └── labels/            label data-quality, coverage and sandbox cross-check reports
 └── .circleci/                 CI (CircleCI only)
 ```
 

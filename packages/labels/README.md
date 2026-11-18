@@ -14,11 +14,14 @@ PyPI, where no such package of ours is published.
 .venv/bin/python -m pytest packages/labels/tests -q
 mailroom-labels verify --profile config/clients/<client>/profile.yaml labels/<snapshot>...
 mailroom-labels coverage --profile ... --json-out c.json --md-out c.md labels/<snapshot>...
+mailroom-labels import-hub|import-interim|import-near-gold|import-review --out labels/<snapshot> ... [--check]
 ```
 
 `verify` exits 0 with no error and 1 with any error (warnings never fail it); `coverage`
-exits 1 and writes nothing when verification finds an error; usage and profile errors
-exit 2.
+exits 1 and writes nothing when verification finds an error; an importer exits 1 when it
+refuses its source or, with `--check`, when the fresh build differs from `--out`; usage and
+profile errors exit 2. The importers read parquet, so they need the `import` extra
+(`pip install -e "packages/labels[import]"`; `dev` includes it).
 
 ## Modules
 
@@ -34,7 +37,14 @@ exit 2.
 | `quality.py` | `check`, `check_dirs`, `verify`: typed findings for every data-quality check |
 | `findings.py` | Finding kinds and their severities |
 | `coverage.py` | Scorable documents and fields per class, by status and rank; JSON and Markdown |
-| `cli.py` | `mailroom-labels verify` and `coverage` |
+| `importers/` | `hub.py`, `interim.py`, `near_gold.py` (both on `overlay.py`), `review.py`, `common.py`: pure, deterministic builders from files already on disk |
+| `cli.py` | `mailroom-labels verify`, `coverage` and the four `import-*` commands |
+
+Scripts (`scripts/`): `fetch_hub.py` downloads pinned Hub files and verifies each against
+the dataset's `manifest.txt` (the only code here that touches the network);
+`build_profile.py` writes the client profile from the dataset's EDA schemas and the Hub
+(`--check` compares); `labels_report.py` writes the data-quality and coverage reports in
+`docs/reports/labels/`.
 
 ## Layers, ranks and statuses
 
@@ -65,6 +75,55 @@ warnings, and `manifest_hash` (the canonical hash from `mailroom_record.hashing`
 manifest without that key). Loading refuses a missing, extra, changed, truncated, grown or
 reordered file, a wrong row count and a wrong manifest hash, each with its own
 `ManifestMismatch.kind`, before any row is read.
+
+## Importers
+
+Each importer reads files already on disk, never the network, and writes a snapshot
+through `build_manifest`, recording its sources (repository, revision or commit, path and
+sha256 of every input file) and its builder (`mailroom_labels.importers.<kind>` and
+`BUILDER_VERSION`). Building twice from the same inputs gives byte-identical files, so
+`--check` rebuilds in memory and compares with the committed snapshot without writing.
+Nothing is dropped or repaired silently: every omission, mapping and refusal is counted in
+the manifest's `source` (for example `pending_annotation_as_unlabeled`,
+`decoded_json_lists`, `not_imported`).
+
+| Command | Reads | Refuses |
+| --- | --- | --- |
+| `import-hub` | `manifest.txt` and the `ground_truth` parquet shards from `fetch_hub.py`; with `--default-dir`, the `default` shards for the text check | a missing shard, or one not listed in or whose sha256 differs from `manifest.txt`. Documents whose text does not hash to the Hub's `content_sha256` (all of them without `--default-dir`) are listed in `source.text_unverified_documents` |
+| `import-interim`, `import-near-gold` | a sandbox overlay directory (`MANIFEST.json` + `.jsonl`) at a named commit | a file whose sha256 or row count differs from the overlay's `MANIFEST.json`, or a file it does not list |
+| `import-review` | review decision files and the review desk log | nothing outright: a malformed line is listed under `source.rejected_lines`, an `unsure` desk verdict under `not_imported`, a decision replaced by a later or human one under `superseded` |
+
+`--known-warnings` takes `config/clients/<client>/known-warnings.yaml`; each entry needs a
+`reason`, and the importer records the snapshot's entries in its manifest.
+
+### Rebuild the committed snapshots
+
+```bash
+python packages/labels/scripts/fetch_hub.py --out <new empty download dir> \
+    --revision ccd040f6a1b6b414bdefd161cdc622b68f6dacf8 \
+    parquet/ground_truth/train/train-00000-of-00001.parquet parquet/ground_truth/test/test-00000-of-00001.parquet \
+    parquet/default/train/train-00000-of-00001.parquet parquet/default/test/test-00000-of-00001.parquet
+mailroom-labels import-hub --out labels/hub-ccd040f6 --profile config/clients/mailroom-dataset/profile.yaml \
+    --dataset-dir <download dir> --default-dir <download dir> --revision ccd040f6a1b6b414bdefd161cdc622b68f6dacf8 --check
+mailroom-labels import-interim --out labels/interim-2026-11-01 --source-dir <sandbox>/data/labels/interim \
+    --source-path data/labels/interim --repository Exios66/local-mailroom-sandbox \
+    --commit 93f298c2c03c58d36c5ef15874736c6ea211d9ab \
+    --known-warnings config/clients/mailroom-dataset/known-warnings.yaml --check
+mailroom-labels import-near-gold --out labels/near-gold-2026-11-17 --source-dir <sandbox>/data/labels/gold-overlay \
+    --source-path data/labels/gold-overlay --repository Exios66/local-mailroom-sandbox \
+    --commit 93f298c2c03c58d36c5ef15874736c6ea211d9ab --check
+```
+
+`<sandbox>` is a checkout of the sandbox at that commit. The review snapshot's inputs (path, rows
+and sha256 of each decision file and the desk log) are in
+`labels/gold-review-2026-11-18/manifest.json` (`source.files`); its decision files are
+project files, not in a public repository, so it is rebuilt with `import-review
+--decisions-root <dir> --decisions <file>... --desk-root <sandbox> --desk
+data/labels/review/human_reviews.jsonl --provenance <json>` against copies whose sha256
+matches. Drop
+`--check` to rewrite a snapshot in place, then run `mailroom-labels verify` on the set and
+`labels_report.py` to refresh the reports; the golden counts in
+`tests/test_real_snapshots.py` change only for an intended data change.
 
 ## Boundaries
 

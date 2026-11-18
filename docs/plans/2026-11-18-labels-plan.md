@@ -34,6 +34,14 @@ exact dataset documents they describe.
    (these keep an existing Hub value), then `near_gold`. This is today's precedence (sandbox
    `AGENTS.md`, `api eval`) with the review decisions on top, as R6 says. Interim `disputed` labels are
    never truth. The precedence order lives in the client profile, not in code.
+   *Amended in Task 2 (review finding MAJOR 1):* the Hub has two ranks. A populated Hub value is
+   `hub`; a documented absence or `not_applicable` is `hub:absent`, which interim `gap_fill` and
+   `derived` replace, as the sandbox's `apply_overlay` does (it skips only a populated Hub field).
+   Claude audit decisions (`review:near_gold`) outrank `gap_fill`, `derived` and `near_gold` but
+   never `hub` or `correction`. The order is now `review:gold`, `interim:correction`, `hub`,
+   `review:near_gold`, `interim:gap_fill`, `interim:derived`, `hub:absent`, `near_gold`; on the real
+   data this moves 171 labels (filing_number 136, signatories 21, jurisdiction 14) from a Hub
+   absence to the interim fill, matching the sandbox merge.
 2. **Status words.** `hub`, `interim`, `near_gold`, `gold`. A review decision by a human desk owner is
    `gold`; the Claude Opus audit decisions (1,039 corrections under JJB's top-reply rule) are
    `near_gold` with source `review:claude-opus-audit`. No reviewer initials are invented: the reviewer
