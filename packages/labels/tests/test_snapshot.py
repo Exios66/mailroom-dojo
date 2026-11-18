@@ -404,3 +404,37 @@ def test_a_listed_file_replaced_by_a_dangling_symlink_is_missing(tmp_path: Path)
     with pytest.raises(ManifestMismatch) as info:
         load_snapshot(d)
     assert info.value.kind == "missing"
+
+
+# --- building into a directory that already holds files --------------------------------------
+
+
+def test_rebuilding_a_snapshot_drops_files_the_new_build_does_not_produce(tmp_path: Path) -> None:
+    d = tmp_path / "hub-a"
+    write_snapshot(d, {"a.jsonl": ROWS_A, "part/b.jsonl": ROWS_B}, snapshot_id="hub-a", kind="hub",
+                   layer_schema=CURRENT_LAYER_SCHEMA["hub"], source={"repository": "synthetic"}, builder="test")
+    manifest = write_snapshot(d, {"a.jsonl": ROWS_A}, snapshot_id="hub-a", kind="hub",
+                              layer_schema=CURRENT_LAYER_SCHEMA["hub"], source={"repository": "synthetic"}, builder="test")
+    assert [f.path for f in manifest.files] == ["a.jsonl"]
+    assert sorted(p.relative_to(d).as_posix() for p in d.rglob("*")) == ["a.jsonl", "manifest.json"]
+    assert load_snapshot(d).manifest.files == manifest.files
+
+
+@pytest.mark.parametrize("setup", ["foreign_file", "other_snapshot", "unlisted_beside_a_build", "broken_manifest"])
+def test_building_into_a_directory_with_other_content_is_refused_untouched(tmp_path: Path, setup: str) -> None:
+    d = tmp_path / "hub-a"
+    args = dict(snapshot_id="hub-a", kind="hub", layer_schema=CURRENT_LAYER_SCHEMA["hub"],
+                source={"repository": "synthetic"}, builder="test")
+    if setup == "foreign_file":
+        d.mkdir()
+        (d / "old.jsonl").write_text("{}\n")
+    else:
+        write_snapshot(d, {"a.jsonl": ROWS_A}, **{**args, "snapshot_id": "hub-b" if setup == "other_snapshot" else "hub-a"})
+        if setup == "unlisted_beside_a_build":
+            (d / "stale.jsonl").write_text("{}\n")
+        if setup == "broken_manifest":
+            (d / MANIFEST_NAME).write_text("{not json")
+    before = {p.relative_to(d).as_posix(): p.read_bytes() for p in d.rglob("*") if p.is_file()}
+    with pytest.raises(FileExistsError):
+        write_snapshot(d, {"a.jsonl": ROWS_A}, **args)
+    assert {p.relative_to(d).as_posix(): p.read_bytes() for p in d.rglob("*") if p.is_file()} == before

@@ -30,6 +30,7 @@ from pydantic import ValidationError
 from mailroom_labels.errors import (
     CorruptLine,
     DuplicateSnapshot,
+    LabelsError,
     ManifestMismatch,
     ManifestMissing,
     UnknownSnapshotSchema,
@@ -202,6 +203,35 @@ def write_jsonl(path: Path | str, rows: Iterable[Mapping[str, Any]]) -> None:
             fh.write(canonical_json(row) + b"\n")
 
 
+def _clear_earlier_build(directory: Path, snapshot_id: str) -> None:
+    """Make ``directory`` safe to build into. It may be missing or empty, or hold exactly an
+    earlier build of the same snapshot id (a valid manifest and the files it lists, nothing
+    else): those files are removed so no file of the old build survives into the new
+    manifest. Anything else raises ``FileExistsError`` and nothing is touched."""
+    if not directory.exists() or not any(directory.iterdir()):
+        return
+    try:
+        old = _read_manifest(directory)
+    except LabelsError as exc:
+        raise FileExistsError(f"{directory} is not empty and holds no valid snapshot manifest ({exc})") from exc
+    if old.snapshot_id != snapshot_id:
+        raise FileExistsError(f"{directory} holds snapshot {old.snapshot_id!r}, not {snapshot_id!r}")
+    listed = {f.path for f in old.files}
+    if not all(_safe_path(rel) for rel in listed):
+        raise FileExistsError(f"{directory}: its manifest lists an unsafe path")
+    unknown = sorted(set(_data_files(directory)) - listed)
+    if unknown:
+        raise FileExistsError(f"{directory} holds {len(unknown)} file(s) its manifest does not list: {unknown[0]}")
+    for rel in sorted(listed):
+        (directory / rel).unlink(missing_ok=True)
+    (directory / MANIFEST_NAME).unlink()
+    for sub in sorted((p for p in directory.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+        if not any(sub.iterdir()):
+            sub.rmdir()
+    if any(directory.iterdir()):
+        raise FileExistsError(f"{directory} still holds files after removing the earlier build")
+
+
 def write_snapshot(
     directory: Path | str,
     files: Mapping[str, Iterable[Mapping[str, Any]]],
@@ -210,9 +240,12 @@ def write_snapshot(
     **manifest_args: Any,
 ) -> SnapshotManifest:
     """Write each file's rows (sorted by ``sort_key``, default their canonical JSON) and the
-    manifest. Input order never changes the bytes written."""
+    manifest. Input order never changes the bytes written. ``directory`` must be missing,
+    empty, or an earlier build of the same snapshot id, which is replaced whole
+    (``FileExistsError`` otherwise), so no file of an older build is ever listed as current."""
     directory = Path(directory)
     _check_snapshot_id(manifest_args.get("snapshot_id"))
+    _clear_earlier_build(directory, manifest_args["snapshot_id"])
     directory.mkdir(parents=True, exist_ok=True)
     key = sort_key or canonical_json
     for rel, rows in files.items():
