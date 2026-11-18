@@ -291,7 +291,14 @@ absent routing inputs, a trace check, a leak scan of the report and every Parque
 `--sandbox` is given, each run's import warnings, and append throughput. Exit 0 when every
 condition holds, 1 otherwise. A second run with the same `--root` must find every run it
 stored before `already_imported`; one that imports as `imported` again fails the gate.
-`--runs` must hold at least one run folder, and `--expect-runs N` fails it unless it holds
-exactly `N`. The gate speaks for the runs under `--runs` alone: a store that already holds a
-run no folder there imports fails it, so give each `--runs` folder a store of its own.
+`--runs` must hold at least one run folder, and `--expect-runs N` (`N` of 1 or more, else a
+usage error, exit 2) fails it unless it holds exactly `N`. The count is checked before
+anything is written: when it fails, the gate writes its report and imports nothing (a new
+`--root` is not created). The gate speaks for the runs under `--runs` alone: a store that
+already holds a run no folder there imports fails it. That check comes after the imports, so
+the gate has already written its runs into `--root` when it fails on a foreign run: run it on
+a fresh `--root` (a new, empty directory), one store per `--runs` folder, unless you mean to
+re-check a store it wrote before. The floor replay parity check compares the event sequence
+and times only; the rows' other fields are compared by `tests/test_replay.py` (see "Floor
+replay").
 `tests/test_stage1_gate.py` runs it on synthetic folders.

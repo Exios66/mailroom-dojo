@@ -6,10 +6,14 @@ Usage::
         [--sandbox <sandbox checkout>] [--report <file>] [--expect-runs <n>]
 
 Every folder under ``--runs`` that holds a ``dataset.jsonl`` is a run folder; there must be
-at least one, and with ``--expect-runs N`` exactly ``N``. The gate is about the runs under
+at least one, and with ``--expect-runs N`` (``N`` of 1 or more; anything else is a usage
+error) exactly ``N``. That count is checked first: when it fails, the gate writes its report
+and stops, and nothing is imported (a new ``--root`` is not even created). The gate is about the runs under
 ``--runs`` alone: the trace, index, size and leak checks read the whole store, so a store
 that already holds a run no folder under ``--runs`` imports fails the gate (give each
-``--runs`` folder a store of its own). Each is imported into the store at
+``--runs`` folder a store of its own). That check can only run after the imports, so the gate
+writes its runs into ``--root`` before it can fail on a foreign run: run it on a fresh
+``--root`` (a new, empty directory) unless you mean to re-check a store it wrote before. Each is imported into the store at
 ``--root`` (created when missing; a second run of the script with the same root must find
 every run it stored before ``already_imported``: a run already in the store that imports as
 ``imported`` means the stored run was incomplete or the folder changed, and fails the gate),
@@ -283,6 +287,22 @@ def _cell(values: list[str]) -> str:
 # --- the gate -----------------------------------------------------------------------
 
 
+def _refused(folders: list[Path], expect_runs: int | None, failures: list[str], report: Path) -> GateResult:
+    """The report of a gate that stopped at the folder count, before any import."""
+    body = (
+        "# Stage 1 gate report\n\n"
+        f"Written by `packages/record/scripts/stage1_gate.py` at commit `{_commit()}` on "
+        f"{datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}. Counts, hashes and run ids only.\n\n"
+        f"- Run folders: {len(folders)}" + (f" (expected {expect_runs})" if expect_runs is not None else "") + "; "
+        "nothing was imported: the folder count is checked before the store is written.\n"
+        "\n## Gate\n\n" + "".join(f"- FAILED: {f}\n" for f in failures)
+    )
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(body, encoding="utf-8")
+    totals: dict[str, Any] = {"folders": len(folders), "statuses": {}}
+    return GateResult(rows=[], totals=totals, failures=failures, report=body)
+
+
 def run_gate(
     runs: Path,
     root: Path,
@@ -291,16 +311,18 @@ def run_gate(
     expect_runs: int | None = None,
 ) -> GateResult:
     """Run the gate and write the report (see the module doc)."""
-    root.mkdir(parents=True, exist_ok=True)
-    blobs = BlobStore(root)
-    log = EventLog(root, blobs)
     folders = _run_folders(runs)
-    floor = load_sandbox_floor_replay(sandbox) if sandbox is not None else None
     failures: list[str] = []
     if not folders:
         failures.append("no run folders under --runs (a folder holding a dataset.jsonl)")
     if expect_runs is not None and len(folders) != expect_runs:
         failures.append(f"found {len(folders)} run folders, expected {expect_runs}")
+    if failures:  # before anything is written: the store at --root is not created or touched
+        return _refused(folders, expect_runs, failures, report)
+    floor = load_sandbox_floor_replay(sandbox) if sandbox is not None else None
+    root.mkdir(parents=True, exist_ok=True)
+    blobs = BlobStore(root)
+    log = EventLog(root, blobs)
     stored_before = {p.parent.name for p in (root / "runs").glob("*/run.json")}
     rows: list[RunRow] = []
     for folder in folders:
@@ -467,20 +489,30 @@ def run_gate(
     return GateResult(rows=rows, totals=totals, failures=failures, report=body)
 
 
+def _at_least_one(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a whole number: {text!r}") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be 1 or more (a gate needs a run folder)")
+    return value
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Stage 1 gate: import, verify, reindex, report.")
     parser.add_argument("--runs", type=Path, required=True, help="folder holding sandbox run folders")
     parser.add_argument("--root", type=Path, required=True, help="the store root (created when missing)")
     parser.add_argument("--sandbox", type=Path, help="a sandbox checkout, for the floor replay parity check")
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT, help="where to write the report")
-    parser.add_argument("--expect-runs", type=int, help="fail unless --runs holds exactly this many run folders")
+    parser.add_argument(
+        "--expect-runs", type=_at_least_one, help="fail unless --runs holds exactly this many run folders (1 or more)"
+    )
     args = parser.parse_args(argv)
     if not args.runs.is_dir():
         parser.error("--runs is not a directory")
     if args.sandbox is not None and not args.sandbox.is_dir():
         parser.error("--sandbox is not a directory")
-    if args.expect_runs is not None and args.expect_runs < 0:
-        parser.error("--expect-runs must not be negative")
     result = run_gate(args.runs, args.root, args.sandbox, args.report, args.expect_runs)
     statuses = ", ".join(f"{k} {v}" for k, v in sorted(result.totals["statuses"].items())) or "none"
     print(f"stage 1 gate: {result.totals['folders']} run folders ({statuses}); report written")

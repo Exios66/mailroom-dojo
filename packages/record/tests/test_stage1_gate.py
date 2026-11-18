@@ -11,7 +11,7 @@ from types import ModuleType
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from record_testkit import SENTINEL, build_runs_dir, flip_byte, load_repo_script
+from record_testkit import SENTINEL, build_runs_dir, flip_byte, load_repo_script, store_tree
 
 
 @pytest.fixture
@@ -170,6 +170,39 @@ def test_expect_runs_checks_the_folder_count(gate: ModuleType, runs_dir: Path, t
     assert "- FAILED: found 3 run folders, expected 15" in report.read_text()
 
 
+# --- the folder count is checked before anything is written (adversarial round 3, finding 10) ---
+
+
+def test_a_wrong_folder_count_writes_nothing_to_the_store(gate: ModuleType, runs_dir: Path, tmp_path: Path) -> None:
+    """A count that is not the expected one fails before any import: a new root is not
+    created, and a store that already exists is left byte for byte as it was."""
+    report = tmp_path / "report.md"
+    assert gate.main(_args(runs_dir, tmp_path / "new", report, "--expect-runs", "2")) == 1
+    assert not (tmp_path / "new").exists()
+    text = report.read_text()
+    assert "- FAILED: found 3 run folders, expected 2" in text and "nothing was imported" in text
+    root = tmp_path / "store"
+    assert gate.main(_args(runs_dir, root, report)) == 0
+    before = store_tree(root)
+    assert gate.main(_args(runs_dir, root, report, "--expect-runs", "4")) == 1
+    assert store_tree(root) == before
+
+
+def test_an_empty_runs_folder_writes_nothing_to_the_store(gate: ModuleType, tmp_path: Path) -> None:
+    (tmp_path / "empty").mkdir()
+    report = tmp_path / "report.md"
+    assert gate.main(_args(tmp_path / "empty", tmp_path / "store", report)) == 1
+    assert not (tmp_path / "store").exists()
+
+
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_expect_runs_below_one_is_a_usage_error(gate: ModuleType, runs_dir: Path, tmp_path: Path, value: str) -> None:
+    with pytest.raises(SystemExit) as exc:
+        gate.main(_args(runs_dir, tmp_path / "store", tmp_path / "report.md", "--expect-runs", value))
+    assert exc.value.code == 2
+    assert not (tmp_path / "store").exists()
+
+
 # --- scoped to its own --runs folder (adversarial round 2, finding 8) ----------------------
 
 
@@ -178,7 +211,6 @@ def test_an_empty_runs_folder_fails_the_gate(gate: ModuleType, tmp_path: Path) -
     report = tmp_path / "report.md"
     assert gate.main(_args(tmp_path / "empty", tmp_path / "store", report)) == 1
     assert "- FAILED: no run folders under --runs" in report.read_text()
-    assert gate.main(_args(tmp_path / "empty", tmp_path / "store", report, "--expect-runs", "0")) == 1
 
 
 def test_a_store_holding_other_runs_fails_the_gate(gate: ModuleType, runs_dir: Path, tmp_path: Path) -> None:
