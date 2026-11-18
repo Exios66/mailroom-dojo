@@ -1,0 +1,24 @@
+name: cms_source_table
+version: 1
+description: >-
+  Closed vocabulary of the insurance_claim `cms_source_table` field: the CMS / DE-SynPUF source
+  table of a CMS row; null for a non-CMS claim. Orthogonal to claim_type (every CMS row's
+  product line is health). The field is not in llm-mailroom src/config/taxonomy.yaml; the Dojo
+  adds it, typed `label`, to the insurance_claim schema of CMS rows only. Values:
+  llm-dojo-scoring llm_dojo_scoring/schemas/scored_enums.py (SCORED_ENUM_FIELDS, built from
+  corpus.py CMS_SOURCE_TABLES, in sorted order). Descriptions:
+  llm_dojo_scoring/schemas/sorter_guide.py.
+ordered: false
+entries:
+  - key: carrier
+    label: Carrier
+    description: "CMS carrier table: physician / supplier claims (Medicare Part B), professional claims."
+  - key: inpatient
+    label: Inpatient
+    description: "CMS inpatient table: inpatient admission, discharge, DRG."
+  - key: outpatient
+    label: Outpatient
+    description: "CMS outpatient table: hospital outpatient services."
+  - key: pde
+    label: PDE
+    description: CMS Part D prescription drug events.

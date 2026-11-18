@@ -1,0 +1,34 @@
+name: cuad_family
+version: 1
+description: >-
+  Closed vocabulary of the contract `cuad_family` field: the 25 CUAD contract families, or
+  other. Values: llm-mailroom src/config/taxonomy.yaml (contract label_vocabularies). Labels and
+  descriptions: llm-dojo-scoring llm_dojo_scoring/config.py CONTRACT_SUBTYPES.
+ordered: false
+entries:
+  - {key: affiliate, label: Affiliate Agreement, description: Affiliate/referral program agreements}
+  - {key: agency, label: Agency Agreement, description: Agency representation agreements}
+  - {key: collaboration, label: Collaboration / Cooperation Agreement, description: R&D and cooperation collaborations}
+  - {key: co_branding, label: Co-Branding Agreement, description: Co-branded marketing/product agreements}
+  - {key: consulting, label: Consulting Agreement, description: Consulting and advisory services}
+  - {key: development, label: Development Agreement, description: Product/software/services development}
+  - {key: distributor, label: Distributor Agreement, description: Distribution and resale rights}
+  - {key: endorsement, label: Endorsement Agreement, description: Endorsements and endorsement riders}
+  - {key: franchise, label: Franchise Agreement, description: Franchise rights and operations}
+  - {key: hosting, label: Hosting Agreement, description: Web/application hosting services}
+  - {key: ip, label: IP Agreement, description: Intellectual property transfer/license agreements}
+  - {key: joint_venture, label: Joint Venture Agreement, description: Joint venture and project collaborations}
+  - {key: license, label: License Agreement, description: "Licensing of technology, content, or IP"}
+  - {key: maintenance, label: Maintenance Agreement, description: Maintenance and support services}
+  - {key: manufacturing, label: Manufacturing Agreement, description: Manufacturing and supply of goods}
+  - {key: marketing, label: Marketing Agreement, description: Marketing and promotion services}
+  - {key: non_compete_no_solicit, label: Non-Compete / No-Solicit / Non-Disparagement Agreement, description: Restrictive-covenant agreements}
+  - {key: outsourcing, label: Outsourcing Agreement, description: Business-process outsourcing}
+  - {key: promotion, label: Promotion Agreement, description: Promotional services and campaigns}
+  - {key: reseller, label: Reseller Agreement, description: Reseller and value-added distribution}
+  - {key: service, label: Service Agreement, description: General professional/support services}
+  - {key: sponsorship, label: Sponsorship Agreement, description: Sponsorship of events/content}
+  - {key: strategic_alliance, label: Strategic Alliance Agreement, description: Strategic alliances and partnerships}
+  - {key: supply, label: Supply Agreement, description: Supply of goods or materials}
+  - {key: transportation, label: Transportation Agreement, description: Transportation and logistics services}
+  - {key: other, label: Other, description: None of the 25 CUAD families.}

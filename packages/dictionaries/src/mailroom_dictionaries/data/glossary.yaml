@@ -1,0 +1,255 @@
+# The workspace glossary. Rendered to docs/glossary.md by
+# packages/dictionaries/scripts/render_glossary.py; edit here, then re-render.
+# Every definition is taken from the source it names. A term whose meaning no source states
+# is left out.
+terms:
+  - term: Sorter
+    definition: >-
+      The model-backed agent that classifies an incoming document into a document class (and
+      subclass), then hands it off to the specialist tailored to that class. The engine keeps
+      this sorter-to-specialist hand-off as its default graph shape; other shapes are policies.
+    see_also: [Specialist, Hand-off]
+    source: docs/specs/2026-11-18-lean-rewrite-design.md (R2 and R3, "The engine")
+
+  - term: Specialist
+    definition: >-
+      A model-backed agent tailored to one document class that extracts that class's fields
+      against its extraction schema. A new document type brings a specialist prompt, or reuses a
+      generic specialist with its schema.
+    see_also: [Sorter, Field type]
+    source: docs/specs/2026-11-18-lean-rewrite-design.md (R2 and R3, R4)
+
+  - term: Hand-off
+    aliases: [handoff]
+    definition: >-
+      A typed envelope passed along an edge of the engine's graph: what the sender did, its
+      confidence, references to the blobs it produced, and what it asks of the receiver. Every
+      hand-off is an event in the run record, which is what makes behavior scorable.
+    see_also: [Event, Sorter]
+    source: docs/specs/2026-11-18-lean-rewrite-design.md ("Agents and handoffs")
+
+  - term: Dojo
+    definition: >-
+      The only place that scores a run, whatever backend produced it: pure functions from a run
+      record plus labels to scores, statistics, projections and reports. It never runs a model
+      and reads nothing but records and label files.
+    see_also: [Run record, Label snapshot]
+    source: docs/specs/2026-11-18-lean-rewrite-design.md ("The Dojo")
+
+  - term: Run record
+    aliases: [record]
+    definition: >-
+      The contract between the parts of the workspace: an append-only, hash-chained log of
+      every step of a run, plus the blobs it references. It holds the run (id, kind, backend,
+      policy name and hash, prompt set, agent-to-model map, label snapshot ids, draw, caps, who
+      signed it), its events, its blobs and each document's version chain. The engine and
+      launcher write it; the Dojo reads only it. The event log is the only source of truth;
+      every index is derived from it.
+    see_also: [Event, Hash chain, Blob, Seal]
+    source: docs/specs/2026-11-18-lean-rewrite-design.md ("The run record and store"); docs/adr/0001-event-log-is-the-only-truth.md
+
+  - term: Event
+    definition: >-
+      One append-only entry per step of a run: run, document, sequence number, agent, attempt,
+      kind (handoff, model call, decision, output, review, error), hashes of input and output,
+      model, prompt id, tokens in, out and cached, price basis, latency, decision and cause
+      token, previous hash and own hash.
+    see_also: [Run record, Hash chain]
+    source: docs/specs/2026-11-18-lean-rewrite-design.md ("What a record holds")
+
+  - term: Hash chain
+    definition: >-
+      Each document has its own chain of events within a run: `seq` starts at 0, the first
+      event's `prev_hash` is GENESIS (64 zeros), and each event's `hash` is the SHA-256 of the
+      canonical JSON of every field except `hash`. Documents processed in parallel never wait
+      on a shared chain lock.
+    see_also: [Seal, Event]
+    source: docs/adr/0002-per-document-hash-chains-and-chained-seals.md
+
+  - term: Seal
+    definition: >-
+      A record that commits the head of every document chain in a run, the list of documents
+      and the event count, chained to the previous seal. Experiment runs seal once at the end;
+      service periods seal on a timer. Verification recomputes chains and seals, so an edited
+      or deleted event, a deleted document or a cut tail fails.
+    see_also: [Hash chain]
+    source: docs/adr/0002-per-document-hash-chains-and-chained-seals.md
+
+  - term: Blob
+    definition: >-
+      Anything with content (the original file, a transcript, a window, an extraction attempt,
+      a verdict, the archived record, a human correction, a report), stored once under its
+      SHA-256 and compressed. A document seen in many runs is stored once. Events hold only
+      blob references, never document text.
+    see_also: [Tombstone, Run record]
+    source: docs/adr/0003-content-addressed-blobs-with-tombstones.md
+
+  - term: Tombstone
+    definition: >-
+      What deleting a blob's content leaves: a file recording the reason and time, in place of
+      the content. The hash stays in the chain, so verification still passes; a blob that is
+      simply gone fails verification and names the event.
+    see_also: [Blob]
+    source: docs/adr/0003-content-addressed-blobs-with-tombstones.md
+
+  - term: Label snapshot
+    definition: >-
+      A committed, versioned file set of labels with a manifest hash. A run records the
+      snapshot it was scored against, so a score is tied to the exact labels. A snapshot is
+      checked against the dataset's content hashes and the closed label vocabularies before it
+      is used; a document whose content hash does not match is flagged as unverified.
+    see_also: [Label status, Closed label]
+    source: docs/specs/2026-11-18-lean-rewrite-design.md (R6, "Labels package")
+
+  - term: Label status
+    definition: >-
+      The status every ground-truth label keeps, with its source: Hub, interim, near_gold or
+      gold. Precedence is Hub, then interim, then near_gold, with gold reviewer decisions on
+      top; it does not change. The label_statuses dictionary ranks them.
+    see_also: [Hub, Interim, Near-gold, Gold]
+    source: docs/specs/2026-11-18-lean-rewrite-design.md (R6, "Labels package")
+
+  - term: Hub
+    definition: >-
+      Ground truth published in the pinned mailroom dataset (Lucius-Morningstar/mailroom-dataset,
+      by revision), less the labels the Dojo's label policy drops as stale.
+    see_also: [Label status]
+    source: llm-dojo-scoring llm_dojo_scoring/schemas/label_policy.py; docs/specs/2026-11-18-lean-rewrite-design.md (R6)
+
+  - term: Interim
+    definition: >-
+      A Claude-generated label built from gate-accepted, grounded extractions. A gap fill
+      applies only where the Hub has no label; a correction applies only while the Hub value
+      still equals the value it corrects; a disputed label is never applied.
+    see_also: [Label status]
+    source: llm-dojo-scoring llm_dojo_scoring/schemas/label_policy.py
+
+  - term: Near-gold
+    aliases: [near_gold]
+    definition: >-
+      A Claude-generated label from two agreeing passes or an Opus review. It fills only
+      fields that neither the Hub nor an interim label covers.
+    see_also: [Label status]
+    source: llm-dojo-scoring llm_dojo_scoring/schemas/label_policy.py
+
+  - term: Gold
+    definition: >-
+      A gold-label review decision, recorded with the reviewer's initials. Gold decisions sit
+      on top of every other label layer.
+    see_also: [Label status]
+    source: docs/specs/2026-11-18-lean-rewrite-design.md (R6, "Labels package")
+
+  - term: Scorable field
+    definition: >-
+      A field with a ground-truth label the Dojo can score an extraction against. A document
+      archived with fewer labelled fields than the gate's minimum is an unscorable archive: no
+      score is trusted and it is left out of the wrong-archive rate. Coverage (scorable
+      documents and fields per class, by label status) is a first-class report.
+    see_also: [Wrong archive, Label status]
+    source: local-mailroom-sandbox src/mailroom_sandbox/job/gate.py; docs/specs/2026-11-18-lean-rewrite-design.md ("Labels package")
+
+  - term: Field type
+    definition: >-
+      How an extracted field is scored: name, label, date, money, id, free_text, containment,
+      cms_doc_ref, or entity_list, optionally with an element type (entity_list:name). The
+      field_types and entity_element_types dictionaries list them.
+    see_also: [Closed label]
+    source: llm-dojo-scoring llm_dojo_scoring/scoring/field_scoring.py; llm-mailroom src/config/taxonomy.yaml
+
+  - term: Closed label
+    definition: >-
+      A field of type label whose values come from a fixed vocabulary, such as cuad_family or
+      urgency. After extraction, a value off its list routes the document to review with cause
+      out_of_vocabulary; an absent value is valid.
+    see_also: [Field type, Review bin]
+    source: llm-mailroom src/config/taxonomy.yaml (label_vocabularies)
+
+  - term: Wrong archive
+    definition: >-
+      A document archived under another class than the expected one, or archived with an
+      extraction score under the quality bar (0.90 by default). The wrong-archive rate is wrong
+      archives over scorable archives.
+    see_also: [Review rate, Utility, Scorable field]
+    source: local-mailroom-sandbox src/mailroom_sandbox/job/gate.py and src/mailroom_sandbox/autoresearch/scoring.py
+
+  - term: Review rate
+    definition: Reviews over all documents of the pool.
+    see_also: [Wrong archive, Review bin]
+    source: local-mailroom-sandbox src/mailroom_sandbox/job/gate.py
+
+  - term: Utility
+    definition: >-
+      The per-document value a run is compared on. A correct archive is worth its extraction
+      score; by default a review is worth -0.25, a wrong archive, a crash or a judge error -1.0,
+      and an unscorable archive 0. The weights are set per study. A prompt or policy variant is
+      kept on whole-pipeline utility and the wrong-archive rate at a fixed review rate.
+    see_also: [Wrong archive, Review rate]
+    source: local-mailroom-sandbox src/mailroom_sandbox/autoresearch/scoring.py; docs/specs/2026-11-18-lean-rewrite-design.md ("Prompt optimization")
+
+  - term: Routing policy
+    aliases: [policy]
+    definition: >-
+      A named, versioned file holding the engine graph's nodes, edges and their conditions, the
+      thresholds, the decision-slot settings with their caps, and the retry budgets. Its hash is
+      stored on every run, and it cannot change schemas or prompts. The `legacy` policy
+      reproduces today's routing; each experiment arm is a policy.
+    see_also: [Decision slot]
+    source: docs/specs/2026-11-18-lean-rewrite-design.md ("Policies")
+
+  - term: Decision slot
+    definition: >-
+      A place in the graph where a decision model may be consulted. The eight slots of
+      mailroom #309 are sorter reviewer, archive gate, judge replacement, judge check, boss
+      check, arbiter veto, closed-field resolver and field review. Each is off by default, has
+      its own caps, and is switched on in a policy or run spec. Every slot call is recorded as a
+      decision event.
+    see_also: [Routing policy, Event]
+    source: docs/specs/2026-11-18-lean-rewrite-design.md (R10)
+
+  - term: Review bin
+    aliases: [parked, review queue]
+    definition: >-
+      Where the pipeline parks a document for a person to review, with at least one review
+      cause attached. Today the pipeline also parks a document whose provider errors outlast the
+      transient retry budget (cause transient_exhausted). The new engine must not: no document
+      is parked because of a provider outage (spec R1); documents wait in the queue instead.
+    see_also: [Review rate, Closed label]
+    source: llm-mailroom src/pipeline/bins.py (park_for_review) and src/pipeline/reconsideration.py; docs/specs/2026-11-18-lean-rewrite-design.md ("Failure handling")
+
+  - term: Client profile
+    definition: >-
+      Configuration for one client under `config/clients/<client>/`: its document classes,
+      schemas, thresholds and label snapshot. A new document type is added by a client profile
+      entry and plug-ins, with no code fork.
+    see_also: [Routing policy, Prompt set]
+    source: docs/specs/2026-11-18-lean-rewrite-design.md (R4, R9)
+
+  - term: Prompt set
+    definition: >-
+      A versioned set of agent prompts; `deploy_v1` is the default. A variant is an overlay on
+      a prompt set that changes one agent's prompt, so two arms differ in exactly one prompt.
+      Every model call records the id and hash of the prompt that ran.
+    see_also: [Client profile]
+    source: docs/specs/2026-11-18-lean-rewrite-design.md ("Prompt optimization")
+
+  - term: Backend
+    definition: >-
+      A launch path adapter: OpenRouter, Modal with vLLM, Docker Compose, or a local Ollama or
+      vLLM. It reports the fields it can; the rest are recorded as absent. A backend never
+      changes the graph.
+    see_also: [Run record]
+    source: docs/specs/2026-11-18-lean-rewrite-design.md (R5, "The launcher and backends")
+
+  - term: Draw
+    definition: >-
+      The documents a run processes, recorded on the run. Runs that share a draw are compared
+      paired by document.
+    see_also: [Run record]
+    source: docs/specs/2026-11-18-lean-rewrite-design.md ("What a record holds", "Comparing runs")
+
+  - term: Stage gate
+    definition: >-
+      The proof gate that ends a build stage and must pass before the next stage is trusted;
+      for stage 1, the stored runs import cleanly, every chain verifies and both trace commands
+      work. It runs end to end on the stored runs, in a script rather than in pytest.
+    source: docs/specs/2026-11-18-lean-rewrite-design.md ("Build order and proof gates"); docs/test-strategy-record.md

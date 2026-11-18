@@ -5,6 +5,10 @@ root, then repeats it on a fresh store once per (syscall, call number, fault) an
 the exact outcome: a clear ``OSError`` (or completion, for a short write the code must
 retry), nothing partial at a final path, no temp file left, a failed log writer refusing
 further use, and an on-disk state that verifies and recovers when used again.
+
+``Faults`` (record_testkit) tells the store's descriptors from pytest's by reading
+``/proc/self/fd``, so these tests need Linux procfs; elsewhere ``Faults`` skips the test
+rather than run a fault plan that cannot see the store's writes.
 """
 
 from __future__ import annotations
@@ -91,15 +95,16 @@ def run_op(faults: Faults, op: Callable[[], Any]) -> BaseException | None:
 
 # --- blobs ------------------------------------------------------------------------
 
-BLOB_ACTIONS = {"write": ["ENOSPC", "EIO", "short", "short+ENOSPC"], "fsync": ["ENOSPC", "EIO"],
-                "replace": ["EIO"], "link": ["EIO"]}
+BLOB_ACTIONS = {"write": ["ENOSPC", "EIO", "short", "short+ENOSPC", "zero"], "fsync": ["ENOSPC", "EIO"],
+                "replace": ["EIO"], "link": ["EIO"], "open": ["ENOSPC", "EIO"], "mkstemp": ["ENOSPC", "EIO"]}
 
 
 def test_blob_put_under_every_fault(faults: Faults, tmp_path: Path) -> None:
-    seen = 0
+    seen, names = 0, set()
     for name, k, action, store, _ in cases(faults, tmp_path, lambda s: None,
                                            lambda s, _: s.blobs.put(DATA, ROLE), BLOB_ACTIONS):
         seen += 1
+        names.add(name)
         where = f"{action} at os.{name} call {k}"
         err = run_op(faults, lambda: store.blobs.put(DATA, ROLE))
         assert tmp_files(store.root) == [], where
@@ -112,18 +117,19 @@ def test_blob_put_under_every_fault(faults: Faults, tmp_path: Path) -> None:
         # Recovery: the same put without faults stores the whole blob.
         assert store.blobs.put(DATA, ROLE).sha256 == sha
         assert store.blobs.get(sha) == DATA and tmp_files(store.root) == [], where
-    assert seen >= 8
+    assert seen >= 8 and {"open", "mkstemp", "write", "fsync", "replace"} <= names
 
 
 def test_blob_tombstone_under_every_fault(faults: Faults, tmp_path: Path) -> None:
     def setup(store: SimpleNamespace) -> str:
         return store.blobs.put(DATA, ROLE).sha256
 
-    seen = 0
+    seen, names = 0, set()
     for name, k, action, store, sha in cases(faults, tmp_path, setup,
                                              lambda s, sha: s.blobs.tombstone(sha, "erasure request"),
                                              BLOB_ACTIONS):
         seen += 1
+        names.add(name)
         where = f"{action} at os.{name} call {k}"
         err = run_op(faults, lambda: store.blobs.tombstone(sha, "erasure request"))
         assert tmp_files(store.root) == [], where
@@ -138,12 +144,13 @@ def test_blob_tombstone_under_every_fault(faults: Faults, tmp_path: Path) -> Non
             store.blobs.get(sha)
         with pytest.raises(BlobTombstoned):
             store.blobs.put(DATA, ROLE)
-    assert seen >= 4
+    assert seen >= 4 and {"open", "mkstemp", "link"} <= names
 
 
 # --- the event log ------------------------------------------------------------------
 
-LOG_ACTIONS = {"write": ["ENOSPC", "EIO", "short", "short+ENOSPC", "zero"], "fsync": ["ENOSPC", "EIO"]}
+LOG_ACTIONS = {"write": ["ENOSPC", "EIO", "short", "short+ENOSPC", "zero"], "fsync": ["ENOSPC", "EIO"],
+               "open": ["ENOSPC", "EIO"]}
 N_EVENTS, FLUSH_EVERY = 5, 2
 
 
@@ -165,10 +172,11 @@ def log_workload(store: SimpleNamespace, out: dict[str, Any]) -> None:
 
 
 def test_log_writer_under_every_fault(faults: Faults, tmp_path: Path) -> None:
-    seen = 0
+    seen, names = 0, set()
     for name, k, action, store, _ in cases(faults, tmp_path, lambda s: None,
                                            lambda s, _: log_workload(s, {}), LOG_ACTIONS):
         seen += 1
+        names.add(name)
         where = f"{action} at os.{name} call {k}"
         out: dict[str, Any] = {}
         err = run_op(faults, lambda: log_workload(store, out))
@@ -208,7 +216,7 @@ def test_log_writer_under_every_fault(faults: Faults, tmp_path: Path) -> None:
         after = check_chains(store.root)
         assert sum(after.values()) == sum(counts.values()) + 2, where
         assert seal_run(store.log, "r1").event_count == sum(after.values()), where
-    assert seen >= 10
+    assert seen >= 10 and {"open", "write", "fsync"} <= names
 
 
 def test_log_short_writes_complete_whole_lines(faults: Faults, tmp_path: Path) -> None:
@@ -261,10 +269,11 @@ def _seal_state(store: SimpleNamespace, where: str) -> None:
 
 
 def test_seal_under_every_fault(faults: Faults, tmp_path: Path) -> None:
-    seen = 0
+    seen, names = 0, set()
     for name, k, action, store, _ in cases(faults, tmp_path, with_events,
                                            lambda s, _: seal_run(s.log, "r1"), SEAL_ACTIONS):
         seen += 1
+        names.add(name)
         where = f"{action} at os.{name} call {k}"
         run_op(faults, lambda: seal_run(store.log, "r1"))
         assert tmp_files(store.root) == [], where
@@ -276,7 +285,7 @@ def test_seal_under_every_fault(faults: Faults, tmp_path: Path) -> None:
         rows = pq.read_table(store.root / "runs/r1/columns/events-0.parquet").to_pylist()
         assert sorted((r["doc_id"], r["seq"]) for r in rows) == [("d1", 0), ("d1", 1), ("d2", 0)], where
         assert seal_run(store.log, "r1") == s0 and tmp_files(store.root) == [], where
-    assert seen >= 10
+    assert seen >= 10 and {"open", "mkstemp", "write", "fsync", "link", "replace"} <= names
 
 
 def test_log_write_that_never_progresses_fails_instead_of_spinning(faults: Faults, tmp_path: Path) -> None:
@@ -292,3 +301,36 @@ def test_log_write_that_never_progresses_fails_instead_of_spinning(faults: Fault
     with pytest.raises(RuntimeError, match="failed earlier"):
         w.append(doc_id="d0", node="n", kind="output")
     w.close()
+
+
+@pytest.mark.parametrize("what", ["blob put", "tombstone", "seal"])
+def test_blob_and_seal_writes_that_never_progress_fail_instead_of_spinning(
+    faults: Faults, tmp_path: Path, what: str
+) -> None:
+    # Every os.write returns 0: a BufferedWriter over FileIO would retry forever. The blob
+    # and seal paths must raise like the log does, and leave no temp file or final file.
+    store = new_store(tmp_path, "s")
+    sha = store.blobs.put(DATA, ROLE).sha256 if what == "tombstone" else None
+    if what == "seal":
+        with_events(store)
+    faults.use_root(store.root)
+    for k in range(1, 10_000):
+        faults.fail("write", k, "zero")
+    op = {
+        "blob put": lambda: store.blobs.put(DATA + b"x", ROLE),
+        "tombstone": lambda: store.blobs.tombstone(sha, "erasure request"),
+        "seal": lambda: seal_run(store.log, "r1"),
+    }[what]
+    with pytest.raises(OSError, match="wrote 0 bytes"):
+        op()
+    assert 1 <= len(faults.fired) <= 4  # a bounded number of attempts, not a spin
+    assert tmp_files(store.root) == []
+    faults.plan.clear()
+    if what == "seal":
+        assert not (store.root / "runs/r1/seals/0.json").exists()
+        assert seal_run(store.log, "r1").event_count == 3
+    elif what == "tombstone":
+        assert store.blobs.get(sha) == DATA  # nothing was deleted
+    else:
+        assert store.blobs.exists(hashlib.sha256(DATA + b"x").hexdigest()) == "missing"
+    op()  # recovery without faults

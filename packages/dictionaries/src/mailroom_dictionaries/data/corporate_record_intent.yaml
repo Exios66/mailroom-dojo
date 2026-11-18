@@ -1,0 +1,32 @@
+name: corporate_record_intent
+version: 1
+description: >-
+  Closed vocabulary of the corporate_record `intent` field. Values: llm-mailroom
+  src/config/taxonomy.yaml (corporate_record label_vocabularies). Descriptions and aliases:
+  llm-dojo-scoring llm_dojo_scoring/schemas/intents.py (INTENT_LABELS, INTENT_DESCRIPTIONS,
+  INTENT_ALIASES; aliases that fold onto a key are left out).
+ordered: false
+entries:
+  - key: governance_rules
+    label: Governance rules
+    description: Bylaws or equivalent governance instruments.
+    aliases: [record_governance, governance, governingrules, bylaws]
+  - key: corporate_action_approval
+    label: Corporate action approval
+    description: Board written consents or resolutions authorizing transactions or actions.
+    aliases: [boardresolution, corporateaction, approval]
+  - key: entity_formation
+    label: Entity formation
+    description: Articles or certificates of incorporation or formation.
+    aliases: [formation, incorporation, articlesofincorporation]
+  - key: authority_delegation
+    label: Authority delegation
+    description: Powers of attorney.
+    aliases: [powerofattorney]
+  - key: investor_rights
+    label: Investor rights
+    description: Stockholder rights, warrants, preferred certificates, specimen stock.
+    aliases: [rightsinstrument]
+  - key: other
+    label: Other
+    description: Residual; none of the above.

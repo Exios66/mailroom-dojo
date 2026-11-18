@@ -1,0 +1,27 @@
+name: coverage_determination
+version: 1
+description: >-
+  Closed vocabulary of the insurance_claim `coverage_determination` field: the outcome of the
+  claim as the document states it. Values: llm-mailroom src/config/taxonomy.yaml
+  (insurance_claim label_vocabularies). Descriptions and aliases: llm-dojo-scoring
+  llm_dojo_scoring/schemas/scored_enums.py (the coverage_determination hint and
+  _COVERAGE_ALIASES).
+ordered: false
+entries:
+  - key: approved
+    label: Approved
+    description: The claim is approved.
+    aliases: [approve, covered, accepted, paid]
+  - key: denied
+    label: Denied
+    description: The claim is denied.
+    aliases: [deny, declined, rejected, not covered, uncovered]
+  - key: partial
+    label: Partial
+    description: The claim is partly approved or partly denied.
+    aliases: [partially approved, partially denied, partial approval, partial denial, partly approved,
+              partly denied]
+  - key: pending
+    label: Pending
+    description: No decision yet.
+    aliases: [under review, in review, open, undetermined]

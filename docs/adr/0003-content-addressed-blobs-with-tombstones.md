@@ -16,7 +16,12 @@ text must never reach an exported analysis file.
 - Anything with content (original, transcript, window, extraction, verdict, archived record,
   human correction, report) is a blob stored once under its SHA-256, compressed with zstd
   (level 9), at `blobs/<aa>/<bb>/<sha256>.zst`. Writes go to a temp file, are fsynced, then
-  renamed, so a blob is either whole or absent. `put` is idempotent.
+  renamed, so a blob is either whole or absent. The rename is durable before `put` returns
+  (and so before any event names the blob): the shard directory is fsynced after it, and
+  every directory on the path up to the store root is fsynced too, whether this call
+  created it or found it, since a writer that crashed after `mkdir` may have left its entry
+  unsynced. A `put` of content already present fsyncs the directory again before it
+  returns. `put` is idempotent.
   Blob and tombstone files are created with mode 0600 (owner only), because they hold
   private document content.
 - Events hold only `BlobRef(sha256, role, size)`. `payload` holds our own tokens only, never

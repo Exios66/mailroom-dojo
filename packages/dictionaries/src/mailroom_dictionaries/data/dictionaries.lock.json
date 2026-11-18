@@ -1,0 +1,78 @@
+{
+  "claim_type": {
+    "hash": "783dcb25661c9942f77d8e07ae348e8df7de09c2df048b0e49efb0fdddcce9a5",
+    "version": 1
+  },
+  "cms_source_table": {
+    "hash": "ca9d5e75f88ba9b5f148175c6fb02dc8d12684187523e9a7a187a3cec53273c0",
+    "version": 1
+  },
+  "communication_type": {
+    "hash": "1f54383549b6cda435ead021932cc17ba5800c4d7a55542e78a156809df65f2d",
+    "version": 1
+  },
+  "corporate_record_intent": {
+    "hash": "dcc28097b7ee135358cc8f1694dc590d1e32a97658e0b333aa4176e6a520aad2",
+    "version": 1
+  },
+  "corporate_record_type": {
+    "hash": "7619d6b9ce2948b5fbc9a52b2dc81587eef0857043cdc15c29fa1291bf0e9948",
+    "version": 1
+  },
+  "correspondence_intent": {
+    "hash": "52f0c7daebf518e8fc572c66260f25f1d56341b5fd9529db48529b99ed41d19a",
+    "version": 1
+  },
+  "coverage_determination": {
+    "hash": "597b042cbd3f24e24bdd4874b10917a2b27dcf6ffa41c60c7e5948dd8d7441b7",
+    "version": 1
+  },
+  "cuad_family": {
+    "hash": "3826902acf39f40564c2676f3bff509f51ba8b17b03d1b6efb4a9ffe787355dc",
+    "version": 1
+  },
+  "decision_slots": {
+    "hash": "5ab3a28e54ac0e067835d949bbc51f1daf1cd8abb07cb56b1d0d8328689e12d0",
+    "version": 2
+  },
+  "doc_classes": {
+    "hash": "f8b6781ad66dc9438eb717776d7266859f30a740c6c5ec1391bb36c86830f9d9",
+    "version": 2
+  },
+  "entity_element_types": {
+    "hash": "da052db4dad9fc6260cf7dcbaba8feb335d3dff80deb517a3d4ed59a5181c52b",
+    "version": 1
+  },
+  "field_types": {
+    "hash": "d6d040b2e6f0e3808cafda7443fa38f8ed05ab02c7096743423bc375354b1a36",
+    "version": 2
+  },
+  "insurance_claim_intent": {
+    "hash": "529ce3185a347b4482ca9477b245189b5cf8cfadc3876a817c2caae37e2e3246",
+    "version": 1
+  },
+  "label_statuses": {
+    "hash": "a98baf42fbd508d5cb24baf8013f1ca8c182bf093b697a96435c367d456b635e",
+    "version": 2
+  },
+  "merger_agreement_intent": {
+    "hash": "ea27b29e684fa4408befc6916ba651038de7c0f65969279e7f42017c28ee4526",
+    "version": 1
+  },
+  "merger_consideration": {
+    "hash": "9151a13e06ccb58fd160ad85f2161194ab3ddf1d5e83d3ad19a64f566441f6a6",
+    "version": 2
+  },
+  "outcomes": {
+    "hash": "e6e6e43af76be893eb98cea38ca945e85b47fca3f945286fff295796b30937cd",
+    "version": 1
+  },
+  "review_causes": {
+    "hash": "811d1d15fdc7b98e2adc9c73d1d00f3b5bb4a93c394d32116ced0fb8bf6e2382",
+    "version": 1
+  },
+  "urgency": {
+    "hash": "1212a60ce9e42ff61247076ef1de94a39ae578e03d5b7a7ce56f3a2c43ffadf0",
+    "version": 1
+  }
+}
