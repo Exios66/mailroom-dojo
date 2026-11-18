@@ -89,8 +89,9 @@ INT64_MAX = 2**63 - 1
 Count = Annotated[int, Field(ge=0, le=INT64_MAX)]
 FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
 
-# Used with fullmatch: ``$`` with ``match`` would accept a trailing newline.
-_TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z")
+# Used with fullmatch: ``$`` with ``match`` would accept a trailing newline. ASCII digits
+# only: ``\d`` (and ``strptime``) also accept other Unicode digits, such as fullwidth ones.
+_TS_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?Z")
 
 
 def _check_ts(value: str) -> str:

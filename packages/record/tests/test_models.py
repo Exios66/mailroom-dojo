@@ -301,6 +301,8 @@ def test_blob_ref_rejects_bad_values(overrides: dict[str, Any]) -> None:
     [
         {"ts": "2026-11-18T12:00:00"},
         {"ts": "2026-11-18T07:00:00-05:00"},
+        {"ts": "\uff12\uff10\uff12\uff16-11-18T12:00:00Z"},  # fullwidth digits
+        {"ts": "2026-11-18T12:00:00.\u0661\u0662Z"},  # Arabic-Indic digits in the fraction
         {"prev_hash": "0" * 63},
         {"hash_typo": 1},
         {"seq": -1},
