@@ -9,7 +9,11 @@ final wait never exceeds ``max_delay``, whatever the jitter or ``retry_after`` s
 
 Only :class:`ProviderError` is caught. A non-retryable one is raised at once; any other
 exception is a bug and propagates untouched. When the ladder is exhausted the last error is
-raised, with ``attempts`` (how many calls were made) added to its ``context``.
+raised, with ``attempts`` (how many calls were made) added to its ``context``. A
+retryable error whose ``retry_after`` exceeds ``max_delay`` is raised at once (a retry
+before the provider's time would only fail and burn an attempt), with ``attempts`` and
+``gave_up="retry_after exceeds max_delay"`` in its context. :meth:`RetryPolicy.delay`
+itself still caps such a wait at ``max_delay``.
 """
 
 from __future__ import annotations
@@ -29,15 +33,19 @@ T = TypeVar("T")
 
 
 class RetryPolicy(BaseModel):
-    """How many times to call and how long to wait between calls (seconds)."""
+    """How many times to call and how long to wait between calls (seconds).
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    Strict: ``max_attempts="3"`` or ``3.0`` is refused (an int is accepted for a float).
+    ``jitter`` must be below 1, so a wait can never shrink to zero.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     max_attempts: int = Field(default=5, ge=1)
     base_delay: float = Field(default=1.0, gt=0.0)
     rate_limit_base_delay: float = Field(default=8.0, gt=0.0)
     max_delay: float = Field(default=60.0, gt=0.0)
-    jitter: float = Field(default=0.3, ge=0.0, le=1.0)
+    jitter: float = Field(default=0.3, ge=0.0, lt=1.0)
 
     @model_validator(mode="after")
     def _cap_above_bases(self) -> RetryPolicy:
@@ -83,6 +91,14 @@ def call_with_retry(
         except ProviderError as error:
             if not error.retryable or attempt >= policy.max_attempts:
                 error.context = {**error.context, "attempts": attempt}
+                raise
+            if error.retry_after is not None and error.retry_after > policy.max_delay:
+                # A retry sooner than the provider asked would only fail again and burn an attempt.
+                error.context = {
+                    **error.context,
+                    "attempts": attempt,
+                    "gave_up": "retry_after exceeds max_delay",
+                }
                 raise
             wait = policy.delay(attempt, error, rng())
             if on_retry is not None:

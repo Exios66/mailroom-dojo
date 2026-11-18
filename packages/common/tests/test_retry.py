@@ -90,10 +90,50 @@ def test_retry_after_raises_the_wait_but_is_capped() -> None:
     errors = [
         TransientProviderError("t", retry_after=5.0),  # above the 1.0 ladder step
         TransientProviderError("t", retry_after=0.5),  # below the 2.0 step: ladder wins
-        RateLimitError("429", retry_after=3600.0),  # absurd ask: capped
+        RateLimitError("429", retry_after=60.0),  # exactly the cap: still waited
     ]
     call_with_retry(failing(errors), RetryPolicy(), sleep=sleep, rng=mid)
     assert sleep.waits == [5.0, 2.0, 60.0]
+
+
+def test_retry_after_beyond_max_delay_raises_at_once_without_burning_an_attempt() -> None:
+    sleep = Recorder()
+    retried: list[int] = []
+    errors: list[BaseException] = [TransientProviderError("t"), RateLimitError("429", retry_after=3600.0)]
+    calls: list[int] = []
+    fn = failing(errors)
+
+    def counted() -> str:
+        calls.append(1)
+        return fn()
+
+    with pytest.raises(RateLimitError) as info:
+        call_with_retry(
+            counted, RetryPolicy(), sleep=sleep, rng=mid, on_retry=lambda a, e, d: retried.append(a)
+        )
+    assert info.value is errors[1]
+    assert info.value.context == {
+        "retry_after": 3600.0,
+        "attempts": 2,
+        "gave_up": "retry_after exceeds max_delay",
+    }
+    assert calls == [1, 1]
+    assert sleep.waits == [1.0]
+    assert retried == [1]
+
+
+def test_jitter_of_one_is_refused_because_it_allows_a_zero_wait() -> None:
+    with pytest.raises(ValidationError, match="jitter"):
+        RetryPolicy(jitter=1.0)
+    assert RetryPolicy(jitter=0.999).jitter == 0.999
+
+
+@pytest.mark.parametrize(
+    "fields", [{"max_attempts": "3"}, {"max_attempts": 3.0}, {"base_delay": "1.0"}, {"jitter": True}]
+)
+def test_policy_is_strict_about_types(fields: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        RetryPolicy(**fields)
 
 
 def test_exhausted_ladder_raises_last_error_with_attempt_count() -> None:
@@ -194,7 +234,7 @@ def test_policy_validation(fields: dict[str, Any], match: str) -> None:
     u=st.floats(0.0, 1.0),
     retry_after=st.none() | st.floats(0.0, 1e6),
     rate_limited=st.booleans(),
-    jitter=st.floats(0.0, 1.0),
+    jitter=st.floats(0.0, 1.0, exclude_max=True),
 )
 def test_property_delay_is_within_zero_and_max(
     attempt: int, u: float, retry_after: float | None, rate_limited: bool, jitter: float
