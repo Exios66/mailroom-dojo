@@ -11,11 +11,11 @@ from __future__ import annotations
 import json
 from collections import Counter
 from dataclasses import dataclass, field
-from functools import cache
 from typing import Any
 
 import pytest
-from dojo_testkit import OLD_DOJO_COMMIT, PACKAGE_ROOT, canonical, decode, encode
+from dojo_testkit import OLD_DOJO_COMMIT, decode, encode
+from golden_replay import HUB_ROW_FIXTURE, check_against_ledger, jsonl_corpus
 
 from mailroom_dojo.field_scoring import score_extraction
 from mailroom_dojo.labels_interface import (
@@ -27,9 +27,6 @@ from mailroom_dojo.labels_interface import (
     expected_values,
     hub_rows,
 )
-
-HUB_ROW_CORPUS_PATH = PACKAGE_ROOT / "tests" / "fixtures" / "golden" / "hub_row_cases.jsonl"
-
 
 @dataclass(frozen=True)
 class FakeFieldLabel:
@@ -186,11 +183,9 @@ def test_the_dojo_does_not_import_the_labels_package():
 # ---------------------------------------------------------------------------
 
 
-@cache
 def hub_row_corpus() -> tuple[dict[str, Any], tuple[dict[str, Any], ...]]:
     """The Hub-row corpus header and cases."""
-    lines = HUB_ROW_CORPUS_PATH.read_text(encoding="utf-8").splitlines()
-    return json.loads(lines[0])["header"], tuple(json.loads(line) for line in lines[1:])
+    return jsonl_corpus(HUB_ROW_FIXTURE)
 
 
 def _hub_adapters(profile):
@@ -235,17 +230,13 @@ def test_the_hub_row_corpus_header():
 def test_every_hub_row_case_gives_the_old_output(mailroom_profile):
     """Replay every case with the mailroom profile; results equal as canonical JSON, exceptions by type and message."""
     _, cases = hub_row_corpus()
-    differences = []
-    for case in cases:
-        replayed = replay_hub_case(case, mailroom_profile)
-        recorded = case["outcome"]
-        if "result" in recorded:
-            same = "result" in replayed and canonical(replayed["result"]) == canonical(recorded["result"])
-        else:
-            same = replayed == recorded
-        if not same:
-            differences.append((case["id"], case["function"], recorded, replayed))
-    assert not differences, f"{len(differences)} of {len(cases)} differ, first: {differences[:3]}"
+    replayed = [(case["id"], case["function"], case["outcome"], replay_hub_case(case, mailroom_profile))
+                for case in cases]
+    exceptions_differ = [case_id for case_id, _, recorded, outcome in replayed
+                         if "raises" in recorded and outcome != recorded]
+    problems = check_against_ledger(HUB_ROW_FIXTURE, replayed)
+    assert not problems, f"{len(problems)} problems of {len(cases)} cases, first: {problems[:3]}"
+    assert not exceptions_differ, exceptions_differ[:5]
 
 
 def test_pending_annotation_drops_and_absence_blanks(mailroom_profile):

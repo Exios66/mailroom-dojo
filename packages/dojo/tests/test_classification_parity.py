@@ -6,36 +6,34 @@ generated sorter outputs (JSON objects with ``doc_type``, fenced and quoted text
 case, near-miss labels, error rows, None, numbers, unicode), paired label lists, raw
 binary flags, F-beta edge values and length mismatches, each with the old output at
 commit 23f8234c. The new functions run with the mailroom-dataset profile's label set
-and must give the same canonical JSON (``1`` is not ``1.0``, ``None`` is not ``0.0``)
-or raise the same exception type (and, for the length check, the same message).
+and must give the same canonical JSON or raise the same exception; a difference must
+be listed in ``intended_differences.json``.
 """
 
 from __future__ import annotations
 
 import json
 from collections import Counter
-from functools import cache
 from typing import Any, Callable
 
 import pytest
-from dojo_testkit import OLD_DOJO_COMMIT, PACKAGE_ROOT, canonical, decode, encode
+from dojo_testkit import OLD_DOJO_COMMIT, decode
+from golden_replay import (
+    CLASSIFICATION_FIXTURE,
+    GOLDEN_DIRECTORY,
+    OLD_INPUTS_SHA256,
+    OLD_SCORES_SHA256,
+    check_against_ledger,
+    jsonl_corpus,
+    outcome_of,
+    same_outcome,
+)
 
 from mailroom_dojo import classification
 from mailroom_dojo.classification import ClassLabelSet
 
-CORPUS_PATH = PACKAGE_ROOT / "tests" / "fixtures" / "golden" / "classification_cases.jsonl"
-OLD_SCORES_SHA256 = "42c7f3c667e526e9e7db39df66470a37ecfdae0eec313c60c98f60ec63ffc480"
-OLD_INPUTS_SHA256 = "59292c3564116f87e770bd2e5ed504808f2c4c09caba36a28bbd42387523d580"
 
-
-@cache
-def corpus() -> tuple[dict[str, Any], tuple[dict[str, Any], ...]]:
-    """The corpus header and its cases."""
-    lines = CORPUS_PATH.read_text(encoding="utf-8").splitlines()
-    return json.loads(lines[0])["header"], tuple(json.loads(line) for line in lines[1:])
-
-
-def _adapters(label_set: ClassLabelSet) -> dict[str, Callable[[dict[str, Any]], Any]]:
+def _adapters(label_set: ClassLabelSet | None) -> dict[str, Callable[[dict[str, Any]], Any]]:
     """Map each corpus function name to a call of the new API with the given label set."""
     return {
         "normalize_label": lambda args: classification.normalize_label(args["value"], label_set),
@@ -64,27 +62,12 @@ def _adapters(label_set: ClassLabelSet) -> dict[str, Callable[[dict[str, Any]], 
 
 def replay(case: dict[str, Any], label_set: ClassLabelSet) -> dict[str, Any]:
     """Run one case through the new API and encode its outcome like the corpus does."""
-    try:
-        result = _adapters(label_set)[case["function"]](decode(case["args"]))
-    except Exception as error:  # the exception is the outcome being compared
-        return {"raises": type(error).__name__, "message": str(error)}
-    return {"result": encode(result)}
-
-
-def same_outcome(recorded: dict[str, Any], replayed: dict[str, Any]) -> bool:
-    """Equal results as canonical JSON, or the same exception type (and message for the length check)."""
-    if "result" in recorded:
-        return "result" in replayed and canonical(recorded["result"]) == canonical(replayed["result"])
-    if replayed.get("raises") != recorded["raises"]:
-        return False
-    if recorded["message"].startswith("expected length"):
-        return replayed["message"] == recorded["message"]
-    return True
+    return outcome_of(lambda: _adapters(label_set)[case["function"]](decode(case["args"])))
 
 
 def test_the_corpus_header_names_the_old_dojo_and_its_baseline():
     """The corpus was produced from the old commit and version this port targets."""
-    header, cases = corpus()
+    header, cases = jsonl_corpus(CLASSIFICATION_FIXTURE)
     assert header["old_commit"] == OLD_DOJO_COMMIT
     assert header["old_version"] == "0.30.1"
     assert header["old_scores_json_sha256"] == OLD_SCORES_SHA256
@@ -97,29 +80,30 @@ def test_the_corpus_header_names_the_old_dojo_and_its_baseline():
 
 def test_the_corpus_covers_every_function_and_the_failure_states():
     """Every public classification function has cases, including exceptions and error rows."""
-    _, cases = corpus()
-    functions = {case["function"] for case in cases}
-    assert functions == set(_adapters(None))
+    _, cases = jsonl_corpus(CLASSIFICATION_FIXTURE)
+    assert {case["function"] for case in cases} == set(_adapters(None))
     raised = Counter(case["outcome"]["raises"] for case in cases if "raises" in case["outcome"])
     assert raised["ValueError"] >= 30, raised
     assert raised["IndexError"] >= 1, raised
-    error_rows = [case for case in cases if "ERROR: " in json.dumps(case["args"])]
-    assert len(error_rows) >= 100
+    assert sum(1 for case in cases if "ERROR: " in json.dumps(case["args"])) >= 100
 
 
-@pytest.mark.parametrize("function", sorted(json.loads(CORPUS_PATH.read_text().splitlines()[0])["header"]["cases_by_function"]))
+FUNCTIONS = sorted(json.loads((GOLDEN_DIRECTORY / CLASSIFICATION_FIXTURE).read_text().splitlines()[0])["header"][
+    "cases_by_function"])
+
+
+@pytest.mark.parametrize("function", FUNCTIONS)
 def test_every_case_gives_the_old_output(function, mailroom_profile):
-    """Replay every case of one function with the mailroom profile; list every difference."""
+    """Replay every case of one function with the mailroom profile; differences must be in the ledger."""
     label_set = ClassLabelSet.from_profile(mailroom_profile)
-    _, cases = corpus()
+    _, cases = jsonl_corpus(CLASSIFICATION_FIXTURE)
     selected = [case for case in cases if case["function"] == function]
-    differences = []
-    for case in selected:
-        replayed = replay(case, label_set)
-        if not same_outcome(case["outcome"], replayed):
-            differences.append((case["id"], case["args"], case["outcome"], replayed))
     assert selected
-    assert not differences, f"{len(differences)} of {len(selected)} differ, first: {differences[:3]}"
+    problems = check_against_ledger(
+        CLASSIFICATION_FIXTURE,
+        [(case["id"], function, case["outcome"], replay(case, label_set)) for case in selected],
+    )
+    assert not problems, f"{len(problems)} problems of {len(selected)} cases, first: {problems[:3]}"
 
 
 def test_a_wrong_answer_is_detected(mailroom_profile):
