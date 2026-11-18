@@ -551,9 +551,11 @@ class Index:
         """``log.iter_events(run_id, doc_id)``, reading only where the index says to look.
 
         Reads the byte ranges the last rebuild found for the document, plus every byte the
-        rebuild did not see (each segment past ``indexed_bytes``, and new segments), so the
-        result is always the log's, however far the index lags. It falls back to the full
-        read (``log.iter_events``) whenever the index cannot vouch for those ranges:
+        rebuild did not see (each segment past ``indexed_bytes``, and new segments), so
+        events appended since the rebuild are read however far the index lags. Every event
+        returned is parsed and validated from the log's bytes now, never taken from the
+        index. It falls back to the full read (``log.iter_events``) whenever the index
+        cannot vouch for those ranges:
 
         - the index is unavailable, or does not know the run;
         - the last rebuild recorded a ``corrupt_line`` or ``invalid_event`` in the run (a bad
@@ -564,10 +566,19 @@ class Index:
         - the ranges read do not hold the document's indexed chain: every ``seq`` from 0 to
           the indexed head, with the head's hash at the head (a segment rewritten in place
           with its edges kept, lines moved out of the recorded ranges);
-        - a strict read of the ranges raises (a line damaged since the rebuild).
+        - the first pass of a strict read of the ranges raises (a line damaged since the
+          rebuild). An invalid event met in the second pass raises ``InvalidEvent``, as
+          the full read does on the same line.
 
-        Corruption that appears after the rebuild in another document's lines outside those
-        ranges is not seen here (the full read would raise on it); ``verify_run`` reports it.
+        What is guaranteed: on a log changed only by appends (the store's own writes), the
+        result equals ``log.iter_events(run_id, doc_id)``. This is not a tamper check. A
+        rewrite in place that keeps a segment's length, its fingerprinted edges and the
+        document's head line can change what lies inside the recorded ranges in ways the
+        checks above do not see, so the result can then differ from a full read (an event
+        of the document can be missing from it). Corruption that appears after the rebuild
+        in another document's lines outside those ranges is not seen here either (the full
+        read would raise on it). ``verify_run`` reads every line and is the tamper check:
+        it reports such damage (a ``seq_gap``, a ``broken_link``, a ``corrupt_line``).
         """
         found = self._spans_for(log, run_id, doc_id)
         scan: RunScan | None = None
