@@ -173,9 +173,12 @@ other runs' logs. It needs a current pack, holds the store's maintenance lock ex
 (every live writer holds it shared, so it waits for them; `StoreBusy` after
 `lock_timeout`), and is resumable. While a run is pruned (`runs/<run>/prune.json`), writers
 and `seal_run` refuse it with `RunPruned` (`mailroom_record.log.refuse_if_pruned`, checked under
-the maintenance lock). Unpacking the recorded archive (the one `pack.json` names) restores a
-pruned run in place; any other archive of that run, such as an older pack, is
-`UnpackConflict` in this store and changes nothing.
+the maintenance lock), and so does `pack_run` (`RunPruned` naming the archive); `pack_run`
+holds that lock shared from its first check until it writes `pack.json`, so a prune waits for
+a pack in progress. Unpacking the recorded archive (the one `pack.json` names, or the one
+`prune.json` names: the archive the run was pruned from) restores a pruned run in place; any
+other archive of that run, such as an older pack, is `UnpackConflict` in this store and
+changes nothing.
 
 ## Command line
 

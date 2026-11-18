@@ -622,7 +622,22 @@ def test_unpack_refuses_when_the_pack_record_is_unreadable(
     pack_run(s.root, "r1", archive)
     prune_run(s.root, "r1")
     (s.root / "runs" / "r1" / "pack.json").write_bytes(b"{not json")
+    (s.root / "runs" / "r1" / "prune.json").write_bytes(b"[]")  # round 3: prune.json alone would vouch
     before = store_tree(s.root)
     with pytest.raises(UnpackConflict, match="unreadable"):
         unpack_run(archive, s.root)
     assert store_tree(s.root) == before
+
+
+def test_the_prune_record_vouches_when_the_pack_record_is_unreadable(
+    two_run_sealed_store: SimpleNamespace, tmp_path: Path
+) -> None:
+    """Round 3: prune.json names the archive the run was pruned from, so with pack.json
+    damaged that archive still restores the run (the recovery the README names)."""
+    s = two_run_sealed_store
+    archive = tmp_path / "r1.tar.zst"
+    pack_run(s.root, "r1", archive)
+    prune_run(s.root, "r1")
+    (s.root / "runs" / "r1" / "pack.json").write_bytes(b"{not json")
+    assert unpack_run(archive, s.root) == "r1"
+    assert verify_run(*s.parts, "r1").ok

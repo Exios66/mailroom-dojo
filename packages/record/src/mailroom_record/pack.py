@@ -26,7 +26,11 @@ Rules
   its manifest, and only then links it to ``out`` (never replacing an existing file:
   ``FileExistsError``). A failed write leaves nothing at ``out``. It records the pack in
   ``runs/<run_id>/pack.json`` (archive path and SHA-256, the seal it covers, the members),
-  which ``prune_run`` requires.
+  which ``prune_run`` requires. From its first check until ``pack.json`` is written it holds
+  the store's maintenance lock shared, as a writer does (``StoreBusy`` after
+  ``lock_timeout``), so a prune cannot run in between and leave ``prune.json`` naming one
+  archive and ``pack.json`` another; under the lock it refuses a pruned run (``RunPruned``,
+  naming the archive to unpack), never "seal it first".
 - ``unpack_run`` reads the archive as a stream into a staging store under the target root
   (``.unpack-*``), refusing with ``PackCorrupt`` anything that is not exactly what
   ``pack_run`` writes: a zstd or tar error, a truncated stream, a member that is not a
@@ -47,8 +51,9 @@ Rules
   (``include_blobs=False``) are taken from the target root's blob store. It then runs
   ``verify_run`` on the staging store; any failing problem is ``PackCorrupt``. If the
   target recorded a pack of the run (``pack.json``, or ``prune.json`` for a pruned run),
-  the archive must be that pack: an archive whose SHA-256 or latest seal differs from the
-  record is ``UnpackConflict`` and nothing is changed (an older archive would otherwise put
+  the archive must be that pack: the archive ``pack.json`` names (SHA-256 and latest seal)
+  or the one ``prune.json`` names (SHA-256: the archive the run was pruned from, which also
+  restores a run whose ``pack.json`` is damaged); any other is ``UnpackConflict`` and nothing is changed (an older archive would otherwise put
   an earlier state back over a run pruned from a newer one). Only then
   does anything reach the target: if a run file already there differs from the archive's,
   ``UnpackConflict`` and nothing is changed; equal files are left alone, missing ones are
@@ -105,7 +110,7 @@ import zstandard
 
 from mailroom_record.blobs import BlobStore, _dir_lock, _fsync_dir, _is_record, _makedirs_durable, _open_fd_for_write
 from mailroom_record.hashing import canonical_json
-from mailroom_record.log import MAINTENANCE_LOCK, MAX_LINE, PACK_RECORD, PRUNE_RECORD, EventLog
+from mailroom_record.log import MAINTENANCE_LOCK, MAX_LINE, PACK_RECORD, PRUNE_RECORD, EventLog, refuse_if_pruned
 from mailroom_record.models import _RUN_ID_RE
 from mailroom_record.seal import list_seals
 from mailroom_record.verify import _VANISHED, _blob_damage, _tombstone_damage, verify_run
@@ -542,13 +547,25 @@ def _checked_tombstone(sha: str, chunks: Iterator[bytes]) -> Iterator[bytes]:
 # --- pack -------------------------------------------------------------------------
 
 
-def pack_run(root: Path, run_id: str, out: Path, *, include_blobs: bool = True) -> PackManifest:
+def pack_run(
+    root: Path, run_id: str, out: Path, *, include_blobs: bool = True, lock_timeout: float = 60.0
+) -> PackManifest:
     """Write ``run_id`` and the blobs it names to the archive ``out`` (see the module doc)."""
     root, out = Path(root), Path(out)
     log, blobs = _open_store(root)
     run_dir = log.run_dir(run_id)
     if not (run_dir / "run.json").is_file():
         raise FileNotFoundError(f"no run {run_id!r} under {root}")
+    # Shared, as a writer holds it: a prune (exclusive) cannot start between the first check
+    # and pack.json, so the pack it records is the pack of the run as it was checked.
+    with _maintenance(root, lock_timeout, exclusive=False):
+        refuse_if_pruned(log, run_id, "packed")
+        return _pack_locked(log, blobs, run_id, out, include_blobs)
+
+
+def _pack_locked(log: EventLog, blobs: BlobStore, run_id: str, out: Path, include_blobs: bool) -> PackManifest:
+    root = log.root
+    run_dir = log.run_dir(run_id)
     seal_n, seal_hash = _coverage(log, run_id)
     report = verify_run(log, blobs, run_id)
     if not report.ok:
@@ -677,23 +694,37 @@ def unpack_run(archive: Path, root: Path, *, lock_timeout: float = 60.0) -> str:
         shutil.rmtree(staging, ignore_errors=True)
 
 
+def _load_record(path: Path) -> dict[str, Any] | None:
+    """A JSON object stored in ``path``, or ``None`` when it is missing or unreadable."""
+    try:
+        record = json.loads(path.read_bytes())
+    except (OSError, ValueError, RecursionError):
+        return None
+    return record if isinstance(record, dict) else None
+
+
 def _refuse_another_pack(read: _Read, root: Path) -> None:
     """``UnpackConflict`` when ``root`` recorded a pack of this run (``pack.json``, or a prune
-    by ``prune.json``) and ``read`` is not that archive: its SHA-256 or its latest seal differ.
+    by ``prune.json``) and ``read`` is not that archive.
 
-    An older archive over a run pruned from a newer one would put back an earlier state
-    beside the newer Parquet files and drop ``prune.json``, which leaves the run unsealed,
-    the newer archive unrestorable and the import guard gone.
+    Accepted: the archive ``pack.json`` names (its SHA-256 and latest seal), or the archive
+    ``prune.json`` names (its SHA-256: the archive the run was pruned from). An older archive
+    over a run pruned from a newer one would put back an earlier state beside the newer
+    Parquet files and drop ``prune.json``, which leaves the run unsealed, the newer archive
+    unrestorable and the import guard gone.
     """
     run_dir = root / "runs" / read.run_id
     pack_path, prune_path = run_dir / _PACK_RECORD, run_dir / _PRUNE_RECORD
     if not (pack_path.is_file() or prune_path.is_file()):
         return
+    pruned = _load_record(prune_path)
+    if pruned is not None and pruned.get("archive_sha256") == read.archive_sha256:
+        return  # the archive this run was pruned from
+    record = _load_record(pack_path) or {}
     try:
-        record = json.loads(pack_path.read_bytes())
         recorded = (record["archive_sha256"], record["last_seal"]["n"], record["last_seal"]["hash"])
         archive = str(record["archive"])
-    except (OSError, ValueError, RecursionError, KeyError, TypeError):
+    except (KeyError, TypeError):
         raise UnpackConflict(
             f"runs/{read.run_id}: this store recorded a pack of the run but its {_PACK_RECORD} is "
             "missing or unreadable, so this archive cannot be checked against it"
@@ -785,7 +816,7 @@ def _place(read: _Read, staging: Path, root: Path) -> str:
         )
     prune_record = root / "runs" / run_id / _PRUNE_RECORD
     if prune_record.exists():  # the run is whole again
-        prune_record.unlink()
+        prune_record.unlink(missing_ok=True)  # a second unpack of the run (also shared) may be first
         _fsync_dir(prune_record.parent)
     return run_id
 
