@@ -723,6 +723,75 @@ def test_duplicate_yaml_key_is_refused(tmp_path):
     assert "line" in error.problem
 
 
+@pytest.mark.parametrize("key", ["[a, b]", "{a: 1}"], ids=["sequence", "mapping"])
+def test_unhashable_yaml_key_is_a_profile_error(tmp_path, key):
+    """A YAML complex key (a sequence or a mapping) cannot be a dict key; the loader names its line instead
+    of raising TypeError."""
+    text = yaml.safe_dump(minimal_profile_mapping()) + f"? {key}\n: 1\n"
+    path = tmp_path / "scoring.yaml"
+    path.write_text(text)
+    error = _expect_error(path, "", "unhashable key")
+    assert "line" in error.problem
+
+
+HUGE = 10**400  # a valid JSON and YAML integer, too large for a float
+
+
+@pytest.mark.parametrize(
+    ("edit", "path"),
+    [
+        (lambda m: m["thresholds"].update(list_match_threshold=HUGE), "thresholds.list_match_threshold"),
+        (lambda m: m["thresholds"].update(list_match_threshold=-HUGE), "thresholds.list_match_threshold"),
+        (lambda m: m["thresholds"].update(ambiguous_band=[0.5, HUGE]), "thresholds.ambiguous_band[1]"),
+        (lambda m: m["presence"].update(embedding_threshold=HUGE), "presence.embedding_threshold"),
+    ],
+    ids=["threshold", "negative", "band", "presence"],
+)
+def test_integer_too_large_for_a_float_is_a_profile_error(edit, path):
+    """float() of a huge integer raises OverflowError; the loader reports it as out of range at its path."""
+    _expect_error(_mutate(edit), path, "must be between")
+
+
+def test_integer_too_large_for_a_float_in_yaml_is_a_profile_error(tmp_path):
+    """The same through a YAML file, where PyYAML reads the digits as an int."""
+    text = MAILROOM_PROFILE_PATH.read_text().replace(
+        "  list_match_threshold: 0.6", f"  list_match_threshold: {HUGE}"
+    )
+    assert str(HUGE) in text
+    path = tmp_path / "scoring.yaml"
+    path.write_text(text)
+    _expect_error(path, "thresholds.list_match_threshold", "must be between")
+
+
+def test_integer_too_long_to_read_in_yaml_is_a_profile_error(tmp_path):
+    """PyYAML raises ValueError (Python's integer digit limit) on a 5,000 digit integer; that is a malformed
+    file, reported as a ProfileError naming it."""
+    path = tmp_path / "scoring.yaml"
+    path.write_text(yaml.safe_dump(minimal_profile_mapping()) + "huge: " + "9" * 5000 + "\n")
+    _expect_error(path, "", "scoring.yaml is not valid YAML")
+
+
+@pytest.mark.parametrize(
+    ("edit", "path", "words"),
+    [
+        (lambda m: m["embedding"].update(enabled=10**5000), "embedding.enabled", "true or false"),
+        (lambda m: m.update(unmapped_fields=10**5000), "unmapped_fields", "must be one of"),
+        (
+            lambda m: m["thresholds"].update(ambiguous_band=10**5000),
+            "thresholds.ambiguous_band",
+            "two numbers",
+        ),
+        (lambda m: m.update(profile_format=10**5000), "profile_format", "reads format"),
+        (lambda m: m["thresholds"].update({10**5000: 1}), "thresholds", "keys must be strings"),
+    ],
+    ids=["boolean", "choice", "band", "format", "key"],
+)
+def test_a_value_too_long_to_print_still_gives_a_profile_error(edit, path, words):
+    """repr() of an integer over Python's digit limit raises ValueError; the error message must not."""
+    error = _expect_error(_mutate(edit), path, words)
+    assert "too large to show" in error.problem
+
+
 def test_invalid_yaml_is_a_profile_error(tmp_path):
     """A YAML syntax error is reported as a ProfileError naming the file."""
     path = tmp_path / "scoring.yaml"
