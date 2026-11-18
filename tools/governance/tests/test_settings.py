@@ -84,6 +84,8 @@ def test_mcp_comment_tools_are_denied_and_direct_writes_ask() -> None:
         "update_issue_comment",
     ):
         assert f"mcp__github__{tool}" in perms["deny"], tool
+        assert f"mcp__plugin_engineering_github__{tool}" in perms["deny"], tool
+    assert "mcp__github__issue_write" in perms["ask"]
     for tool in ("merge_pull_request", "enable_pr_auto_merge", "push_files", "create_or_update_file", "delete_file"):
         assert f"mcp__github__{tool}" in perms["ask"], tool
     # The documented flow overwrites a new PR body with update_pull_request: never gate it.
@@ -91,9 +93,37 @@ def test_mcp_comment_tools_are_denied_and_direct_writes_ask() -> None:
     assert not [r for r in every_rule if "create_pull_request" in r or "update_pull_request" in r]
 
 
-@pytest.mark.parametrize("flag", ["--no-index", "--output", "-O", "--open-files-in-pager", "--upload-pack"])
-def test_dangerous_git_flags_are_denied(flag: str) -> None:
-    assert f"Bash(git * {flag}*)" in load()["permissions"]["deny"]
+@pytest.mark.parametrize(
+    "rule",
+    [
+        "Bash(git grep*-O*)",
+        "Bash(git grep*--open-files-in-pager*)",
+        "Bash(git diff*--output*)",
+        "Bash(git log*--output*)",
+        "Bash(git show*--output*)",
+        "Bash(git diff*--no-index*)",
+        "Bash(git * --upload-pack*)",
+    ],
+)
+def test_dangerous_git_flags_are_denied_per_command(rule: str) -> None:
+    assert rule in load()["permissions"]["deny"]
+
+
+def test_no_deny_rule_catches_harmless_text_in_any_command() -> None:
+    """A rule like ``Bash(* --real*)`` would deny a commit message that mentions the flag."""
+    deny = load()["permissions"]["deny"]
+    assert not [r for r in deny if r.startswith("Bash(* ")]
+    assert not [r for r in deny if re.fullmatch(r"Bash\(git \* -(O|-output|-no-index)\*\)", r)]
+    ask = load()["permissions"]["ask"]
+    assert "Bash(* --real*)" in ask and "Bash(* --live*)" in ask
+
+
+@pytest.mark.parametrize("key", ["commit.gpgsign", "commit.gpgSign", "commit.GPGSIGN", "tag.gpgsign"])
+def test_signing_bypasses_are_denied(key: str) -> None:
+    deny = load()["permissions"]["deny"]
+    for rule in (f"Bash(git -c {key}=*)", f"Bash(git * -c {key}=*)", f"Bash(git config {key} *)", f"Bash(git config * {key} *)"):
+        assert rule in deny, rule
+    assert "Bash(git * --no-gpg-sign*)" in deny
 
 
 def test_env_reads_are_denied_without_hiding_the_example() -> None:
