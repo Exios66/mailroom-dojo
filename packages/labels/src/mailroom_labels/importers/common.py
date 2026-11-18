@@ -10,6 +10,7 @@ sees it beside the labels that did import.
 
 from __future__ import annotations
 
+import io
 import json
 import shutil
 import tempfile
@@ -32,7 +33,9 @@ __all__ = [
     "file_sha256",
     "known_warnings_for",
     "loads_source",
+    "parse_jsonl_lenient",
     "read_jsonl_lenient",
+    "read_source",
     "refuse_dropped",
 ]
 
@@ -95,6 +98,14 @@ def file_sha256(path: Path | str) -> str:
     return digest.hexdigest()
 
 
+def read_source(path: Path | str) -> tuple[bytes, str]:
+    """A source file's bytes and their lowercase hex sha256, from one read. An importer
+    parses exactly these bytes, so what it records the hash of is what it imported, even if
+    the file changes while it runs. Source files are a few MB at most."""
+    data = Path(path).read_bytes()
+    return data, sha256(data).hexdigest()
+
+
 @dataclass(frozen=True)
 class SourceLine:
     """One JSON object read from a source JSONL file (``line`` counts from 1)."""
@@ -137,14 +148,20 @@ def loads_source(text: str) -> Any:
 
 
 def read_jsonl_lenient(path: Path, name: str) -> tuple[list[SourceLine], list[dict[str, Any]]]:
-    """Every JSON-object line of ``path`` and a ``rejected`` entry for every other non-blank
-    line (``{file, line, reason}``). ``name`` is how the file is named in the manifest. A
+    """``parse_jsonl_lenient`` of the bytes of ``path``."""
+    return parse_jsonl_lenient(Path(path).read_bytes(), name)
+
+
+def parse_jsonl_lenient(data: bytes, name: str) -> tuple[list[SourceLine], list[dict[str, Any]]]:
+    """Every JSON-object line of ``data`` (split as a binary file read splits it) and a
+    ``rejected`` entry for every other non-blank line (``{file, line, reason}``). ``name``
+    is how the file is named in the manifest. A
     UTF-8 byte-order mark at the start of the file is not data and is skipped (anywhere else
     it is, and the line is rejected). A line with a repeated key, a non-finite number or
     nesting too deep to parse is rejected."""
     rows: list[SourceLine] = []
     rejected: list[dict[str, Any]] = []
-    with Path(path).open("rb") as fh:
+    with io.BytesIO(data) as fh:
         for number, raw in enumerate(fh, start=1):
             if number == 1 and raw.startswith(_BOM):
                 raw = raw[len(_BOM) :]

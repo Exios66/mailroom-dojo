@@ -29,9 +29,9 @@ from typing import Any
 from mailroom_labels.importers.common import (
     ImportRefused,
     builder_name,
-    file_sha256,
     loads_source,
-    read_jsonl_lenient,
+    parse_jsonl_lenient,
+    read_source,
     refuse_dropped,
 )
 from mailroom_labels.layers import CURRENT_LAYER_SCHEMA
@@ -90,9 +90,10 @@ def build_overlay(
     man_path = source_dir / _MANIFEST
     if not man_path.is_file():
         raise ImportRefused(f"no {_MANIFEST} in {source_dir}")
+    man_bytes, man_sha = read_source(man_path)
     try:
-        man = loads_source(man_path.read_text(encoding="utf-8-sig"))
-    except (ValueError, RecursionError) as exc:  # JSONDecodeError and a duplicate key are ValueErrors
+        man = loads_source(man_bytes.decode("utf-8-sig"))
+    except (ValueError, RecursionError) as exc:  # bad UTF-8, JSONDecodeError, a repeated key
         raise ImportRefused(f"{_MANIFEST} is not JSON: {exc.__class__.__name__}: {exc}") from exc
     if not isinstance(man, dict) or man.get("schema") != OVERLAY_SCHEMA:
         raise ImportRefused(f"{_MANIFEST} schema is not {OVERLAY_SCHEMA!r}")
@@ -119,10 +120,10 @@ def build_overlay(
         path = source_dir / name
         if not (isinstance(name, str) and name.endswith(".jsonl") and "/" not in name and path.is_file()):
             raise ImportRefused(f"listed file {name!r} is missing or not a .jsonl file")
-        actual = file_sha256(path)
+        data, actual = read_source(path)
         if actual != listed[name]:
             raise ImportRefused(f"{name}: sha256 {actual} differs from {_MANIFEST} {listed[name]}")
-        rows, bad = read_jsonl_lenient(path, name)
+        rows, bad = parse_jsonl_lenient(data, name)
         rejected.extend(bad)
         files[name] = [r.data for r in rows]
         file_facts.append({"path": f"{source_path}/{name}", "sha256": actual, "rows": len(rows)})
@@ -136,7 +137,7 @@ def build_overlay(
         "repository": repository,
         "commit": commit,
         "path": source_path,
-        "source_manifest": {"path": f"{source_path}/{_MANIFEST}", "sha256": file_sha256(man_path)},
+        "source_manifest": {"path": f"{source_path}/{_MANIFEST}", "sha256": man_sha},
         "files": file_facts,
         "builder": {
             "name": f"mailroom_labels.importers.{kind}",

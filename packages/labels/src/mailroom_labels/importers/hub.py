@@ -49,8 +49,8 @@ from typing import Any
 from mailroom_labels.importers.common import (
     ImportRefused,
     builder_name,
-    file_sha256,
     loads_source,
+    read_source,
     refuse_dropped,
 )
 from mailroom_labels.layers import CURRENT_LAYER_SCHEMA
@@ -129,23 +129,25 @@ def _pinned(pinned: Mapping[str, str], rel: str, actual: str, revision: str) -> 
         )
 
 
-def _verified_shard(root: Path, rel: str, listed: dict[str, str]) -> dict[str, str]:
+def _verified_shard(root: Path, rel: str, listed: dict[str, str]) -> tuple[dict[str, str], bytes]:
+    """A shard's ``{path, sha256}`` and the bytes that hash was taken of (parse those)."""
     path = root / rel
     if not path.is_file():
         raise ImportRefused(f"missing shard {rel} under {root}")
     expected = listed.get(rel)
     if expected is None:
         raise ImportRefused(f"{rel} is not listed in manifest.txt")
-    actual = file_sha256(path)
+    data, actual = read_source(path)
     if actual != expected:
         raise ImportRefused(f"{rel}: sha256 {actual} differs from manifest.txt {expected}")
-    return {"path": rel, "sha256": actual}
+    return {"path": rel, "sha256": actual}, data
 
 
-def _read_parquet(path: Path) -> list[dict[str, Any]]:
-    import pyarrow.parquet as pq  # optional dependency: the [import] extra
+def _read_parquet(data: bytes) -> list[dict[str, Any]]:
+    import pyarrow as pa  # optional dependency: the [import] extra
+    import pyarrow.parquet as pq
 
-    return pq.read_table(path).to_pylist()
+    return pq.read_table(pa.BufferReader(data)).to_pylist()
 
 
 def _json_or_raw(raw: Any) -> Any:
@@ -251,11 +253,12 @@ def _fields(row: dict[str, Any], profile: ClientProfile, tally: _Tally) -> dict[
 def _text_check(
     default_dir: Path, listed: dict[str, str], hub_rows: Sequence[dict[str, Any]]
 ) -> tuple[list, list, dict]:
-    files = [_verified_shard(default_dir, shard_path("default", s), listed) for s in SPLITS]
+    shards = [_verified_shard(default_dir, shard_path("default", s), listed) for s in SPLITS]
+    files = [f for f, _ in shards]
     texts: dict[str, str | None] = {}
     duplicates = 0
-    for f in files:
-        for row in _read_parquet(default_dir / f["path"]):
+    for _, data in shards:
+        for row in _read_parquet(data):
             name = str(row.get("filename"))
             if name in texts:
                 duplicates += 1
@@ -316,18 +319,20 @@ def build_hub(
     manifest_txt = dataset_dir / "manifest.txt"
     if not manifest_txt.is_file():
         raise ImportRefused(f"no manifest.txt in {dataset_dir}")
-    _pinned(pinned, "manifest.txt", file_sha256(manifest_txt), revision)
-    listed = parse_dataset_manifest(manifest_txt.read_text(encoding="utf-8"))
+    manifest_bytes, manifest_sha = read_source(manifest_txt)
+    _pinned(pinned, "manifest.txt", manifest_sha, revision)
+    listed = parse_dataset_manifest(manifest_bytes.decode("utf-8"))
     if not listed:
         raise ImportRefused("manifest.txt has no sha256 block")
-    gt_files = [_verified_shard(dataset_dir, shard_path("ground_truth", s), listed) for s in SPLITS]
+    gt_shards = [_verified_shard(dataset_dir, shard_path("ground_truth", s), listed) for s in SPLITS]
+    gt_files = [f for f, _ in gt_shards]
     for f in gt_files:
         _pinned(pinned, f["path"], f["sha256"], revision)
 
     tally = _Tally()
     rows: list[dict[str, Any]] = []
-    for f, split in zip(gt_files, SPLITS, strict=True):
-        for raw in _read_parquet(dataset_dir / f["path"]):
+    for (_, data), split in zip(gt_shards, SPLITS, strict=True):
+        for raw in _read_parquet(data):
             fields = _fields(raw, profile, tally)
             if fields is None:
                 continue
@@ -358,7 +363,7 @@ def build_hub(
     source = {
         "repository": repository,
         "revision": revision,
-        "dataset_manifest": {"path": "manifest.txt", "sha256": file_sha256(manifest_txt)},
+        "dataset_manifest": {"path": "manifest.txt", "sha256": manifest_sha},
         "files": gt_files + text_files,
         "profile": {"client": profile.client, "sha256": profile_sha256},
         "builder": {
