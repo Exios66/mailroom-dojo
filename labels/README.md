@@ -32,8 +32,10 @@ subclass. Counts, coverage and the sandbox cross-check are in
 `docs/reports/labels/data-quality-2026-11-18.md` and `coverage-2026-11-18.md`;
 `packages/labels/tests/test_real_snapshots.py` pins them.
 
-Label values are field values as the sources state them; no document text is stored here,
-only its hash.
+The snapshots hold label values and evidence excerpts quoted from the documents; full document
+text only by hash. Label values are field values as the sources state them, and some are long
+verbatim excerpts (CUAD clause labels in the Hub snapshot, for example); near-gold evidence
+excerpts run up to about 1,000 characters.
 
 To add a snapshot: run the importer into a new directory named `<kind>-<date or revision>`,
 verify the set, regenerate the reports, update the golden counts for the intended change,

@@ -93,6 +93,7 @@ skip = "./.venv,./.git,*.egg-info,./build,./dist,*.parquet,*.zst,*.lock,./labels
 check-filenames = true
 # `caf` is the start of the byte escape in b"caf\xe9" (a non-UTF-8 test input).
 # `unparseable`: the word the labels package's own messages use.
-# labels/*/*.jsonl is skipped: committed, immutable snapshots of real document text.
+# labels/*/*.jsonl is skipped: committed, immutable snapshots of label values and evidence
+# excerpts quoted from the documents (full document text only by hash).
 # Add a word here only with the reason in the commit message.
 ignore-words-list = "caf,unparseable"
