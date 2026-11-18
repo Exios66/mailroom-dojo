@@ -82,7 +82,7 @@ On disk, a store root looks like this:
 ```
 <root>/blobs/<aa>/<bb>/<sha256>.zst        # or <sha256>.tombstone
 <root>/runs/<run_id>/run.json               # the Run header (immutable)
-<root>/runs/<run_id>/segments/<writer>.jsonl
+<root>/runs/<run_id>/segments/<writer>.jsonl   # later segments: <writer>.<k>.jsonl
 <root>/runs/<run_id>/seals/<n>.json
 <root>/runs/<run_id>/columns/events-<n>.parquet
 <root>/index.sqlite                         # derived
@@ -247,6 +247,7 @@ def test_missing_is_not_tombstoned(tmp_path):
   - `iter_events(run_id: str, doc_id: str | None = None) -> Iterator[Event]` (merged across segments, ordered by `(doc_id, seq)`)
   - `doc_heads(run_id: str) -> dict[str, str]`
   - `torn_tails(run_id: str) -> list[TornTail]` where `TornTail(segment: str, byte_offset: int)`
+- Decided while building (2026-11-18): a writer id is path-safe (`[A-Za-z0-9][A-Za-z0-9_-]{0,99}`) and holds an exclusive `flock` on its segment (`WriterInUse` if it is live elsewhere). If the writer's latest segment ends in a torn line, it starts `<writer>.<k>.jsonl` rather than appending after the torn bytes. A writer takes a document on its first append, reading that document's head from disk then, and holds it until `close()`; another live writer in the same process gets `DocumentInUse` (not enforced across processes). Readers see flushed events only. A whole line that is not a JSON object raises `CorruptLine`; `iter_stored(run_id)` yields the raw stored dicts (`StoredLine`) for Task 7 to hash before upgrading.
 - One document is owned by one writer at a time. `seq` starts at 0 per document per run. A segment is one JSON object per line. Appends within a writer are serialized by a lock; each writer has its own segment file, so processes never share a file.
 
 - [ ] **Step 1: Failing tests**

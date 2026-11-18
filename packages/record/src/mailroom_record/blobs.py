@@ -87,6 +87,34 @@ def _makedirs_durable(path: Path) -> None:
         _fsync_dir(d.parent)
 
 
+def write_exclusive(final: Path, body: bytes) -> bool:
+    """Write ``body`` to ``final`` only if ``final`` does not exist yet; first writer wins.
+
+    The bytes go to a fsynced temp file that is hard-linked to ``final``. ``os.link``
+    fails if ``final`` exists, so a concurrent second writer never replaces the first
+    record, and a reader never sees a half-written file. Returns whether we created it.
+    """
+    directory = final.parent
+    _makedirs_durable(directory)
+    fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{final.name}.", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(body)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            os.link(tmp, final)
+            created = True
+        except FileExistsError:
+            created = False
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            tmp.unlink()
+    _fsync_dir(directory)
+    return created
+
+
 class BlobStore:
     """Blobs under ``<root>/blobs``. Safe to share between threads and processes.
 
@@ -151,33 +179,6 @@ class BlobStore:
             raise
         _fsync_dir(directory)
 
-    def _write_exclusive(self, final: Path, body: bytes) -> bool:
-        """Write ``body`` to ``final`` only if ``final`` does not exist yet; first writer wins.
-
-        The bytes go to a fsynced temp file that is hard-linked to ``final``. ``os.link``
-        fails if ``final`` exists, so a concurrent second writer never replaces the first
-        record, and a reader never sees a half-written file. Returns whether we created it.
-        """
-        directory = final.parent
-        _makedirs_durable(directory)
-        fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{final.name}.", suffix=".tmp")
-        tmp = Path(tmp_name)
-        try:
-            with os.fdopen(fd, "wb") as f:
-                f.write(body)
-                f.flush()
-                os.fsync(f.fileno())
-            try:
-                os.link(tmp, final)
-                created = True
-            except FileExistsError:
-                created = False
-        finally:
-            with contextlib.suppress(FileNotFoundError):
-                tmp.unlink()
-        _fsync_dir(directory)
-        return created
-
     def put(self, data: bytes, role: str) -> BlobRef:
         """Store ``data`` once under its SHA-256 and return a ref with the given role.
 
@@ -224,7 +225,7 @@ class BlobStore:
         if state == "present":
             record = {"sha256": sha256, "reason": reason, "tombstoned_at": utc_now()}
             body = canonical_json(record)
-            self._write_exclusive(self.tombstone_path(sha256), body)
+            write_exclusive(self.tombstone_path(sha256), body)
         content = self.content_path(sha256)
         if content.exists():
             with contextlib.suppress(FileNotFoundError):

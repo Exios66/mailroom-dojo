@@ -1,0 +1,23 @@
+"""Shared pytest fixtures for the record tests (plain helpers live in record_testkit.py)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from record_testkit import run_fields
+
+from mailroom_record.blobs import BlobStore
+from mailroom_record.log import EventLog
+from mailroom_record.models import Run
+
+
+@pytest.fixture
+def store(tmp_path: Path) -> SimpleNamespace:
+    """A blob store and event log under ``tmp_path`` with run ``r1`` created."""
+    blobs = BlobStore(tmp_path)
+    log = EventLog(tmp_path, blobs)
+    run = Run(**run_fields())
+    log.create_run(run)
+    return SimpleNamespace(root=tmp_path, blobs=blobs, log=log, run=run)

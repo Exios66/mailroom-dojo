@@ -117,3 +117,73 @@ def put_in_child(root: str, data: bytes, role: str, rounds: int) -> str:
     for _ in range(rounds):
         sha = store.put(data, role).sha256
     return sha
+
+
+# --- event log helpers (Task 5) -----------------------------------------------------
+
+
+def segment_lines(root: Any, run_id: str = "r1") -> list[bytes]:
+    """Every whole line (newline included) of every segment of a run, in segment order."""
+    from pathlib import Path
+
+    out: list[bytes] = []
+    for seg in sorted((Path(root) / "runs" / run_id / "segments").glob("*.jsonl")):
+        data = seg.read_bytes()
+        end = data.rfind(b"\n") + 1
+        out.extend(line + b"\n" for line in data[:end].split(b"\n")[:-1])
+    return out
+
+
+def check_chains(root: Any, run_id: str = "r1") -> dict[str, int]:
+    """Check every whole stored line: hash, link and seq per document. Returns doc -> count.
+
+    Hashes are checked on the stored dict (ADR-0005), never on a model.
+    """
+    import json
+
+    by_doc: dict[str, list[dict[str, Any]]] = {}
+    for line in segment_lines(root, run_id):
+        raw = json.loads(line)
+        assert event_hash(raw) == raw["hash"], f"bad hash at {raw['doc_id']}/{raw['seq']}"
+        by_doc.setdefault(raw["doc_id"], []).append(raw)
+    for doc_id, events in by_doc.items():
+        events.sort(key=lambda r: r["seq"])
+        assert [r["seq"] for r in events] == list(range(len(events))), f"seq gap in {doc_id}"
+        assert events[0]["prev_hash"] == GENESIS
+        for prev, cur in zip(events, events[1:]):
+            assert cur["prev_hash"] == prev["hash"], f"broken link in {doc_id} at {cur['seq']}"
+    return {d: len(e) for d, e in by_doc.items()}
+
+
+def append_in_child(root: str, run_id: str, writer_id: str, docs: list[str], n: int) -> None:
+    """Process target: one writer appends ``n`` events to each of ``docs``, then closes."""
+    from pathlib import Path
+
+    from mailroom_record.blobs import BlobStore
+    from mailroom_record.log import EventLog
+
+    log = EventLog(Path(root), BlobStore(Path(root)))
+    with log.open_writer(run_id, writer_id, flush_every=7) as w:
+        for i in range(n):
+            for doc in docs:
+                w.append(doc_id=doc, node=f"n{i}", kind="decision", payload={"i": i})
+
+
+def append_until_killed(root: str, run_id: str, writer_id: str, docs: list[str], flush_every: int) -> None:
+    """Process target: append large events forever, round-robin over ``docs``.
+
+    Each line carries ~1 MB of synthetic padding, so with a large ``flush_every`` each
+    flush is one long write and a SIGKILL usually lands in the middle of it (a torn tail).
+    """
+    from pathlib import Path
+
+    from mailroom_record.blobs import BlobStore
+    from mailroom_record.log import EventLog
+
+    log = EventLog(Path(root), BlobStore(Path(root)))
+    w = log.open_writer(run_id, writer_id, flush_every=flush_every)
+    pad = "z" * (1024 * 1024)
+    i = 0
+    while True:
+        w.append(doc_id=docs[i % len(docs)], node="loop", kind="handoff", payload={"i": i, "pad": pad})
+        i += 1
