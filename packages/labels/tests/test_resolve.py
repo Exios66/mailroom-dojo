@@ -109,7 +109,7 @@ def layer_sets(draw):
         doc = draw(st.sampled_from(DOCS))
         rank = draw(st.sampled_from(RANK_CHOICES))
         layer = LAYER_OF.get(rank, rank.split(":")[0])
-        sha = draw(st.sampled_from([None, "good", "bad"]))
+        sha = draw(st.sampled_from([None, "good", "good", "bad"]))
         records.append(LayerRecord(
             document_id=doc,
             field=draw(st.sampled_from(FIELDS)),
@@ -297,6 +297,16 @@ def test_document_missing_from_the_index_is_resolved_but_not_scorable(tmp_path: 
     assert (ghost.verified, ghost.unverified_reasons, ghost.doc_class) == (False, ("not_in_corpus_index",), "letter")
     assert ghost.fields["sender"].value == "Boo" and ghost.scorable_fields == frozenset()
     assert docs["D1"].scorable_fields == frozenset({"sender"})
+
+
+def test_not_applicable_is_resolved_but_never_scorable(tmp_path: Path) -> None:
+    dirs = [
+        make_snapshot(tmp_path, "hub", [hub_row("D1", fields={"amount": (None, "not_applicable"), "sender": "Ann"})]),
+        make_snapshot(tmp_path, "interim", [interim_row("D1", {"amount": ("gap_fill", "5")})]),
+    ]
+    d1 = resolve_dirs(dirs)["D1"]
+    assert (d1.fields["amount"].rank, d1.fields["amount"].presence) == ("hub", "not_applicable")
+    assert d1.verified and d1.scorable_fields == frozenset({"sender"})
 
 
 def test_hub_text_unverified_flags_the_document(tmp_path: Path) -> None:
