@@ -21,6 +21,7 @@ from record_testkit import (
     build_review_store,
     build_sealed_store,
     forge_event,
+    hand_line,
     insert_line_after,
     rewrite_line,
     run_cli,
@@ -30,7 +31,7 @@ from record_testkit import (
 from mailroom_record import cli
 from mailroom_record.blobs import BlobStore
 from mailroom_record.log import EventLog
-from mailroom_record.models import BLOB_ROLES, Run
+from mailroom_record.models import BLOB_ROLES, GENESIS, Run
 
 PACKAGE = Path(__file__).resolve().parents[1]
 
@@ -221,7 +222,9 @@ _op = st.tuples(
     st.booleans(),  # cause
     st.booleans(),  # name the previous blob as an input
 )
-_damage = st.lists(st.sampled_from(["tombstone", "remove", "garbage", "invalid", "torn", "seal", "fork"]), max_size=3)
+_damage = st.lists(
+    st.sampled_from(["tombstone", "remove", "garbage", "invalid", "invalid_key", "torn", "seal", "fork"]), max_size=3
+)
 
 
 def _write_history(root: Path, ops: list, damage: list[str]) -> SimpleNamespace:
@@ -263,6 +266,12 @@ def _write_history(root: Path, ops: list, damage: list[str]) -> SimpleNamespace:
                 f.write(f'{{"doc_id": "d0", "seq": 1, "cause": "{SENTINEL}\n'.encode())
         elif d == "invalid":
             bad = {"doc_id": "d1", "seq": 0, "kind": SENTINEL, "cause": SENTINEL, "payload": {"t": SENTINEL}}
+            with seg.open("ab") as f:
+                f.write(json.dumps(bad).encode() + b"\n")
+        elif d == "invalid_key":
+            # a whole, otherwise valid event with the sentinel as a top-level KEY: a validator
+            # that names the offending field must not carry the stored key name out
+            bad = hand_line("r1", "d2", 0, GENESIS) | {f"{SENTINEL}-key": 1}
             with seg.open("ab") as f:
                 f.write(json.dumps(bad).encode() + b"\n")
         elif d == "torn":
