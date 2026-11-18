@@ -73,6 +73,13 @@ def _construct_unique_mapping(loader: _StrictSafeLoader, node: yaml.MappingNode,
     seen: dict[Any, Any] = {}
     for key_node, value_node in node.value:
         key = loader.construct_object(key_node, deep=deep)
+        try:
+            hash(key)
+        except TypeError:
+            mark = key_node.start_mark
+            raise ProfileError(
+                "", f"unhashable key ({type(key).__name__}) at line {mark.line + 1}, column {mark.column + 1}"
+            ) from None
         if key in seen:
             mark = key_node.start_mark
             raise ProfileError("", f"duplicate key {key!r} at line {mark.line + 1}, column {mark.column + 1}")
@@ -88,13 +95,23 @@ def _read_yaml(path: Path) -> Any:
     text = path.read_text(encoding="utf-8")
     try:
         return yaml.load(text, Loader=_StrictSafeLoader)  # noqa: S506 - a SafeLoader subclass
-    except yaml.YAMLError as error:
+    except ProfileError:
+        raise
+    except (yaml.YAMLError, ValueError) as error:  # ValueError: an integer over Python's digit limit
         raise ProfileError("", f"{path.name} is not valid YAML: {error}") from None
 
 
 # ---------------------------------------------------------------------------
 # Value readers (each names the YAML path in its error)
 # ---------------------------------------------------------------------------
+
+
+def _shown(value: Any) -> str:
+    """``repr(value)`` for an error message; an integer over Python's digit limit is named, not printed."""
+    try:
+        return repr(value)
+    except ValueError:
+        return f"<{type(value).__name__} too large to show>"
 
 
 def _join(path: str, key: str) -> str:
@@ -111,7 +128,7 @@ class _Section:
             raise ProfileError(path, f"must be a mapping, got {type(data).__name__}")
         for key in data:
             if not isinstance(key, str):
-                raise ProfileError(path, f"keys must be strings, got {key!r}")
+                raise ProfileError(path, f"keys must be strings, got {_shown(key)}")
         self.data = data
         self.path = path
         self._read: set[str] = set()
@@ -170,19 +187,24 @@ def _lowercase_token(value: Any, path: str) -> str:
 def _boolean(value: Any, path: str) -> bool:
     """A YAML boolean."""
     if not isinstance(value, bool):
-        raise ProfileError(path, f"must be true or false, got {value!r}")
+        raise ProfileError(path, f"must be true or false, got {_shown(value)}")
     return value
 
 
 def _number(value: Any, path: str, *, low: float = 0.0, high: float = 1.0) -> float:
     """A finite number in ``[low, high]``, returned as a float."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ProfileError(path, f"must be a number, got {value!r}")
-    number = float(value)
+        raise ProfileError(path, f"must be a number, got {_shown(value)}")
+    try:
+        number = float(value)
+    except OverflowError:  # an integer too large for a float is far outside any range
+        raise ProfileError(
+            path, f"must be between {low} and {high}, got an integer too large for a float"
+        ) from None
     if not math.isfinite(number):
-        raise ProfileError(path, f"must be finite, got {value!r}")
+        raise ProfileError(path, f"must be finite, got {_shown(value)}")
     if not low <= number <= high:
-        raise ProfileError(path, f"must be between {low} and {high}, got {value!r}")
+        raise ProfileError(path, f"must be between {low} and {high}, got {_shown(value)}")
     return number
 
 
@@ -194,7 +216,7 @@ def _unit_interval(value: Any, path: str) -> float:
 def _band(value: Any, path: str) -> tuple[float, float]:
     """A ``[low, high]`` pair of numbers in ``[0, 1]`` with ``low <= high``."""
     if not isinstance(value, list) or len(value) != 2:
-        raise ProfileError(path, f"must be a list of two numbers [low, high], got {value!r}")
+        raise ProfileError(path, f"must be a list of two numbers [low, high], got {_shown(value)}")
     low = _number(value[0], f"{path}[0]")
     high = _number(value[1], f"{path}[1]")
     if low > high:
@@ -208,7 +230,7 @@ def _choice(choices: tuple[str, ...]) -> Callable[[Any, str], str]:
     def read(value: Any, path: str) -> str:
         """Return ``value`` when it is one of the choices."""
         if value not in choices:
-            raise ProfileError(path, f"must be one of {', '.join(choices)}, got {value!r}")
+            raise ProfileError(path, f"must be one of {', '.join(choices)}, got {_shown(value)}")
         return value
 
     return read
@@ -742,7 +764,7 @@ def load_scoring_profile(source: str | os.PathLike[str] | Mapping[str, Any]) -> 
     """Load, validate and freeze a scoring profile.
 
     ``source`` is a path to a YAML file or an already parsed mapping. Raises
-    :class:`ProfileError` (naming the YAML path) for a duplicate YAML key, an unknown
+    :class:`ProfileError` (naming the YAML path) for a duplicate or unhashable YAML key, an unknown
     key, a missing required key, an unregistered field type, a label field without
     a vocabulary, a duplicate class, a variant naming a field the class lacks, a
     threshold that is not a finite number in ``[0, 1]`` and every other malformed
@@ -759,7 +781,7 @@ def load_scoring_profile(source: str | os.PathLike[str] | Mapping[str, Any]) -> 
     profile_format = root.take("profile_format", lambda raw, path: raw, required=True)
     if type(profile_format) is not int or profile_format != PROFILE_FORMAT:
         raise ProfileError(
-            "profile_format", f"this loader reads format {PROFILE_FORMAT}, got {profile_format!r}"
+            "profile_format", f"this loader reads format {PROFILE_FORMAT}, got {_shown(profile_format)}"
         )
     client = root.take("client", _text, required=True)
     version = root.take("version", _text, required=True)

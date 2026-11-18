@@ -2,10 +2,14 @@
 
 The corpus (``fixtures/differential/scalar_cases.jsonl``) holds the inputs the old
 Dojo's direct tests used plus seeded generated inputs (dates in many formats, money,
-names, CMS identifiers, every label surface, blanks, unicode, hostile types and
-embedding rescue with fake backends), each with the old output computed at commit
-23f8234c. Outputs are compared as canonical JSON, so ``1`` and ``1.0``, and ``None``
-and ``0.0``, are different answers.
+names, CMS identifiers, every label surface, blanks, unicode and hostile types),
+each with the old output computed at commit 23f8234c. Outputs are compared as
+canonical JSON, so ``1`` and ``1.0``, and ``None`` and ``0.0``, are different answers.
+
+The generator also builds 540 embedding-rescue cases with fake backends, but its
+encoder refuses their ``{"$similarity": spec}`` argument (a key starting with ``$``)
+and skips them without counting, so the committed corpus holds none; embedding
+rescue is covered by ``test_similarity_backend.py`` instead.
 """
 
 from __future__ import annotations

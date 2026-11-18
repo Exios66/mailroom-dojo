@@ -48,8 +48,14 @@ class ActiveVariant:
 
 
 def _token(value: object) -> str:
-    """A field value as a stripped, lowercased token (blank for None and empty values)."""
-    return str(value or "").strip().lower()
+    """A field value as a stripped, lowercased token.
+
+    None and an empty list, dict, tuple or set are blank. A number or a boolean keeps
+    its text (``0`` is ``"0"``), so a profile marker ``"0"`` matches a JSON number 0.
+    """
+    if value is None or (isinstance(value, (list, dict, tuple, set)) and not value):
+        return ""
+    return str(value).strip().lower()
 
 
 def active_row_variant(class_spec: ClassSpec | None, expected: object) -> ActiveVariant | None:

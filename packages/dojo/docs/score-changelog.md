@@ -134,8 +134,8 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
 - A supplied plug-in scorer replaces the bundled one by presence, not by truthiness.
 - **Found, not changed:** `binary_metrics(..., normalize=True)` compares the normalized value with `positive`
   exactly as given, so `positive` must be a class key (its docstring says so; a sorter label or a mixed-case
-  name never matches). The row-variant marker token is read with `str(value or "")`, so a JSON number `0`
-  becomes an empty token (no mailroom marker is numeric). Both are the old Dojo's behaviour.
+  name never matches). This is the old Dojo's behaviour. (The row-variant marker token noted here at first
+  was changed later; see "Review fixes, round 5".)
 
 ## Review fixes, round 3
 
@@ -143,7 +143,8 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   raised `RecursionError` out of extraction scoring on it.
 - **Found, not changed:** the `catalog` fold's normalizer maps a mixed-case or punctuated catalog key only through
   the key, the aliases or the label prefix, as the old `normalize_corpus_subclass` did; `fold` and `normalize`
-  can therefore differ for such a key. Differential parity covers the old behaviour, so it stays.
+  can therefore differ for such a key. Differential parity covers the old behaviour, so it stays. (Changed
+  later for keys the old Dojo could not hold; see "Review fixes, round 5".)
 
 ## Review fixes, round 4
 
@@ -223,3 +224,36 @@ which is dropped and counted; text such as `"no"` or a number is a `TypeError` n
 row) and reads NumPy confidences (`float32`, integers) as numbers. The ported ECE, Brier
 and reliability functions keep the old lenient reading (`bool(correct)`, and only `int` or
 `float` confidences), for parity.
+
+## Review fixes, round 5
+
+- **A numeric row-variant marker is read as its text.** The marker token was read with `str(value or "")`, so
+  an expected JSON number `0` (or `False`) became an empty token and a profile marker `"0"` never matched it.
+  It is now `""` only for None and an empty list, dict, tuple or set; a number or boolean keeps its text. The
+  old Dojo had one fixed marker field whose values are table names, so it could not express such a marker. No
+  score changes for the mailroom profile: its marker values are `carrier`, `inpatient`, `outpatient` and `pde`,
+  none of which is the text of a number or a boolean, and both the empty and the new token miss them. The
+  fixtures and the intended-differences ledger are unchanged.
+- **A catalog normalizer finds a token by its compact form last.** When the key, alias and label steps all
+  miss, `normalize` now returns the token whose compact form equals the value's (as `fold` does) instead of the
+  unknown token, so a key such as `Co-Op` whose label does not start like it is no longer unknown. The three
+  old steps run first and unchanged, so only a value that used to get the unknown token can move. No mailroom
+  score moves: every mailroom token already normalizes to itself
+  (`test_every_mailroom_vocabulary_is_closed_and_has_fixed_points`), and the normalizer reads a value only
+  through its compact form, so any value with a token's compact form already reached that token before the
+  new step. The old Dojo's catalogs were fixed lowercase tables and could not hold such a key.
+- **Found, not changed** (each checked against the old Dojo at `23f8234c` on the same input, identical output):
+  - `cms_document_signature`: when the word NDC appears, the first run of 9 to 11 digits is read as the NDC, even
+    a claim number before it (`"claim 1234567890 NDC 00703051002"` is NDC `01234567890`, so it misses
+    `"NDC 00703051002"`).
+  - Presence routing: a reasoning entry tagged with the category whose evidence and section reference are both
+    blank still counts as routed, so the field's own candidates are ignored and the category scores false.
+  - Recall-coverage lists: an empty predicted item (`[""]`) is not a role phrase, so it "names a party" and
+    role-word expectations (`Seller`) get recall credit.
+  - `date_grounded_in_document` finds only full dates in the document (numeric, month-day-year, day-of-month),
+    so a prediction "August 2014" is not grounded by a document that says "August 2014".
+  - Trace capture: a reasoning value that is a single mapping with only a `span` key is dropped (a bare entry
+    needs `field` or `evidence`), and `missing_confidence` `assume_1` or `assume_0` fills the confidence for the
+    gate only, so the calibration error stays None. The `TraceCaptureOptions` docstring, which said the policy
+    also applied to calibration, now says what the code does; the old Dojo's comment made the same wrong claim.
+

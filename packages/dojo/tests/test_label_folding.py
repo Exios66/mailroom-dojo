@@ -109,6 +109,37 @@ def test_catalog_normalize_by_alias_label_and_label_prefix():
     assert vocabulary.fold("other") == "other"  # exact token match comes before the catalog
 
 
+def test_catalog_normalize_recognises_a_token_written_with_case_or_punctuation():
+    """A catalog key with capitals or punctuation is a valid token. When neither its aliases nor its label
+    prefix match, normalize still finds it by its compact form, as fold does, instead of the unknown token."""
+    vocabulary = LabelVocabulary(
+        tokens=("Co-Op", "supply", "other"),
+        fold_method="catalog",
+        catalog=(CatalogEntry("Co-Op", "Cooperative Agreement"), CatalogEntry("supply", "Supply Agreement")),
+    )
+    for surface in ("Co-Op", "co op", "COOP"):
+        assert vocabulary.fold(surface) == "Co-Op"
+        assert vocabulary.normalize(surface) == "Co-Op", surface
+    assert vocabulary.normalize("Cooperative Agreement") == "Co-Op"  # the label step, as before
+    assert vocabulary.normalize("Supply Agreement") == "supply"
+    assert vocabulary.normalize("coop agreement") == "other"  # not a token's compact form, no label prefix
+    assert vocabulary.normalize("barter") == "other"
+
+
+@given(value=label_surfaces)
+def test_catalog_normalize_never_drops_a_token_fold_finds(value):
+    """Whenever the catalog fold finds a token by its compact form, normalize does not answer unknown."""
+    vocabulary = LabelVocabulary(
+        tokens=("Co-Op", "IP", "other"),
+        fold_method="catalog",
+        catalog=(CatalogEntry("Co-Op", "Cooperative Agreement"), CatalogEntry("IP", "Intellectual Property")),
+    )
+    for surface in (value, "Co-Op", "ip", "I.P."):
+        folded = vocabulary.fold(surface)
+        if folded and folded != vocabulary.unknown_token:
+            assert vocabulary.normalize(surface) == folded, surface
+
+
 def test_allowed_set_prefers_the_raw_spelling_then_the_compact_form():
     """Allowed-set normalization: the stripped raw value, else the first token with the same compact form."""
     vocabulary = LabelVocabulary(tokens=("e_mail", "letter", "other"), fold_method="allowed_set")
