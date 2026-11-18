@@ -38,6 +38,9 @@ __all__ = [
     "refuse_dropped",
 ]
 
+# Names the snapshot format and the builder that wrote it. It is not bumped for a change in
+# import rules: `--check` compares a fresh build with the committed snapshot byte for byte, so
+# a rule change that alters a committed snapshot shows up there, not in this string.
 BUILDER_VERSION = "0.1.0"
 
 

@@ -2,8 +2,9 @@
 
 Workspace for the lean Mailroom rewrite. Each package lives under `packages/`:
 `packages/record/` (`mailroom_record`: the append-only, hash-chained run record and its
-blob store) and `packages/labels/` (`mailroom_labels`: label snapshots, precedence, the
-quality gate and coverage). Design and build plan: `docs/specs/` and `docs/plans/`.
+blob store), `packages/labels/` (`mailroom_labels`: label snapshots, precedence, the
+quality gate and coverage), and the shared libraries `packages/common/` and
+`packages/dictionaries/`. Design and build plan: `docs/specs/` and `docs/plans/`.
 
 Requires Python 3.11 or later (CI runs 3.11 and 3.12). If `python3` is older, name a
 newer interpreter instead, for example `python3.12 -m venv .venv`.

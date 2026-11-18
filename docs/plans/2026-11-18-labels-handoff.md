@@ -11,7 +11,7 @@ Branch: `claude/project-thread-pbvxf9` (PR #5). PR #2 (record) is on `main` and 
 - After the merge of `main` (9ab3a90): an `unsure` desk mark that cannot be ordered against a human decision on its label (undated, or the same instant as the latest decision) refuses the import (`source.unordered_undecided`); a later `unsure` withdraws the earlier human decisions on its label (194a4f2); `load_label_set` is strict by default (0532470); a rebuild is built aside and swapped in, so an error keeps the old snapshot (f18b13b); importers hash and parse the same bytes (928013a).
 
 ## Not done
-- Independent reviews: done. The final fix range was reviewed, and a fresh pre-PR review of the landing branch ran; its findings are fixed on that branch.
+- Independent reviews: done. The final fix range had a round-3 review; fresh pre-PR reviews ran on the landing heads 0532470 and 85e0853, and their code and docs findings are fixed on the landing branch.
 - CircleCI is now configured on `main` (`.circleci/config.yml`); it must be green on the landing head before the merge.
 - Not verified: live `fetch_hub.py` download, `build_profile.py` regeneration (needs the EDA clone), rebuilding the review snapshot from public sources (inputs are project files).
 - Merge into `main` through the merge gate in `.claude/rules/pr-flow.md`, step 7.
@@ -22,7 +22,7 @@ Branch: `claude/project-thread-pbvxf9` (PR #5). PR #2 (record) is on `main` and 
 3. Review decision files live only in project files; move them into a repository?
 4. A later `unsure` desk mark withdraws the earlier human decisions on its label. Is that the intended desk rule?
 5. An `unsure` mark that cannot be ordered against a decision on its label refuses the whole import. Should it instead withdraw only that label?
-6. The owner's initials appear in `packages/record/tests/record_testkit.py` (on `main`) and in note fields of the committed gold-review snapshot. Snapshots are immutable, so removing them there needs a new snapshot. Remove them?
+6. The owner's initials appear in note fields of the committed gold-review snapshot (immutable, so removing them needs a new snapshot, and only before the merge keeps them out of `main`), and in files already on `main`: `packages/record/tests/record_testkit.py`, the ADR "Deciders" lines, the record plan, the record test strategy, the shared-libraries hand-off and the design spec. Remove them?
 7. DOC-672cec2c85c83c39 action_items: confirm the audit value replaces the catalog's empty list.
 8. Claude audit decisions outrank interim `gap_fill` (47 of 69 change the value). Keep?
 

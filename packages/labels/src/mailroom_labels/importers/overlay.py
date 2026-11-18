@@ -93,7 +93,7 @@ def build_overlay(
     man_bytes, man_sha = read_source(man_path)
     try:
         man = loads_source(man_bytes.decode("utf-8-sig"))
-    except (ValueError, RecursionError) as exc:  # bad UTF-8, JSONDecodeError, a repeated key
+    except (ValueError, RecursionError) as exc:  # bad UTF-8, JSONDecodeError, a repeated key, NaN
         raise ImportRefused(f"{_MANIFEST} is not JSON: {exc.__class__.__name__}: {exc}") from exc
     if not isinstance(man, dict) or man.get("schema") != OVERLAY_SCHEMA:
         raise ImportRefused(f"{_MANIFEST} schema is not {OVERLAY_SCHEMA!r}")

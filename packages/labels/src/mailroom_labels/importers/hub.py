@@ -151,12 +151,12 @@ def _read_parquet(data: bytes) -> list[dict[str, Any]]:
 
 
 def _json_or_raw(raw: Any) -> Any:
-    """A JSON string decoded (strictly: a repeated key or nesting too deep leaves it raw, so
-    the caller reports it), anything else as it is."""
+    """A JSON string decoded (strictly: a repeated key, a non-finite number such as `NaN` or
+    nesting too deep leaves it raw, so the caller reports it), anything else as it is."""
     if isinstance(raw, str):
         try:
             return loads_source(raw)
-        except (ValueError, RecursionError):  # JSONDecodeError and a duplicate key are ValueErrors
+        except (ValueError, RecursionError):  # JSONDecodeError, a duplicate key and NaN are ValueErrors
             return raw
     return raw
 
