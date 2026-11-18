@@ -212,6 +212,8 @@ def test_an_expectation_without_a_field_needs_a_default(mailroom_profile):
         ({"kind": "value", "value": "0.9"}, "not_a_number"),
         ({"kind": "value", "value": True}, "not_a_number"),
         ({"kind": "value", "value": 1.5}, "out_of_range"),
+        ({"kind": "value", "value": 10**400}, "out_of_range"),
+        ({"kind": "value", "value": 10**5000}, "out_of_range"),
     ],
 )
 def test_a_failing_presence_backend_never_matches_and_is_reported(spec, reason, caplog):

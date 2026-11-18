@@ -282,8 +282,10 @@ def test_unknown_element_types_fail_unless_a_fallback_type_is_named(mailroom_pro
         ({"kind": "nan"}, "not_a_number"),
         ({"kind": "value", "value": "0.99"}, "not_a_number"),
         ({"kind": "value", "value": 7.0}, "out_of_range"),
+        ({"kind": "value", "value": 10**400}, "out_of_range"),
+        ({"kind": "value", "value": 10**5000}, "out_of_range"),
     ],
-    ids=["raises", "nan", "text", "above_one"],
+    ids=["raises", "nan", "text", "above_one", "huge_int", "int_over_digit_limit"],
 )
 def test_a_failing_similarity_backend_keeps_string_scores_and_reports(spec, expected_reason):
     """A broken backend inside a list changes no score; each use is recorded on the rescue with its reason."""
