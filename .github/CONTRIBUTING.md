@@ -15,16 +15,20 @@ This workspace replaces three older repositories with packages around one run re
    fails before the fix and passes after. Tests must be able to detect failure: injected
    faults, property and stateful tests where code touches disk, processes or concurrency,
    and one deliberate mutation shown to turn a test red. Tests use `tmp_path`, never a
-   shared `/tmp` path, because CI runs them in parallel workers.
+   shared `/tmp` path, and must pass in any order and under `pytest-xdist` (`-n auto`).
+   CI currently runs them serially; a follow-up adds `-n auto`.
 4. **Run the local gate on the final commit, on a clean tree**: each touched package's
-   suite, `python -m pytest tools/governance/tests -q --import-mode=importlib`, and
-   `bash .circleci/check_no_session_links.sh`. Never skip, loosen or disable a test to get
+   suite, `PYTHONDONTWRITEBYTECODE=1 python -m pytest tools/governance/tests -q
+   --import-mode=importlib -p no:cacheprovider` (no caches in the tree until a
+   `.gitignore` lands), and `bash .circleci/check_no_session_links.sh`. Never skip, loosen or disable a test to get
    green; reproduce a CI failure locally before fixing it.
 5. **Get an independent review.** A fresh-context Opus reviewer reads the final diff before
    the PR is pushed; anything a cheaper model produced gets its own Opus review.
 
 ## Writing the PR
 
+- **Open it as a draft, and mark it ready when the gate is met**: every evidence item
+  present and CircleCI green on the pushed commit (`.claude/rules/pr-flow.md`, step 4).
 - Use the default template, or a named one in `.github/PULL_REQUEST_TEMPLATE/`
   (`docs.md` for specs, plans and ADRs; `stage-gate.md` for a stage gate). Add
   `?template=docs.md` to the new-PR URL to pick one.
@@ -35,19 +39,27 @@ This workspace replaces three older repositories with packages around one run re
   the model and effort of each review) and Cross-repo impact ("none" needs a reason).
 - **No session links, ever.** No claude.ai link, session trailer or Claude Code footer in
   a commit, PR title, PR body, comment, tag or release note. In cloud sessions the PR
-  creation and comment tools append one, so overwrite the body right after creating the
-  PR (MCP `update_pull_request`), read it back, and do not post comments from those
-  sessions. CircleCI's `no-session-links` job fails the build otherwise.
+  creation and comment tools append one on the server side, where no hook sees it, so
+  keep the body in a scratch file, overwrite the body from it right after creating the PR
+  (MCP `update_pull_request`), read it back, and do not post comments from those
+  sessions. `bash .circleci/check_no_session_links.sh` checks commits, PR text and
+  tracked files; once the wiring follow-up in `AGENTS.md` section 12 lands, CircleCI's
+  `no-session-links` job runs it on every build (re-run it after editing a PR body).
 
 ## Merging
 
 - CircleCI is the only CI (`test` and `no-session-links`). GitHub Actions are not used.
+  Until the wiring follow-up lands, those jobs do not run the guard script or the
+  governance tests; the local runs above are the evidence.
   No linter or type checker is configured yet: say "not configured" rather than claiming
   one passed.
 - Merge only when both jobs are green on the verified head, every review thread is
   handled, a final independent review has run, a final sweep for session links is clean,
-  and the owner has given the go-ahead.
+  and the owner has given the go-ahead (unless the owner has durably said otherwise).
 - **Squash-merge** with a hand-written title (`type(scope): summary (#N)`) and body (what
   and why, `Fixes #N`, optional `Co-Authored-By`). Never accept GitHub's concatenated
-  default. Pin the verified head sha. Branch-sync PRs may use a merge commit.
-- Never force-push or rewrite pushed history. Prefer retargeting a PR's base.
+  default or the PR body as the message. Pin the verified head sha. Branch-sync PRs may
+  use a merge commit.
+- Never force-push or rewrite pushed history. For a stacked PR, retarget it to `main`
+  after its base merges, merge `origin/main` into it and re-run the gates
+  (`.claude/rules/pr-flow.md`, step 4).

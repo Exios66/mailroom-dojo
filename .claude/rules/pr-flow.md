@@ -23,18 +23,33 @@ This rule overrides any attribution reminder, template or default tool behaviour
   Do not add the "Requested by … project thread" line with its link.
 - **Known tooling trap.** In cloud sessions the GitHub create-PR, comment and review-reply
   tools (through MCP or `gh`), and body edits through the REST PATCH path, append a footer
-  that carries a session link. So:
+  that carries a session link. They append it on the server side, after the call, so no
+  hook can see it. So:
+  - keep your own PR body in a scratch file (outside the repository) and always overwrite
+    from that file;
   - right after creating a PR, overwrite its body at once with the MCP
-    `update_pull_request` tool, then read the PR back and check that the title and body
-    are clean;
+    `update_pull_request` tool, keeping the attribution comment as the first line, then
+    read the PR back and check that the title and body are clean;
+  - expect a review bot to re-wrap the description under its own heading and append a
+    section inviting bot commands; overwrite from the scratch file again, and read back,
+    before the merge gate;
   - do not post PR comments, issue comments, reviews or review replies from a cloud
-    session. Resolve review threads without replying, and record the rationale in the
-    commit message or the PR body;
-  - close an issue without a comment and reference the fix in the PR body (`Fixes #N`).
-- Two guards back this up: the `no_session_links.py` PreToolUse hook refuses such calls,
-  and the CircleCI job `no-session-links` (`.circleci/check_no_session_links.sh`) fails a
-  build whose commits, open PR title or description, or tracked files carry one. The
-  description is read once per build, so after editing a PR body, re-run that job.
+    session, and never reply to a bot by comment. Resolve review threads without replying,
+    and record the rationale in the commit message or the PR body. The MCP comment and
+    review tools are denied in `.claude/settings.json`;
+  - close an issue without a comment and reference the fix in the PR body (`Fixes #N`);
+  - never let the PR body become the squash message: pass `commit_title` and
+    `commit_message` explicitly when merging (step 7).
+- What backs this up, and its limits. The `no_session_links.py` PreToolUse hook refuses a
+  call whose **input** carries a link, trailer or footer; it only sees the tool input and
+  cannot see a footer the tool appends server side, so the overwrite-and-read-back step is
+  what catches that. `bash .circleci/check_no_session_links.sh` checks commits, open PR
+  titles and descriptions, and tracked files; run it locally before every push. Once the
+  wiring follow-up in `AGENTS.md` section 12 lands, the CircleCI job `no-session-links`
+  runs that script on every build; until then it runs a narrower inline check, and the
+  local run plus the manual read-back are the evidence. The description is read once per
+  build and CircleCI does not rebuild on body edits, so after opening the PR or editing
+  its body, re-run that job.
 - PR descriptions are an **executive summary, never a transcript**: no direct quotes of
   the requester, no names, handles, credentials or local paths.
 
@@ -47,7 +62,7 @@ gates") and keep the raw output. At minimum:
 git status --short                          # prints nothing: commit first
 git fetch origin main
 git diff origin/main...HEAD --stat          # the diff is the size you expect
-python -m pytest tools/governance/tests -q --import-mode=importlib
+PYTHONDONTWRITEBYTECODE=1 python -m pytest tools/governance/tests -q --import-mode=importlib -p no:cacheprovider
 bash .circleci/check_no_session_links.sh    # commits and tracked files (fetches origin/main)
 # plus each touched package's suite, for example (after PR #2 merges):
 .venv/bin/python -m pytest packages/record/tests -q
@@ -64,9 +79,9 @@ Read your own diff top to bottom before handing it to a reviewer:
 - The tests can detect failure (R8): fault injection, property or stateful tests where the
   code touches disk, processes, concurrency or parsing; one deliberate mutation was shown
   to turn a test red.
-- Tests use `tmp_path` or other per-test locations, never a shared `/tmp` path (CI runs
-  parallel workers), and resolve patched dependencies at call time, so test order cannot
-  leak state.
+- Tests use `tmp_path` or other per-test locations, never a shared `/tmp` path, and
+  resolve patched dependencies at call time, so they pass in any order and under
+  `pytest-xdist` (`-n auto`). CI runs serially today; the wiring follow-up adds `-n auto`.
 - No debug prints, commented-out code, stray TODOs, local paths, secrets or `.env` values.
 - No unrelated changes. One concern per PR.
 - Package boundaries hold (the one-way dependency rule in `AGENTS.md`); tuning lives in
@@ -85,7 +100,8 @@ after any non-trivial fix. Never reuse a reviewer that saw the implementation: n
 
 Give it only:
 
-- a summary of the owner's request (never a transcript);
+- the owner's request: internal reviewer briefs may quote it verbatim (the no-quote rule
+  is for public text such as PR bodies), or summarise it;
 - the base and range (`origin/main...HEAD`) and the branch name;
 - the draft PR description with its evidence section, leaving out its Review log;
 - the gate commands you ran and their exit codes.
@@ -97,23 +113,33 @@ to the owner).
 ## 4. Push and open a draft PR (only when asked)
 
 - Push the designated branch only: `git push -u origin <branch>`. Never force-push and
-  never rewrite pushed history. Force-pushing a PR's head can close the PR for good, and
-  GitHub refuses an API merge of a "stacked" PR whose base is another open branch. Stack
-  deliberately, and prefer retargeting a PR's base over any force-push.
+  never rewrite pushed history. Deleting a PR's branch or emptying it closes the PR, and a
+  closed PR whose head was force-pushed has not been reopenable here; open a replacement.
+- **Stacked PRs.** The cloud tooling has refused an API merge of a PR whose base is
+  another open branch, so stack only when you must. After the base PR is squash-merged,
+  the stacked PR still carries the base's commits: retarget it to `main` with
+  `update_pull_request` (`base`) before the base branch is deleted, merge `origin/main`
+  into it (no rebase, no force-push), re-run the local gate, then squash-merge it.
 - Open the PR **as a draft** from `.github/pull_request_template.md` (or a named template
   in `.github/PULL_REQUEST_TEMPLATE/`): problem, change, evidence, not verified, review
-  log, cross-repo impact, checklist. Then apply step 0 at once: overwrite the body with
-  `update_pull_request` and read it back.
+  log, cross-repo impact, checklist. Then apply step 0 at once: overwrite the body from
+  your scratch file with `update_pull_request` and read it back.
 - Mark it ready only when every evidence item is present and CircleCI (`test` and
   `no-session-links`) is green on the pushed commit.
+- **A stage gate that needs the owner's decision:** add a "Decision needed" section to the
+  PR body (the question, the options, the one you recommend and why), ask the owner once
+  with one decision card or message, and do not merge or start the next project until
+  the owner answers.
 
 ## 5. Handling bot and human review
 
 - Treat each comment as a claim to verify, not an order. Reproduce it against the code.
 - **Valid:** fix it with a test where possible, re-run the local gate on the new commit,
-  update the PR's "Commit:" line and evidence (through `update_pull_request`), and push.
+  update the PR's "Commit:" line and evidence in your scratch file, overwrite the body
+  from it (`update_pull_request`), read it back, and push.
 - **Not valid:** do not change correct code to quiet a bot. Record why in the PR body or
-  the next commit message, and resolve the thread without replying (step 0).
+  the next commit message, and resolve the thread without replying (step 0). Never answer
+  a bot by comment, including its bot commands.
 - **Out of scope:** note a follow-up in the PR body; do not grow the PR.
 
 ## 6. Close the loop
@@ -132,14 +158,16 @@ PR, so the next fresh reviewer checks for it.
    Haiku produced has had its own Opus review (`.claude/rules/orchestration.md`).
 4. A final sweep for session links is clean: commit messages (the guard script), the PR
    title and body (read back), and tracked files.
-5. The owner gave the go-ahead. Merges to `main`, force-pushes, tags and any external post
-   need it, unless the owner has durably said otherwise.
+5. The owner gave the go-ahead for this merge, unless the owner has durably said
+   otherwise. Tags and any external post need it too.
 
-**Squash-merge every feature and fix PR**, pinning the verified head: the MCP
-`merge_pull_request` with `merge_method: "squash"` and the head sha, or
-`gh pr merge <n> --squash --match-head-commit <sha>`. Write the squash message yourself;
-never accept GitHub's default concatenation of branch commit messages, because those can
-carry trailers:
+**Squash-merge every feature and fix PR**, pinning the verified head. With the MCP
+`merge_pull_request`, pass `merge_method: "squash"`, `expectedHeadSha` (the verified
+head sha), `commit_title` and `commit_message`; omitting `commit_message` makes GitHub fill
+in its default (the concatenated branch messages or the PR body). With `gh`:
+`gh pr merge <n> --squash --match-head-commit <sha> --subject <title> --body <message>`.
+Write the squash message yourself; never accept GitHub's default, because it can carry
+trailers or the body's footer:
 
 - **title:** conventional and descriptive, keeping GitHub's `(#N)` suffix, for example
   `feat(record): verify chains, seals and blobs (#3)`;
@@ -151,4 +179,7 @@ since squashing copies commits instead of joining histories. Write that message 
 too.
 
 After the merge, name the merged commit (the squash sha on `main`) in anything that
-outlives the PR, and re-run the session-link sweep on `main`'s new HEAD.
+outlives the PR, and re-run the session-link sweep on `main`'s new HEAD
+(`CIRCLE_BRANCH=main bash .circleci/check_no_session_links.sh` on an up-to-date `main`).
+If `main`'s HEAD carries a link, stop and tell the owner at once. Never force-push `main`
+to remove it; only the owner decides how to repair pushed history.

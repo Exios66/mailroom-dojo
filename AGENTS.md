@@ -93,7 +93,7 @@ fixes, and the exact file formats are the builders' call in each plan.
 
 ### Adding a document type
 
-AmFam has many more document types than the dataset covers, so this must stay cheap. A new
+The client has many more document types than the dataset covers, so this must stay cheap. A new
 type is added by a client profile entry and plug-ins only:
 
 1. A class registry entry in `config/clients/<client>/`: the sorter label, its
@@ -162,10 +162,11 @@ each later package writes its own.
   synthetic documents and search every export for it.
 - **Show a test can fail.** For each new test, break the code on purpose once (a mutation
   or an injected fault), watch the test go red, and restore. Put that in the PR evidence.
-- **Parallel workers.** CI runs tests in parallel (`pytest-xdist`). Use `tmp_path` or other
-  per-test locations, never a fixed path under `/tmp` or any shared folder. Keep
-  parametrized ids deterministic: every worker collects the whole suite and a mismatch
-  aborts the run.
+- **Any order, any worker.** Tests must pass in any order and under `pytest-xdist`
+  (`-n auto`). CI currently runs the suites serially; the wiring follow-up (section 12)
+  adds `-n auto`. Use `tmp_path` or other per-test locations, never a fixed path under
+  `/tmp` or any shared folder. Keep parametrized ids deterministic: under xdist every
+  worker collects the whole suite and a mismatch aborts the run.
 - **The order-leak lesson.** A test that patches a dependency the code bound at import time
   (`from x import f`, a module-level client or a cached config) works alone and fails, or
   silently passes, depending on which test ran first. Resolve dependencies at call time,
@@ -177,7 +178,9 @@ each later package writes its own.
 - Stage gates run end to end on the stored runs through a script; the script writes the
   report.
 - The governance tests (`tools/governance/tests`) need only the standard library, git, bash
-  and pytest: `python -m pytest tools/governance/tests -q --import-mode=importlib`.
+  and pytest. Until PR #2's `.gitignore` is on `main`, run them without leaving caches in
+  the tree:
+  `PYTHONDONTWRITEBYTECODE=1 python -m pytest tools/governance/tests -q --import-mode=importlib -p no:cacheprovider`.
 
 No linter or type checker is configured. The record plan allows `ruff` with correctness
 rules only if one is ever added; that is its own PR, never part of an unrelated change.
@@ -185,7 +188,10 @@ rules only if one is ever added; that is its own PR, never part of an unrelated 
 ## 7. Commits
 
 Commit messages follow `.gitmessage` (added by PR #2; enable it once per clone with
-`git config commit.template .gitmessage`):
+`git config commit.template .gitmessage`). A richer, commented version of that file is a
+follow-up on it once PR #2 merges: a 72-character subject limit, `Testing: not run:
+<reason>` when nothing could run, a warning against session links and footers, and the
+enable line above. The shape:
 
 ```text
 type(scope): imperative summary
@@ -219,21 +225,36 @@ The full flow is `.claude/rules/pr-flow.md`. The points that matter most:
 - **Executive summary, never a transcript:** no direct quotes of the requester, no names,
   handles, credentials, local paths or document text.
 - **Session links:** none, anywhere. In cloud sessions the PR and comment tools append a
-  footer with a session link, so overwrite a new PR body at once with the MCP
-  `update_pull_request` tool and read it back; resolve review threads without replying and
-  record the rationale in the PR body or a commit; close issues with no comment and
-  `Fixes #N` in the PR body. A PR body may start with the single
-  `<!-- claude-projects-attribution: {"github_login":"<login>"} -->` comment and nothing
-  that links back.
+  footer with a session link on the server side, after any hook has seen the input. So
+  keep the PR body in a scratch file, overwrite a new PR body at once from that file with
+  the MCP `update_pull_request` tool and read it back; resolve review threads without
+  replying and record the rationale in the PR body or a commit; close issues with no
+  comment and `Fixes #N` in the PR body. A PR body may start with the single
+  `<!-- claude-projects-attribution: {"github_login":"<login>"} -->` comment; keep it as
+  the first line when you overwrite the body, and add nothing that links back. The MCP
+  comment and review tools are denied in `.claude/settings.json` for this reason.
+- **Review bots** may re-wrap the description under their own heading and append a
+  section inviting bot commands. Overwrite from your scratch file again before merging,
+  and never reply to a bot by comment.
 - **Merge gate:** CircleCI `test` and `no-session-links` green on the verified head, every
   review thread handled, a final independent Opus review, a clean final sweep for session
-  links, and the owner's go-ahead.
+  links, and the owner's go-ahead (unless the owner has durably said otherwise).
 - **Squash-merge** with a hand-written title (`type(scope): summary (#N)`) and body (what,
-  why, `Fixes #N`, optional `Co-Authored-By`), pinned to the verified head sha. Branch-sync
-  PRs may use a merge commit.
-- **Never force-push** or rewrite pushed history. Force-pushing a PR's head can close the
-  PR for good, and GitHub refuses an API merge of a stacked PR whose base is another open
-  branch. Stack deliberately and prefer retargeting a PR's base.
+  why, `Fixes #N`, optional `Co-Authored-By`), pinned to the verified head sha: pass
+  `commit_title` and `commit_message` explicitly, so neither GitHub's default nor the PR
+  body becomes the squash message. Branch-sync PRs may use a merge commit.
+- **Never force-push** or rewrite pushed history. Deleting a PR's branch or emptying it
+  closes the PR, and a closed PR whose head was force-pushed has not been reopenable here;
+  open a replacement instead.
+- **Stacked PRs.** The cloud tooling has refused an API merge of a PR whose base is
+  another open branch, so stack only when you must. After the base PR is squash-merged,
+  the stacked PR still carries the base's commits: retarget it to `main` with
+  `update_pull_request` (`base`) before the base branch is deleted, merge `origin/main`
+  into it (no rebase, no force-push), re-run the gates, then squash-merge it.
+- **Stage-gate decisions.** When a stage gate needs the owner's decision, put a "Decision
+  needed" section in the PR body (the question, the options, the one you recommend and
+  why), ask once with one decision card or message, and do not merge or start the next
+  project until the owner answers.
 
 ## 9. Review tiers
 
@@ -242,7 +263,7 @@ The full flow is `.claude/rules/pr-flow.md`. The points that matter most:
 | Work | Model and effort |
 |:---|:---|
 | Basic fetches, searches, running commands, simple mechanical edits | Haiku (`runner`) |
-| An excellently scoped, well-bounded task | Sonnet, effort high |
+| An excellently scoped, well-bounded task | Sonnet, effort high (`scoped-worker`) |
 | Design, multi-file implementation, debugging, CI root-causing | Opus, effort medium or higher (`implementer`) |
 | Every review, adversarial and pre-PR | Opus, effort high |
 
@@ -253,8 +274,15 @@ the problem, what breaks, try to break it). Reviewers are read-only. Subagents n
 open PRs, comment, publish, merge or spend money. Each PR's Review log names the tier and
 effort of every review.
 
+Pass model and effort on every call. If the Agent tool takes no per-call effort, use the
+project agents (`implementer`, `scoped-worker`, `runner`, the reviewers), whose
+frontmatter sets it. Output of `scoped-worker` or `runner` always gets an Opus review.
+
 Mind usage: no wide fan-outs, no double passes, no idle polling. Chunk big work into fresh
-threads, each ending with a hand-off (branch, last commit, gate state, next plan).
+threads. A thread finishes its chunk, writes a hand-off and stops. The hand-off goes in a
+"Hand-off" section of the PR body or in a note in the project files, never in a comment,
+and carries the branch, the head sha, the state (what is done, what is open), what is
+verified and how, and the next plan. No links of any kind in it.
 
 ## 10. Evidence
 
@@ -283,40 +311,78 @@ screenshots; never read or edit `.env` files (only `.env.example` may be tracked
 
 ## 12. Continuous integration
 
-CircleCI is the only CI (`.circleci/config.yml`, added by PR #2). GitHub Actions are not
-used: they cannot run on the owner's account. The workflow runs two jobs:
+CircleCI is the only CI. GitHub Actions are not used: they cannot run on the owner's
+account. `.circleci/config.yml` arrives with PR #2, not with the governance change. Its
+workflow runs two jobs:
 
-- `test`: installs each package and runs its suite.
-- `no-session-links`: rejects session links, session trailers and Claude Code footers.
+- `test`: installs the record package and runs its suite, serially.
+- `no-session-links`: an inline step that greps commit messages on the branch and tracked
+  files for a narrower pattern than the guard script.
 
-Two follow-ups are due once PR #2 merges, each a tiny PR of its own:
+**Until the wiring follow-up below lands, CI does not run
+`.circleci/check_no_session_links.sh`, does not read PR titles or descriptions and does
+not run the governance tests.** Until then the evidence is a local
+`bash .circleci/check_no_session_links.sh` run (exit 0) on the final commit and a manual
+read-back of the PR title and body after the last edit.
 
-1. Replace the inline `no-session-links` step in `.circleci/config.yml` with
+### Merge order and the wiring follow-up
+
+The governance PR touches no file that PR #1, #2 or #3 touch (checked with
+`git diff --name-only` on each), so it can merge before or after them. Once it and PR #2
+are both on `main`, one small follow-up PR comes next:
+
+1. Replace the inline `no-session-links` step with
    `bash .circleci/check_no_session_links.sh`. The script adds what the inline step lacks:
-   the open PR's title and description, case-insensitive matching, the footer and other
-   claude.ai paths, fail-closed handling when `origin/main` cannot be fetched, and logs
-   that name commits and files without printing the matched text.
+   PR titles and descriptions, case-insensitive matching, the trailer, id and footer
+   variants, merge commits on `main`, shallow-clone handling, fail-closed handling when
+   `origin/main` cannot be fetched, and logs that never print the matched text.
 2. Add `python -m pytest tools/governance/tests -q --import-mode=importlib` to the `test`
-   job, so the guard and hooks are tested on every build.
+   job, and `-n auto` to the package suites.
+3. Add README layout-map lines for `.claude/`, `.github/` and `tools/` (section 14).
 
-GitHub branch protection should require `ci/circleci: test` and
-`ci/circleci: no-session-links` on `main`; the owner sets that in the repository settings.
+The owner sets, in the service settings:
+
+- a **read-only `GITHUB_TOKEN`** in the CircleCI project, so the PR check can read PRs
+  without rate limits (with the token set, an unreadable PR fails the job; without it, the
+  job only warns);
+- branch protection on `main` requiring `ci/circleci: test` and
+  `ci/circleci: no-session-links`.
+
+CircleCI does not rebuild when a PR description is edited. Re-run the `no-session-links`
+job after opening the PR and after every body edit.
 
 ### The session-link guard
 
 `.circleci/check_no_session_links.sh` runs from the repository root:
 
-- on `main`, it checks the commit at HEAD (the squash message); on any other branch, every
-  commit not on `origin/main`. Older commits already on `main` are not re-checked;
+- a shallow clone is unshallowed first; if that fails, the script fails rather than
+  report "ok" on hidden history;
+- on `main`, it checks the commit at HEAD (the squash message) and, when HEAD is a merge
+  commit, every commit that merge brought in (`git rev-list HEAD --not HEAD^1`). Older
+  commits already on `main`, including ones pushed straight to it, are not re-checked;
+  on any other branch, every commit not on `origin/main`;
 - every pull request CircleCI lists for the build (`CIRCLE_PULL_REQUESTS`, falling back
-  to `CIRCLE_PULL_REQUEST`), title and description, through the GitHub API (it uses
-  `GITHUB_TOKEN` if set, and warns without failing if the API cannot be read);
+  to `CIRCLE_PULL_REQUEST`), title and description, through the GitHub API. The token is
+  handed to `curl` on stdin, never on its command line;
 - every tracked text file.
 
 It names offending commits, PRs and files and never prints the matched text, because CI
 logs are public. Run it locally before every push. Its pattern is written with bracket
 letters so the script, the hook and these docs pass their own scan; keep it that way, and
-keep the hook's pattern in step (a test checks that they agree).
+keep the hook's pattern in step (a test checks that they agree on a shared corpus).
+
+To search for such text yourself, run the script, or write the regex with a bracketed
+letter (`claude\.a[i]/`): the `no_session_links.py` hook blocks a Bash command whose
+regex spells out a link path.
+
+**Limits.** Both guards protect against accidents, not adversaries. They do not catch:
+
+- a footer split across two lines, a non-breaking space, Unicode lookalike letters or
+  zero-width characters (matching is line based and ASCII);
+- text a command builds at runtime (`printf`, variables, base64), which the hook cannot
+  see, or a footer a tool appends on the server side;
+- annotated tag messages, git notes, author or committer names, and non-UTF-8 files. Read
+  tag messages and release notes by eye before pushing them.
 
 ## 13. Cross-repo rules
 
@@ -348,12 +414,13 @@ and hooks), `.github/` (PR templates and contributing guide) and `tools/governan
 | `.claude/rules/pr-flow.md` | No session links, local gate, pre-PR review, merge gate, squash messages. |
 | `.claude/rules/code-mode.md` | One script with a digest for bulk work. |
 | `.claude/agents/implementer.md` | Opus subagent for heavy lifting. |
+| `.claude/agents/scoped-worker.md` | Sonnet subagent (effort high) for tightly scoped tasks. |
 | `.claude/agents/runner.md` | Haiku subagent for fetches, commands and mechanical edits. |
 | `.claude/agents/adversarial-reviewer.md` | Opus read-only reviewer, one lens per round. |
 | `.claude/agents/pre-pr-reviewer.md` | Opus fresh-context reviewer, with "Lessons from bot reviews". |
-| `.claude/settings.json` | Permissions (allow read-only git and tests; ask before push, merge, tag; deny force-push, signing bypass, PR and issue comments, paid and hosted-write commands, reading `.env`) and the hook wiring. |
-| `.claude/hooks/guard_paths.py` | Refuses edits to `.env` files, stored run data and script-written gate reports. |
-| `.claude/hooks/no_session_links.py` | Refuses Bash, edit and GitHub tool calls that would write a session link, session trailer or Claude Code footer. |
+| `.claude/settings.json` | Permissions and the hook wiring (below). |
+| `.claude/hooks/guard_paths.py` | Refuses edit-tool writes to `.env` files, stored run data and script-written gate reports. |
+| `.claude/hooks/no_session_links.py` | Refuses Bash, edit and GitHub tool calls whose input carries a session link, session id or trailer, or a Claude Code footer. |
 | `.github/pull_request_template.md` | Default PR template. |
 | `.github/PULL_REQUEST_TEMPLATE/docs.md` | PR template for specs, plans, ADRs and guidance. |
 | `.github/PULL_REQUEST_TEMPLATE/stage-gate.md` | PR template for a project stage gate. |
@@ -361,3 +428,35 @@ and hooks), `.github/` (PR templates and contributing guide) and `tools/governan
 | `.circleci/check_no_session_links.sh` | The session-link guard (section 12). |
 | `tools/governance/README.md` | What the governance tests cover and how to run them. |
 | `tools/governance/tests/` | Tests for the guard and both hooks, on real temporary git repositories. |
+
+### What the settings and hooks do, and do not, enforce
+
+`.claude/settings.json`:
+
+- **allow** read-only git (`status`, `diff`, `log`, `show`, `rev-parse`, `ls-files`,
+  branch listing), the governance tests and the guard script. `git grep` and `git fetch`
+  are not on the list (they prompt), and the flags that read past the deny rules or run
+  commands (`--no-index`, `--output`, `-O`, `--open-files-in-pager`, `--upload-pack`) are
+  denied on every git command.
+- **ask** before push, tag, merge, rebase, `gh` PR and release commands, `gh api`, Docker
+  Compose, and the MCP tools that merge, enable auto-merge or write files straight to a
+  branch (`merge_pull_request`, `enable_pr_auto_merge`, `push_files`,
+  `create_or_update_file`, `delete_file`), since those skip the local gate and signing.
+  `create_pull_request` and `update_pull_request` are left alone: the flow needs
+  `update_pull_request` to overwrite a body.
+- **deny** force-pushes, remote branch deletes, tag deletes, signing bypass, `gh` comment
+  and review commands, the MCP comment and review tools (`add_issue_comment`,
+  `add_reply_to_pull_request_comment`, `add_comment_to_pending_review`,
+  `pull_request_review_write`, `update_issue_comment`; the server appends a footer with a
+  session link that no hook can see), paid and hosted-write commands, and reading the
+  named secrets files (`.env`, `.env.local`, `.env.production`, `.env.development`,
+  `.env.test`, at the root and in any folder). `.env.example` stays readable with the
+  normal tools.
+
+The hooks are guards against accidents, not security boundaries. `guard_paths.py` sees
+only the file path of `Edit`, `Write`, `MultiEdit` and `NotebookEdit`, so a Bash redirect,
+`sed -i`, `cp` or a script writes past it. `no_session_links.py` sees only the tool input,
+so it misses strings built at runtime and footers a tool appends on the server side; the
+overwrite-and-read-back step and the guard script are what catch those.
+`tools/governance/tests/test_settings.py` checks the matchers, the hook files and these
+lists.

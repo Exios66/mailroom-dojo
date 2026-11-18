@@ -12,6 +12,8 @@
       "Bash(.venv/bin/python -m pytest:*)",
       "Bash(python -m pytest tools/governance/tests:*)",
       "Bash(python3 -m pytest tools/governance/tests:*)",
+      "Bash(PYTHONDONTWRITEBYTECODE=1 python -m pytest tools/governance/tests:*)",
+      "Bash(PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tools/governance/tests:*)",
       "Bash(bash -n .circleci/check_no_session_links.sh)",
       "Bash(bash .circleci/check_no_session_links.sh)"
     ],
