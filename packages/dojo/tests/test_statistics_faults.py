@@ -276,11 +276,23 @@ def test_integer_valued_float_supports_are_counts():
         (None, INF),
         (None, -INF),
         (None, 0.5),
+        (None, Decimal(5)),
+        (0.5, Decimal(0)),
+        (None, Decimal(0)),
+        (0.5, Decimal(-1)),
+        (0.5, Decimal("0.5")),
+        (Decimal("0.5"), Decimal(0)),
+        (None, Decimal("2.5")),
+        (None, Decimal("Infinity")),
+        (0.5, Decimal("-Infinity")),
     ],
 )
 def test_wilson_ci_is_none_below_one_trial_or_without_a_rate(p, n):
     """Any real support under 1, or no rate with any real support, is no interval, as before."""
     assert wilson_ci(p, n) is None
+
+
+DECIMAL_SUPPORT = "n must be an int or an integer-valued float, not a Decimal; got "
 
 
 @pytest.mark.parametrize(
@@ -292,6 +304,16 @@ def test_wilson_ci_is_none_below_one_trial_or_without_a_rate(p, n):
         (0.5, "10", "n must be an integer; got '10'"),
         (None, "10", "n must be an integer; got '10'"),
         (None, None, "n must be an integer; got None"),
+        # A Decimal support from one trial up: the old Dojo raised TypeError (float / Decimal).
+        (0.5, Decimal(1), DECIMAL_SUPPORT + "Decimal('1')"),
+        (0.5, Decimal(10), DECIMAL_SUPPORT + "Decimal('10')"),
+        (0.5, Decimal("10.0"), DECIMAL_SUPPORT + "Decimal('10.0')"),
+        (0.5, Decimal("10.5"), DECIMAL_SUPPORT + "Decimal('10.5')"),
+        (Decimal("0.5"), Decimal(10), DECIMAL_SUPPORT + "Decimal('10')"),
+        (0.5, Decimal("Infinity"), DECIMAL_SUPPORT + "Decimal('Infinity')"),
+        # A NaN Decimal support: the old Dojo raised decimal.InvalidOperation comparing it with 1.
+        (0.5, Decimal("NaN"), DECIMAL_SUPPORT + "Decimal('NaN')"),
+        (None, Decimal("NaN"), DECIMAL_SUPPORT + "Decimal('NaN')"),
     ],
 )
 def test_wilson_ci_refuses_a_support_that_is_not_a_count(p, n, message):

@@ -199,8 +199,13 @@ the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
   check for any real `n < 1` (`0.5`, `-2.5`, `-inf`, `False`) and, when `p` is `None`, for
   any real `n` (`2.5`, `True`, NaN, `inf`). A NaN or infinite `n` with a rate is a
   `TypeError` (`n must be an integer; got nan`); the old Dojo raised too, a `ValueError`
-  or `OverflowError` from `int()`. The corpus holds no NaN or infinite support, so the
-  ledger has no entry for it; `tests/test_statistics_faults.py` pins both behaviours.
+  or `OverflowError` from `int()`. A `decimal.Decimal` support takes part in the `None`
+  checks as before (`wilson_ci(None, Decimal(5))`, `wilson_ci(0.5, Decimal(0))` and
+  `wilson_ci(0.5, Decimal("-Infinity"))` are `None`); past them it is a `TypeError` naming
+  the Decimal, where the old Dojo raised `TypeError` from `float / Decimal` (from
+  `Decimal(1)` up, integral or not) or `decimal.InvalidOperation` for a NaN Decimal. The
+  corpus holds no NaN, infinite or Decimal support, so the ledger has no entry for them;
+  `tests/test_statistics_faults.py` pins these behaviours.
 - **An infinite `z` is refused** (it gave the interval `[0, 1]`).
 - **Results are frozen dataclasses** (`BootstrapInterval`, `DeltaInterval`,
   `WilsonInterval`, `CrossFitResult`, `ReliabilityBin`, `PrecisionCutoff`); `to_dict()` is
