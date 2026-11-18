@@ -496,3 +496,27 @@ def _normalise_lenient(timeline: list[tuple[float, dict]]) -> list[tuple]:
             body = {"status": None} | body
         out.append(normalise([(at, {kind: body})])[0])
     return out
+
+
+# --- statuses and steps the importer scrubs (adversarial round 2, findings 6 and 7) --------
+
+
+@pytest.mark.parametrize(("status", "shown"), [(1, 1), (True, True), (0.5, 0.5), ("done with notes", None)],
+                         ids=["int", "bool", "float", "free-text"])
+def test_a_non_token_status_replays_as_stored(tmp_path: Path, status: Any, shown: Any) -> None:
+    """The sandbox shows a row's status raw. The record keeps a number or a bool as it was,
+    so the replay shows it too; free text was stored as its SHA-256 and length, so it
+    cannot be restored and replays as None (the one known difference)."""
+    nodes = [_node(D0, "intake", "running", T0, step=1), _node(D0, "intake", "done", T0 + 0.05, ms=50.0)]
+    nodes[1]["status"] = status
+    folder = _folder_with(tmp_path, 1, nodes, [_item(D0, T0 + 0.1)])
+    store = _store(tmp_path / "store")
+    r = import_sandbox_run(folder, store.log, store.blobs)
+    timeline, _ = replay_timeline(store.log, r.run_id)
+    assert [e["node"]["status"] for _, e in timeline if "node" in e] == ["running", shown]
+    sandbox = _sandbox_floor_replay()
+    if sandbox is not None:
+        want, _ = sandbox.build_timeline(folder)
+        assert [e["node"]["status"] for _, e in want if "node" in e] == ["running", status]
+        if shown == status:
+            _same(normalise(timeline), normalise(want))
