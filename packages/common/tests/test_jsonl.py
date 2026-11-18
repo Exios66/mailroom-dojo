@@ -4,6 +4,7 @@ import errno
 import math
 import multiprocessing
 import os
+import stat
 import threading
 from collections.abc import Iterator
 from pathlib import Path
@@ -92,19 +93,66 @@ def test_append_uses_a_single_write_and_fsyncs_only_on_request(
     assert len(fsyncs) == 1
 
 
-def test_short_write_raises_and_reader_reports_the_torn_tail(
+def test_short_write_is_continued_until_the_line_is_complete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "log.jsonl"
+    append_jsonl(path, {"seq": 1})
+    calls: list[int] = []
+    real_write = os.write
+
+    def dribble(fd: int, data: bytes) -> int:
+        calls.append(len(data))
+        return real_write(fd, bytes(data[:4]))
+
+    monkeypatch.setattr(os, "write", dribble)
+    append_jsonl(path, {"seq": 2})
+    monkeypatch.undo()
+    assert calls == [10, 6, 2]
+    assert list(iter_jsonl(path)) == [{"seq": 1}, {"seq": 2}]
+
+
+def test_write_that_makes_no_progress_raises_and_leaves_a_torn_tail(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "log.jsonl"
     append_jsonl(path, {"seq": 1})
     real_write = os.write
-    monkeypatch.setattr(os, "write", lambda fd, data: real_write(fd, data[:5]))
-    with pytest.raises(IntegrityError, match="short write") as info:
+    calls: list[int] = []
+
+    def stall(fd: int, data: bytes) -> int:
+        calls.append(len(data))
+        return real_write(fd, bytes(data[:5])) if len(calls) == 1 else 0
+
+    monkeypatch.setattr(os, "write", stall)
+    with pytest.raises(OSError, match="no progress") as info:
         append_jsonl(path, {"seq": 2})
-    assert info.value.context == {"path": str(path), "written": 5, "expected": 10}
+    assert info.value.filename == str(path)
     monkeypatch.undo()
     rows = list(iter_jsonl(path, tolerant=True))
     assert rows == [{"seq": 1}, BadLine(line_no=2, raw=b'{"seq', error=rows[1].error, truncated_tail=True)]
+    with pytest.raises(IntegrityError, match="torn line"):
+        append_jsonl(path, {"seq": 3})
+
+
+def test_append_after_a_torn_tail_is_refused_and_leaves_the_file_unchanged(tmp_path: Path) -> None:
+    path = _write(tmp_path / "log.jsonl", b'{"n":1}\n{"n":2,"x":"partial')
+    before = path.read_bytes()
+    with pytest.raises(IntegrityError, match="ends in a torn line and must be repaired") as info:
+        append_jsonl(path, {"n": 3})
+    assert info.value.context == {"path": str(path)}
+    assert path.read_bytes() == before
+    rows = list(iter_jsonl(path, tolerant=True))
+    assert rows[0] == {"n": 1}
+    assert isinstance(rows[1], BadLine)
+    assert rows[1].truncated_tail
+
+
+def test_append_to_an_empty_file_and_after_a_complete_line_is_allowed(tmp_path: Path) -> None:
+    path = _write(tmp_path / "log.jsonl", b"")
+    append_jsonl(path, {"n": 1})
+    append_jsonl(path, {"n": 2})
+    assert path.read_bytes() == b'{"n":1}\n{"n":2}\n'
 
 
 def test_disk_full_propagates_and_closes_the_descriptor(
@@ -265,6 +313,33 @@ def test_atomic_write_os_failure_leaves_old_file_intact(
     monkeypatch.undo()
     assert path.read_bytes() == b'{"old":1}\n'
     assert _leftovers(tmp_path) == []
+
+
+def test_atomic_write_keeps_the_mode_of_the_file_it_replaces(tmp_path: Path) -> None:
+    path = tmp_path / "rows.jsonl"
+    write_jsonl_atomic(path, [{"a": 1}])
+    assert stat.S_IMODE(path.stat().st_mode) == 0o644
+    path.chmod(0o640)
+    write_jsonl_atomic(path, [{"a": 2}])
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+    path.chmod(0o604)
+    write_jsonl_atomic(path, [{"a": 3}])
+    assert stat.S_IMODE(path.stat().st_mode) == 0o604
+
+
+def test_atomic_write_through_a_symlink_replaces_the_target_and_keeps_the_link(tmp_path: Path) -> None:
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    real = real_dir / "rows.jsonl"
+    write_jsonl_atomic(real, [{"a": 1}])
+    link = tmp_path / "link.jsonl"
+    link.symlink_to(real)
+    assert write_jsonl_atomic(link, [{"a": 2}]) == 1
+    assert link.is_symlink()
+    assert os.readlink(link) == str(real)
+    assert list(iter_jsonl(real)) == [{"a": 2}]
+    assert _leftovers(tmp_path) == []
+    assert _leftovers(real_dir) == []
 
 
 def test_atomic_write_into_missing_directory_fails(tmp_path: Path) -> None:
