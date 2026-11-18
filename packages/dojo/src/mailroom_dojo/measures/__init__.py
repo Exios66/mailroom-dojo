@@ -26,12 +26,10 @@ from .table import (
     PAIRING_METHODS,
     READERS,
     DefaultView,
-    DirectionOverride,
     MetricRow,
     MetricTable,
     MetricTableError,
     UnknownMetricError,
-    derive_direction,
     load_metric_table,
     metric_table_canonical_form,
 )
@@ -45,7 +43,6 @@ __all__ = [
     "READERS",
     "ConfidenceInterval",
     "DefaultView",
-    "DirectionOverride",
     "IncomparableMeasuresError",
     "Measure",
     "MeasureError",
@@ -58,7 +55,6 @@ __all__ = [
     "assert_comparable",
     "combined_label_status",
     "comparability_problems",
-    "derive_direction",
     "load_metric_table",
     "metric_table_canonical_form",
 ]

@@ -16,21 +16,17 @@
 #                 old metric_meta.py); ground_truth null = the old registry left it unset
 #   agents        as the old registry wrote them; family tokens expand through
 #                 agent_families below (the old roster, frozen)
-#   direction     higher | lower | none. New here: the old registry did not state it,
-#                 so every value is derived, owner to confirm. The rule, in order: an
-#                 explicit override; unit error_rate or a lower-is-better word in the id
-#                 (error, wrong, false_, violation, wasted, upper, ece, brier, latency,
-#                 seconds, cost, usd, _p50, _p95) -> lower; a higher-is-better word
-#                 (accuracy, f1, f2, precision, recall, completeness, similarity,
-#                 coverage, per_second) -> higher; else none. none is for descriptive
-#                 behaviour rates and resource readings (audit, intake and routing rates,
-#                 token counts, GPU readings). All 194 values and the overrides, with
-#                 their reasons, are frozen in tests/fixtures/measures/metric_directions.json
-#                 (tests/test_metric_directions.py). The overrides are data, in the
-#                 top-level direction_overrides mapping (id -> {direction, why}); the rule
-#                 is code (table.derive_direction), and the loader refuses a row whose
-#                 direction is not the derived one and an override that repeats the name
-#                 rule. A row the keep rule reads needs a direction other than none.
+#   direction     higher | lower | none, stated per row; this column is the source of
+#                 truth and nothing derives it. New here: the old registry stated no
+#                 direction, so every value is proposed for the owner to confirm. none is
+#                 for descriptive behaviour rates and resource readings (audit, intake and
+#                 routing rates, token counts, GPU readings). A row the keep rule reads,
+#                 and a metric an agent's default view or guard uses, has a direction other
+#                 than none. Every value is frozen in
+#                 tests/fixtures/measures/metric_directions.json; a lint in
+#                 tests/test_metric_directions.py compares each with what the id's words
+#                 suggest and lists the disagreements, which must be the reviewed ones in
+#                 that fixture's name_rule_exceptions (each with its reason).
 #   headline      true exactly for the old tier-0 metrics (tiers are gone)
 #   metric_id     the old canonical comparison id (docs/contracts/METRIC_IDS.md), else
 #                 registry:<id>, as the old emitter stamped it
@@ -127,60 +123,6 @@ agent_families:
   SERVING: ["local_vs_api"]
   SPECIALISTS: ["contracts_specialist", "merger_agreement_specialist", "corporate_records_specialist", "due_diligence_specialist", "correspondence_specialist", "compliance_specialist", "court_opinions_specialist", "insurance_claims_specialist"]
   TRANSCRIBERS: ["pdf_transcriber", "image_extractor"]
-
-direction_overrides:
-  "amount_exactness": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "arbiter_retry_usefulness": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "audit_disagreement_rate": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
-  "audit_resolution_rate": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
-  "bert_elapsed_ms": {direction: "lower", why: "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"}
-  "bert_sorter_agreement": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "boss_needless_review_rate": {direction: "lower", why: "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"}
-  "class_correct": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "classification_correct": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "classification_quality": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "completeness_label": {direction: "none", why: "a category label, not a better-or-worse number"}
-  "composite": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "completion_tokens": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
-  "date_mae_days": {direction: "lower", why: "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"}
-  "determination_consistency": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "duration_mae_days": {direction: "lower", why: "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"}
-  "exact_match": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "expected_field_presence": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "extraction_category_presence": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "extraction_correctness": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "extraction_field_score": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "extraction_hallucination_rate": {direction: "lower", why: "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"}
-  "extraction_overall_score": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "field_presence": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "gpu_memory_used_gb": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
-  "gpu_utilization": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
-  "hallucination_rate": {direction: "lower", why: "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"}
-  "intake_changed_rate": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
-  "intake_collapsed_blanks": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
-  "intake_hyphen_unwraps": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
-  "intake_messy_rate": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
-  "jaccard_median": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "kv_cache_utilization": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
-  "laziness_rate": {direction: "lower", why: "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"}
-  "mailroom-pipeline-judge": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "mailroom-pipeline-quality": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "maud_clause_presence": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "maud_valid_class_rate": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "ml_intake_selective_risk": {direction: "lower", why: "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"}
-  "parse_ok": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "per_field_scores": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "prompt_tokens": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
-  "review_tray_correction_rate": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
-  "review_tray_reject_rate": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
-  "reviewer_routed_to_human_review_rate": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
-  "run_aborted": {direction: "lower", why: "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"}
-  "schema_adherence": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "schema_valid": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "serving_kind": {direction: "none", why: "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"}
-  "stage_completed": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "stage_correct": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
-  "success_rate": {direction: "higher", why: "a share or score of right answers, so higher is better; the name does not say so"}
 
 default_views:
   sorter:

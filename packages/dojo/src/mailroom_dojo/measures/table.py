@@ -33,10 +33,7 @@ from .measure import Measure, MeasureError
 __all__ = [
     "AGGREGATIONS",
     "DefaultView",
-    "DirectionOverride",
     "DIRECTIONS",
-    "DIRECTION_HIGHER_WORDS",
-    "DIRECTION_LOWER_WORDS",
     "GROUND_TRUTH",
     "LAYERS",
     "NON_NUMERIC_UNITS",
@@ -51,7 +48,6 @@ __all__ = [
     "MetricTable",
     "MetricTableError",
     "UnknownMetricError",
-    "derive_direction",
     "load_metric_table",
     "metric_table_canonical_form",
 ]
@@ -81,35 +77,6 @@ UNITS: tuple[str, ...] = (
 #: Units whose rows describe a label or text, not a number: no ``Measure`` carries them.
 NON_NUMERIC_UNITS: tuple[str, ...] = ("tag", "text")
 DIRECTIONS: tuple[str, ...] = ("higher", "lower", "none")
-#: Words in a metric id that make lower better (rule 2 of :func:`derive_direction`).
-DIRECTION_LOWER_WORDS: tuple[str, ...] = (
-    "error",
-    "wrong",
-    "false_",
-    "violation",
-    "wasted",
-    "upper",
-    "ece",
-    "brier",
-    "latency",
-    "seconds",
-    "cost",
-    "usd",
-    "_p50",
-    "_p95",
-)
-#: Words in a metric id that make higher better (rule 3 of :func:`derive_direction`).
-DIRECTION_HIGHER_WORDS: tuple[str, ...] = (
-    "accuracy",
-    "f1",
-    "f2",
-    "precision",
-    "recall",
-    "completeness",
-    "similarity",
-    "coverage",
-    "per_second",
-)
 #: How per-document values roll up to the run (the old registry's three values).
 AGGREGATIONS: tuple[str, ...] = ("mean", "sum", "none")
 #: The old ``ALLOWED_GROUND_TRUTH`` without the empty string (written as null here).
@@ -189,7 +156,7 @@ _ROW_DEFAULTS: Mapping[str, Any] = MappingProxyType(
     }
 )
 _TOP_KEYS = frozenset(
-    {"table_format", "version", "source", "agent_families", "direction_overrides", "default_views", "metrics"}
+    {"table_format", "version", "source", "agent_families", "default_views", "metrics"}
 )
 _VIEW_KEYS = frozenset({"metric", "confirmed", "source", "reason", "secondary"})
 _VIEW_REQUIRED = ("metric", "confirmed", "source")
@@ -274,36 +241,6 @@ class MetricRow:
 
 
 @dataclass(frozen=True)
-class DirectionOverride:
-    """A direction the table sets by hand, because the id does not say it, and why."""
-
-    direction: str
-    why: str
-
-
-def name_direction(metric: str, unit: str) -> str:
-    """The direction a metric's id and unit alone give (rules 2 to 4 of :func:`derive_direction`)."""
-    if unit == "error_rate" or any(word in metric for word in DIRECTION_LOWER_WORDS):
-        return "lower"
-    if any(word in metric for word in DIRECTION_HIGHER_WORDS):
-        return "higher"
-    return "none"
-
-
-def derive_direction(metric: str, unit: str, overrides: Mapping[str, DirectionOverride]) -> str:
-    """A metric's direction, derived in order (the old registry stated none):
-
-    1. the table's explicit override for ``metric``;
-    2. unit ``error_rate``, or a word of :data:`DIRECTION_LOWER_WORDS` in the id: lower;
-    3. a word of :data:`DIRECTION_HIGHER_WORDS` in the id: higher;
-    4. otherwise none (a descriptive rate, a count, a reading or a tag).
-    """
-    if metric in overrides:
-        return overrides[metric].direction
-    return name_direction(metric, unit)
-
-
-@dataclass(frozen=True)
 class DefaultView:
     """The one number an agent's dashboard shows by default (the old tier 0, "ONE number per agent").
 
@@ -329,7 +266,6 @@ class MetricTable:
     source: Mapping[str, str]
     agent_families: Mapping[str, tuple[str, ...]]
     rows: tuple[MetricRow, ...]
-    direction_overrides: Mapping[str, DirectionOverride]
     default_views: Mapping[str, DefaultView]
     content_hash: str
 
@@ -672,10 +608,6 @@ def metric_table_canonical_form(table: MetricTable) -> dict[str, Any]:
         "version": table.version,
         "source": dict(sorted(table.source.items())),
         "agent_families": {name: list(members) for name, members in sorted(table.agent_families.items())},
-        "direction_overrides": {
-            metric: {"direction": override.direction, "why": override.why}
-            for metric, override in sorted(table.direction_overrides.items())
-        },
         "default_views": {
             agent: {
                 "metric": view.metric,
@@ -723,40 +655,6 @@ def _check_aliases(rows: tuple[MetricRow, ...]) -> None:
                 raise _fail(
                     path, f"{key} {getattr(row, key)!r} differs from {target.id!r}'s {getattr(target, key)!r}"
                 )
-
-
-def _direction_overrides(raw: Any) -> dict[str, DirectionOverride]:
-    if not isinstance(raw, Mapping):
-        raise _fail("direction_overrides", "must be a mapping of metric id to {direction, why}")
-    out: dict[str, DirectionOverride] = {}
-    for metric, spec in raw.items():
-        path = f"direction_overrides.{metric}"
-        if not isinstance(spec, Mapping) or set(spec) != {"direction", "why"}:
-            raise _fail(path, "must be a mapping with exactly direction and why")
-        direction = str(_choice(spec["direction"], DIRECTIONS, f"{path}.direction"))
-        out[str(metric)] = DirectionOverride(direction, _string(spec["why"], f"{path}.why"))
-    return out
-
-
-def _check_directions(rows: tuple[MetricRow, ...], overrides: Mapping[str, DirectionOverride]) -> None:
-    """Every row's direction is the derived one; every override names a row and is needed."""
-    by_id = {row.id: row for row in rows}
-    for metric, override in overrides.items():
-        if metric not in by_id:
-            raise _fail(f"direction_overrides.{metric}", "names no metric in the table")
-        if override.direction != "none" and override.direction == name_direction(metric, by_id[metric].unit):
-            raise _fail(
-                f"direction_overrides.{metric}",
-                f"repeats the name rule ({override.direction}); an override is for what the id does not say",
-            )
-    for index, row in enumerate(rows):
-        expected = derive_direction(row.id, row.unit, overrides)
-        if row.direction != expected:
-            raise _fail(
-                f"metrics[{index}] ({row.id}).direction",
-                f"{row.direction!r} is not the derived direction {expected!r}; "
-                "change it through direction_overrides",
-            )
 
 
 def _default_views(
@@ -871,15 +769,12 @@ def _build(data: Any) -> MetricTable:
             )
         seen_metric_ids[row.metric_id] = row.id
     _check_aliases(rows)
-    overrides = _direction_overrides(data["direction_overrides"])
-    _check_directions(rows, overrides)
     views = _default_views(data["default_views"], rows, families)
     table = MetricTable(
         version=version,
         source=MappingProxyType(_source(data["source"])),
         agent_families=MappingProxyType(families),
         rows=rows,
-        direction_overrides=MappingProxyType(overrides),
         default_views=MappingProxyType(views),
         content_hash="",
     )

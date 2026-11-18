@@ -1,213 +1,195 @@
 {
- "description": "The direction of every metric in measures/metrics.yaml, frozen for review. The old registry stated no direction; these are derived (owner to confirm): an explicit override first, then the name rule in tests/test_metric_directions.py (unit error_rate or a lower-is-better word in the id -> lower; a higher-is-better word -> higher; otherwise none). A change to any direction must change this file in the same commit.",
- "status": "derived, owner to confirm",
- "overrides": {
-  "amount_exactness": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "arbiter_retry_usefulness": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "audit_disagreement_rate": {
-   "direction": "none",
-   "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
-  },
-  "audit_resolution_rate": {
-   "direction": "none",
-   "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
-  },
-  "bert_elapsed_ms": {
-   "direction": "lower",
-   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
-  },
-  "bert_sorter_agreement": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "boss_needless_review_rate": {
-   "direction": "lower",
-   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
-  },
-  "class_correct": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "classification_correct": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "classification_quality": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "completeness_label": {
-   "direction": "none",
-   "why": "a category label, not a better-or-worse number"
-  },
-  "completion_tokens": {
-   "direction": "none",
-   "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
-  },
-  "composite": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "date_mae_days": {
-   "direction": "lower",
-   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
-  },
-  "determination_consistency": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "duration_mae_days": {
-   "direction": "lower",
-   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
-  },
-  "exact_match": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "expected_field_presence": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "extraction_category_presence": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "extraction_correctness": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "extraction_field_score": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "extraction_hallucination_rate": {
-   "direction": "lower",
-   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
-  },
+ "description": "The direction of every metric in measures/metrics.yaml, frozen for review. The direction column of the table is the source of truth; the old registry stated none, so every value is proposed for the owner to confirm. name_rule_exceptions lists each row whose direction differs from what its id's whole words suggest (the lint in tests/test_metric_directions.py), with the reason. A change to any direction must change this file in the same commit.",
+ "status": "proposed, owner to confirm",
+ "name_rule_exceptions": {
   "extraction_overall_score": {
    "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "field_presence": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "gpu_memory_used_gb": {
-   "direction": "none",
-   "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
-  },
-  "gpu_utilization": {
-   "direction": "none",
-   "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
-  },
-  "hallucination_rate": {
-   "direction": "lower",
-   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
-  },
-  "intake_changed_rate": {
-   "direction": "none",
-   "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
-  },
-  "intake_collapsed_blanks": {
-   "direction": "none",
-   "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
-  },
-  "intake_hyphen_unwraps": {
-   "direction": "none",
-   "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
-  },
-  "intake_messy_rate": {
-   "direction": "none",
-   "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
-  },
-  "jaccard_median": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "kv_cache_utilization": {
-   "direction": "none",
-   "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
-  },
-  "laziness_rate": {
-   "direction": "lower",
-   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
-  },
-  "mailroom-pipeline-judge": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "mailroom-pipeline-quality": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "maud_clause_presence": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "maud_valid_class_rate": {
-   "direction": "higher",
+   "name_rule": "none",
    "why": "a share or score of right answers, so higher is better; the name does not say so"
   },
   "ml_intake_selective_risk": {
    "direction": "lower",
+   "name_rule": "none",
    "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
   },
-  "parse_ok": {
+  "arbiter_retry_usefulness": {
    "direction": "higher",
+   "name_rule": "none",
    "why": "a share or score of right answers, so higher is better; the name does not say so"
   },
-  "per_field_scores": {
-   "direction": "higher",
-   "why": "a share or score of right answers, so higher is better; the name does not say so"
-  },
-  "prompt_tokens": {
-   "direction": "none",
-   "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
-  },
-  "review_tray_correction_rate": {
-   "direction": "none",
-   "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
-  },
-  "review_tray_reject_rate": {
-   "direction": "none",
-   "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
-  },
-  "reviewer_routed_to_human_review_rate": {
-   "direction": "none",
-   "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
-  },
-  "run_aborted": {
+  "arbiter_unnecessary_escalation_rate": {
    "direction": "lower",
+   "name_rule": "none",
+   "why": "an unnecessary escalation is needless work, so lower is better; no lower-is-better word of the lint is in the name"
+  },
+  "boss_needless_review_rate": {
+   "direction": "lower",
+   "name_rule": "none",
    "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
   },
-  "schema_adherence": {
+  "laziness_rate": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "field_presence": {
    "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "determination_consistency": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "amount_exactness": {
+   "direction": "higher",
+   "name_rule": "none",
    "why": "a share or score of right answers, so higher is better; the name does not say so"
   },
   "schema_valid": {
    "direction": "higher",
+   "name_rule": "none",
    "why": "a share or score of right answers, so higher is better; the name does not say so"
   },
-  "serving_kind": {
-   "direction": "none",
-   "why": "a descriptive behaviour rate or resource reading: no better direction (orchestrator decision, owner to confirm)"
-  },
-  "stage_completed": {
+  "parse_ok": {
    "direction": "higher",
+   "name_rule": "none",
    "why": "a share or score of right answers, so higher is better; the name does not say so"
   },
-  "stage_correct": {
+  "schema_adherence": {
    "direction": "higher",
+   "name_rule": "none",
    "why": "a share or score of right answers, so higher is better; the name does not say so"
   },
   "success_rate": {
    "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "classification_correct": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "class_correct": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "stage_correct": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "extraction_correctness": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "expected_field_presence": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "mailroom-pipeline-judge": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "mailroom-pipeline-quality": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "extraction_hallucination_rate": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "completeness_label": {
+   "direction": "none",
+   "name_rule": "higher",
+   "why": "a category label, not a better-or-worse number"
+  },
+  "date_mae_days": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "duration_mae_days": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "maud_clause_presence": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "maud_valid_class_rate": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "hallucination_rate": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "per_field_scores": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "extraction_field_score": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "extraction_category_presence": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "classification_quality": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "stage_completed": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "run_aborted": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "bert_sorter_agreement": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "bert_elapsed_ms": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "exact_match": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "jaccard_median": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "composite": {
+   "direction": "higher",
+   "name_rule": "none",
    "why": "a share or score of right answers, so higher is better; the name does not say so"
   }
  },

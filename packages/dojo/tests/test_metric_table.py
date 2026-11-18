@@ -93,9 +93,7 @@ def test_writing_a_default_explicitly_does_not_change_the_hash() -> None:
         lambda raw: raw["metrics"][0].__setitem__("noise_floor", 0.01),
         lambda raw: raw["default_views"][CONFIRMED_AGENT].__setitem__("source", "another source"),
         lambda raw: raw["default_views"][CONFIRMED_AGENT].__setitem__("confirmed", False),
-        lambda raw: raw["direction_overrides"][next(iter(raw["direction_overrides"]))].__setitem__(
-            "why", "other"
-        ),
+        lambda raw: raw["metrics"][0].__setitem__("direction", "lower"),
     ],
     ids=[
         "description",
@@ -104,7 +102,7 @@ def test_writing_a_default_explicitly_does_not_change_the_hash() -> None:
         "noise floor",
         "view source",
         "view confirmation",
-        "override",
+        "direction",
     ],
 )
 def test_any_content_change_changes_the_hash(edit: Callable[[dict[str, Any]], None]) -> None:
@@ -350,31 +348,6 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
         "views not a mapping",
         lambda raw: raw.__setitem__("default_views", []),
         "default_views: must be a mapping",
-    ),
-    (
-        "direction not derived",
-        _set("reviewer_wrong_accept_rate", "direction", "higher"),
-        "(reviewer_wrong_accept_rate).direction: 'higher' is not the derived direction 'lower'",
-    ),
-    (
-        "override for no row",
-        lambda raw: raw["direction_overrides"].__setitem__("not_a_metric", {"direction": "none", "why": "x"}),
-        "direction_overrides.not_a_metric: names no metric",
-    ),
-    (
-        "override repeats the rule",
-        lambda raw: raw["direction_overrides"].__setitem__("f1_macro", {"direction": "higher", "why": "x"}),
-        "direction_overrides.f1_macro: repeats the name rule",
-    ),
-    (
-        "override without reason",
-        lambda raw: raw["direction_overrides"].__setitem__("f1_macro", {"direction": "none"}),
-        "direction_overrides.f1_macro: must be a mapping with exactly direction and why",
-    ),
-    (
-        "override bad direction",
-        lambda raw: raw["direction_overrides"].__setitem__("f1_macro", {"direction": "up", "why": "x"}),
-        "direction_overrides.f1_macro.direction",
     ),
     (
         "bad family name",
