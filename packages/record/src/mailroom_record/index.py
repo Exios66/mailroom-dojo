@@ -29,7 +29,8 @@ exception, a full disk, ``SIGKILL``) rolls back to the previous index, or, if th
 none, to an empty file whose status is ``missing``. ``apply`` calls wait for a running
 rebuild (SQLite's busy timeout, ``busy_timeout`` seconds) and then apply on the new index;
 one that is still locked out after ``busy_timeout`` raises ``IndexUnavailable`` with status
-``busy`` (nothing applied; retry), never a raw ``sqlite3.OperationalError``. Queries do not
+``busy`` (nothing applied; retry), never a raw ``sqlite3.OperationalError``. ``reindex``
+and ``ensure`` take the same write lock and fail the same way (nothing rebuilt). Queries do not
 wait: WAL readers keep reading the last committed index during a rebuild.
 The file is never renamed into place: renaming a WAL database under live connections can
 pair it with another file's ``-wal``.
@@ -423,6 +424,10 @@ class Index:
                         with contextlib.suppress(sqlite3.Error):
                             con.execute("ROLLBACK")
                     raise
+            except sqlite3.Error as exc:
+                # Locked out past busy_timeout (another rebuild or an apply holds the write
+                # lock): the same typed, retryable error as apply, never "database is locked".
+                raise self._translate(exc) from None
             finally:
                 con.close()
             return stats

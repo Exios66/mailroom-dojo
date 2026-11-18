@@ -815,6 +815,30 @@ def test_apply_locked_out_by_a_long_rebuild_is_index_unavailable_busy(store_with
     assert idx.drift(store.log) == []
 
 
+def test_rebuild_locked_out_by_another_writer_is_index_unavailable_busy(store_with_events: SimpleNamespace, tmp_path: Path) -> None:
+    # reindex and ensure take the write lock too: past busy_timeout they raise the same
+    # typed, retryable error as apply, never sqlite3.OperationalError ("database is locked").
+    store = store_with_events
+    path = tmp_path / "i.sqlite"
+    built(store, path)
+    idx = Index(path, busy_timeout=0.2)
+    hold = sqlite3.connect(path, isolation_level=None)
+    hold.execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'")  # ensure must rebuild
+    hold.execute("BEGIN IMMEDIATE")  # another rebuild, or an apply, holding the write lock
+    try:
+        assert idx.status() == "old_version"
+        for rebuild in (idx.reindex, idx.ensure):
+            with pytest.raises(IndexUnavailable) as caught:
+                rebuild(store.log)
+            assert caught.value.status == "busy" and "retry" in str(caught.value), rebuild.__name__
+        assert idx.status() == "old_version"  # nothing half-built
+    finally:
+        hold.execute("ROLLBACK")
+        hold.close()
+    assert idx.ensure(store.log) is not None and idx.status() == "ready"  # the retry succeeds
+    assert idx.drift(store.log) == []
+
+
 # --- fix pass 2: the review rule for a document that opens with a review (MINOR 8) -------
 
 
