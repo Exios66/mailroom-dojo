@@ -155,14 +155,27 @@ mailroom-labels import-near-gold --out labels/near-gold-2026-11-17 --source-dir 
     --commit 93f298c2c03c58d36c5ef15874736c6ea211d9ab --check
 ```
 
-`<sandbox>` is a checkout of the sandbox at that commit. The review snapshot's inputs (path, rows
-and sha256 of each decision file and the desk log) are in
-`labels/gold-review-2026-11-18/manifest.json` (`source.files`); its decision files are
-project files, not in a public repository, so it is rebuilt with `import-review
---decisions-root <dir> --decisions <file>... --desk-root <sandbox> --desk
+`<sandbox>` is a checkout of the sandbox at that commit. The committed review snapshot
+`labels/gold-review-2026-11-18-r2` is derived from the imported snapshot
+`gold-review-2026-11-18` (manifest `cf19afd1b077056bc64d2d666bafb23f2bfe301d1c3f19b64121f7e50895c6bf`,
+not kept in the tree): `scripts/derive_review_snapshot.py` copies every row and only replaces
+the reviewer's initials at the start of a note with `review desk`; its manifest keeps the
+import's `source` and records the derivation under `source.derived_from`. The import's inputs
+(path, rows and sha256 of each decision file and the desk log) are in
+`labels/gold-review-2026-11-18-r2/manifest.json` (`source.files`, kept from the import); its
+decision files are project files, not in a public repository, so the import is rebuilt with
+`import-review --decisions-root <dir> --decisions <file>... --desk-root <sandbox> --desk
 data/labels/review/human_reviews.jsonl --provenance <json>` against copies whose sha256
-matches. Drop
-`--check` to rewrite a snapshot in place, then run `mailroom-labels verify` on the set and
+matches, then derived (`--source` is that import's output directory, named
+`gold-review-2026-11-18`):
+
+```bash
+python packages/labels/scripts/derive_review_snapshot.py --source <dir>/gold-review-2026-11-18 \
+    --out labels/gold-review-2026-11-18-r2 \
+    --known-warnings config/clients/mailroom-dataset/known-warnings.yaml --check
+```
+
+Drop `--check` to rewrite a snapshot in place, then run `mailroom-labels verify` on the set and
 `labels_report.py` to refresh the reports; the golden counts in
 `tests/test_real_snapshots.py` change only for an intended data change.
 
@@ -177,7 +190,7 @@ matches. Drop
 from mailroom_labels import load_label_set, load_profile
 
 labels = load_label_set(["labels/hub-ccd040f6", "labels/interim-2026-11-01",
-                         "labels/near-gold-2026-11-17", "labels/gold-review-2026-11-18"],
+                         "labels/near-gold-2026-11-17", "labels/gold-review-2026-11-18-r2"],
                         load_profile("config/clients/mailroom-dataset/profile.yaml"))
 labels.snapshot_id          # member ids, sorted, joined with "+"
 labels.manifest_hash        # hash_obj of the sorted [snapshot_id, manifest_hash] pairs

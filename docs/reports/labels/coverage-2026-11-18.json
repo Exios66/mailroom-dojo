@@ -2154,8 +2154,8 @@
   "snapshots": [
     {
       "kind": "review",
-      "manifest_hash": "cf19afd1b077056bc64d2d666bafb23f2bfe301d1c3f19b64121f7e50895c6bf",
-      "snapshot_id": "gold-review-2026-11-18"
+      "manifest_hash": "4e8266d64f0d95259bfe42d4134937bbdb90e510331474657ff7ccdfd8be52f2",
+      "snapshot_id": "gold-review-2026-11-18-r2"
     },
     {
       "kind": "hub",

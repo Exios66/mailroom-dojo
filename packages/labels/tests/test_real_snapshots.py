@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import shutil
 import sys
 from collections import Counter
@@ -31,7 +32,7 @@ SNAPSHOTS = {
     "hub-ccd040f6": "hub",
     "interim-2026-11-01": "interim",
     "near-gold-2026-11-17": "near_gold",
-    "gold-review-2026-11-18": "review",
+    "gold-review-2026-11-18-r2": "review",
 }
 DIRS = [ROOT / "labels" / name for name in SNAPSHOTS]
 REPORTS = ROOT / "docs/reports/labels"
@@ -88,7 +89,7 @@ def test_zero_errors_and_every_warning_known_with_a_reason() -> None:
     # each warning is accepted by the snapshot that raised it, and the strict gate passes
     owners = Counter((f.kind, f.location.split("/")[0]) for f in report.warnings)
     assert owners == {
-        ("orphan_decision", "gold-review-2026-11-18"): 7,
+        ("orphan_decision", "gold-review-2026-11-18-r2"): 7,
         ("subclass_mismatch", "interim-2026-11-01"): 6,
     }
     assert verify(report, strict=True) == 0
@@ -100,8 +101,8 @@ def test_zero_errors_and_every_warning_known_with_a_reason() -> None:
 # --- pinned counts ----------------------------------------------------------------------
 
 LAYER_COUNTS = {  # (snapshot, class): (documents, labels)
-    ("gold-review-2026-11-18", "corporate_record"): (6, 8),
-    ("gold-review-2026-11-18", "correspondence"): (255, 1042),
+    ("gold-review-2026-11-18-r2", "corporate_record"): (6, 8),
+    ("gold-review-2026-11-18-r2", "correspondence"): (255, 1042),
     ("hub-ccd040f6", "contract"): (509, 509),
     ("hub-ccd040f6", "corporate_record"): (450, 2632),
     ("hub-ccd040f6", "correspondence"): (1000, 5000),
@@ -307,8 +308,31 @@ def test_profile_covers_every_field_of_every_snapshot() -> None:
 
 def test_label_set_identity_is_stable() -> None:
     ls = label_set()
-    assert ls.snapshot_id == "gold-review-2026-11-18+hub-ccd040f6+interim-2026-11-01+near-gold-2026-11-17"
+    assert ls.snapshot_id == "gold-review-2026-11-18-r2+hub-ccd040f6+interim-2026-11-01+near-gold-2026-11-17"
     assert [r["snapshot_id"] for r in ls.snapshot_refs()] == sorted(SNAPSHOTS)
+
+
+def test_review_snapshot_is_the_import_with_only_the_reviewer_initials_replaced() -> None:
+    # derive_review_snapshot.py wrote it from the imported gold-review-2026-11-18 (not in the
+    # tree); its manifest pins that import, and no note keeps an initials-and-date token.
+    snap = load_snapshot(ROOT / "labels" / "gold-review-2026-11-18-r2")
+    derived = snap.manifest.source["derived_from"]
+    assert isinstance(derived, dict)
+    assert derived["snapshot_id"] == "gold-review-2026-11-18"
+    assert derived["manifest_hash"] == "cf19afd1b077056bc64d2d666bafb23f2bfe301d1c3f19b64121f7e50895c6bf"
+    assert derived["files"] == [
+        {
+            "path": "decisions.jsonl",
+            "rows": 1050,
+            "sha256": "72489b5aa69ec904e178330489e9d96e1410146ed1e0de909622651ea8472247",
+        }
+    ]
+    assert derived["notes_changed"] == 1031
+    assert snap.manifest_hash == "4e8266d64f0d95259bfe42d4134937bbdb90e510331474657ff7ccdfd8be52f2"
+    notes = [r.data.get("note") or "" for r in snap.rows()]
+    assert len(notes) == 1050
+    assert not any(re.search(r"\b[A-Z]{2,4} \d{4}-\d{2}-\d{2}\b", n) for n in notes)
+    assert sum(n.startswith("top-reply rule (review desk 2026-11-17)") for n in notes) == 1031
 
 
 # --- the committed reports are current ------------------------------------------------------

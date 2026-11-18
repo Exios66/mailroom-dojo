@@ -5,7 +5,7 @@
         --crosscheck docs/reports/labels/sandbox-crosscheck-2026-11-18.json \
         --case DOC-672cec2c85c83c39:action_items --date 2026-11-18 --out-dir docs/reports/labels \
         labels/hub-ccd040f6 labels/interim-2026-11-01 labels/near-gold-2026-11-17 \
-        labels/gold-review-2026-11-18
+        labels/gold-review-2026-11-18-r2
 
 Writes ``data-quality-<date>.md``, ``coverage-<date>.md`` and ``coverage-<date>.json``. Every
 number comes from the snapshots (and, for the sandbox cross-check section, from the
