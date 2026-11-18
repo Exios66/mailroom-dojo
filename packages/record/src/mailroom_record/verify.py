@@ -63,10 +63,10 @@ Blobs. Every blob an event names is checked once. Tombstoned (tombstone, no cont
 passes, counted in ``tombstoned_blobs``, if the tombstone is the record ``BlobStore``
 writes (a JSON object with this hash, a non-empty reason and a time); any other file (or
 a directory) at the tombstone path is ``corrupt_tombstone``, because a tombstone that is
-not a deletion record must not pass as a lawful deletion. Neither content nor tombstone:
+not a deletion record must not pass as a lawful deletion (``BlobStore.tombstone`` rewrites such a file with a new record). Neither content nor tombstone:
 ``missing_blob``. Content next to its own tombstone (a crash between writing the tombstone and unlinking
 the content, or content restored afterwards): ``tombstone_with_content``. Content that does
-not decompress, or decompresses to bytes with another SHA-256 (bit rot; ``BlobStore.put``
+not decompress, is not exactly one whole zstd frame, or decompresses to bytes with another SHA-256 (bit rot; ``BlobStore.put``
 never rewrites present content, so nothing else repairs it): ``corrupt_blob``. Content is
 streamed through the hash, never held whole, and never appears in a report. A blob problem
 names the first event (by ``(doc_id, seq)``) that refers to it and how many do.
@@ -117,7 +117,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import zstandard
 
-from mailroom_record.blobs import BlobStore
+from mailroom_record.blobs import BlobStore, _zstd_frame_whole
 from mailroom_record.hashing import canonical_json
 from mailroom_record.log import EventLog, OverlongLine, RawLine, StoredLine, TornTail, iter_raw_segment
 from mailroom_record.models import GENESIS, Event, Run, Seal, event_hash, seal_hash
@@ -727,7 +727,7 @@ def _check_blobs(blobs: BlobStore, st: _State) -> int:
             if why is None:
                 tombstoned += 1
             else:
-                st.add("corrupt_tombstone", doc, seq, f"{named}: {why}")
+                st.add("corrupt_tombstone", doc, seq, f"{named}: {why}; BlobStore.tombstone(sha, reason) rewrites the record")
         elif not has_content:
             st.add("missing_blob", doc, seq, f"{named}: no content and no tombstone")
         else:
@@ -767,9 +767,13 @@ def _blob_damage(path: Path, sha: str) -> str | None:
     """Why the stored content does not hold the bytes ``sha`` names, or ``None`` if it does."""
     digest = hashlib.sha256()
     try:
-        with path.open("rb") as f, zstandard.ZstdDecompressor().stream_reader(f) as reader:
-            while chunk := reader.read(_CHUNK):
-                digest.update(chunk)
+        with path.open("rb") as f:
+            if not _zstd_frame_whole(f):  # a frame cut in its last block still decodes in full
+                return "content is not one whole zstd frame (truncated or with trailing bytes)"
+            f.seek(0)
+            with zstandard.ZstdDecompressor().stream_reader(f, closefd=False) as reader:
+                while chunk := reader.read(_CHUNK):
+                    digest.update(chunk)
     except FileNotFoundError:
         return "content vanished while it was read"
     except zstandard.ZstdError:

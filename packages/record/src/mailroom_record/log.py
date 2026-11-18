@@ -550,9 +550,9 @@ class EventLog:
     def create_run(self, run: Run) -> None:
         """Write ``run.json`` once. Raises ``RunExists`` if it is already there."""
         run_dir = self.run_dir(run.run_id)
-        _makedirs_durable(run_dir / "segments")
+        _makedirs_durable(run_dir / "segments", self.root)
         body = canonical_json(run.model_dump(mode="json"))
-        if not write_exclusive(run_dir / "run.json", body):
+        if not write_exclusive(run_dir / "run.json", body, self.root):
             raise RunExists(run.run_id)
 
     def read_run(self, run_id: str) -> Run:
@@ -740,7 +740,7 @@ class LogWriter:
 
     def _open_segment(self) -> tuple[Any, Path]:
         seg_dir = self.log.segment_dir(self.run_id)
-        _makedirs_durable(seg_dir)
+        _makedirs_durable(seg_dir, self.log.root)
         ks = [0]
         for p in seg_dir.iterdir():
             m = _SEGMENT_RE.fullmatch(p.name)

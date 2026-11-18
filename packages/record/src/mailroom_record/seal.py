@@ -386,9 +386,9 @@ def _table(lines: Sequence[StoredLine]) -> pa.Table:
         raise whole
 
 
-def _write_columns(path: Path, table: pa.Table) -> None:
+def _write_columns(path: Path, table: pa.Table, root: Path) -> None:
     directory = path.parent
-    _makedirs_durable(directory)
+    _makedirs_durable(directory, root)
     fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{path.name}.", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
@@ -463,7 +463,7 @@ def seal_run(log: EventLog, run_id: str, *, sealed_at: str | None = None) -> Sea
     if not (log.run_dir(run_id) / "run.json").is_file():
         raise FileNotFoundError(f"no run {run_id!r} under {log.root}")
     seals_dir = _seals_dir(log, run_id)
-    _makedirs_durable(seals_dir)
+    _makedirs_durable(seals_dir, log.root)
     with _seal_lock(seals_dir):
         loaded = _load_seals(log, run_id)
         _check_seal_chain(loaded)
@@ -497,7 +497,7 @@ def seal_run(log: EventLog, run_id: str, *, sealed_at: str | None = None) -> Sea
             _check_links(part, by_key, run_id)
             rebuilt.append((s, _table(part)))
         for s, table in rebuilt:
-            _write_columns(_columns_path(log, run_id, s.n), table)
+            _write_columns(_columns_path(log, run_id, s.n), table, log.root)
 
         new = lines if prev is None else _between(lines, prev_seqs, None)
         if prev is not None and not new:
@@ -515,7 +515,7 @@ def seal_run(log: EventLog, run_id: str, *, sealed_at: str | None = None) -> Sea
             event_count=(0 if prev is None else prev.event_count) + len(new),
             prev_seal_hash=GENESIS if prev is None else prev.hash,
         )
-        if not write_exclusive(seals_dir / f"{seal.n}.json", canonical_json(seal.model_dump(mode="json"))):
+        if not write_exclusive(seals_dir / f"{seal.n}.json", canonical_json(seal.model_dump(mode="json")), log.root):
             raise SealRefused(f"run {run_id!r}: seal {seal.n} already exists; it is never replaced")
-        _write_columns(_columns_path(log, run_id, seal.n), table)
+        _write_columns(_columns_path(log, run_id, seal.n), table, log.root)
         return seal

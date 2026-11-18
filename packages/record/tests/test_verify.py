@@ -990,7 +990,7 @@ def test_seal_without_its_column_file_yet_is_recoverable(sealed_store: SimpleNam
         w.append(doc_id="d1", node="n", kind="decision")
     from mailroom_record import seal as seal_mod
 
-    def crash(path: Path, table: Any) -> None:
+    def crash(path: Path, table: Any, *args: Any) -> None:
         raise KeyboardInterrupt
 
     monkeypatch.setattr(seal_mod, "_write_columns", crash)
