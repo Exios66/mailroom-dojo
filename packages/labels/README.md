@@ -88,7 +88,10 @@ sha256 of every input file) and its builder (`mailroom_labels.importers.<kind>` 
 `--check` rebuilds in memory and compares with the committed snapshot without writing.
 `--out` must be missing, empty or an earlier build of the same snapshot id, which is
 replaced whole (no file of the old build survives); anything else, an invalid snapshot id
-or an unreadable option file is a usage error (exit 2, one line).
+or an unreadable option file is a usage error (exit 2, one line). The new build is written
+into a temporary directory beside `--out` and swapped in only once every row is written
+and its manifest validates, so a refused or failed import leaves an earlier build exactly
+as it was and leaves no temporary directory behind.
 Nothing is dropped or repaired silently: every omission, mapping and refusal is counted in
 the manifest's `source` (for example `presence_mapped` for `pending_annotation` read as
 `unlabeled`, `decoded_json_lists`, `not_imported`).
@@ -100,7 +103,8 @@ the manifest's `source` (for example `presence_mapped` for `pending_annotation` 
 | `import-review` | review decision files and the review desk log | a source with a malformed line or a desk decision word it does not know (see below). An `unsure` desk mark is a normal outcome, never a label and never refused: it is listed under `source.undecided` (with `replaced` when a later decision settled the label). A decision replaced by a later or a human one is listed under `superseded` with its reason |
 
 A source the importer cannot take whole is refused (exit 1, nothing written): a line that is
-not a JSON object or lacks a required key (`source.rejected_lines`), a Hub row whose
+not a strict JSON object (a repeated key, `NaN`, `Infinity` or `-Infinity` included) or
+lacks a required key (`source.rejected_lines`), a Hub row whose
 `gt_fields` or `gt_presence` is not an object (`unparseable_gt_fields`), a desk decision
 word other than `keep`, `use_suggestion`, `correct` or `unsure` (`not_imported`). `--allow-rejected` writes the snapshot anyway, for inspection: the
 left-out items are listed under those keys and `verify` reports each non-empty one as a
@@ -116,7 +120,8 @@ beside the winner and `verify` reports a `conflicting_decision` error (an equal 
 merged).
 
 `--known-warnings` takes `config/clients/<client>/known-warnings.yaml`, keyed by snapshot id;
-each entry is `{kind, doc, field, reason}` (plus an optional `file`), needs a `reason`, and
+each entry is `{kind, doc, field, reason}` (plus an optional `file`), needs a `reason`
+(`doc` and `field` are each a string or null; a malformed entry refuses the import, exit 1), and
 the importer records the snapshot's entries in its manifest. An entry accepts only a
 warning raised by its own snapshot (and, with `file`, located in that data file): the same
 warning from another snapshot stays unknown and fails `verify --strict`.

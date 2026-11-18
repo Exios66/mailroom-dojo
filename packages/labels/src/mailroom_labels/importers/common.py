@@ -42,8 +42,10 @@ BUILDER_VERSION = "0.1.0"
 def known_warnings_for(path: Path | str | None, snapshot_id: str) -> list[dict[str, str | None]]:
     """The accepted warnings of one snapshot from a known-warnings YAML file
     (``{<snapshot_id>: [{kind, doc, field, reason, file?}, ...]}``); every entry needs a
-    reason. An entry accepts only warnings this snapshot raises (and, with ``file``, only
-    those located in that data file of it)."""
+    reason, ``doc`` and ``field`` are each a string or null, and ``file`` (when given) a
+    string. A malformed entry raises ``ImportRefused`` before anything is built. An entry
+    accepts only warnings this snapshot raises (and, with ``file``, only those located in
+    that data file of it)."""
     if path is None:
         return []
     import yaml
@@ -60,11 +62,13 @@ def known_warnings_for(path: Path | str | None, snapshot_id: str) -> list[dict[s
             and isinstance(entry["kind"], str)
             and isinstance(entry["reason"], str)
             and entry["reason"].strip()
+            and isinstance(entry["doc"], str | None)
+            and isinstance(entry["field"], str | None)
             and isinstance(entry.get("file", ""), str)
         ):
             raise ImportRefused(
-                f"{path}: a known warning must be {{kind, doc, field, reason, file?}} "
-                f"with a reason: {entry!r}"
+                f"{path}: a known warning must be {{kind, doc, field, reason, file?}} with a "
+                f"reason, doc and field each a string or null, and file a string: {entry!r}"
             )
         out.append({k: entry[k] for k in sorted(_KNOWN_KEYS) if k in entry})
     return out
@@ -107,7 +111,7 @@ class SourceLine:
 _BOM = b"\xef\xbb\xbf"
 
 
-class _DuplicateKey(ValueError):
+class _StrictJsonError(ValueError):
     pass
 
 
@@ -115,24 +119,29 @@ def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for key, value in pairs:
         if key in out:
-            raise _DuplicateKey(f"duplicate key {key!r}")
+            raise _StrictJsonError(f"duplicate key {key!r}")
         out[key] = value
     return out
 
 
+def _no_constant(name: str) -> Any:
+    raise _StrictJsonError(f"non-finite number {name}")
+
+
 def loads_source(text: str) -> Any:
-    """Parse one JSON source document strictly: a repeated key raises ``ValueError`` (it
-    would otherwise collapse silently, last one winning); nesting too deep to parse raises
-    ``RecursionError``."""
-    return json.loads(text, object_pairs_hook=_unique_keys)
+    """Parse one JSON source document strictly: a repeated key or a non-finite number
+    (``NaN``, ``Infinity``, ``-Infinity``: not JSON, and no snapshot row may hold one) raises
+    ``ValueError`` (a repeated key would otherwise collapse silently, last one winning);
+    nesting too deep to parse raises ``RecursionError``."""
+    return json.loads(text, object_pairs_hook=_unique_keys, parse_constant=_no_constant)
 
 
 def read_jsonl_lenient(path: Path, name: str) -> tuple[list[SourceLine], list[dict[str, Any]]]:
     """Every JSON-object line of ``path`` and a ``rejected`` entry for every other non-blank
     line (``{file, line, reason}``). ``name`` is how the file is named in the manifest. A
     UTF-8 byte-order mark at the start of the file is not data and is skipped (anywhere else
-    it is, and the line is rejected). A line with a repeated key or nesting too deep to
-    parse is rejected."""
+    it is, and the line is rejected). A line with a repeated key, a non-finite number or
+    nesting too deep to parse is rejected."""
     rows: list[SourceLine] = []
     rejected: list[dict[str, Any]] = []
     with Path(path).open("rb") as fh:
@@ -148,7 +157,7 @@ def read_jsonl_lenient(path: Path, name: str) -> tuple[list[SourceLine], list[di
                     {"file": name, "line": number, "reason": f"not JSON: {exc.__class__.__name__}"}
                 )
                 continue
-            except _DuplicateKey as exc:
+            except _StrictJsonError as exc:
                 rejected.append({"file": name, "line": number, "reason": f"not JSON: {exc}"})
                 continue
             except RecursionError:

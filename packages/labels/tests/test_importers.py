@@ -570,6 +570,23 @@ def test_known_warnings_need_a_reason(tmp_path: Path) -> None:
         known_warnings_for(path, "snap-a")
 
 
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "{kind: orphan_decision, doc: 123, field: sender, reason: r}",
+        "{kind: orphan_decision, doc: D1, field: [sender], reason: r}",
+        "{kind: orphan_decision, doc: D1, field: sender, reason: r, file: 7}",
+    ],
+)
+def test_known_warnings_need_string_or_null_doc_and_field(tmp_path: Path, entry: str) -> None:
+    path = tmp_path / "kw.yaml"
+    path.write_text(f"snap-a:\n- {entry}\n")
+    with pytest.raises(ImportRefused, match="string or null"):
+        known_warnings_for(path, "snap-a")
+    path.write_text("snap-a:\n- {kind: orphan_decision, doc: null, field: null, reason: r}\n")
+    assert known_warnings_for(path, "snap-a")[0]["doc"] is None
+
+
 # --- CLI ----------------------------------------------------------------------------------
 
 
@@ -1144,6 +1161,9 @@ def test_a_desk_line_with_a_malformed_decision_or_source_is_a_rejected_line(
         (b'{"doc_id": "D2", "labels": {"sender": {"value": "A", "value": "B"}}}', "duplicate key 'value'"),
         (b'{"doc_id": "D2", "x": ' + b"[" * 100_000 + b"]" * 100_000 + b"}", "nested too deeply"),
         (b"\xef\xbb\xbf" + json.dumps(interim_row("D2", {})).encode(), "not JSON"),  # a BOM on line 2 is data
+        (b'{"doc_id": "D2", "x": NaN, "labels": {}}', "non-finite number NaN"),
+        (b'{"doc_id": "D2", "x": Infinity, "labels": {}}', "non-finite number Infinity"),
+        (b'{"doc_id": "D2", "x": [-Infinity], "labels": {}}', "non-finite number -Infinity"),
     ],
 )
 def test_a_source_line_that_is_not_strict_json_is_rejected(tmp_path: Path, line: bytes, reason: str) -> None:
@@ -1354,3 +1374,51 @@ def test_build_profile_refuses_hub_files_that_are_not_the_pinned_ones(tmp_path: 
     pinned[rel] = "e" * 64  # a self-consistent download of another revision
     with pytest.raises(bp.BuildError, match="pinned|pins record"):
         bp._hub_rows(data, pinned)
+
+
+# --- a refused rebuild leaves the earlier build as it was --------------------------------------
+
+
+def _tree_bytes(d: Path) -> dict[str, bytes | None]:
+    return {p.relative_to(d).as_posix(): None if p.is_dir() else p.read_bytes() for p in d.rglob("*")}
+
+
+@pytest.mark.parametrize("fault", ["nan_line", "known_warning_doc_not_a_string"])
+def test_a_refused_rebuild_leaves_the_earlier_build_intact(tmp_path: Path, fault: str) -> None:
+    good = interim_row("D1", {"sender": ("gap_fill", "Ann")})
+    out = tmp_path / "interim-x"
+
+    def args(src: Path) -> list[str]:
+        return [
+            "import-interim",
+            "--out",
+            str(out),
+            "--source-dir",
+            str(src),
+            "--source-path",
+            "data/labels/x",
+            "--repository",
+            "example/sandbox",
+            "--commit",
+            "1" * 40,
+        ]
+
+    first = runner.invoke(app, args(write_overlay(tmp_path / "s1", {"letter.jsonl": jsonl(good)})))
+    assert first.exit_code == 0, first.output
+    before = _tree_bytes(out)
+    if fault == "nan_line":
+        bad = interim_row("D2", {"sender": ("gap_fill", "Bob")})
+        bad["extra_note"] = float("nan")  # json.dumps writes the bare token NaN
+        line = json.dumps(bad).encode()
+        assert b"NaN" in line
+        again = runner.invoke(app, args(write_overlay(tmp_path / "s2", {"letter.jsonl": jsonl(good, line)})))
+        assert "rejected_lines 1" in again.output
+    else:
+        kw = tmp_path / "kw.yaml"
+        kw.write_text("interim-x:\n- {kind: orphan_decision, doc: 123, field: sender, reason: r}\n")
+        again = runner.invoke(app, [*args(tmp_path / "s1"), "--known-warnings", str(kw)])
+        assert "string or null" in again.output
+    assert again.exit_code == 1 and "import refused" in again.output
+    assert _tree_bytes(out) == before
+    assert sorted(p.name for p in tmp_path.iterdir() if p.name.startswith(".")) == []
+    assert load_snapshot(out).manifest.files[0].rows == 1
