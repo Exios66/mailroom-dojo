@@ -80,6 +80,24 @@ def test_missing_name_lists_available_and_suggests() -> None:
     }
 
 
+def test_registering_none_stores_none_instead_of_returning_a_decorator() -> None:
+    reg: Registry[int | None] = Registry("metric")
+    assert reg.register("f1", None) is None
+    assert "f1" in reg
+    assert reg.get("f1") is None
+    with pytest.raises(RegistryError, match="duplicate metric name 'f1'"):
+        reg.register("f1", None)
+
+
+@pytest.mark.parametrize("bad", [None, 1, b"f1"])
+def test_lookup_with_a_non_string_name_is_a_registry_error(bad: object) -> None:
+    reg: Registry[int] = Registry("metric")
+    reg.register("f1", 1)
+    with pytest.raises(RegistryError, match="metric name must be a string") as info:
+        reg.get(bad)  # type: ignore[arg-type]
+    assert info.value.context == {"kind": "metric", "name": bad}
+
+
 def test_missing_name_in_empty_registry() -> None:
     with pytest.raises(RegistryError) as info:
         Registry[int]("metric").get("f1")
@@ -242,8 +260,66 @@ def test_plugin_with_invalid_or_duplicate_name_is_refused(plugin_env: tuple[Path
     make_distribution(
         root, f"{prefix}_dist", group, {"Bad_Name": f"{prefix}_mod:x"}, {f"{prefix}_mod": "x = 1\n"}
     )
-    with pytest.raises(RegistryError, match="invalid metric name"):
+    with pytest.raises(RegistryError, match="invalid metric name") as info:
         Registry[object]("metric").load_entry_points(group)
+    assert info.value.context == {
+        "kind": "metric",
+        "name": "Bad_Name",
+        "group": group,
+        "entry_point": f"Bad_Name = {prefix}_mod:x",
+    }
+
+
+def test_a_failing_plugin_leaves_nothing_registered(plugin_env: tuple[Path, str, str]) -> None:
+    root, group, prefix = plugin_env
+    make_distribution(
+        root,
+        f"{prefix}_dist",
+        group,
+        {"alpha": f"{prefix}_good:metric", "zeta": f"{prefix}_broken:metric"},
+        {
+            f"{prefix}_good": "def metric():\n    return 1\n",
+            f"{prefix}_broken": "raise ImportError('missing optional dependency')\n",
+        },
+    )
+    reg: Registry[object] = Registry("metric")
+    reg.register("builtin", 0)
+    with pytest.raises(RegistryError, match="'zeta' failed to load"):
+        reg.load_entry_points(group)
+    assert reg.names() == ["builtin"]
+
+
+def test_a_plugin_name_clash_leaves_nothing_registered(plugin_env: tuple[Path, str, str]) -> None:
+    root, group, prefix = plugin_env
+    make_distribution(
+        root,
+        f"{prefix}_dist",
+        group,
+        {"alpha": f"{prefix}_mod:x", "zeta": f"{prefix}_mod:x"},
+        {f"{prefix}_mod": "x = 1\n"},
+    )
+    reg: Registry[object] = Registry("metric")
+    reg.register("zeta", "builtin")
+    with pytest.raises(RegistryError, match="duplicate metric name 'zeta'") as info:
+        reg.load_entry_points(group)
+    assert info.value.context["group"] == group
+    assert reg.names() == ["zeta"]
+
+
+def test_system_exit_from_a_plugin_import_is_wrapped(plugin_env: tuple[Path, str, str]) -> None:
+    root, group, prefix = plugin_env
+    make_distribution(
+        root,
+        f"{prefix}_dist",
+        group,
+        {"quits": f"{prefix}_mod:x"},
+        {f"{prefix}_mod": "raise SystemExit(2)\n"},
+    )
+    reg: Registry[object] = Registry("metric")
+    with pytest.raises(RegistryError, match="'quits' failed to load: SystemExit: 2") as info:
+        reg.load_entry_points(group)
+    assert isinstance(info.value.__cause__, SystemExit)
+    assert len(reg) == 0
 
 
 def test_plugin_clashing_with_a_builtin_registration_is_refused(plugin_env: tuple[Path, str, str]) -> None:
@@ -264,5 +340,18 @@ def test_frozen_registry_refuses_plugins(plugin_env: tuple[Path, str, str]) -> N
     make_distribution(root, f"{prefix}_dist", group, {"f1": f"{prefix}_mod:x"}, {f"{prefix}_mod": "x = 1\n"})
     reg: Registry[object] = Registry("metric")
     reg.freeze()
-    with pytest.raises(RegistryError, match="frozen"):
+    with pytest.raises(RegistryError, match="frozen") as info:
         reg.load_entry_points(group)
+    assert info.value.context == {"kind": "metric", "group": group}
+    assert f"{prefix}_mod" not in sys.modules  # the plug-in was never imported
+
+
+def test_two_plugins_with_one_name_are_refused(plugin_env: tuple[Path, str, str]) -> None:
+    root, group, prefix = plugin_env
+    make_distribution(root, f"{prefix}_one", group, {"f1": f"{prefix}_a:x"}, {f"{prefix}_a": "x = 'a'\n"})
+    make_distribution(root, f"{prefix}_two", group, {"f1": f"{prefix}_b:x"}, {f"{prefix}_b": "x = 'b'\n"})
+    reg: Registry[object] = Registry("metric")
+    with pytest.raises(RegistryError, match="duplicate metric name 'f1'") as info:
+        reg.load_entry_points(group)
+    assert (info.value.context["existing"], info.value.context["new"]) == ("'a'", "'b'")
+    assert len(reg) == 0
