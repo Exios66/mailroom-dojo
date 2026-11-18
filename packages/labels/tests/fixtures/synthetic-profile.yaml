@@ -1,0 +1,37 @@
+# Synthetic client profile for the labels tests. Not a real client: the class and field
+# names are invented so no test depends on the mailroom dataset's names (R4).
+client: synthetic-client
+dataset:
+  repository: example/synthetic-dataset
+  revision: "0000000000000000000000000000000000000000"
+precedence:
+  - review:gold
+  - interim:correction
+  - hub
+  - interim:gap_fill
+  - interim:derived
+  - review:near_gold
+  - near_gold
+scorable_statuses: [hub, interim, near_gold, gold]
+vocabularies:
+  urgency: [routine, urgent]
+  filing_kind: [annual, amendment]
+classes:
+  letter:
+    specialist: letter_specialist
+    subclasses: [email, memo]
+    fields:
+      sender: {type: name, tier: tier1}
+      recipient: {type: name, tier: tier1}
+      sent_on: {type: date, tier: tier1}
+      urgency: {type: label, vocabulary: urgency, tier: tier2}
+      action_items: {type: "entity_list:free_text", tier: tier2}
+      amount: {type: money, tier: tier2}
+  filing:
+    specialist: filing_specialist
+    subclasses: [annual, amendment]
+    fields:
+      entity: {type: name}
+      filing_id: {type: id}
+      signers: {type: "entity_list:name"}
+      kind: {type: label, vocabulary: filing_kind}

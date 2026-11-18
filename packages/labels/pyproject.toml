@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mailroom-labels"
+version = "0.1.0"
+description = "Versioned, hash-checked label snapshots, their precedence and their quality gate for the Mailroom."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mailroom-record",
+    "pydantic>=2",
+    "pyyaml",
+    "typer",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-xdist", "hypothesis"]
+
+[project.scripts]
+mailroom-labels = "mailroom_labels.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
