@@ -38,7 +38,7 @@ import typer
 from mailroom_record._reading import BadRunId, Damage, UnknownRun, read_document, require_run, seal_files, open_index
 from mailroom_record.blobs import BlobStore
 from mailroom_record.index import ApplyRefused, Index, IndexUnavailable
-from mailroom_record.log import CorruptLine, EventLog, ForkedChain, _safe_detail
+from mailroom_record.log import CorruptLine, EventLog, ForkedChain
 from mailroom_record.seal import SealCorrupt, SealRefused, seal_run
 from mailroom_record.trace import Digest, DocSummary, Noted, RunHeader, Step, trace_doc, trace_run
 from mailroom_record.verify import verify_run
@@ -83,12 +83,20 @@ def _err(message: str) -> None:
 
 
 def _describe(exc: BaseException) -> str:
-    """A one-line description of an error without stored content."""
+    """A one-line description of an error without stored content.
+
+    Messages are printed only for errors this package words from hashes, ids, ``seq``
+    numbers, segments and offsets. ``SealCorrupt`` and ``CorruptLine`` messages can embed a
+    validation error, which names stored field names, so only where they point is printed;
+    anything else is named by its type.
+    """
     if isinstance(exc, SealCorrupt):
         return f"a seal file is corrupt ({str(exc).split(':', 1)[0]}); run verify"
-    if isinstance(exc, (SealRefused, ForkedChain, CorruptLine, IndexUnavailable, ApplyRefused, FileNotFoundError)):
+    if isinstance(exc, CorruptLine):
+        return f"CorruptLine: {str(exc).split(':', 1)[0]} is not a valid event or not JSON; run verify"
+    if isinstance(exc, (SealRefused, ForkedChain, IndexUnavailable, ApplyRefused, FileNotFoundError)):
         return f"{type(exc).__name__}: {exc}"
-    return _safe_detail(exc)
+    return type(exc).__name__
 
 
 def _guard(body: Callable[[], int]) -> None:

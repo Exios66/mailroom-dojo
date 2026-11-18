@@ -38,7 +38,8 @@ What is reported (``Damage.kind``)
   readable event of it.
 
 Details name kinds, segments, offsets, ``seq`` numbers and error types, never stored
-content (``log._safe_detail`` strips the input values from validation errors).
+content: a skipped line is reported by kind, segment and offset only (a validation error
+would name its stored field names), and other errors by their type.
 """
 
 from __future__ import annotations
@@ -51,7 +52,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from mailroom_record.index import Index, IndexUnavailable
-from mailroom_record.log import BadLine, EventLog, RunScan, TornTail, _safe_detail
+from mailroom_record.log import BadLine, EventLog, RunScan, TornTail
 from mailroom_record.models import GENESIS, Event, Run
 
 __all__ = [
@@ -162,16 +163,19 @@ def read_header(log: EventLog, run_id: str) -> tuple[Run | None, Damage | None]:
     except FileNotFoundError:
         return None, Damage("corrupt_run_header", None, None, "run.json is missing")
     except (ValueError, TypeError, OSError, RecursionError) as exc:
-        return None, Damage("corrupt_run_header", None, None, f"run.json cannot be read: {_safe_detail(exc)}")
+        # The error type only: a validation error names the header's stored field names.
+        return None, Damage("corrupt_run_header", None, None, f"run.json cannot be read: {type(exc).__name__}")
 
 
 def _line_damage(bad: BadLine) -> Damage:
+    # ``bad.detail`` is left out on purpose: a validator's error names the offending field,
+    # and a field name of a hostile line is stored content. Kind, segment and offset only.
     what = "not a JSON object" if bad.kind == "corrupt_line" else "not a valid event"
     return Damage(
         bad.kind,
         None,
         None,
-        f"{bad.segment} at byte {bad.byte_offset}: {what}, skipped ({bad.detail})",
+        f"{bad.segment} at byte {bad.byte_offset}: {what}, skipped (verify_run names the cause)",
         segment=bad.segment,
         byte_offset=bad.byte_offset,
     )

@@ -416,3 +416,54 @@ def test_a_line_nested_too_deep_stops_the_read_without_raising(review_store: Sim
         res = run_cli(*args, root=review_store.root)
         assert res.exit_code == 0 and SENTINEL not in res.stdout + res.stderr, (args, res.stderr)
     assert run_cli("verify", "r1", root=review_store.root).exit_code == 1
+
+
+def test_skipped_line_damage_holds_nothing_stored(review_store: SimpleNamespace, tmp_path: Path) -> None:
+    """A valid event plus a stored key: the validator names the key. Trace and versions must
+    report the skipped line by kind, segment and offset only (whatever log.py's detail says)."""
+    from mailroom_record.models import GENESIS
+    from record_testkit import hand_line
+
+    bad = hand_line("r1", "d2", 0, GENESIS) | {f"{SENTINEL}-key": 1}
+    _, offset = insert_line_after(review_store, "d1", 6, json.dumps(bad).encode())
+    reads = [
+        trace_run(review_store.log, None, "r1"),
+        trace_run(review_store.log, Index(tmp_path / "a.sqlite"), "r1"),
+        trace_doc(review_store.log, None, "d2"),
+        trace_doc(review_store.log, Index(tmp_path / "b.sqlite"), "d2"),  # skipped lines from the index
+    ]
+    for t in reads:
+        assert SENTINEL not in to_json(t)
+    assert [(d.kind, d.byte_offset) for d in reads[0].damage] == [("invalid_event", offset)]
+    assert [(d.kind, d.byte_offset) for d in reads[3].runs[0].damage] == [("invalid_event", offset)]
+    for args in (("trace", "run", "r1"), ("trace", "doc", "d2"), ("versions", "r1", "d2")):
+        for extra in ((), ("--json",)):
+            res = run_cli(*args, *extra, root=review_store.root)
+            assert res.exit_code == 0 and SENTINEL not in res.stdout + res.stderr, (args, extra)
+            assert "invalid_event" in res.stdout
+
+
+def test_error_details_never_carry_stored_key_names(review_store: SimpleNamespace) -> None:
+    """A run header with a stored extra key, and seal_run refusing a line with one."""
+    from mailroom_record.models import GENESIS
+    from record_testkit import hand_line
+
+    header = review_store.log.run_dir("r1") / "run.json"
+    good = header.read_bytes()
+    header.write_bytes(json.dumps(json.loads(good) | {f"{SENTINEL}-key": 1}).encode())
+    t = trace_run(review_store.log, None, "r1")
+    assert _kinds(t.damage) == {"corrupt_run_header"} and SENTINEL not in to_json(t)
+    for args in (("trace", "run", "r1"), ("trace", "doc", "d1")):
+        res = run_cli(*args, root=review_store.root)
+        assert res.exit_code == 0 and SENTINEL not in res.stdout + res.stderr
+    header.write_bytes(good)
+
+    from mailroom_record.models import event_hash
+
+    bad = hand_line("r1", "d9", 0, GENESIS) | {f"{SENTINEL}-key": 1}
+    bad["hash"] = event_hash(bad)  # hashes to itself, so seal_run reaches validation (CorruptLine)
+    insert_line_after(review_store, "d1", 6, json.dumps(bad).encode())
+    res = run_cli("seal", "r1", root=review_store.root)
+    assert res.stderr.startswith("error: CorruptLine: w0.jsonl at byte "), res.stderr
+    assert res.exit_code == 1 and res.stderr.startswith("error: ") and res.stderr.count("\n") == 1
+    assert SENTINEL not in res.stdout + res.stderr, res.stderr
