@@ -535,3 +535,14 @@ def test_property_redaction_of_credential_shapes_is_idempotent(text: str) -> Non
 )
 def test_property_redact_output_is_json_serializable(value: Any) -> None:
     json.dumps(redact(value))
+
+
+@pytest.mark.parametrize("text", ["dbpassword=hunter2", "clientsecret=zzz", "adminPasswd: abc123"])
+def test_run_together_credential_keys_are_masked(text: str) -> None:
+    out = redact_text(text)
+    assert REDACTED in out
+    assert not any(secret in out for secret in ("hunter2", "zzz", "abc123"))
+
+
+def test_secretary_is_not_a_credential_key() -> None:
+    assert redact_text("secretary=alice") == "secretary=alice"

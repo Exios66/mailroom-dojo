@@ -76,6 +76,11 @@ _SENSITIVE_WORDS = (
 # A key is sensitive when one of its _-./ separated segments is a sensitive word,
 # optionally followed by digits (``password2``, ``token_v2`` matches through ``token``).
 _SENSITIVE_KEY = re.compile(rf"(?:^|[_\-./ ])(?:{_SENSITIVE_WORDS})[0-9]*(?:$|[_\-./ ])")
+# Words that name a credential on their own, so a segment that merely ENDS in one is still
+# sensitive (``dbpassword``, ``clientsecret``): failing closed beats leaking a run-together key.
+_SENSITIVE_SUFFIX = re.compile(
+    r"(?:^|[_\-./ ])[a-z0-9]*(?:password|passwd|passphrase|secret)[0-9]*(?:$|[_\-./ ])"
+)
 _KEY_SEPARATORS = re.compile(r"[_\-./ ]")
 # A key ending in one of these names a number about a credential, not the credential.
 _NUMERIC_SUFFIXES = frozenset({"count", "budget", "limit", "size", "total", "ratio"})
@@ -107,7 +112,7 @@ def _is_sensitive_key(key: str) -> bool:
     normalized = _CAMEL_BOUNDARY.sub("_", key).lower()
     if _KEY_SEPARATORS.split(normalized)[-1] in _NUMERIC_SUFFIXES:
         return False
-    return _SENSITIVE_KEY.search(normalized) is not None
+    return _SENSITIVE_KEY.search(normalized) is not None or _SENSITIVE_SUFFIX.search(normalized) is not None
 
 
 def _mask_userinfo(match: re.Match[str]) -> str:

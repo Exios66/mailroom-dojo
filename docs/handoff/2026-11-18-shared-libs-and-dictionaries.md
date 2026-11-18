@@ -11,12 +11,17 @@ Built and merged on the branch, `make check` green on the head (run with `PYTHON
 - Tooling: root `pyproject.toml` (ruff, mypy strict for new packages, codespell), `Makefile` (`make help`), `.pre-commit-config.yaml`, `scripts/check_boundaries.py`, `check_layout.py`, `check_no_session_links.sh`, root `tests/`, CircleCI `lint` job, ADR-0007, README layout map.
 - Two independent Opus review rounds on the first build found no blockers and 9 majors (torn-tail append, secret in error chain, redaction gaps, alias mismatch with the Dojo scorer, missing vocabularies, override rules, drift guard); all were fixed by two Opus fixers with regression tests.
 
+## Review log
+
+- Build: four Opus builders (common core, common runtime, dictionaries, tooling), each with mutation checks.
+- Round 1: two independent Opus reviewers (common; dictionaries and tooling): no blockers, 9 majors, all fixed by Opus fixers with red-then-green regression tests.
+- Round 2: one independent Opus reviewer on the fix commits: 1 blocker (layout map missing `docs/handoff/`), 2 majors (quadratic redaction regexes, text-redaction leaks), several minors. All fixed; redaction now linear (1 MB adversarial inputs under 2 s, tested) and run-together keys like `dbpassword` are masked.
+
 ## Not done
 
-- Round 2 verification review of the fix commits (`git diff e25b829..HEAD`) was started and stopped to save usage. Worth one Opus reviewer, focusing on the new `flock` in `append_jsonl` (throughput), the redaction regexes (backtracking on 1 MB input), the NFKC fold, and a fresh `make install` in a copy.
-- Open the PR ready for review (not draft), base = PR #2's branch until #2 merges, then retarget. Body: only the attribution HTML comment with the login, no project-thread link, no footers (strip right after create with `update_pull_request`). Fill from `.github/pull_request_template.md` if the governance PR has landed.
-- CircleCI must be set up for the repo (JJB's to-do), then green on the final head; all reviews resolved; clean session-link sweep (`bash scripts/check_no_session_links.sh`); squash with a clean message, after #2 and #3.
-- Known skipped on purpose: alias-expansion cap in config, `iter_jsonl` scalar-tail and CRLF-at-limit edge cases.
+- Open the PR ready for review (not draft) with base = PR #2's branch until #2 merges, then retarget. Body: the attribution HTML comment with the login only, no project-thread link, no footers; strip with `update_pull_request` right after create and verify.
+- CircleCI must be set up for the repo (JJB's to-do), then green on the final head; all review threads resolved; clean session-link sweep (`bash scripts/check_no_session_links.sh`); squash with a clean message, after #2 and #3.
+- Known gaps left on purpose: alias-expansion cap in config; `iter_jsonl` scalar-tail and CRLF-at-limit edge cases; the `label_statuses` override guard lives in `DictionarySet.with_overrides` only (a hand-built `DictionarySet` or `load_dictionary_dir` can still carry a re-ranked copy, but the manifest shows `origin: override`); `append_jsonl` refuses a whitespace-only tail and there is no repair helper; `append_jsonl` is 1.3 to 1.6 times slower than before because of its `flock`; NFKC folding diverges from the Dojo for non-ASCII spellings (documented in the dictionary module).
 
 ## Follow-ups for other threads (not done here)
 
