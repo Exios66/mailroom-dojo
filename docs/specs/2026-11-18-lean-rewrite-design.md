@@ -1,16 +1,29 @@
-<!-- Exported from the Claude Doc "Lean Mailroom Rewrite Design" (approved by JJB 2026-11-17 CT). The Doc is the live copy; this file is the snapshot the build plans argue from. The "Requirements added during the build" section (2026-11-18) is recorded here first. -->
+<!-- Exported from the Claude Doc "Lean Mailroom Rewrite Design" (approved by JJB 2026-11-17 CT). The Doc is the live copy; this file is the snapshot the build plans argue from. The "Requirements added 2026-11-18" section is recorded here first and is part of the master plan. -->
 
 # Lean Mailroom Rewrite Design
 
 2026-11-18 · JJB
 
-## Top-level goal
+## Requirements added 2026-11-18
 
-Set by JJB on 2026-11-18. Every project plan is judged against it first.
+JJB added these during the build, after the design was approved. They are part of the master plan: every project plan names the requirements it serves and how its gate checks them, and where one conflicts with older text in this document, the requirement wins.
+
+| # | Requirement | Projects that must show it |
+| --- | --- | --- |
+| R1 | Fit American Family Insurance's problem better than the current pipeline, and be a document-intelligence mailroom ingress benchmark | All; measured by the Dojo and Set F |
+| R2 | Entity extraction quality is CRITICAL | Dojo (per-field reports), prompts, engine |
+| R3 | Cheap, correct, efficient classification that keeps the sorter-to-specialist hand-off, tuned to the mailroom dataset | Dojo, prompts, engine |
+| R4 | Maintainable, modular, customizable: a new document type is config and plug-ins, no code fork (AmFam has many more types than the dataset) | Record (domain-free), labels, Dojo, engine, launcher |
+| R5 | Provider-agnostic, with every current launch path: HTTP API, Docker Compose, Modal with vLLM (plus OpenRouter and local) | Engine, launcher |
+| R6 | All scoring built from the mailroom dataset and the interim and near_gold Claude labels, saved in this repo as versioned snapshots, for the highest data quality | Labels, Dojo |
+| R7 | The CLI, the TUI and all floor replay move into this repo; the TUI starts from `mailroom-reloaded` and adds every native sandbox CLI and TUI feature | Record (replay timeline), launcher |
+| R8 | Tests exercise real behavior and detect every error state and point of failure, never only one-off unit tests | All; see `docs/test-strategy-record.md` |
+
+### R1. Fit AmFam's problem and become a benchmark
 
 **Fit American Family Insurance's problem better than the current pipeline does, and be modular, expandable and customizable enough to be a true document-intelligence mailroom ingress benchmark.**
 
-### Success criteria for AmFam
+#### Success criteria for AmFam
 
 Each is measured by the Dojo on the same draws, new stack against the current pipeline, and reported per document class.
 
@@ -22,7 +35,7 @@ Each is measured by the Dojo on the same draws, new stack against the current pi
 | Auditability | Every decision rebuilt from the record alone; every chain verifies; document versions (original, transcript, attempts, archived record, human corrections) visible to a reviewer |
 | Throughput | At least 249 documents a minute with the fake model and durable writes on |
 
-### Critical focus areas
+### R2 and R3. Extraction quality and sorter-to-specialist classification
 
 JJB, 2026-11-18. Both are CRITICAL and carry into the Dojo, prompts and engine plans.
 
@@ -34,7 +47,7 @@ JJB, 2026-11-18. Both are CRITICAL and carry into the Dojo, prompts and engine p
 | Extraction quality | Per-field accuracy and coverage at or above today's on every class; mean field score up on the classes below the bar |
 | Classification | Class accuracy at or above today's (100 of 100 on v1), silent-wrong per 1,000 not higher, cost per classified document not higher |
 
-### Modular, expandable and customizable
+### R4 and R5. Modular, extensible document types, provider-agnostic launch paths
 
 New clients and document types plug in through configuration and registered plug-ins, never through a code fork.
 
@@ -54,6 +67,22 @@ New clients and document types plug in through configuration and registered plug
 **Provider-agnostic, every launch path.** No agent, prompt or policy names a provider or a model; the agent-to-model map lives in the run spec and client profile. The launch paths the current versions support stay supported: the HTTP API, the Docker Compose producer, and Modal with vLLM, plus OpenRouter and local Ollama or vLLM. A launch path is a backend adapter; it never changes the graph.
 
 The record package is domain-free: it stores node names, class labels, decision payloads and blob roles as data, so no class, node or client is hard-coded in it. A benchmark run is a client profile plus a policy plus a label snapshot plus a draw; anyone can add a new one without changing the record, the Dojo's core or the engine's executor.
+
+### R6. Scoring from the mailroom dataset and Claude labels, saved in this repo
+
+- Every score in the new Dojo is computed against the pinned mailroom dataset (`Lucius-Morningstar/mailroom-dataset`, by revision) and the label layers in force today: Hub, then interim, then near_gold (Claude-generated), with gold reviewer decisions on top. Precedence does not change.
+- The interim and near_gold labels, and the gold-label review decisions, are committed to this repo as versioned label snapshots (project 2). Each snapshot has a manifest hash; a run records the snapshot it was scored against.
+- Data quality is a gate, not a hope: a snapshot is checked against the dataset's content hashes and against the closed label vocabularies before it can be used, and documents whose content hash does not match are flagged as unverified, never silently scored. Experiment runs, tests and calibration all read the same committed snapshots.
+
+### R7. CLI, TUI and floor replay move into this repo, starting from mailroom-reloaded
+
+- The sandbox's operator CLI capabilities, its TUI and the floor viewer with recorded replay are rolled in, reading the run record instead of sandbox run folders (launcher project, with the TUI as part of it).
+- The TUI starts from the TUI enhancements in `LLM-Mailroom-Services/mailroom-reloaded` (JJB, 2026-11-18) and is extended with every native sandbox CLI and TUI feature; the launcher project's plan inventories both before building.
+- The record must carry what the floor needs: node start and finish times, node status (running, done, paused, failed), step, stage, agent and model, document outcomes, and the run's terminal state, cursor and total. Project 1 stores these and provides a replay timeline built from the record that matches the sandbox's recorded-replay contract (`tui/floor_replay.py:build_timeline`), so any stored or imported run can be replayed on the floor.
+
+### R8. Tests that detect failure
+
+Every module is tested against real behavior: real killed processes, real concurrent threads and processes, injected disk-full, short-write and fsync errors, corrupt and truncated files, forked chains and tampering, each asserting the exact error or problem reported, never a silent pass. Property-based tests check the record's invariants over random operation sequences, and each stage gate runs end to end on the stored runs. The full bar and the fault matrix are in `docs/test-strategy-record.md`; later packages get the same treatment in their own strategy.
 
 ## Summary
 
@@ -85,22 +114,6 @@ Why now: the v1 failure analysis shows utility is lost in routing, not classific
 | Operator surfaces (2026-11-18, during the build) | The CLI capabilities, the TUI and all floor replayability (the sandbox floor viewer and its replay) are rolled into this repo seamlessly |
 
 JJB added two items after the first draft: mergers must improve significantly using the new merger schema built on MAUD-style questions, and the EDA repository with all interim label work is rolled in. Both are in the Labels and mergers section. The merger item replaces the earlier "lowest priority" standing.
-
-### Requirements added during the build
-
-JJB added these on 2026-11-18, after the design was approved. They bind every project plan.
-
-**1. Scoring is built from the mailroom dataset and the Claude labels, and the labels live here.**
-
-- Every score in the new Dojo is computed against the pinned mailroom dataset (`Lucius-Morningstar/mailroom-dataset`, by revision) and the label layers in force today: Hub, then interim, then near_gold (Claude-generated), with gold reviewer decisions on top. Precedence does not change.
-- The interim and near_gold labels, and the gold-label review decisions, are committed to this repo as versioned label snapshots (project 2). Each snapshot has a manifest hash; a run records the snapshot it was scored against.
-- Data quality is a gate, not a hope: a snapshot is checked against the dataset's content hashes and against the closed label vocabularies before it can be used, and documents whose content hash does not match are flagged as unverified, never silently scored. Experiment runs, tests and calibration all read the same committed snapshots.
-
-**2. The CLI, the TUI and floor replay move into this repo.**
-
-- The sandbox's operator CLI capabilities, its TUI and the floor viewer with recorded replay are rolled in, reading the run record instead of sandbox run folders (launcher project, with the TUI as part of it).
-- The TUI starts from the TUI enhancements in `LLM-Mailroom-Services/mailroom-reloaded` (JJB, 2026-11-18) and is extended with every native sandbox CLI and TUI feature; the launcher project's plan inventories both before building.
-- The record must carry what the floor needs: node start and finish times, node status (running, done, paused, failed), step, stage, agent and model, document outcomes, and the run's terminal state, cursor and total. Project 1 stores these and provides a replay timeline built from the record that matches the sandbox's recorded-replay contract (`tui/floor_replay.py:build_timeline`), so any stored or imported run can be replayed on the floor.
 
 ## Goals, non-goals and anti-goals
 
