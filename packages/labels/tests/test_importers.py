@@ -70,11 +70,12 @@ GT_TEST = [
 TEXT = {f"{d}.txt": f"text-{d}" for d in ("D1", "D2", "F1", "D3")}
 
 
-def write_dataset(root: Path, *, tamper: str | None = None, unlisted: bool = False, extra: list | None = None) -> Path:
+def write_dataset(root: Path, *, tamper: str | None = None, unlisted: bool = False, extra: list | None = None,
+                  extra_text: list | None = None) -> Path:
     files: dict[str, bytes] = {}
     for config, split, rows in (("ground_truth", "train", GT_TRAIN + list(extra or ())), ("ground_truth", "test", GT_TEST),
                                 ("default", "train", [{"filename": f, "doc_text": t} for f, t in TEXT.items()
-                                                      if f.startswith(("D1", "D2"))]),
+                                                      if f.startswith(("D1", "D2"))] + list(extra_text or ())),
                                 ("default", "test", [{"filename": f, "doc_text": t} for f, t in TEXT.items()
                                                      if f.startswith(("F1", "D3"))])):
         rel = f"parquet/{config}/{split}/{split}-00000-of-00001.parquet"
@@ -830,3 +831,12 @@ def test_hub_absent_or_empty_gt_presence_means_no_presence_codes(tmp_path: Path,
     data = write_dataset(tmp_path / "data", extra=[row])
     hub_build(tmp_path / "hub-x", data, default=False)
     assert hub_rows(tmp_path / "hub-x")["D9"]["fields"]["sender"] == {"value": "Zed", "presence": "populated"}
+
+
+@pytest.mark.parametrize("doc_text", [None])
+def test_a_missing_doc_text_never_verifies_even_the_empty_text_hash(tmp_path: Path, doc_text: Any) -> None:
+    row = gt_row("D9", "letter", "email", "train", {"sender": "Zed"}, {"sender": "populated"}, content=sha(b""))
+    data = write_dataset(tmp_path / "data", extra=[row], extra_text=[{"filename": "D9.txt", "doc_text": doc_text}])
+    manifest = hub_build(tmp_path / "hub-x", data)
+    assert "D9" in manifest.source["text_unverified_documents"]
+    assert manifest.source["text_check"]["unverified_by_reason"]["no_doc_text"] == 1

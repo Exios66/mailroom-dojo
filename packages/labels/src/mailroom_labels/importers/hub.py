@@ -232,20 +232,26 @@ def _fields(row: dict[str, Any], profile: ClientProfile, tally: _Tally) -> dict[
 
 def _text_check(default_dir: Path, listed: dict[str, str], hub_rows: Sequence[dict[str, Any]]) -> tuple[list, list, dict]:
     files = [_verified_shard(default_dir, shard_path("default", s), listed) for s in SPLITS]
-    texts: dict[str, str] = {}
+    texts: dict[str, str | None] = {}
     duplicates = 0
     for f in files:
         for row in _read_parquet(default_dir / f["path"]):
             name = str(row.get("filename"))
             if name in texts:
                 duplicates += 1
-            texts.setdefault(name, row.get("doc_text") or "")
+            text = row.get("doc_text")
+            texts.setdefault(name, text if isinstance(text, str) else None)
     unverified = []
     reasons: Counter = Counter()
     for row in hub_rows:
-        text = texts.get(row["filename"])
-        if text is None:
+        if row["filename"] not in texts:
             reasons["no_text_row"] += 1
+            unverified.append(row["document_id"])
+            continue
+        text = texts[row["filename"]]
+        if text is None:
+            # a missing doc_text is never "the empty text": it cannot verify the hash
+            reasons["no_doc_text"] += 1
             unverified.append(row["document_id"])
         elif row["content_sha256"] is None:
             reasons["no_content_sha256"] += 1
