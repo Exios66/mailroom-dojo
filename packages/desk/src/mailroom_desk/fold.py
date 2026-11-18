@@ -1,4 +1,4 @@
-"""The queue fold: a document's review case derived from its events alone (ADR-0007).
+"""The queue fold: a document's review case derived from its events alone (ADR-0008).
 
 The desk stores nothing beside the record. A document's *episode* is the run of
 ``kind="review"`` events that ends at its last review event and starts after the

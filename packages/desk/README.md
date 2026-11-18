@@ -1,7 +1,7 @@
 # mailroom-desk
 
 The human review desk of the Mailroom (`mailroom_desk`), event-sourced on the run record
-(ADR-0007, plan `docs/plans/2026-11-18-review-desk-plan.md`). Documents enter review by
+(ADR-0008, plan `docs/plans/2026-11-18-review-desk-plan.md`). Documents enter review by
 configured rules; the queue is a fold over each document's `review` events, so the desk
 stores nothing beside the record. It imports `mailroom_record` and `mailroom_labels` and
 nothing else of the workspace, and names no document class, field or pipeline node.

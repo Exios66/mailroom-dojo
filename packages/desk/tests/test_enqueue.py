@@ -704,7 +704,10 @@ def test_locked_index_changes_no_answer(env: SimpleNamespace) -> None:
     try:
         other.execute("BEGIN EXCLUSIVE")
         done = desk.enqueue(request("d2", "flag_high"), env.policy)
-        assert done.index_error == "OperationalError: database is locked"
+        # The record's index may raise sqlite's own error (older record) or translate it into
+        # IndexUnavailable (current record); either way the desk reports it, never raises.
+        assert done.index_error is not None
+        assert any(word in done.index_error for word in ("locked", "busy"))
         assert [c.doc_id for c in desk.queue("r1")] == ["d2", "d1"]
         assert desk.case("r1", "d2") == done.case
     finally:

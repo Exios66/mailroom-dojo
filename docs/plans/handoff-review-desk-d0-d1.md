@@ -12,13 +12,13 @@ Date: 2026-11-18. D0 and D1 are done (D1 after two independent reviews); D2 onwa
   onto `main` so its PR shows only desk commits.
 - Plan: `docs/plans/2026-11-18-review-desk-plan.md` (inventory of the old review bin, queue, resolve
   API, sandbox Label Review Desk and reloaded TUI; design; tasks D0-D7; follow-ups for other threads).
-- Decision record: `docs/adr/0007-review-desk-is-event-sourced-on-the-record.md`.
+- Decision record: `docs/adr/0008-review-desk-is-event-sourced-on-the-record.md`.
 
 ## State
 
 | Item | State |
 |---|---|
-| D0 plan, ADR-0007, README layout line | Done, committed |
+| D0 plan, ADR-0008, README layout line | Done, committed |
 | D1: `packages/desk/src/mailroom_desk/` (models, policy, reviewers, lock, fold, desk, errors, _yaml), `config/review/`, `packages/desk/tests/` (323 tests), `docs/test-strategy-desk.md`, root `pyproject.toml` testpaths, CircleCI and README lines | Done: built, reviewed twice independently, every finding fixed, mutation passes re-checked (see "D1 final state" below) |
 | D2-D5 | Not started |
 | D6 web desk UI, D7 Textual TUI | Next chunk, not started |
@@ -123,3 +123,33 @@ checker is configured.
 
 Other open question from D1: should a sample-only request for a document already in review
 return `None` instead of raising `AlreadyInReview`? D2 to D7 are untouched.
+
+## Meshing with main (checked 2026-11-18 15:50 UTC against origin/main e07c471)
+
+`main` now holds #2 (record, squashed, with fixes since this branch's copy) and #6 (shared libs:
+`packages/common`, `packages/dictionaries`, ADR-0007 shared-leaf-packages). This branch still carries the
+**older** record (26xcn6) and labels (pbvxf9) trees, so a plain `git merge origin/main` conflicts in about
+50 add/add files. Do not resolve those by hand.
+
+- **Desk against main's record: verified.** In a scratch worktree at `origin/main` with the labels branch
+  and this branch's `packages/desk` + `config/review` copied in: `PYTHONPATH=packages/desk/tests:packages/record/tests:packages/labels/tests
+  python -m pytest packages/desk/tests -q -n 4` -> 322 passed, 1 failed. The failure was a test that
+  expected sqlite's raw `OperationalError` text; main's record translates it to `IndexUnavailable`.
+  Fixed on this branch (the test now accepts either); desk suite 323 passed. The desk therefore works on
+  the new record unchanged, including `seals/.lock` and the index apply path.
+- **ADR number collision fixed:** main already has `0007-shared-leaf-packages.md`, so the desk's ADR is now
+  `docs/adr/0008-review-desk-is-event-sourced-on-the-record.md` and every reference says ADR-0008.
+- **Desk depends on labels** (`policy.py` reads the client profile), so the desk PR must stack on the
+  labels PR (#5) or wait for it to merge.
+- **Recipe to make a clean PR once #5 is on main:** `git fetch origin`; in a worktree at `origin/main`,
+  copy `packages/desk`, `config/review`, `docs/test-strategy-desk.md`, `docs/plans/2026-11-18-review-desk-plan.md`,
+  `docs/plans/handoff-review-desk-d0-d1.md`, `docs/adr/0008-*.md` from this branch; hand-apply the small edits
+  to `README.md` (layout line for `packages/desk`), `docs/adr/README.md` (row 0008), root `pyproject.toml`
+  (desk tests in `testpaths`/`pythonpath`) and `.circleci/config.yml` (install and run desk tests); check
+  whether main's shared libs (`packages/common`, `packages/dictionaries`) should replace anything in the
+  desk (for example its own YAML loader, name rules or reason vocabularies) before merging; run the full
+  suite; then on this branch `git merge -s ours origin/main`, copy that tree in as a new commit, and push
+  (a fast-forward, no force). The PR diff is then only the desk.
+
+State of this branch after this update: HEAD pushed; desk suite 323 passed; full run on the old
+record+labels trees 1001 passed; 13 desk commits plus the ADR rename and the test fix.

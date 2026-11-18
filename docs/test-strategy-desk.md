@@ -1,7 +1,7 @@
 # Test strategy: `mailroom_desk` (project 7)
 
 What the review desk must prove, how each claim is tested, and which plan task owns the
-test. The design is `docs/adr/0007-review-desk-is-event-sourced-on-the-record.md`; the
+test. The design is `docs/adr/0008-review-desk-is-event-sourced-on-the-record.md`; the
 tasks are in `docs/plans/2026-11-18-review-desk-plan.md`. The bar is the record's
 (`docs/test-strategy-record.md`, "JJB's bar"): real behaviour and failure states, not
 one-off unit tests.

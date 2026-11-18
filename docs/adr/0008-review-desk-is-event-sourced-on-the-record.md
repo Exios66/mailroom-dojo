@@ -1,4 +1,4 @@
-# ADR-0007: The review desk is event-sourced on the run record
+# ADR-0008: The review desk is event-sourced on the run record
 
 **Status:** Accepted
 **Date:** 2026-11-18

@@ -1,4 +1,4 @@
-"""mailroom_desk: the human review desk, event-sourced on the run record (ADR-0007).
+"""mailroom_desk: the human review desk, event-sourced on the run record (ADR-0008).
 
 Documents enter review by configured rules (``config/review/<name>.yaml``), and the queue
 is a fold over each document's ``review`` events: the desk stores nothing beside the
