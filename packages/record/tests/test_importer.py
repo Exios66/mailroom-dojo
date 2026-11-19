@@ -801,3 +801,24 @@ def test_no_copied_field_is_stored_unless_it_is_a_token(
     digest = hashlib.sha256(_FREE["node"].encode()).hexdigest()
     assert digest.encode() in segment_bytes(tmp_store.root)  # stored as its digest, not dropped
     assert import_sandbox_run(folder, tmp_store.log, tmp_store.blobs).status == "already_imported"
+
+
+@pytest.mark.parametrize("value", [10**400, -(10**400)], ids=["huge", "huge_negative"])
+def test_an_integer_timestamp_too_large_for_a_float_is_absent_not_an_overflow(value: int) -> None:
+    from mailroom_record.importer._folder import epoch
+
+    assert epoch(value) is None
+
+
+def test_a_node_row_with_an_integer_timestamp_too_large_for_a_float_still_imports(
+    tmp_store: SimpleNamespace, fixture_folder: Path
+) -> None:
+    """A valid JSON integer such as 10**400 is an unusable timestamp like any other, so the
+    row imports without one; it never aborts the import with an ``OverflowError``."""
+    path = fixture_folder / "nodes.jsonl"
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    rows[1]["ts"] = 10**400
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    r = import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    assert r.status == "imported"
+    assert verify_run(tmp_store.log, tmp_store.blobs, r.run_id).ok
