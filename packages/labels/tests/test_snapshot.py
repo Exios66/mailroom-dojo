@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import random
 import shutil
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -373,8 +374,14 @@ def test_empty_snapshot_is_valid(tmp_path: Path) -> None:
 @pytest.mark.parametrize("bad", ["", "Hub", "a+b", "a/b", "a@b", "-lead", ".hidden", "a b", "é"])
 def test_a_snapshot_id_outside_the_pattern_is_refused_before_writing(tmp_path: Path, bad: str) -> None:
     with pytest.raises(ValueError, match="must match"):
-        make_snapshot(
-            tmp_path, "near_gold", [near_gold_row("D1", {"sender": "Ann"})], snapshot_id=bad or "x/../"
+        write_snapshot(  # directly: make_snapshot would swap an empty id for a default
+            tmp_path / "out",
+            {"a.jsonl": [{"x": 1}]},
+            snapshot_id=bad,
+            kind="near_gold",
+            layer_schema=CURRENT_LAYER_SCHEMA["near_gold"],
+            source={"repository": "synthetic"},
+            builder="test",
         )
     assert not any(tmp_path.iterdir())
 
@@ -661,6 +668,17 @@ def test_a_non_regular_entry_beside_a_build_is_refused_untouched(tmp_path: Path)
 # --- review follow-ups: numbers JSON cannot hold, paths outside, read failures ---------------
 
 
+@pytest.fixture
+def default_int_digit_limit():
+    """Pin the interpreter's integer digit limit, so a 5,000-digit integer is refused whatever
+    the process environment (``PYTHONINTMAXSTRDIGITS=0`` would otherwise let it parse)."""
+    previous = sys.get_int_max_str_digits()
+    sys.set_int_max_str_digits(sys.int_info.default_max_str_digits)
+    yield
+    sys.set_int_max_str_digits(previous)
+
+
+@pytest.mark.usefixtures("default_int_digit_limit")
 @pytest.mark.parametrize("number", [b"1e400", b"-1e400", b"9" * 5000], ids=["inf", "-inf", "huge_int"])
 def test_a_number_python_cannot_hold_is_a_corrupt_line_when_building_and_streaming(
     tmp_path: Path, number: bytes
@@ -680,6 +698,7 @@ def test_a_number_python_cannot_hold_is_a_corrupt_line_when_building_and_streami
     assert rows == [{"x": 2}] and [e.line for e in seen] == [1]
 
 
+@pytest.mark.usefixtures("default_int_digit_limit")
 @pytest.mark.parametrize("number", ["1e400", "9" * 5000], ids=["inf", "huge_int"])
 def test_a_number_python_cannot_hold_in_the_manifest_is_manifest_invalid(snap: Path, number: str) -> None:
     path = snap / MANIFEST_NAME
@@ -834,7 +853,9 @@ def test_check_dirs_reports_an_unreadable_snapshot_and_checks_the_next(
     from mailroom_labels.quality import check_dirs
 
     bad = build(tmp_path / "bad")
-    good = make_snapshot(tmp_path, "near_gold", [near_gold_row("D1", {"sender": "Ann"})], snapshot_id="ng-a")
+    row = near_gold_row("D1", {"sender": "Ann"})
+    row["labels"]["sender"]["presence"] = "unlabeled"  # malformed: proves this snapshot is checked too
+    good = make_snapshot(tmp_path, "near_gold", [row], snapshot_id="ng-a")
     assert bad.snapshot_id == "hub-t"
     real = snapshot_module._file_facts
 
@@ -847,6 +868,9 @@ def test_check_dirs_reports_an_unreadable_snapshot_and_checks_the_next(
     report, loaded = check_dirs([tmp_path / "bad", good], load_profile(PROFILE_PATH))
     assert [s.snapshot_id for s in loaded] == ["ng-a"]
     assert [f.kind for f in report.errors if f.kind == "manifest_mismatch"] == ["manifest_mismatch"]
+    malformed = [f for f in report.errors if f.kind == "malformed_record"]
+    assert [(f.doc, f.field) for f in malformed] == [("D1", "sender")]
+    assert (malformed[0].location or "").startswith("ng-a/")
 
 
 def test_changing_a_loaded_manifest_s_metadata_changes_nothing_a_reader_sees(tmp_path: Path) -> None:

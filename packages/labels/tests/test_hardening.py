@@ -433,3 +433,14 @@ def test_a_manifest_replaced_between_reading_and_checking_is_a_finding(
     monkeypatch.setattr(quality, "read_layer", read_then_replace)
     report = quality.check(snaps, profile())
     assert any(f.kind == "manifest_mismatch" for f in report.findings)
+
+
+def test_a_vocabulary_finding_names_the_type_not_the_supplied_text(tmp_path: Path) -> None:
+    dirs = standard_set(tmp_path)
+    extra = make_snapshot(
+        tmp_path, "near_gold", [near_gold_row("D4", {"urgency": "SECRET-panic"})], snapshot_id="ng-extra"
+    )
+    report, _ = check_dirs([*dirs, extra], profile())
+    found = [f for f in report.errors if f.kind == "vocabulary_violation"]
+    assert [(f.doc, f.field) for f in found] == [("D4", "urgency")]  # positive control
+    assert "SECRET" not in found[0].detail
