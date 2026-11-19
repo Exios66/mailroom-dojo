@@ -172,11 +172,25 @@ class DeskLockTimeout(DeskError):
 
 
 class BlobNotPresent(DeskError):
-    """A blob the request shows the reviewer is not in the blob store (never stored, or
-    tombstoned). Blob before event: the desk never records a reference to absent content."""
+    """A blob the request shows the reviewer is not in the blob store (``state`` is
+    ``missing``: never stored or lost; or ``tombstoned``: its content was deleted).
+
+    Blob before event: the desk checks that every shown blob is present before it takes the
+    locks, and the record checks again when the event is appended (buffered). The event
+    becomes durable at the flush after that, so a tombstone that lands between the append
+    and the flush leaves a durable reference to deleted content; the record's deletion
+    lifecycle allows that (the chain holds only hashes, and a tombstone verifies).
+
+    A missing blob can be stored and the request retried. A tombstoned one cannot: the
+    store refuses to put deleted bytes back (``BlobTombstoned``), so show a different,
+    permitted blob instead."""
 
     def __init__(self, sha256: str, role: str, state: str) -> None:
-        super().__init__(f"{role} blob {sha256} is {state}, not present; store it before enqueueing")
+        if state == "tombstoned":
+            advice = "its content was deleted and cannot be restored; show a different, permitted blob"
+        else:
+            advice = "store it before enqueueing"
+        super().__init__(f"{role} blob {sha256} is {state}; {advice}")
         self.sha256 = sha256
         self.role = role
         self.state = state

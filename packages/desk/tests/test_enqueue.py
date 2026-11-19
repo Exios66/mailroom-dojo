@@ -206,11 +206,15 @@ def test_missing_or_tombstoned_shown_blob_is_refused(env: SimpleNamespace) -> No
     with pytest.raises(BlobNotPresent) as info:
         env.desk.enqueue(request("d1", "flag_low", shown=[ghost]), env.policy)
     assert (info.value.sha256, info.value.state) == ("e" * 64, "missing")
+    assert str(info.value) == f"transcript blob {'e' * 64} is missing; store it before enqueueing"
     gone = env.blobs.put(b"to be erased", "original")
     env.blobs.tombstone(gone.sha256, "erasure request")
     with pytest.raises(BlobNotPresent) as info:
         env.desk.enqueue(request("d1", "flag_low", shown=[gone]), env.policy)
     assert info.value.state == "tombstoned"
+    message = str(info.value)
+    assert message.startswith(f"original blob {gone.sha256} is tombstoned")
+    assert "cannot be restored" in message and "store it" not in message
     assert review_events(env.root) == []
     # Nothing is held: the next valid enqueue proceeds at once.
     assert Desk(env.root, clock=env.clock, lock_timeout=0).enqueue(request("d1", "flag_low"), env.policy)
