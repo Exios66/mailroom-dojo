@@ -121,3 +121,24 @@ def check_against_ledger(
         if entry["function"] in functions:
             problems.append(f"intended difference in {fixture} case {case_id} names no replayed case")
     return problems
+
+
+def exception_mismatches(
+    fixture: str, replayed: Iterable[tuple[str, str, dict[str, Any], dict[str, Any]]]
+) -> list[str]:
+    """Case ids whose recorded exception is not reproduced exactly (type and message).
+
+    An unlisted case must raise exactly what was recorded. A case the ledger lists
+    must give exactly the ledger's ``new_outcome`` (the approved change), not the
+    recorded one.
+    """
+    ledger = {case: entry for (name, case), entry in intended_differences().items() if name == fixture}
+    mismatches: list[str] = []
+    for case_id, _, recorded, outcome in replayed:
+        entry = ledger.get(case_id)
+        if entry is not None:
+            if "raises" in entry["new_outcome"] and outcome != entry["new_outcome"]:
+                mismatches.append(case_id)
+        elif "raises" in recorded and outcome != recorded:
+            mismatches.append(case_id)
+    return mismatches

@@ -16,8 +16,9 @@ from typing import Any
 
 import pytest
 
+import golden_replay
 from dojo_testkit import OLD_DOJO_COMMIT, decode, encode
-from golden_replay import HUB_ROW_FIXTURE, check_against_ledger, jsonl_corpus
+from golden_replay import HUB_ROW_FIXTURE, check_against_ledger, exception_mismatches, jsonl_corpus
 from mailroom_dojo.field_scoring import score_extraction
 from mailroom_dojo.labels_interface import (
     LABEL_STATUSES,
@@ -247,12 +248,30 @@ def test_every_hub_row_case_gives_the_old_output(mailroom_profile):
         (case["id"], case["function"], case["outcome"], replay_hub_case(case, mailroom_profile))
         for case in cases
     ]
-    exceptions_differ = [
-        case_id for case_id, _, recorded, outcome in replayed if "raises" in recorded and outcome != recorded
-    ]
+    exceptions_differ = exception_mismatches(HUB_ROW_FIXTURE, replayed)
     problems = check_against_ledger(HUB_ROW_FIXTURE, replayed)
     assert not problems, f"{len(problems)} problems of {len(cases)} cases, first: {problems[:3]}"
     assert not exceptions_differ, exceptions_differ[:5]
+
+
+def test_an_approved_exception_change_is_checked_against_the_ledger(monkeypatch):
+    """A listed case must raise the ledger's new exception exactly; unlisted ones the recorded exception."""
+    changed = {"raises": "ValueError", "message": "new text"}
+    ledger = {
+        (HUB_ROW_FIXTURE, "listed"): {"function": "f", "new_outcome": changed},
+    }
+    monkeypatch.setattr(golden_replay, "intended_differences", lambda: ledger)
+    recorded = {"raises": "TypeError", "message": "old text"}
+    replayed = [
+        ("listed", "f", recorded, changed),
+        ("unlisted", "f", recorded, recorded),
+    ]
+    assert exception_mismatches(HUB_ROW_FIXTURE, replayed) == []
+    assert check_against_ledger(HUB_ROW_FIXTURE, replayed) == []
+    wrong = [("listed", "f", recorded, {"raises": "ValueError", "message": "other text"})]
+    assert exception_mismatches(HUB_ROW_FIXTURE, wrong) == ["listed"]
+    drifted = [("unlisted", "f", recorded, {"raises": "TypeError", "message": "changed"})]
+    assert exception_mismatches(HUB_ROW_FIXTURE, drifted) == ["unlisted"]
 
 
 def test_pending_annotation_drops_and_absence_blanks(mailroom_profile):
