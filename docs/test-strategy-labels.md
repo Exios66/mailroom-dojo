@@ -43,6 +43,8 @@ What the labels package must prove and how each claim is tested. The plan is
   the report could print, and the report must not contain it (`test_labels_report.py`).
 - **Bad source rows are rejected, never a crash.** An overlay or review row nested deeper
   than the reader allows, or holding a lone surrogate, lands in `source.rejected_lines`
-  (`test_importers.py`).
+  (`test_importers.py`); so does a source number that overflows a float (`1e999`) and a
+  review line whose `doc_id` or `field` is not a name, which would otherwise group with the
+  string it prints as and supersede a valid decision (`test_hardening.py`).
 - **Dumps do not depend on the hash seed.** Set-valued fields dump the same bytes in
   subprocesses under eight `PYTHONHASHSEED` values (`test_labelset.py`).
