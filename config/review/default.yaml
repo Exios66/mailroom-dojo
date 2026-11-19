@@ -1,0 +1,63 @@
+# The default review policy (mailroom_desk; plan docs/plans/2026-11-18-review-desk-plan.md).
+#
+# The cause catalog carries over llm-mailroom's review causes (pipeline/reconsideration.py)
+# and its review_queue tiers (taxonomy.yaml, pipeline/review_priority.py): a cause whose old
+# weight was 3.0 or more is high, 1.5 to below 3.0 is normal, anything lighter (or unlisted,
+# which weighed 1.0) is low. SLAs follow the old tiers: high 4 h, normal 24 h, low 72 h.
+# The old per-class tier weights are not carried over: a client that wants them adds rules
+# with class_in naming its own profile's classes.
+#
+# Never list transient_exhausted or provider_unavailable: a provider outage makes a
+# document wait, it never parks it (R1). The loader refuses them.
+name: default
+description: Review causes carried over from llm-mailroom, with SLAs by tier and a 2% spot check.
+default_queue: main
+
+causes:
+  # --- high (old weight 3.0) ---
+  - {token: boss_conflict, priority: high, sla_hours: 4, description: The output contradicts the matter record.}
+  - {token: schema_invalid, priority: high, sla_hours: 4, description: The extraction does not validate against the class schema.}
+  - {token: chunk_failed, priority: high, sla_hours: 4, description: Part of the document was never read.}
+  - {token: judge_error, priority: high, sla_hours: 4, description: The judge failed on this document.}
+  - {token: unsupported_extraction, priority: high, sla_hours: 4, description: The extraction holds values the document does not support.}
+  - {token: out_of_vocabulary, priority: high, sla_hours: 4, description: A closed label is outside its vocabulary.}
+  # --- normal (old weight 1.5 to 2.5) ---
+  - {token: empty_document, priority: normal, sla_hours: 24, description: The document has no readable content.}
+  - {token: arbiter_escalated, priority: normal, sla_hours: 24, description: The arbiter escalated an extraction dispute.}
+  - {token: classification_arbiter_escalated, priority: normal, sla_hours: 24, description: The classification arbiter escalated.}
+  - {token: unknown_class, priority: normal, sla_hours: 24, description: No class of the profile fits the document.}
+  - {token: judge_incomplete, priority: normal, sla_hours: 24, description: The judge did not cover every field.}
+  - {token: judge_miss, priority: normal, sla_hours: 24, description: The judge found a wrong or missing value.}
+  - {token: hollow_extraction, priority: normal, sla_hours: 24, description: The extraction is mostly empty.}
+  - {token: retries_exhausted, priority: normal, sla_hours: 24, description: A step failed on every retry (not an outage).}
+  - {token: judge_partial, priority: normal, sla_hours: 24, description: The judge accepted only part of the extraction.}
+  - {token: reviewer_disagreement, priority: normal, sla_hours: 24, description: The reviewer model disagrees with the sorter.}
+  # --- low (old weight 1.2, or unlisted at 1.0) ---
+  - {token: sorter_low_confidence, priority: low, sla_hours: 72, description: The sorter's confidence is below its threshold.}
+  - {token: reviewer_low_confidence, priority: low, sla_hours: 72, description: The reviewer model's confidence is below its threshold.}
+  - {token: reporting_incomplete, priority: low, sla_hours: 72, description: The report could not be completed.}
+  - {token: reviewer_unavailable, priority: low, sla_hours: 72, description: The reviewer model gave no answer.}
+  - {token: reviewer_ineligible_label, priority: low, sla_hours: 72, description: The reviewer model chose a label it may not choose.}
+  - {token: reviewer_no_text, priority: low, sla_hours: 72, description: The reviewer model had no text to read.}
+  - {token: triage_unknown_class, priority: low, sla_hours: 72, description: Triage could not place the document in a class.}
+  - {token: triage_low_confidence, priority: low, sla_hours: 72, description: Triage's confidence is below its threshold.}
+  - {token: "decision_point:*:*", priority: low, sla_hours: 72, description: "A configured decision point parked the document (decision_point:<slot>:<cause>)."}
+  # --- the QA sample ---
+  - {token: spot_check, priority: low, sla_hours: 72, description: Sampled for quality assurance; nothing was flagged.}
+
+rules:
+  # Escalations from an arbiter or a conflict with the matter record go to senior reviewers.
+  - name: arbiter_and_conflict_to_senior
+    when: {cause_in: [arbiter_escalated, classification_arbiter_escalated, boss_conflict]}
+    then: {queue: senior, required_role: senior}
+  # Spot checks have their own queue so QA work is measured apart from flagged work.
+  - name: spot_check_to_qa
+    when: {cause_in: [spot_check]}
+    then: {queue: qa}
+  # Everything else: priority and SLA from the catalog, the default queue.
+  - name: default
+    then: {}
+
+sample:
+  rate: 0.02
+  seed: mailroom-desk-2026-11

@@ -4,7 +4,8 @@ The workspace for the lean Mailroom rewrite: installable packages built around o
 append-only, hash-chained run record. Every package lives under `packages/`:
 `packages/record/` (`mailroom_record`: the run record and its blob store),
 `packages/labels/` (`mailroom_labels`: label snapshots, precedence, the quality gate and
-coverage), and the shared libraries `packages/common/` and `packages/dictionaries/`.
+coverage), `packages/desk/` (`mailroom_desk`: the human review desk), and the shared
+libraries `packages/common/` and `packages/dictionaries/`.
 
 The engine and launcher write records; the Dojo only reads them and is the one place a
 run is scored. One-way dependencies keep the Dojo installable alone and stop the old
@@ -45,6 +46,7 @@ also give a test command.
 | `dictionaries` | `mailroom_dictionaries` | Versioned vocabularies and the glossary | [`packages/dictionaries/README.md`](packages/dictionaries/README.md) |
 | `record` | `mailroom_record` | Run record, blob store, index, verify, replay | [`packages/record/README.md`](packages/record/README.md) |
 | `labels` | `mailroom_labels` | Label snapshots, precedence, the quality gate and coverage | [`packages/labels/README.md`](packages/labels/README.md) |
+| `desk` | `mailroom_desk` | The human review desk: review rules, queue and audit, event-sourced on the record | [`packages/desk/README.md`](packages/desk/README.md) |
 | `dojo` | `mailroom_dojo` | Scoring core: the scoring profile, field-type scorers, classification metrics | [`packages/dojo/README.md`](packages/dojo/README.md) |
 
 Later projects add `engine` and `launcher` (see the layout map below).
@@ -90,6 +92,7 @@ mailroom-dojo/
 │   ├── dictionaries/          mailroom_dictionaries: versioned vocabularies and the glossary
 │   ├── record/                mailroom_record: run record, blob store, index, verify, replay (project 1)
 │   ├── labels/                mailroom_labels: label snapshots and coverage (project 2)
+│   ├── desk/                  mailroom_desk: the human review desk, a node plus queue, CLI and API (project 7)
 │   ├── dojo/                  mailroom_dojo: scoring, comparison, reports (project 3)
 │   ├── engine/                mailroom_engine: agents, handoffs, policies, API (project 5)
 │   └── launcher/              mailroom_launcher: run specs, backends, CLI, TUI, floor (project 6)
@@ -97,6 +100,7 @@ mailroom-dojo/
 ├── config/                    everything tuned without code (from project 2 on)
 │   ├── clients/<client>/      a client profile: document classes, schemas, thresholds, label snapshot
 │   │   └── mailroom-dataset/  profile.yaml (from build_profile.py), known-warnings.yaml, hub-revisions.yaml, scoring.yaml (the Dojo's scoring profile)
+│   ├── review/                review-desk rules (default.yaml) and the reviewer roster (reviewers.yaml)
 │   ├── policies/              routing policies (one file each; its hash is stored on every run)
 │   └── prompts/<prompt_set>/  prompt sets; variants are overlays on the default set
 ├── labels/                    README.md, and one committed label snapshot per <snapshot>/ with its manifest (project 2)
@@ -141,7 +145,8 @@ and `make boundaries` runs the same check. The table of what may import what is 
 | `dictionaries` | `common` | |
 | `record` | nothing of ours | Adopting `common` is a planned follow-up. |
 | `labels` | `common`, `dictionaries`, `record` | |
-| `dojo` | `common`, `dictionaries`, `record`, `labels` | The Dojo never imports the `engine`. |
+| `desk` | `common`, `dictionaries`, `record`, `labels` | |
+| `dojo` | `common`, `dictionaries`, `record`, `labels` | The Dojo never imports the `engine` or the `desk`. |
 | `engine` | `common`, `dictionaries`, `record` | Also reads client profiles from `config/`. |
 | `launcher` | all of them | |
 
