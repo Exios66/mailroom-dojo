@@ -181,7 +181,8 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   - Recall-coverage lists: an empty predicted item (`[""]`) is not a role phrase, so it "names a party" and
     role-word expectations (`Seller`) get recall credit.
   - `date_grounded_in_document` finds only full dates in the document (numeric, month-day-year, day-of-month),
-    so a prediction "August 2014" is not grounded by a document that says "August 2014".
+    so a prediction "August 2014" is not grounded by a document that says "August 2014", and a year-first ISO
+    date in the document ("2014-08-18") grounds nothing (numeric means day or month first).
   - Trace capture: a reasoning value that is a single mapping with only a `span` key is dropped (a bare entry
     needs `field` or `evidence`), and `missing_confidence` `assume_1` or `assume_0` fills the confidence for the
     gate only, so the calibration error stays None. The `TraceCaptureOptions` docstring, which said the policy

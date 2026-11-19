@@ -14,14 +14,19 @@ process-global state, no environment variables, no network and no import of the 
 | Value helpers, dates, money, text normalization | `values/`, `normalization/` | 21,009-case differential corpus, clock-independence property |
 | Scalar scorers, scorer registry, similarity backend (optional, injected), CMS identifier plug-in | `field_scoring/` | same corpus, no-global-state and no-socket tests |
 | Entity lists, audits, presence, row variants, trace capture, `score_extraction` | `field_scoring/` | 16 old golden calls tied to `scores.json`, extraction differential corpus, fault and property tests |
-| Classification labels and metrics (profile-driven class set) | `classification/` | 7,774 of 7,774 classification cases identical, 674 recorded golden boundary calls identical |
+| Classification labels and metrics (profile-driven class set) | `classification/` | 7,774 of 7,774 classification cases identical, and the classification calls among the recorded golden boundary calls (below) |
 | Label interface (structural Protocols) and Hub-row reference adapter | `labels_interface/` | 1,194 of 1,194 cases identical |
 | New document type with config only (R4) | `tests/test_new_document_type.py` | adds two synthetic classes, no source file changes, no existing score moves |
 | Package boundary test | `tests/test_boundaries.py` | AST walk: no engine, no old package, no env, no network |
 
+The recorded golden boundary capture (`packages/dojo/tests/fixtures/golden/old_dojo_boundary_calls.json`) holds 674 calls
+across every layer, not only classification: 16 `score_extraction` calls, the classification metrics and labels,
+the Hub-row helpers and the value helpers. All 674 are identical.
+
 Docs: `docs/plans/2026-11-18-dojo-scoring-core-plan.md`, `docs/plans/2026-11-18-dojo-scoring-port-inventory.md`,
-`docs/test-strategy-dojo-core.md`, `packages/dojo/docs/score-changelog.md` (found-not-changed notes, no intended
-differences), `packages/dojo/docs/golden-parity.md` (how fixtures are captured and regenerated).
+`docs/test-strategy-dojo-core.md`, `packages/dojo/docs/score-changelog.md` (the intended differences, such as injected embedding
+rescue and the stricter extraction arguments, and the found-not-changed notes; none of the intended differences
+changes a golden or differential case, so the fixtures' ledger `intended_differences.json` is empty), `packages/dojo/docs/golden-parity.md` (how fixtures are captured and regenerated).
 
 ## State at handoff
 
