@@ -167,9 +167,10 @@ READERS: tuple[str, ...] = (
     "gold_generation",
 )
 
-_ID = re.compile(r"^[a-z][a-z0-9_-]*$")
-_AGENT = re.compile(r"^[a-z][a-z0-9_]*$")
-_FAMILY = re.compile(r"^[A-Z][A-Z_]*$")
+# Matched with fullmatch: "$" alone also matches before a trailing newline ("accuracy\n").
+_ID = re.compile(r"[a-z][a-z0-9_-]*")
+_AGENT = re.compile(r"[a-z][a-z0-9_]*")
+_FAMILY = re.compile(r"[A-Z][A-Z_]*")
 _ALL_AGENTS = "ALL"
 
 _REQUIRED_ROW_KEYS = (
@@ -235,9 +236,16 @@ class _UniqueKeyLoader(yaml.SafeLoader):
         return super().construct_mapping(node, deep=deep)  # type: ignore[no-any-return]
 
 
-def _parse(text: str) -> Any:
-    """Parse with PyYAML's safe loader, refusing duplicate keys."""
-    return yaml.load(text, Loader=_UniqueKeyLoader)  # noqa: S506 - always a safe loader
+def _parse(text: str, where: object) -> Any:
+    """Parse with PyYAML's safe loader, refusing duplicate keys; any failure is a MetricTableError.
+
+    A scalar PyYAML cannot construct (``version: 2026-02-30`` is a date with no such day)
+    raises ``ValueError`` from the constructor, not ``yaml.YAMLError``.
+    """
+    try:
+        return yaml.load(text, Loader=_UniqueKeyLoader)  # noqa: S506 - always a safe loader
+    except (yaml.YAMLError, ValueError, OverflowError) as error:
+        raise MetricTableError(f"{where}: not valid YAML ({error})") from error
 
 
 class MetricTableError(ValueError):
@@ -360,10 +368,14 @@ class MetricTable:
         return self.default_views.get(agent)
 
     def agents_with_status(self, status: str) -> tuple[str, ...]:
-        """The roster's agents with ``status`` (an unknown status raises), in roster order."""
+        """The roster's agents with ``status`` (an unknown status raises), sorted by name.
+
+        Sorted, not in roster order: the content hash ignores the roster's order, so two
+        tables with one identity give the same answer.
+        """
         if status not in AGENT_STATUSES:
             raise UnknownMetricError(f"unknown agent status {status!r}; known: {', '.join(AGENT_STATUSES)}")
-        return tuple(name for name, entry in self.agent_roster.items() if entry.status == status)
+        return tuple(sorted(name for name, entry in self.agent_roster.items() if entry.status == status))
 
     def resolve(self, metric: str) -> MetricRow:
         """The row a metric id is reported under: the target of an alias, else its own row."""
@@ -415,7 +427,8 @@ class MetricTable:
         every other unit non-negative); a
         ``count`` value is not a whole number (unless the row's aggregation
         is ``mean``: a mean of counts need not be whole); a ``boolean`` is not 0 or 1;
-        the interval leaves the unit's range or does not contain the value; a metric
+        the interval leaves the unit's range or does not contain the value; the
+        measure's subject names an agent the row does not target; a metric
         that needs labels, or whose ground truth is not stated (null, unknown), claims
         ``label_status="none"``; or the cost basis does not
         match the row (a cost needs a basis; any other metric has ``none``).
@@ -425,6 +438,11 @@ class MetricTable:
             raise MeasureError(f"{row.id}: an alias of {row.alias_of!r}; report it under that id")
         if row.status == "not_ported":
             raise MeasureError(f"{row.id}: not ported ({row.status_reason})")
+        agent = measure.subject.agent
+        if agent is not None and not row.applies_to(agent):
+            raise MeasureError(
+                f"{row.id}: does not apply to agent {agent!r} (it targets {', '.join(row.agents)})"
+            )
         if not row.numeric:
             raise MeasureError(
                 f"{row.id}: unit {row.unit!r} is not a number; it is not reported as a Measure"
@@ -506,12 +524,12 @@ def _families(raw: Any) -> dict[str, tuple[str, ...]]:
     out: dict[str, tuple[str, ...]] = {}
     for name, members in raw.items():
         path = f"agent_families.{name}"
-        if not isinstance(name, str) or not _FAMILY.match(name) or name == _ALL_AGENTS:
+        if not isinstance(name, str) or not _FAMILY.fullmatch(name) or name == _ALL_AGENTS:
             raise _fail(path, "a family name is upper case letters and underscores, and not ALL")
         if not isinstance(members, list) or not members:
             raise _fail(path, "must be a non-empty list of agent names")
         for index, member in enumerate(members):
-            if not isinstance(member, str) or not _AGENT.match(member):
+            if not isinstance(member, str) or not _AGENT.fullmatch(member):
                 raise _fail(f"{path}[{index}]", f"{member!r} is not an agent name")
         if len(set(members)) != len(members):
             raise _fail(path, "lists an agent twice")
@@ -532,11 +550,11 @@ def _agents(
             raise _fail(item_path, f"must be a string, got {type(token).__name__}")
         if token == _ALL_AGENTS:
             members: tuple[str, ...] = (token,)
-        elif _FAMILY.match(token):
+        elif _FAMILY.fullmatch(token):
             if token not in families:
                 raise _fail(item_path, f"unknown agent family {token!r}")
             members = families[token]
-        elif _AGENT.match(token):
+        elif _AGENT.fullmatch(token):
             members = (token,)
         else:
             raise _fail(item_path, f"{token!r} is not an agent name, a family or ALL")
@@ -561,7 +579,7 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
     path = f"metrics[{index}]"
     if not isinstance(raw, Mapping):
         raise _fail(path, "must be a mapping")
-    unknown = sorted(set(raw) - set(_REQUIRED_ROW_KEYS) - set(_ROW_DEFAULTS))
+    unknown = sorted(set(raw) - set(_REQUIRED_ROW_KEYS) - set(_ROW_DEFAULTS), key=str)
     if unknown:
         raise _fail(f"{path}.{unknown[0]}", "unknown key")
     missing = [key for key in _REQUIRED_ROW_KEYS if key not in raw]
@@ -569,7 +587,7 @@ def _row(raw: Any, index: int, families: Mapping[str, tuple[str, ...]]) -> Metri
         raise _fail(f"{path}.{missing[0]}", "missing")
     spec = {**_ROW_DEFAULTS, **raw}
     metric = _string(spec["id"], f"{path}.id")
-    if not _ID.match(metric):
+    if not _ID.fullmatch(metric):
         raise _fail(f"{path}.id", f"{metric!r} is not a metric id (lower case, digits, '_' and '-')")
     path = f"metrics[{index}] ({metric})"
     agents, expanded = _agents(spec["agents"], families, f"{path}.agents")
@@ -841,7 +859,7 @@ def _roster(
     out: dict[str, AgentEntry] = {}
     for agent, spec in raw.items():
         path = f"agent_roster.{agent}"
-        if not isinstance(agent, str) or not _AGENT.match(agent):
+        if not isinstance(agent, str) or not _AGENT.fullmatch(agent):
             raise _fail(path, f"{agent!r} is not an agent name")
         if not isinstance(spec, Mapping) or not set(spec) <= {"status", "note"} or "status" not in spec:
             raise _fail(path, "must be a mapping with status and an optional note")
@@ -908,7 +926,7 @@ def _default_views(
             raise _fail(path, f"{agent!r} is {roster[agent].status}; it has no default view")
         if not isinstance(spec, Mapping):
             raise _fail(path, "must be a mapping")
-        unknown = sorted(set(spec) - _VIEW_KEYS)
+        unknown = sorted(set(spec) - _VIEW_KEYS, key=str)
         if unknown:
             raise _fail(f"{path}.{unknown[0]}", "unknown key")
         missing = [key for key in _VIEW_REQUIRED if key not in spec]
@@ -964,6 +982,11 @@ def _default_views(
             raise _fail(f"{path}.label_layers", f"{metric!r} needs labels; name the layers they come from")
         if row.ground_truth in _NEEDS_NO_LABELS and layers_raw:
             raise _fail(f"{path}.label_layers", f"{metric!r} needs no labels, so it reads no label layer")
+        # The layers serve the guard too: a guard that needs labels needs a layer to read them.
+        if guard is not None and by_id[guard].ground_truth in _NEEDS_LABELS and not layers_raw:
+            raise _fail(
+                f"{path}.label_layers", f"the guard {guard!r} needs labels; name the layers they come from"
+            )
         views[agent] = DefaultView(
             agent, metric, confirmed, source, None, guard, guard_confirmed, tuple(layers_raw)
         )
@@ -978,7 +1001,7 @@ def _default_views(
 def _build(data: Any) -> MetricTable:
     if not isinstance(data, Mapping):
         raise _fail("<root>", "the metric table must be a mapping")
-    unknown = sorted(set(data) - _TOP_KEYS)
+    unknown = sorted(set(data) - _TOP_KEYS, key=str)
     if unknown:
         raise _fail(str(unknown[0]), "unknown key")
     for key in sorted(_TOP_KEYS):
@@ -1028,7 +1051,7 @@ def load_metric_table(source: str | Path | Mapping[str, Any] | None = None) -> M
     """Read and validate a metric table: the packaged ``metrics.yaml`` when ``source`` is None."""
     if source is None:
         text = resources.files(__package__).joinpath("metrics.yaml").read_text(encoding="utf-8")
-        return _build(_parse(text))
+        return _build(_parse(text, "metrics.yaml (packaged)"))
     if isinstance(source, Mapping):
         return _build(source)
     path = Path(source)
@@ -1036,8 +1059,4 @@ def load_metric_table(source: str | Path | Mapping[str, Any] | None = None) -> M
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as error:
         raise MetricTableError(f"{path}: cannot read the metric table ({error})") from error
-    try:
-        data = _parse(text)
-    except yaml.YAMLError as error:
-        raise MetricTableError(f"{path}: not valid YAML ({error})") from error
-    return _build(data)
+    return _build(_parse(text, path))

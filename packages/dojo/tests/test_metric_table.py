@@ -29,6 +29,7 @@ from mailroom_dojo.measures import (
     Measure,
     MeasureError,
     MetricTableError,
+    Subject,
     UnknownMetricError,
     load_metric_table,
     metric_table_canonical_form,
@@ -609,6 +610,46 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
         lambda raw: raw["source"].__setitem__(" ", "blank"),
         "source. : a source key is a non-empty string",
     ),
+    (
+        "id with a trailing newline",
+        _sequence(_set("composite", "metric_id", "registry:composite\n"), _set("composite", "id", "composite\n")),
+        "is not a metric id",
+    ),
+    (
+        "roster agent with a trailing newline",
+        lambda raw: raw["agent_roster"].__setitem__("sorter\n", {"status": "live"}),
+        "is not an agent name",
+    ),
+    (
+        "family with a trailing newline",
+        lambda raw: raw["agent_families"].__setitem__("EXTRA\n", ["sorter"]),
+        "a family name is upper case letters",
+    ),
+    (
+        "row agent with a trailing newline",
+        _set("composite", "agents", ["sorter\n"]),
+        "is not an agent name, a family or ALL",
+    ),
+    (
+        "unknown root keys of two types",
+        lambda raw: raw.update({7: "seven", "tiers": {}}),
+        "7: unknown key",
+    ),
+    (
+        "unknown row keys of two types",
+        lambda raw: raw["metrics"][0].update({7: "seven", "tier": 0}),
+        "metrics[0].7: unknown key",
+    ),
+    (
+        "unknown view keys of two types",
+        lambda raw: raw["default_views"][CONFIRMED_AGENT].update({7: "seven", "tier": 0}),
+        f"default_views.{CONFIRMED_AGENT}.7: unknown key",
+    ),
+    (
+        "guard needing labels in a view without layers",
+        _view(UNLABELLED_AGENT, guard="accuracy"),
+        f"default_views.{UNLABELLED_AGENT}.label_layers: the guard 'accuracy' needs labels",
+    ),
 ]
 
 
@@ -648,8 +689,9 @@ def test_a_shared_comparison_id_is_refused() -> None:
         (b"metrics: [\n", "not valid YAML"),
         (b"\xff\xfe\x00bad", "cannot read the metric table"),
         (b"- 1\n- 2\n", "the metric table must be a mapping"),
+        (b"version: 2026-02-30\n", "not valid YAML"),
     ],
-    ids=["empty", "not yaml", "not utf-8", "a list"],
+    ids=["empty", "not yaml", "not utf-8", "a list", "an impossible date"],
 )
 def test_damaged_files_are_refused(tmp_path: Path, content: bytes, expected: str) -> None:
     path = tmp_path / "metrics.yaml"
@@ -734,7 +776,8 @@ def test_an_unstated_ground_truth_is_unknown_not_label_free() -> None:
     with pytest.raises(MeasureError, match="ground truth is not stated"):
         table.check(_measure("f1_macro", label_status="none"))
     assert table.check(_measure("f1_macro")).id == "f1_macro"
-    _view("sorter", label_layers=[])(raw)
+    # ... or none; its guard (accuracy, which needs labels) goes, since the layers serve it too.
+    _view("sorter", label_layers=[], guard=_DELETE, guard_confirmed=_DELETE)(raw)
     assert load_metric_table(raw).default_view("sorter").label_layers == ()
 
 
@@ -876,6 +919,29 @@ def _measure(method: str, **overrides: Any) -> Measure:
 def test_check_refuses_a_measure_that_breaks_its_row(measure: Callable[[], Measure], expected: str) -> None:
     with pytest.raises(MeasureError, match=expected):
         load_metric_table().check(measure())
+
+
+def test_check_refuses_a_measure_about_an_agent_the_row_does_not_target() -> None:
+    """A row for one agent never files another agent's number; ALL rows take any agent."""
+    table = load_metric_table()
+    with pytest.raises(MeasureError, match="intake_class_accuracy: does not apply to agent 'boss'"):
+        table.check(_measure("intake_class_accuracy", subject=Subject(agent="boss")))
+    assert table.check(_measure("intake_class_accuracy", subject=Subject(agent="intake"))).id == (
+        "intake_class_accuracy"
+    )
+    assert table.check(_measure("intake_class_accuracy")).id == "intake_class_accuracy"
+    assert table.check(_measure("f1_macro", subject=Subject(agent="boss"))).id == "f1_macro"
+
+
+def test_agent_queries_do_not_depend_on_roster_order() -> None:
+    """The hash ignores the roster's order, so the queries do too: agents come back sorted."""
+    raw = _raw()
+    raw["agent_roster"] = dict(reversed(list(raw["agent_roster"].items())))
+    reordered, table = load_metric_table(raw), load_metric_table()
+    assert reordered.content_hash == table.content_hash
+    for status in ("live", "legacy", "retired"):
+        assert reordered.agents_with_status(status) == table.agents_with_status(status)
+        assert list(table.agents_with_status(status)) == sorted(table.agents_with_status(status))
 
 
 def test_check_refuses_a_non_numeric_unit() -> None:
