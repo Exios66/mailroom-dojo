@@ -33,15 +33,16 @@ Enqueue
 
 A record the desk cannot read safely (a corrupt line, a forked chain, an unreadable
 header) raises ``RecordDamaged`` and nothing is appended; ``case`` and ``queue`` raise it
-too, rather than fold a forked chain (``iter_events`` yields both sides of a fork). A torn tail is not damage: it is
-skipped (it was never an event) and the writer continues in a new segment. Another writer
-of this process holding the document raises ``RecordBusy``. A write or fsync that fails
-(a full disk) raises ``RecordWriteFailed`` with the ``OSError`` as its cause: the record
-may then hold the event (or a torn line), so read the case again before retrying. Once the
-flush has succeeded ``enqueue`` returns the event and never raises: an index that refuses
-the apply does not undo the durable event (the result's ``index_error`` says why, and a
-``reindex`` repairs the index), and the case is folded from events already validated, with
-an SLA due time past 9999-12-31 saturated, not overflowing.
+too, rather than fold a forked chain (``iter_events`` yields both sides of a fork). A torn
+tail is not damage: it is skipped (it was never an event) and the writer continues in a
+new segment. Another writer of this process holding the document raises ``RecordBusy``. A
+write or fsync that fails (a full disk) raises ``RecordWriteFailed`` with the ``OSError``
+as its cause: the record may then hold the event (or a torn line), so read the case again
+before retrying. Once the flush has succeeded ``enqueue`` returns the event and never
+raises: an index that refuses the apply does not undo the durable event (the result's
+``index_error`` says why, and a ``reindex`` repairs the index), and the case is folded
+from events already validated, with an SLA due time past 9999-12-31 saturated, not
+overflowing.
 
 The desk lock serializes desk actions, not other record writers. The record does not
 enforce one owner per document across processes (``mailroom_record.log``, "One owner per
@@ -63,11 +64,12 @@ opened, ids): one ordered scan of each run's log, grouped by document and folded
 document, so the work grows with the run, never with the number of cases. A pruned run
 (``mailroom_record.pack.prune_run``) keeps its header but its events are in its archive:
 ``queue()`` over every run skips it, and ``queue(run_id)``, ``case`` and ``enqueue``
-naming it raise ``RunArchived`` (unpack it first). The index is only a target the desk applies its events to (for other readers of the record); a stale,
-locked or broken index changes no answer and slows nothing down. ``index_drift()`` is a
-diagnostic: it compares the index's document heads with the log's and returns the
-problems it finds, never raising. Leases, deferrals and SLA breach are judged against
-``now``, which defaults to the desk's clock (injectable).
+naming it raise ``RunArchived`` (unpack it first). The index is only a target the desk
+applies its events to (for other readers of the record); a stale, locked or broken index
+changes no answer and slows nothing down. ``index_drift()`` is a diagnostic: it compares
+the index's document heads with the log's and returns the problems it finds, never
+raising. Leases, deferrals and SLA breach are judged against ``now``, which defaults to
+the desk's clock (injectable).
 """
 
 from __future__ import annotations

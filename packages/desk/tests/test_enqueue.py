@@ -1023,9 +1023,7 @@ def _prune(root: Path, run_id: str, tmp: Path) -> None:
 
 
 @pytest.mark.parametrize("kind", ["specialist_only", "service_period"])
-def test_a_pruned_run_is_skipped_by_the_whole_queue_and_refused_by_name(
-    tmp_path: Path, kind: str
-) -> None:
+def test_a_pruned_run_is_skipped_by_the_whole_queue_and_refused_by_name(tmp_path: Path, kind: str) -> None:
     from mailroom_desk import RunArchived
 
     root = tmp_path / "store"
