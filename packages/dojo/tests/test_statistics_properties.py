@@ -163,11 +163,16 @@ def test_a_seed_fixes_every_result_and_calls_leave_no_state(values, other, seed)
 
 
 @given(
-    rows=st.lists(st.tuples(st.sampled_from([0.0, -0.0, 0.1, 0.5, 0.9, 1.0]) | unit, st.booleans()), max_size=60),
+    rows=st.lists(
+        st.tuples(st.sampled_from([0.0, -0.0, 0.1, 0.5, 0.9, 1.0]) | unit, st.booleans()), max_size=60
+    ),
     precision=st.sampled_from([0.1, 0.5, 0.8, 0.9, 1.0]),
 )
 def test_cutoff_for_precision_is_the_lowest_cutoff_a_brute_force_search_finds(rows, precision):
-    """Every distinct score tried from the lowest up, as the old Dojo did; the first that keeps the precision wins."""
+    """Every distinct score tried from the lowest up, as the old Dojo did.
+
+    The first cutoff that keeps the precision wins.
+    """
     scores = [score for score, _ in rows]
     labels = [label for _, label in rows]
     found = cutoff_for_precision(scores, labels, precision).to_dict()

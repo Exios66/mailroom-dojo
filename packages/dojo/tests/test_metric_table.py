@@ -616,7 +616,9 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
     ),
     (
         "id with a trailing newline",
-        _sequence(_set("composite", "metric_id", "registry:composite\n"), _set("composite", "id", "composite\n")),
+        _sequence(
+            _set("composite", "metric_id", "registry:composite\n"), _set("composite", "id", "composite\n")
+        ),
         "is not a metric id",
     ),
     (

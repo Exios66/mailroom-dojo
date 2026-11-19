@@ -465,10 +465,14 @@ def test_both_sides_without_a_draw_seed_compare() -> None:
 def test_a_varied_draw_seed_must_be_present_on_both_sides() -> None:
     """Without vary, two full-split runs compare; varying the draw seed needs one on each side."""
     full_split = _measure(provenance=dataclasses.replace(RUN, draw_seed=None))
-    assert comparability_problems(full_split, full_split, vary="draw_seed") == ("provenance_missing (draw_seed)",)
+    assert comparability_problems(full_split, full_split, vary="draw_seed") == (
+        "provenance_missing (draw_seed)",
+    )
     with pytest.raises(IncomparableMeasuresError, match=r"provenance_missing \(draw_seed\)"):
         assert_comparable(full_split, full_split, vary="draw_seed")
-    assert comparability_problems(full_split, _measure(), vary="draw_seed") == ("provenance_missing (draw_seed)",)
+    assert comparability_problems(full_split, _measure(), vary="draw_seed") == (
+        "provenance_missing (draw_seed)",
+    )
     other_draw = _measure(provenance=dataclasses.replace(RUN, draw_seed="8"))
     assert comparability_problems(_measure(), other_draw, vary="draw_seed") == ()
 

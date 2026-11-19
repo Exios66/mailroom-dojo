@@ -177,7 +177,8 @@ class Provenance:
     """Where a measure comes from: the old ``PROVENANCE_KEYS`` (``metric_id`` is ``method``).
 
     Every key is optional when the measure is built; comparing two measures needs every
-    key on both sides (``draw_seed`` may be absent on both unless it is varied), see :func:`comparability_problems`.
+    key on both sides (``draw_seed`` may be absent on both unless it is varied), see
+    :func:`comparability_problems`.
     """
 
     dataset_revision: str | None = None
