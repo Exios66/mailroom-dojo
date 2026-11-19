@@ -25,7 +25,8 @@ make test      # run every package's tests and the workspace tests
 
 If `python3` is older than 3.11, name a newer interpreter: `make install PY=python3.12`.
 
-To work on one package, install only that package. For the record:
+To work on one package, install only that package and the packages it needs. For
+labels (it needs the record):
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]" -e "packages/labels[dev]"
@@ -43,8 +44,9 @@ also give a test command.
 | `common` | `mailroom_common` | Shared foundation: errors, hashing, IO, config, logging | [`packages/common/README.md`](packages/common/README.md) |
 | `dictionaries` | `mailroom_dictionaries` | Versioned vocabularies and the glossary | [`packages/dictionaries/README.md`](packages/dictionaries/README.md) |
 | `record` | `mailroom_record` | Run record, blob store, index, verify, replay | [`packages/record/README.md`](packages/record/README.md) |
+| `labels` | `mailroom_labels` | Label snapshots, precedence, the quality gate and coverage | [`packages/labels/README.md`](packages/labels/README.md) |
 
-Later projects add `labels`, `dojo`, `engine` and `launcher` (see the layout map below).
+Later projects add `dojo`, `engine` and `launcher` (see the layout map below).
 
 ## Development
 
@@ -115,7 +117,8 @@ mailroom-dojo/
 ```
 
 `scripts/check_layout.py` (`make layout`) checks this map against the real folders.
-Folders marked with a later project do not exist yet. The requirements behind this layout
+Folders of projects not built yet (the `dojo`, `engine` and `launcher` packages,
+`config/policies/` and `config/prompts/`) do not exist yet. The requirements behind this layout
 are R9 in `docs/specs/2026-11-18-lean-rewrite-design.md`.
 
 Layout rules:
