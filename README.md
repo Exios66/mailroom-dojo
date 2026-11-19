@@ -144,7 +144,7 @@ and `make boundaries` runs the same check. The table of what may import what is 
 | `dictionaries` | `common` | |
 | `record` | nothing of ours | Adopting `common` is a planned follow-up. |
 | `labels` | `common`, `dictionaries`, `record` | |
-| `desk` | `common`, `dictionaries`, `record`, `labels` | The Dojo never imports the `desk`. |
+| `desk` | `common`, `dictionaries`, `record`, `labels` | |
 | `dojo` | `common`, `dictionaries`, `record`, `labels` | The Dojo never imports the `engine` or the `desk`. |
 | `engine` | `common`, `dictionaries`, `record` | Also reads client profiles from `config/`. |
 | `launcher` | all of them | |
