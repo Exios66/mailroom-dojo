@@ -11,10 +11,12 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import random
 import sys
 from decimal import Decimal
 from functools import cache
+from pathlib import Path
 from types import ModuleType
 
 import pytest
@@ -235,3 +237,80 @@ def test_loading_the_old_modules_by_path_refuses_an_edited_file(tmp_path, monkey
     old_sources(tmp_path, monkeypatch, script, edited="analysis/bootstrap.py")
     with pytest.raises(SystemExit, match="does not have the pinned SHA-256"):
         script.old_functions_from_files(tmp_path)
+
+
+def test_a_worktree_checkout_with_a_relative_gitdir_resolves_from_any_directory(tmp_path, monkeypatch):
+    """Git reads a relative ``gitdir:`` against the checkout, not against the caller's directory."""
+    script = capture_script()
+    checkout = tmp_path / "old"
+    checkout.mkdir()
+    (checkout / ".git").write_text("gitdir: ../metadata/worktrees/old\n", encoding="utf-8")
+    gitdir = tmp_path / "metadata" / "worktrees" / "old"
+    gitdir.mkdir(parents=True)
+    (gitdir / "HEAD").write_text(script.EXPECTED_OLD_COMMIT + "\n", encoding="utf-8")
+    elsewhere = tmp_path / "caller" / "deeper"  # "../metadata" from here is not the checkout's
+    elsewhere.mkdir(parents=True)
+    monkeypatch.chdir(elsewhere)
+    assert script.read_commit(checkout) == script.EXPECTED_OLD_COMMIT
+
+
+def _stand_in_source(word: str, script: ModuleType) -> str:
+    """A stand-in old module defining every target name, each returning ``word``."""
+    names = sorted({name for names in script.TARGETS.values() for name in names})
+    return "".join(f"def {name}(**_arguments):\n    return {word!r}\n" for name in names)
+
+
+def test_loading_the_old_modules_by_path_runs_the_verified_bytes_not_a_stale_cache(tmp_path, monkeypatch):
+    """A cached .pyc whose timestamp and size match the source must not stand in for it.
+
+    The planted bytecode comes from a same-sized edit of the source; Python's timestamp check
+    would accept it, so the loader must compile the bytes whose SHA-256 it verified.
+    """
+    script = capture_script()
+    pinned = {}
+    for relative in script.TARGETS:
+        path = tmp_path / "llm_dojo_scoring" / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_stand_in_source("verified", script), encoding="utf-8")
+        pinned[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+        planted = _stand_in_source("planted!", script)
+        assert len(planted) == len(path.read_text(encoding="utf-8"))
+        code = compile(planted, str(path), "exec")
+        stat = path.stat()
+        cache = Path(importlib.util.cache_from_source(str(path)))
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_bytes(
+            importlib._bootstrap_external._code_to_timestamp_pyc(code, int(stat.st_mtime), stat.st_size)
+        )
+    monkeypatch.setattr(script, "EXPECTED_OLD_SOURCE_SHA256", pinned)
+    monkeypatch.setattr(sys, "pycache_prefix", None)
+    for name in [name for name in sys.modules if name.startswith("_old_dojo_analysis")]:
+        monkeypatch.delitem(sys.modules, name)
+    functions = script.old_functions_from_files(tmp_path)
+    assert {function() for function in functions.values()} == {"verified"}
+
+
+def test_a_full_capture_reads_no_existing_bytecode(tmp_path, monkeypatch, capsys):
+    """Before the old Dojo is imported, bytecode is looked up only in a fresh, empty cache directory.
+
+    The child phases inherit it through ``PYTHONPYCACHEPREFIX``; both are restored afterwards.
+    """
+    script = capture_script()
+    old_dojo = fake_checkout(tmp_path / "old", script.EXPECTED_OLD_COMMIT)
+    old_sources(old_dojo, monkeypatch, script)
+    seen = {}
+
+    def record_and_stop(_old_dojo):
+        seen["prefix"] = sys.pycache_prefix
+        seen["environment"] = os.environ.get("PYTHONPYCACHEPREFIX")
+        seen["entries"] = sorted(Path(sys.pycache_prefix).iterdir())
+        raise RuntimeError("stop before the old Dojo runs")
+
+    monkeypatch.setattr(script, "import_old_dojo", record_and_stop)
+    monkeypatch.setattr(sys, "pycache_prefix", None)
+    monkeypatch.delenv("PYTHONPYCACHEPREFIX", raising=False)
+    assert run_main(monkeypatch, script, old_dojo, tmp_path / "out" / "cases.jsonl") == 1
+    assert seen["prefix"] is not None and seen["environment"] == seen["prefix"]
+    assert seen["entries"] == []
+    assert sys.pycache_prefix is None and "PYTHONPYCACHEPREFIX" not in os.environ
+    assert not Path(seen["prefix"]).exists()

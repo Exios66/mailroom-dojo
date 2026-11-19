@@ -36,8 +36,11 @@ It refuses to run unless the checkout is at the pinned commit, its old
 (``EXPECTED_OLD_SOURCE_SHA256``, so an edited checkout is refused), and
 ``llm_dojo_scoring`` imports from inside it (not from another install). It reads the old checkout and writes
 nothing inside it (pytest runs from a temporary
-directory with its cache plugin off, and no bytecode is written). The old commit is read
-from the checkout's ``.git`` files, without running git.
+directory with its cache plugin off, and no bytecode is written). No existing bytecode is
+read either: every lookup, in this process and the child phases, goes to a fresh, empty
+cache directory, and ``--supplement`` compiles the very bytes it hashed. The old commit is
+read from the checkout's ``.git`` files (a worktree's relative ``gitdir`` against the
+checkout, as git reads it), without running git.
 
 ``--supplement`` adds the generated cases a committed corpus lacks (after new inputs were
 appended to the generator) without re-running the old tests or golden run: it loads the
@@ -56,6 +59,7 @@ old commit::
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import decimal
 import hashlib
@@ -68,6 +72,7 @@ import subprocess
 import sys
 import tempfile
 from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -155,8 +160,9 @@ def plain(value: Any) -> Any:
 def read_commit(checkout: Path) -> str:
     """The checked-out commit, read from ``.git`` (loose ref or packed-refs), without running git."""
     git = checkout / ".git"
-    if git.is_file():  # a worktree: "gitdir: <path>"
-        git = Path(git.read_text(encoding="utf-8").split(":", 1)[1].strip())
+    if git.is_file():  # a worktree: "gitdir: <path>", relative to the checkout as git reads it
+        gitdir = Path(git.read_text(encoding="utf-8").split(":", 1)[1].strip())
+        git = gitdir if gitdir.is_absolute() else checkout / gitdir
     head = (git / "HEAD").read_text(encoding="utf-8").strip()
     if not head.startswith("ref: "):
         return head
@@ -512,6 +518,9 @@ def old_functions_from_files(old_dojo: Path) -> dict[str, Any]:
     The modules are loaded under a private package name, so ``calibration``'s relative
     import of ``bootstrap`` resolves, without importing the rest of the old package.
     Refuses (``SystemExit``) a module that is missing or whose bytes are not the pinned ones.
+    Each module runs the very bytes whose SHA-256 was checked, compiled here: no cached
+    ``.pyc`` is consulted (one whose timestamp and size match an edited-and-restored source
+    would pass Python's own check), and an edit after the check cannot slip in.
     """
     problems = old_source_problems(old_dojo)
     if problems:
@@ -525,12 +534,13 @@ def old_functions_from_files(old_dojo: Path) -> dict[str, Any]:
     for relative in TARGETS:
         path = old_dojo / "llm_dojo_scoring" / relative
         name = f"{package_name}.{path.stem}"
+        source = path.read_bytes()
+        if hashlib.sha256(source).hexdigest() != EXPECTED_OLD_SOURCE_SHA256[relative]:
+            raise SystemExit(f"llm_dojo_scoring/{relative} changed while loading; refusing to load it")
         spec = importlib.util.spec_from_file_location(name, path)
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
-        spec.loader.exec_module(module)
-        if Path(module.__file__).resolve() != path.resolve():
-            raise SystemExit(f"{relative} loaded from {module.__file__}, not from {path}")
+        exec(compile(source, str(path), "exec"), module.__dict__)  # noqa: S102 - the verified old module
         modules[relative] = module
     return {name: getattr(modules[module], name) for module, names in TARGETS.items() for name in names}
 
@@ -638,8 +648,37 @@ def capture_child(old_dojo: Path, flag: str) -> dict[str, Any]:
         return json.loads(output.read_text())
 
 
+@contextlib.contextmanager
+def fresh_bytecode_cache() -> Iterator[None]:
+    """Look up bytecode only in a new, empty directory, here and in the child phases.
+
+    ``PYTHONDONTWRITEBYTECODE`` stops cache writes, not reads: an old checkout's
+    ``__pycache__`` could hold bytecode of an edited-and-restored module whose timestamp and
+    size still match. ``sys.pycache_prefix`` (and ``PYTHONPYCACHEPREFIX``, which the child
+    processes inherit) points every lookup at an empty directory instead; both are restored.
+    """
+    saved_prefix, saved_environment = sys.pycache_prefix, os.environ.get("PYTHONPYCACHEPREFIX")
+    with tempfile.TemporaryDirectory(prefix="old-dojo-bytecode-") as directory:
+        sys.pycache_prefix = directory
+        os.environ["PYTHONPYCACHEPREFIX"] = directory
+        try:
+            yield
+        finally:
+            sys.pycache_prefix = saved_prefix
+            if saved_environment is None:
+                os.environ.pop("PYTHONPYCACHEPREFIX", None)
+            else:
+                os.environ["PYTHONPYCACHEPREFIX"] = saved_environment
+
+
 def main() -> int:
     """Capture, generate, compute and write the corpus; print a digest."""
+    with fresh_bytecode_cache():
+        return capture()
+
+
+def capture() -> int:
+    """The body of :func:`main`, run with a fresh bytecode cache."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--old-dojo", type=Path, required=True)
     parser.add_argument("--output", type=Path)
