@@ -207,3 +207,11 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   therefore differ from the old Dojo's in its last digit on 3.11 only (one parity corpus case:
   0.5669, where 3.11's own `sum()` gave 0.5668). The corpus was recorded on 3.12 or later, so
   the new Dojo now matches it on every supported Python.
+
+## Review fixes, round 7
+
+- **A blank marker reads the fallback of every variant sharing the marker field.** When two variants of a
+  class share a marker field and accept different marker values, a blank predicted marker was read through the
+  first variant's fallback fields only, so a value only the second accepted scored as missing. Variants are now
+  searched in profile order until one finds a token. No mailroom score moves: its class has one variant, and
+  the old Dojo had one fixed marker field.

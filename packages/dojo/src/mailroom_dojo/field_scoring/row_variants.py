@@ -117,14 +117,22 @@ def marker_from_fallback(
 
     Returns ``(True, token or None)`` when ``key`` is the marker field of a variant
     of the class that has fallback fields and ``predicted_value`` is empty: the
-    token is the first marker value a fallback field holds. Otherwise returns
+    token is the first marker value a fallback field holds, searched variant by
+    variant in profile order (variants sharing a marker field may accept different
+    values), or None when no such variant finds one. Otherwise returns
     ``(False, predicted_value)`` unchanged.
     """
     if class_spec is None or not is_empty_value(predicted_value):
         return False, predicted_value
+    applicable = False
     for variant in class_spec.variants:
         if key == variant.marker.field and variant.marker.fallback_fields:
-            return True, _fallback_marker_token(variant, predicted)
+            applicable = True
+            token = _fallback_marker_token(variant, predicted)
+            if token is not None:
+                return True, token
+    if applicable:
+        return True, None
     return False, predicted_value
 
 

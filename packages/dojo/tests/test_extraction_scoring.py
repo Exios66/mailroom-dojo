@@ -353,6 +353,48 @@ def test_a_numeric_fallback_marker_value_zero_is_read():
     assert marker_from_fallback(spec, "plan_tier", None, {"tier_note": []}) == (True, None)
 
 
+def _two_variant_marker_profile():
+    """A synthetic client with two variants on one marker field, each accepting its own marker value."""
+    mapping = minimal_profile_mapping()
+    fields = mapping["classes"][0]["fields"]
+    fields["filing_kind"] = {
+        "type": "label",
+        "vocabulary": {"tokens": ["amendment", "restatement", "original"], "fold": "exact"},
+    }
+    fields["filing_note"] = "free_text"
+    mapping["classes"][0]["variants"] = [
+        {
+            "name": "amended",
+            "marker": {"field": "filing_kind", "values": ["amendment"], "fallback_fields": ["filing_note"]},
+            "field_type_overrides": {"policy_number": "name"},
+        },
+        {
+            "name": "restated",
+            "marker": {"field": "filing_kind", "values": ["restatement"], "fallback_fields": ["filing_note"]},
+            "field_type_overrides": {"policy_number": "name"},
+        },
+    ]
+    return load_scoring_profile(mapping)
+
+
+def test_a_blank_marker_reads_the_fallback_of_any_variant_sharing_the_marker_field():
+    """When two variants share a marker field, a fallback value accepted only by the second is still read."""
+    profile = _two_variant_marker_profile()
+    spec = profile.require_class(FLEET)
+    assert marker_from_fallback(spec, "filing_kind", None, {"filing_note": "restatement"}) == (
+        True,
+        "restatement",
+    )
+    assert marker_from_fallback(spec, "filing_kind", None, {"filing_note": "amendment"}) == (
+        True,
+        "amendment",
+    )
+    assert marker_from_fallback(spec, "filing_kind", None, {"filing_note": "original"}) == (True, None)
+    expected = {"filing_kind": "restatement"}
+    scored = score_extraction(profile, FLEET, {"filing_note": "Restatement"}, expected)
+    assert scored.field_scores["filing_kind"] == 1.0
+
+
 def test_the_numeric_marker_drives_scoring():
     """On a row marked by the number 0 the variant's type override applies (a near-miss id is scored as
     a name)."""
