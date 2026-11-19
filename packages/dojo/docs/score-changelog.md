@@ -231,3 +231,21 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   then the name defaults), so `Delaware courts` against `Delaware` got token F1 and an extra contact cost
   precision. The active variant's added field now decides, then the class's first variant-only field of that
   name, then the name defaults. No mailroom score moves: its one variant adds only `cms_source_table`, a label.
+
+## Found, not changed (review round 7)
+
+Old behaviour kept for parity, confirmed by calling the old Dojo (23f8234c) and the port on the same input.
+Changing any of these would change a score, so each waits for a deliberate score change.
+
+- **Classification metrics normalize a label twice.** `["__merger agreement__"]` against itself normalizes to
+  `merger agreement`, then again to `merger_agreement`, which the class list no longer holds: the macro metrics
+  report 0 classes for identical inputs (old and new: `n_classes` 0).
+- **A zero label is blank.** `score_label_field(0, 0)` is 0.0 in both: the compaction reads `0` as no value.
+- **The unverified-year cap needs a parsed label.** `nine months after the date hereof (2024)` against
+  `nine months after the date hereof` keeps full credit (1.0 in both): the label parses to no date, so the year
+  check is skipped.
+- **An ordinal date phrase keeps only a four-digit year.** `10th day of January 69` parses to no date in both;
+  `10th day of January 1969` parses to 1969-01-10.
+- **A predicted `"null"` on an entity list is one item.** With role-word coverage, `"null"` against
+  `["buyer", "Acme Corporation"]` scores precision 1.0 and recall 0.5 in both, like the empty item `[""]`
+  listed in round 5.
