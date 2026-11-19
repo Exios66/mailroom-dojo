@@ -348,11 +348,12 @@ def test_a_numeric_marker_value_zero_marks_its_variant(marker):
 
 @pytest.mark.parametrize("blank", ["nan", "null", "none", "n/a", "[]"])
 def test_a_blank_marker_value_is_refused_by_the_loader(blank):
-    """A marker value the scorer reads as blank could never mark a row, so a profile listing one is refused."""
+    """A marker value the scorer reads as blank never marks a row, so a profile listing one is refused."""
     mapping = minimal_profile_mapping()
     fields = mapping["classes"][0]["fields"]
     fields["plan_tier"] = "free_text"
-    mapping["classes"][0]["variants"] = [{"name": "blank_tier", "marker": {"field": "plan_tier", "values": [blank]}}]
+    marker = {"field": "plan_tier", "values": [blank]}
+    mapping["classes"][0]["variants"] = [{"name": "blank_tier", "marker": marker}]
     with pytest.raises(ProfileError, match="a blank or null token never marks a row"):
         load_scoring_profile(mapping)
 

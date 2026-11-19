@@ -25,7 +25,13 @@ from typing import TYPE_CHECKING, Any
 from ..normalization.text import tokenize
 from .entity_lists import as_list
 from .scalar_scorers import score_containment_field
-from .similarity_backend import FallbackReason, SimilarityBackend, SimilarityFallback, shown_error, shown_value
+from .similarity_backend import (
+    FallbackReason,
+    SimilarityBackend,
+    SimilarityFallback,
+    shown_error,
+    shown_value,
+)
 
 if TYPE_CHECKING:
     from ..profile.models import ScoringProfile

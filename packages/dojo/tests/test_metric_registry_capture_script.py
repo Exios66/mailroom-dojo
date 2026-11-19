@@ -47,7 +47,7 @@ def test_a_checkout_at_another_commit_is_refused(monkeypatch, tmp_path):
     ["old_metric_registry.json", "tests/fixtures/golden/scores.json", "sub/../x.json", "."],
 )
 def test_an_output_inside_the_old_checkout_is_refused(monkeypatch, tmp_path, inside):
-    """An output path inside the old checkout (also through ``..`` or the checkout itself) is refused first."""
+    """An output inside the old checkout (also through ``..``, or the checkout itself) is refused first."""
     script = capture_script()
     monkeypatch.setattr(script, "build", _never)
     old = tmp_path / "old"
