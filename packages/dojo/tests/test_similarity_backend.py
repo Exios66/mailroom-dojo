@@ -137,6 +137,7 @@ def test_only_name_like_scorers_consult_the_backend():
         "int-over-digit-limit",
     ],
 )
+@pytest.mark.usefixtures("default_int_digit_limit")
 def test_a_failing_backend_keeps_the_string_score_and_is_reported(backend, reason, detail, caplog):
     """Every failure keeps the string score and records exactly one fallback with its reason and detail."""
     rescue = EmbeddingRescue(backend, 0.7)

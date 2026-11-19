@@ -778,6 +778,7 @@ def test_integer_too_large_for_a_float_in_yaml_is_a_profile_error(tmp_path):
     _expect_error(path, "thresholds.list_match_threshold", "must be between")
 
 
+@pytest.mark.usefixtures("default_int_digit_limit")
 def test_integer_too_long_to_read_in_yaml_is_a_profile_error(tmp_path):
     """PyYAML raises ValueError (Python's integer digit limit) on a 5,000 digit integer; that is a malformed
     file, reported as a ProfileError naming it."""
@@ -801,6 +802,7 @@ def test_integer_too_long_to_read_in_yaml_is_a_profile_error(tmp_path):
     ],
     ids=["boolean", "choice", "band", "format", "key"],
 )
+@pytest.mark.usefixtures("default_int_digit_limit")
 def test_a_value_too_long_to_print_still_gives_a_profile_error(edit, path, words):
     """repr() of an integer over Python's digit limit raises ValueError; the error message must not."""
     error = _expect_error(_mutate(edit), path, words)
