@@ -373,6 +373,33 @@ def test_source_lines_with_an_over_long_integer_are_rejected_and_later_rows_stil
     assert [(r["line"], r["file"]) for r in rejected] == [(1, "src.jsonl")]
 
 
+@pytest.mark.parametrize("number", ["1e999", "-1e999"])
+def test_a_source_float_that_overflows_is_refused_as_not_json(number: str) -> None:
+    from mailroom_labels.importers.common import loads_source
+
+    with pytest.raises(ValueError, match="too large for a float"):
+        loads_source('{"x": ' + number + "}")
+
+
+def test_an_overlay_manifest_with_an_overflowing_float_is_refused_not_a_crash(tmp_path: Path) -> None:
+    import hashlib
+
+    from test_importers import jsonl, overlay
+
+    src = tmp_path / "src"
+    src.mkdir()
+    data = jsonl(interim_row("D1", {"sender": ("gap_fill", "A")}))
+    (src / "letter.jsonl").write_bytes(data)
+    listed = json.dumps({"letter.jsonl": hashlib.sha256(data).hexdigest()})
+    (src / "MANIFEST.json").write_text(
+        '{"schema": "mailroom-interim-labels/v1", "files": ' + listed + ', "built_at": 1e999}',
+        encoding="utf-8",
+    )
+    with pytest.raises(ImportRefused, match="MANIFEST.json is not JSON"):
+        overlay(tmp_path / "interim-x", src, allow_rejected=True)
+    assert not (tmp_path / "interim-x").exists()
+
+
 def test_a_label_that_looks_like_a_token_is_not_trusted_as_one() -> None:
     import importlib.util
     import sys

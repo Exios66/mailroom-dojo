@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import shutil
 import tempfile
 from collections.abc import Callable
@@ -148,12 +149,22 @@ def _no_constant(name: str) -> Any:
     raise _StrictJsonError(f"non-finite number {name}")
 
 
+def _finite_float(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise _StrictJsonError(f"number {text[:40]} is too large for a float")
+    return value
+
+
 def loads_source(text: str) -> Any:
     """Parse one JSON source document strictly: a repeated key or a non-finite number
-    (``NaN``, ``Infinity``, ``-Infinity``: not JSON, and no snapshot row may hold one) raises
-    ``ValueError`` (a repeated key would otherwise collapse silently, last one winning);
-    nesting too deep to parse raises ``RecursionError``."""
-    return json.loads(text, object_pairs_hook=_unique_keys, parse_constant=_no_constant)
+    (``NaN``, ``Infinity``, ``-Infinity``: not JSON, and no snapshot row may hold one; or a
+    float such as ``1e999`` that overflows to infinity) raises ``ValueError`` (a repeated key
+    would otherwise collapse silently, last one winning); nesting too deep to parse raises
+    ``RecursionError``."""
+    return json.loads(
+        text, object_pairs_hook=_unique_keys, parse_constant=_no_constant, parse_float=_finite_float
+    )
 
 
 def parse_jsonl_lenient(data: bytes, name: str) -> tuple[list[SourceLine], list[dict[str, Any]]]:
