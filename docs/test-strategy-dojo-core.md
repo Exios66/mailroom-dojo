@@ -28,7 +28,7 @@ tasks B and C add their sections.
 
 | Claim | Test |
 |:---|:---|
-| Every scalar layer gives the old output exactly | `test_differential_scalar_parity.py`: 21,009 cases (2,748 calls captured from the old direct tests, the rest seeded generated inputs), 37 functions, compared as canonical JSON |
+| Every scalar layer gives the old output exactly | `test_differential_scalar_parity.py`: 21,549 cases (2,748 calls captured from the old direct tests, the rest seeded generated inputs, 540 of them through fake embedding backends), 37 functions, compared as canonical JSON |
 | The corpus is what it says | same file: header names the old commit and version; counts per function match the lines; both sources present |
 | The mailroom profile equals the old registry | `test_profile_loading.py`: classes and order, live/retired, field maps (corporate_record's 40 fields), name rules, CMS variant, defaults |
 | Every malformed profile is refused at its path | `test_profile_loading.py`: 80 failure cases (unknown keys at every level, unregistered types, label without vocabulary, duplicate class/variant/token/sorter label, variant fields not in class, NaN/inf/bool/text/out-of-range thresholds, reversed bands, bad aliases and catalogs, duplicate YAML keys, YAML 1.1 booleans as keys, invalid YAML) |
@@ -56,10 +56,10 @@ were caught.
 
 ## Task B: entity lists, audits, presence, trace capture, `score_extraction`
 
-- **Parity.** `test_differential_extraction_parity.py` replays 6,414 recorded old-Dojo cases (the old golden
+- **Parity.** `test_differential_extraction_parity.py` replays 6,594 recorded old-Dojo cases (the old golden
   run's `score_extraction` calls, the old direct tests' inputs and seeded generated inputs: role words,
   duplicates, empty lists, partial-GT and containment fields, CMS identifiers, grounded and ungrounded dates
-  with `doc_text`, confidence and reasoning in many shapes) and requires canonical-JSON equality. The golden
+  with `doc_text`, confidence and reasoning in many shapes, 180 cases through fake embedding backends) and requires canonical-JSON equality. The golden
   cases are tied to `scores.json` paths and hashes in the fixture header.
 - **Behaviour under fault.** A scipy import failure reports the greedy matcher and why; any other matcher error
   propagates. A failing, NaN or out-of-range similarity backend inside lists and presence is reported, never

@@ -10,10 +10,9 @@ differ from the defaults; they are built into a variant of the mailroom profile
 here, so the new code reads them from its profile. Outputs are compared as
 canonical JSON.
 
-The generator also builds 180 cases with fake embedding backends (lists, presence,
-``score_extraction``), but the encoder skips them silently (their ``$similarity``
-argument is refused), so the committed corpus holds none; the replay code for them
-below is unused until the corpus is regenerated.
+It also holds 180 cases with fake embedding backends (lists, presence and
+``score_extraction``; constant answers in ``[0, 1]``, None, NaN and a raising backend),
+replayed through the fake backend below.
 """
 
 from __future__ import annotations
@@ -305,6 +304,19 @@ def test_golden_hashes_agree_with_the_classification_corpus():
     header, _ = extraction_corpus()
     assert header["golden_scores_json_sha256"] == classification["old_scores_json_sha256"]
     assert header["golden_inputs_json_sha256"] == classification["old_inputs_json_sha256"]
+
+
+def test_corpus_holds_fake_backend_cases_of_every_kind():
+    """The 180 fake-backend cases are in the corpus (an encoder that refused them once dropped all)."""
+    _, cases = extraction_corpus()
+    backed = [case for case in cases if isinstance(case["args"].get("embedding"), dict)]
+    kinds = Counter(case["args"]["embedding"]["$similarity"]["kind"] for case in backed)
+    assert kinds == {"constant": 90, "none": 30, "raises": 30, "nan": 30}
+    assert Counter(case["function"] for case in backed) == {
+        "score_extraction": 72,
+        "score_entity_list": 60,
+        "score_category_presence": 48,
+    }
 
 
 @pytest.mark.parametrize("source", ["golden", "old_tests", "generated"])

@@ -6,7 +6,8 @@ commit `23f8234c`), and every old behaviour that looks wrong but was kept on pur
 ## Intended differences (task A)
 
 None of these changes a score on the differential corpus or on any old golden case: no
-golden case uses an embedding backend.
+golden case uses an embedding backend, and the corpus's 540 fake-backend cases answer in
+`[0, 1]`, None, NaN or by raising, where the old and new rescue agree.
 
 - **Embedding rescue is injected, never fetched.** The old Dojo built a remote embedding
   matcher itself when none was passed (settings and environment driven). The new Dojo
@@ -48,7 +49,7 @@ old output was deterministic, so changing one is a deliberate, listed score chan
 
 ## Intended differences (task B)
 
-None of these changes a score on the extraction corpus (6,414 cases) or on the 16
+None of these changes a score on the extraction corpus (6,594 cases, 180 through fake embedding backends) or on the 16
 `score_extraction` calls of the old golden run.
 
 - **The list matcher is chosen, not fallen back to.** The old `score_entity_list` fell back

@@ -6,10 +6,10 @@ names, CMS identifiers, every label surface, blanks, unicode and hostile types),
 each with the old output computed at commit 23f8234c. Outputs are compared as
 canonical JSON, so ``1`` and ``1.0``, and ``None`` and ``0.0``, are different answers.
 
-The generator also builds 540 embedding-rescue cases with fake backends, but its
-encoder refuses their ``{"$similarity": spec}`` argument (a key starting with ``$``)
-and skips them without counting, so the committed corpus holds none; embedding
-rescue is covered by ``test_similarity_backend.py`` instead.
+It also holds 540 embedding-rescue cases with fake backends (``{"$similarity": spec}``:
+constant answers in ``[0, 1]``, None, NaN and a raising backend), replayed through an
+:class:`EmbeddingRescue` with the old rescue threshold. Answers the old and new rescue
+treat differently (out of range, text, bool) are covered by ``test_similarity_backend.py``.
 """
 
 from __future__ import annotations
@@ -122,6 +122,17 @@ def test_corpus_header_names_the_old_commit_and_matches_its_content():
     assert header["cases"] == len(cases)
     assert header["cases_by_function"] == dict(sorted(Counter(case["function"] for case in cases).items()))
     assert len({case["id"] for case in cases}) == len(cases)
+
+
+def test_corpus_holds_fake_backend_cases_of_every_kind():
+    """The 540 embedding-rescue cases are in the corpus (an encoder that refused them once dropped all)."""
+    _, cases = scalar_corpus()
+    kinds = Counter(
+        case["args"]["embedding"]["$similarity"]["kind"]
+        for case in cases
+        if isinstance(case["args"].get("embedding"), dict)
+    )
+    assert kinds == {"constant": 360, "none": 60, "raises": 60, "nan": 60}
 
 
 def test_every_corpus_function_has_an_adapter_and_every_adapter_has_cases():

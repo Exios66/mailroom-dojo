@@ -11,7 +11,7 @@ process-global state, no environment variables, no network and no import of the 
 | Piece | Where | Proof |
 |---|---|---|
 | Scoring profile (YAML, immutable, hashable, validated) | `profile/`, `config/clients/mailroom-dataset/scoring.yaml` | loader tests, label-folding parity vs old Dojo |
-| Value helpers, dates, money, text normalization | `values/`, `normalization/` | 21,009-case differential corpus, clock-independence property |
+| Value helpers, dates, money, text normalization | `values/`, `normalization/` | 21,549-case differential corpus, clock-independence property |
 | Scalar scorers, scorer registry, similarity backend (optional, injected), CMS identifier plug-in | `field_scoring/` | same corpus, no-global-state and no-socket tests |
 | Entity lists, audits, presence, row variants, trace capture, `score_extraction` | `field_scoring/` | 16 old golden calls tied to `scores.json`, extraction differential corpus, fault and property tests |
 | Classification labels and metrics (profile-driven class set) | `classification/` | 7,774 of 7,774 classification cases identical, and the classification calls among the recorded golden boundary calls (below) |

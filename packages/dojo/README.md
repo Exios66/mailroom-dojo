@@ -99,12 +99,13 @@ the expected values are not ground truth (comparing two model outputs).
 ## Tests
 
 See `docs/test-strategy-dojo-core.md`. The differential corpus
-(`tests/fixtures/differential/scalar_cases.jsonl`) holds 21,009 inputs with the old Dojo's
-outputs; `scripts/capture_old_dojo_scalar_cases.py` regenerates it from an old checkout
+(`tests/fixtures/differential/scalar_cases.jsonl`) holds 21,549 inputs with the old Dojo's
+outputs (540 of them through fake embedding backends); `scripts/capture_old_dojo_scalar_cases.py` regenerates it from an old checkout
 and never runs in CI.
 
-The extraction corpus (`tests/fixtures/differential/extraction_cases.jsonl`, 6,414 cases)
+The extraction corpus (`tests/fixtures/differential/extraction_cases.jsonl`, 6,594 cases)
 holds the old golden run's `score_extraction` calls, tied to the old `scores.json` by
 path and hash, the calls the old tests make into the extraction layers, and seeded
-generated inputs, many under non-default settings that the replay builds into a profile.
+generated inputs, many under non-default settings that the replay builds into a profile,
+180 of them through fake embedding backends.
 `scripts/capture_old_dojo_extraction_cases.py` regenerates it byte for byte.
