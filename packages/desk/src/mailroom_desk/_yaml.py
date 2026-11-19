@@ -29,7 +29,9 @@ class _UniqueKeyLoader(yaml.SafeLoader):
     one silently, which would hide a copy-paste error in a rule)."""
 
 
-def _construct_mapping(loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+def _construct_mapping(
+    loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False
+) -> dict[Any, Any]:
     seen: set[Any] = set()
     for key_node, _ in node.value:
         key = loader.construct_object(key_node, deep=deep)

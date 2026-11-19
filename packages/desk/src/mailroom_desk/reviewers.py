@@ -47,7 +47,14 @@ from mailroom_desk.errors import RegistryError, RoleNotHeld, TokenRejected, Unkn
 from mailroom_desk.models import ReviewerRef, is_token
 from mailroom_record.hashing import hash_obj
 
-__all__ = ["REGISTRY_SCHEMA", "Reviewer", "ReviewerRegistry", "load_registry", "parse_registry", "token_sha256"]
+__all__ = [
+    "REGISTRY_SCHEMA",
+    "Reviewer",
+    "ReviewerRegistry",
+    "load_registry",
+    "parse_registry",
+    "token_sha256",
+]
 
 REGISTRY_SCHEMA = "mailroom-desk/reviewer-registry/v1"
 
@@ -169,7 +176,9 @@ def parse_registry(raw: object, path: Path | None = None) -> ReviewerRegistry:
     except RecursionError:
         raise RegistryError(path, ["the registry is nested too deeply to validate"]) from None
     except (ValueError, OverflowError) as exc:  # a value too large to convert or to show
-        raise RegistryError(path, [f"a value cannot be validated ({type(exc).__name__}); is it too large?"]) from None
+        raise RegistryError(
+            path, [f"a value cannot be validated ({type(exc).__name__}); is it too large?"]
+        ) from None
 
 
 def _parse_registry(raw: object, path: Path | None) -> ReviewerRegistry:
@@ -204,7 +213,11 @@ def _parse_registry(raw: object, path: Path | None) -> ReviewerRegistry:
         problems.append("a strict registry must list at least one reviewer")
     if problems:
         raise RegistryError(path, problems)
-    content = {"schema": REGISTRY_SCHEMA, "mode": mode, "reviewers": [r.model_dump(mode="json") for r in good]}
+    content = {
+        "schema": REGISTRY_SCHEMA,
+        "mode": mode,
+        "reviewers": [r.model_dump(mode="json") for r in good],
+    }
     return ReviewerRegistry(mode=mode, reviewers=tuple(good), hash=hash_obj(content))
 
 

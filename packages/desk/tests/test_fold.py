@@ -4,16 +4,15 @@ breach, queue order, and agreement with ``Index.review_queue()`` on random histo
 from __future__ import annotations
 
 import itertools
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from desk_testkit import T0, engine_append, log_of, make_run, policy, request
 from hypothesis import example, given
 from hypothesis import strategies as st
 
+from desk_testkit import T0, engine_append, log_of, make_run, policy, request
 from mailroom_desk import AlreadyInReview, Desk, RunChainNotReviewable, fold_case
 from mailroom_desk.fold import episode
 from mailroom_desk.models import (
@@ -55,7 +54,12 @@ def enqueue(env: SimpleNamespace, doc_id: str, *causes: str, at: datetime = T0, 
 def test_claim_holds_until_the_lease_expires_exactly(env: SimpleNamespace) -> None:
     enqueue(env, "d1", "flag_low")
     lease = T0 + timedelta(hours=1)
-    desk_event(env, "d1", ClaimPayload(action="claim", actor=ACTOR, lease_expires_at=format_ts(lease)), T0 + timedelta(minutes=1))
+    desk_event(
+        env,
+        "d1",
+        ClaimPayload(action="claim", actor=ACTOR, lease_expires_at=format_ts(lease)),
+        T0 + timedelta(minutes=1),
+    )
     held = env.desk.case("r1", "d1", now=lease - US)
     assert (held.status, held.claimed_by, held.lease_expires_at) == ("claimed", "rv-a", lease)
     lapsed = env.desk.case("r1", "d1", now=lease)
@@ -87,7 +91,12 @@ def test_release_escalate_defer_and_reopen(env: SimpleNamespace) -> None:
     assert (c.status, c.assignee, c.claimed_by) == ("open", None, None)
 
     desk_event(env, "d1", AssignPayload(action="assign", actor=ACTOR, assignee="rv-b"), T0)
-    desk_event(env, "d1", EscalatePayload(action="escalate", actor=ACTOR, priority="high", sla_hours=2, queue="senior"), t1)
+    desk_event(
+        env,
+        "d1",
+        EscalatePayload(action="escalate", actor=ACTOR, priority="high", sla_hours=2, queue="senior"),
+        t1,
+    )
     c = env.desk.case("r1", "d1", now=t1)
     assert (c.status, c.priority, c.queue, c.assignee) == ("open", "high", "senior", None)
     assert (c.sla_hours, c.sla_due) == (2.0, t1 + timedelta(hours=2))  # counted from the escalation
@@ -101,12 +110,26 @@ def test_release_escalate_defer_and_reopen(env: SimpleNamespace) -> None:
 
     t2 = t1 + timedelta(hours=4)
     reopen = ReopenPayload(
-        action="reopen", actor=ACTOR, causes=("flag_normal",), rule="default", priority="normal", sla_hours=24,
-        queue="main", sampled=False, policy_name="synthetic", policy_hash=env.policy.hash,
+        action="reopen",
+        actor=ACTOR,
+        causes=("flag_normal",),
+        rule="default",
+        priority="normal",
+        sla_hours=24,
+        queue="main",
+        sampled=False,
+        policy_name="synthetic",
+        policy_hash=env.policy.hash,
     )
     desk_event(env, "d1", reopen, t2)
     c = env.desk.case("r1", "d1", now=t2)
-    assert (c.status, c.priority, c.queue, c.causes, c.requested_by) == ("open", "normal", "main", ("flag_normal",), "rv-a")
+    assert (c.status, c.priority, c.queue, c.causes, c.requested_by) == (
+        "open",
+        "normal",
+        "main",
+        ("flag_normal",),
+        "rv-a",
+    )
     assert (c.enqueued_at, c.sla_due, c.anomalies) == (t2, t2 + timedelta(hours=24), ())
 
 
@@ -117,14 +140,32 @@ def test_reopen_clears_assignment_claim_and_deferral(env: SimpleNamespace) -> No
     desk_event(env, "d1", ClaimPayload(action="claim", actor=ACTOR, lease_expires_at=far), T0)
     desk_event(env, "d1", DeferPayload(action="defer", actor=ACTOR, until=far), T0)
     before = env.desk.case("r1", "d1", now=T0)
-    assert (before.status, before.assignee, before.deferred_until) == ("deferred", "rv-b", T0 + timedelta(days=5))
+    assert (before.status, before.assignee, before.deferred_until) == (
+        "deferred",
+        "rv-b",
+        T0 + timedelta(days=5),
+    )
     reopen = ReopenPayload(
-        action="reopen", actor=ACTOR, causes=("flag_normal",), rule="default", priority="normal", sla_hours=24,
-        queue="main", sampled=False, policy_name="synthetic", policy_hash=env.policy.hash,
+        action="reopen",
+        actor=ACTOR,
+        causes=("flag_normal",),
+        rule="default",
+        priority="normal",
+        sla_hours=24,
+        queue="main",
+        sampled=False,
+        policy_name="synthetic",
+        policy_hash=env.policy.hash,
     )
     desk_event(env, "d1", reopen, T0 + timedelta(hours=1))
     c = env.desk.case("r1", "d1", now=T0 + timedelta(hours=1))
-    assert (c.status, c.assignee, c.claimed_by, c.lease_expires_at, c.deferred_until) == ("open", None, None, None, None)
+    assert (c.status, c.assignee, c.claimed_by, c.lease_expires_at, c.deferred_until) == (
+        "open",
+        None,
+        None,
+        None,
+        None,
+    )
 
 
 def test_claim_clears_a_deferral(env: SimpleNamespace) -> None:
@@ -142,7 +183,9 @@ def test_claim_clears_a_deferral(env: SimpleNamespace) -> None:
 
 def test_escalate_without_sla_keeps_the_due_time(env: SimpleNamespace) -> None:
     enqueue(env, "d1", "flag_low")
-    desk_event(env, "d1", EscalatePayload(action="escalate", actor=ACTOR, priority="high"), T0 + timedelta(hours=5))
+    desk_event(
+        env, "d1", EscalatePayload(action="escalate", actor=ACTOR, priority="high"), T0 + timedelta(hours=5)
+    )
     c = env.desk.case("r1", "d1", now=T0)
     assert (c.priority, c.sla_due) == ("high", T0 + timedelta(hours=72))
 
@@ -151,8 +194,10 @@ def test_escalate_past_the_end_of_time_saturates_with_an_anomaly(env: SimpleName
     """The escalate path saturates its new due time like the opening path, and says so."""
     opened = enqueue(env, "d1", "flag_low")
     assert opened.case.anomalies == ()
-    late = datetime(9999, 12, 31, 23, tzinfo=timezone.utc)
-    esc = desk_event(env, "d1", EscalatePayload(action="escalate", actor=ACTOR, priority="high", sla_hours=2), late)
+    late = datetime(9999, 12, 31, 23, tzinfo=UTC)
+    esc = desk_event(
+        env, "d1", EscalatePayload(action="escalate", actor=ACTOR, priority="high", sla_hours=2), late
+    )
     c = env.desk.case("r1", "d1", now=late)
     assert (c.priority, c.sla_hours, c.sla_due) == ("high", 2.0, END_OF_TIME)
     assert c.anomalies == (f"seq {esc.seq}: SLA due time is past the last representable time; saturated",)
@@ -198,8 +243,15 @@ def test_unreadable_and_out_of_place_payloads_are_anomalies_not_drops(env: Simpl
     enqueue(env, "d2", "flag_low")
     second = request("d2", "flag_high")
     raw = {
-        "action": "enqueue", "causes": ["flag_high"], "rule": "default", "priority": "high", "sla_hours": 4,
-        "queue": "main", "sampled": False, "policy_name": "synthetic", "policy_hash": env.policy.hash,
+        "action": "enqueue",
+        "causes": ["flag_high"],
+        "rule": "default",
+        "priority": "high",
+        "sla_hours": 4,
+        "queue": "main",
+        "sampled": False,
+        "policy_name": "synthetic",
+        "policy_hash": env.policy.hash,
         "requested_by": second.requested_by,
     }
     desk_event(env, "d2", raw, T0)
@@ -237,13 +289,28 @@ def test_queue_order_priority_then_due_then_opened_then_id(env: SimpleNamespace)
     enqueue(env, "high-late", "flag_high", at=T0 + timedelta(hours=2))  # high, due +6h
     enqueue(env, "high-early", "flag_high", at=T0 + timedelta(hours=1))  # high, due +5h
     enqueue(env, "conf", "flag_conf", at=T0)  # low, due T0+48h: earlier than low-early
-    enqueue(env, "conf-late", "flag_conf", at=T0 + timedelta(hours=1))  # low, due +49h: opened later, due sooner
+    enqueue(
+        env, "conf-late", "flag_conf", at=T0 + timedelta(hours=1)
+    )  # low, due +49h: opened later, due sooner
     enqueue(env, "b-tie", "flag_high", at=T0 + timedelta(hours=1))  # ties high-early on time
     engine_append(env.root, "r1", "unreadable", "review", payload={"x": 1})  # unknown priority
     order = [c.doc_id for c in env.desk.queue("r1", now=T0)]
-    assert order == ["unreadable", "b-tie", "high-early", "high-late", "normal", "conf", "conf-late", "low-early"]
+    assert order == [
+        "unreadable",
+        "b-tie",
+        "high-early",
+        "high-late",
+        "normal",
+        "conf",
+        "conf-late",
+        "low-early",
+    ]
     assert order.index("conf-late") < order.index("low-early")  # due time before opened time
-    assert [c.doc_id for c in env.desk.queue("r1", now=T0, queue="senior")] == ["b-tie", "high-early", "high-late"]
+    assert [c.doc_id for c in env.desk.queue("r1", now=T0, queue="senior")] == [
+        "b-tie",
+        "high-early",
+        "high-late",
+    ]
     assert [c.doc_id for c in env.desk.queue(now=T0, statuses=["open"])] == order
 
 
@@ -265,10 +332,23 @@ FOREIGN = ("garbage", "empty", "assign", "claim_lapsed", "claim_live", "defer", 
 HOUR = timedelta(hours=1)
 
 _op = st.one_of(
-    st.tuples(st.just("engine"), st.sampled_from(RUNS), st.sampled_from((*DOCS, RUN_CHAIN)), st.sampled_from(NON_REVIEW)),
-    st.tuples(st.just("foreign_review"), st.sampled_from(RUNS), st.sampled_from((*DOCS, RUN_CHAIN)), st.sampled_from(FOREIGN)),
     st.tuples(
-        st.just("desk"), st.sampled_from(RUNS), st.sampled_from((*DOCS, RUN_CHAIN)), st.sampled_from(("flag_low", "flag_high", "slot:a:b"))
+        st.just("engine"),
+        st.sampled_from(RUNS),
+        st.sampled_from((*DOCS, RUN_CHAIN)),
+        st.sampled_from(NON_REVIEW),
+    ),
+    st.tuples(
+        st.just("foreign_review"),
+        st.sampled_from(RUNS),
+        st.sampled_from((*DOCS, RUN_CHAIN)),
+        st.sampled_from(FOREIGN),
+    ),
+    st.tuples(
+        st.just("desk"),
+        st.sampled_from(RUNS),
+        st.sampled_from((*DOCS, RUN_CHAIN)),
+        st.sampled_from(("flag_low", "flag_high", "slot:a:b")),
     ),
 )
 
@@ -279,7 +359,9 @@ def _payload(kind: str) -> dict[str, Any]:
         "garbage": {"action": "teleport", "where": "elsewhere"},
         "empty": {},
         "assign": AssignPayload(action="assign", actor=ACTOR, assignee="rv-b"),
-        "claim_lapsed": ClaimPayload(action="claim", actor=ACTOR, lease_expires_at=format_ts(T0)),  # lapsed at T0
+        "claim_lapsed": ClaimPayload(
+            action="claim", actor=ACTOR, lease_expires_at=format_ts(T0)
+        ),  # lapsed at T0
         "claim_live": ClaimPayload(action="claim", actor=ACTOR, lease_expires_at=format_ts(T0 + HOUR)),
         "defer": DeferPayload(action="defer", actor=ACTOR, until=format_ts(T0 + HOUR)),
         "release": ReleasePayload(action="release", actor=ACTOR),
@@ -347,13 +429,16 @@ class _Model:
         ("engine", "r2", "d2", "handoff"),
     ]
 )
-def test_fold_agrees_with_the_index_on_random_histories(tmp_path_factory: pytest.TempPathFactory, ops: list) -> None:
+def test_fold_agrees_with_the_index_on_random_histories(
+    tmp_path_factory: pytest.TempPathFactory, ops: list
+) -> None:
     """After every step: the queue of a desk without an index and of one that applies its
     events to an index are the same list (same cases, statuses and order; both read the
     log); their membership is ``Index.review_queue()`` of an applied and of a rebuilt
-    index, which the record keeps independently of the desk's fold; each status is the one the test's own model expects;
-    the queue is in ``sort_key`` order; the desk refuses exactly when the model says the
-    document is in review (or is ``_run``), and never writes a review event on a review head."""
+    index, which the record keeps independently of the desk's fold; each status is the one
+    the test's own model expects; the queue is in ``sort_key`` order; the desk refuses
+    exactly when the model says the document is in review (or is ``_run``), and never writes
+    a review event on a review head."""
     root = tmp_path_factory.mktemp("history")
     for run_id in RUNS:
         make_run(root, run_id)
@@ -375,7 +460,13 @@ def test_fold_agrees_with_the_index_on_random_histories(tmp_path_factory: pytest
             model.foreign(key, arg)
         else:
             before = len(list(log.iter_events(run_id, doc_id)))
-            refusal = RunChainNotReviewable if doc_id == RUN_CHAIN else AlreadyInReview if model.in_review(key) else None
+            refusal = (
+                RunChainNotReviewable
+                if doc_id == RUN_CHAIN
+                else AlreadyInReview
+                if model.in_review(key)
+                else None
+            )
             if refusal is not None:
                 with pytest.raises(refusal):
                     indexed.enqueue(request(doc_id, arg, run_id=run_id), pol)

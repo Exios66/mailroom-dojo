@@ -67,7 +67,9 @@ def test_record_and_labels_import_nothing_of_the_desk() -> None:
 def test_library_code_names_no_class_or_field_of_the_synthetic_profile() -> None:
     """R4: classes and fields are profile data; a hard-coded one would make a new class a
     code change. The names are the labels package's synthetic profile."""
-    profile = yaml.safe_load((REPO / "packages/labels/tests/fixtures/synthetic-profile.yaml").read_text(encoding="utf-8"))
+    profile = yaml.safe_load(
+        (REPO / "packages/labels/tests/fixtures/synthetic-profile.yaml").read_text(encoding="utf-8")
+    )
     names = set(profile["classes"])
     for spec in profile["classes"].values():
         names |= set(spec.get("fields", {}))

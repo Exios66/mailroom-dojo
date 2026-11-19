@@ -74,7 +74,9 @@ def episode(events: Sequence[Event]) -> tuple[list[Event], Event | None] | None:
 
 def _why(exc: ValidationError) -> str:
     """Field locations and error types only: a payload may hold anything."""
-    return "; ".join(".".join(str(x) for x in e.get("loc", ())) + ": " + str(e.get("type")) for e in exc.errors())
+    return "; ".join(
+        ".".join(str(x) for x in e.get("loc", ())) + ": " + str(e.get("type")) for e in exc.errors()
+    )
 
 
 def _due(seq: int, at: datetime, hours: float, anomalies: list[str]) -> datetime:

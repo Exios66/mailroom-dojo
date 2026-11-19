@@ -16,8 +16,17 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-from desk_testkit import enqueue_in_child, enqueue_then_hang, hold_desk_lock, log_of, make_run, policy, request, review_events
 
+from desk_testkit import (
+    enqueue_in_child,
+    enqueue_then_hang,
+    hold_desk_lock,
+    log_of,
+    make_run,
+    policy,
+    request,
+    review_events,
+)
 from mailroom_desk import AlreadyInReview, Desk, DeskLockTimeout, desk_lock
 from mailroom_record.verify import verify_run
 
@@ -27,7 +36,10 @@ CTX = mp.get_context("spawn")
 def _run_children(root: Path, plans: list[list[str]], pause: float) -> list[tuple[str, str]]:
     barrier = CTX.Barrier(len(plans))
     results = CTX.Queue()
-    procs = [CTX.Process(target=enqueue_in_child, args=(str(root), "r1", docs, barrier, results, pause)) for docs in plans]
+    procs = [
+        CTX.Process(target=enqueue_in_child, args=(str(root), "r1", docs, barrier, results, pause))
+        for docs in plans
+    ]
     for p in procs:
         p.start()
     out = [results.get(timeout=120) for _ in range(sum(len(d) for d in plans))]
@@ -84,9 +96,8 @@ def test_desk_killed_between_lock_and_append_leaves_a_clean_record_and_no_lock(t
     _wait_for(marker, child)
     # The child is inside enqueue, holding the desk lock (and the seal lock), checked and
     # about to append. Positive control: the lock really is held now.
-    with pytest.raises(DeskLockTimeout):
-        with desk_lock(tmp_path, "r1", timeout=0.1):
-            pass
+    with pytest.raises(DeskLockTimeout), desk_lock(tmp_path, "r1", timeout=0.1):
+        pass
     os.kill(child.pid, signal.SIGKILL)
     child.join(30)
     assert child.exitcode == -signal.SIGKILL
@@ -95,10 +106,14 @@ def test_desk_killed_between_lock_and_append_leaves_a_clean_record_and_no_lock(t
         pass
     assert review_events(tmp_path) == []
     _verify_clean(tmp_path)
-    done = Desk(tmp_path, lock_timeout=2).enqueue(request("d1", "flag_low"), policy(sample={"rate": 0.0, "seed": ""}))
+    done = Desk(tmp_path, lock_timeout=2).enqueue(
+        request("d1", "flag_low"), policy(sample={"rate": 0.0, "seed": ""})
+    )
     assert done.event.seq == 0
     with pytest.raises(AlreadyInReview):
-        Desk(tmp_path, lock_timeout=2).enqueue(request("d1", "flag_low"), policy(sample={"rate": 0.0, "seed": ""}))
+        Desk(tmp_path, lock_timeout=2).enqueue(
+            request("d1", "flag_low"), policy(sample={"rate": 0.0, "seed": ""})
+        )
     _verify_clean(tmp_path)
     assert verify_run(log, log.blobs, "r1").ok
 
@@ -142,9 +157,9 @@ def test_a_child_forked_without_exec_keeps_the_lock_after_the_parent_lets_go(tmp
                 os._exit(0)
         os.close(r)
     try:
-        with pytest.raises(DeskLockTimeout):  # the parent closed its descriptor; the child's holds the lock
-            with desk_lock(tmp_path, "r1", timeout=0):
-                pass
+        # The parent closed its descriptor; the child's holds the lock.
+        with pytest.raises(DeskLockTimeout), desk_lock(tmp_path, "r1", timeout=0):
+            pass
     finally:
         os.close(w)
         _, status = os.waitpid(pid, 0)

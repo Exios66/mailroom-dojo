@@ -8,7 +8,7 @@ file.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +20,7 @@ from mailroom_record.blobs import BlobStore
 from mailroom_record.log import EventLog
 from mailroom_record.models import Event, Run
 
-T0 = datetime(2026, 11, 18, 12, 0, 0, tzinfo=timezone.utc)
+T0 = datetime(2026, 11, 18, 12, 0, 0, tzinfo=UTC)
 
 # A synthetic policy. Tokens are made up; none is a real cause of any pipeline.
 POLICY: dict[str, Any] = {
@@ -38,14 +38,22 @@ POLICY: dict[str, Any] = {
         {"token": "spot_check", "description": "Sampled.", "priority": "low", "sla_hours": 72},
     ],
     "rules": [
-        {"name": "high_to_senior", "when": {"cause_in": ["flag_high"]}, "then": {"queue": "senior", "required_role": "senior"}},
+        {
+            "name": "high_to_senior",
+            "when": {"cause_in": ["flag_high"]},
+            "then": {"queue": "senior", "required_role": "senior"},
+        },
         {
             "name": "class_and_low_conf",
             "when": {"cause_in": ["flag_class"], "class_in": ["kind_b"], "confidence_below": 0.5},
             "then": {"priority": "high", "sla_hours": 1, "queue": "combo", "prefill_ref": "prefill-combo"},
         },
         {"name": "class_only", "when": {"class_in": ["kind_a", "kind_b"]}, "then": {"queue": "by_class"}},
-        {"name": "low_conf", "when": {"confidence_below": 0.3}, "then": {"priority": "normal", "sla_hours": 12}},
+        {
+            "name": "low_conf",
+            "when": {"confidence_below": 0.3},
+            "then": {"priority": "normal", "sla_hours": 12},
+        },
         {"name": "slots", "when": {"cause_in": ["slot:*:*"]}, "then": {"queue": "slots"}},
         {"name": "sampled", "when": {"cause_in": ["spot_check"]}, "then": {"queue": "qa"}},
         {"name": "default", "then": {}},
@@ -101,15 +109,26 @@ def log_of(root: Path) -> EventLog:
     return EventLog(Path(root), BlobStore(Path(root)))
 
 
-def engine_append(root: Path, run_id: str, doc_id: str, kind: str = "decision", *, payload: dict | None = None,
-                  node: str = "step", writer_id: str = "w0", ts: str | None = None) -> Event:
+def engine_append(
+    root: Path,
+    run_id: str,
+    doc_id: str,
+    kind: str = "decision",
+    *,
+    payload: dict | None = None,
+    node: str = "step",
+    writer_id: str = "w0",
+    ts: str | None = None,
+) -> Event:
     """Append one non-desk event with its own writer, flushed and closed (as an engine would)."""
     with log_of(root).open_writer(run_id, writer_id) as w:
         return w.append(doc_id=doc_id, node=node, kind=kind, payload=payload, ts=ts)
 
 
 def request(doc_id: str = "d1", *causes: str, run_id: str = "r1", **kw: Any) -> ReviewRequest:
-    return ReviewRequest(run_id=run_id, doc_id=doc_id, causes=causes, requested_by=kw.pop("requested_by", "tester"), **kw)
+    return ReviewRequest(
+        run_id=run_id, doc_id=doc_id, causes=causes, requested_by=kw.pop("requested_by", "tester"), **kw
+    )
 
 
 def doc_events(root: Path, run_id: str, doc_id: str) -> list[Event]:
@@ -168,10 +187,12 @@ class _SlowClock:
         import time
 
         time.sleep(self.pause)
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
 
-def enqueue_in_child(root: str, run_id: str, doc_ids: list[str], barrier: Any, results: Any, pause: float) -> None:
+def enqueue_in_child(
+    root: str, run_id: str, doc_ids: list[str], barrier: Any, results: Any, pause: float
+) -> None:
     """Wait at ``barrier``, then enqueue each document; put ``(doc_id, outcome)`` on ``results``."""
     from mailroom_desk import AlreadyInReview, Desk
 

@@ -90,7 +90,9 @@ class RunChainNotReviewable(DeskError):
     events, not a document, so it is never put in review."""
 
     def __init__(self, run_id: str, doc_id: str) -> None:
-        super().__init__(f"{doc_id!r} of run {run_id!r} is the run-level chain, not a document; it is never reviewed")
+        super().__init__(
+            f"{doc_id!r} of run {run_id!r} is the run-level chain, not a document; it is never reviewed"
+        )
         self.run_id = run_id
         self.doc_id = doc_id
 
@@ -159,7 +161,9 @@ class RecordBusy(DeskError):
     close its writer first (the engine never writes to a document it hands to review)."""
 
     def __init__(self, run_id: str, doc_id: str, cause: BaseException) -> None:
-        super().__init__(f"document {doc_id!r} of run {run_id!r} is held by another writer ({type(cause).__name__})")
+        super().__init__(
+            f"document {doc_id!r} of run {run_id!r} is held by another writer ({type(cause).__name__})"
+        )
         self.run_id = run_id
         self.doc_id = doc_id
         self.cause = cause
@@ -183,7 +187,10 @@ class RecordWriteFailed(DeskError):
     ``verify_run``; the next desk writer continues in a new segment."""
 
     def __init__(self, run_id: str, doc_id: str, cause: BaseException) -> None:
-        super().__init__(f"writing the review event of document {doc_id!r} of run {run_id!r} failed ({type(cause).__name__})")
+        super().__init__(
+            f"writing the review event of document {doc_id!r} of run {run_id!r} failed "
+            f"({type(cause).__name__})"
+        )
         self.run_id = run_id
         self.doc_id = doc_id
         self.cause = cause

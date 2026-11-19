@@ -67,7 +67,7 @@ import itertools
 import re
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from mailroom_desk.errors import (
@@ -102,7 +102,7 @@ _SEAL_NAME_RE = re.compile(r"(0|[1-9][0-9]*)\.json")
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass(frozen=True)
@@ -276,7 +276,9 @@ class Desk:
                     raise RecordDamaged(run_id, exc) from exc
             yield
 
-    def _append(self, run_id: str, doc_id: str, *, cause: str, payload: dict, inputs: Sequence, ts: str) -> Event:
+    def _append(
+        self, run_id: str, doc_id: str, *, cause: str, payload: dict, inputs: Sequence, ts: str
+    ) -> Event:
         """Open the desk writer, append one review event, flush and close (under the lock)."""
         try:
             writer = self.log.open_writer(run_id, WRITER_ID)
@@ -289,7 +291,13 @@ class Desk:
         try:
             try:  # buffers the event (nothing written yet) after reading the chain's head
                 event = writer.append(
-                    doc_id=doc_id, node=NODE, kind="review", cause=cause, inputs=inputs, payload=payload, ts=ts
+                    doc_id=doc_id,
+                    node=NODE,
+                    kind="review",
+                    cause=cause,
+                    inputs=inputs,
+                    payload=payload,
+                    ts=ts,
                 )
             except (CorruptLine, ForkedChain, OSError) as exc:
                 raise RecordDamaged(run_id, exc) from exc

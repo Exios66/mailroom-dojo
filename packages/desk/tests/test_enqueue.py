@@ -7,11 +7,12 @@ import os
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
 from desk_testkit import (
     T0,
     doc_events,
@@ -24,7 +25,6 @@ from desk_testkit import (
     seal_within,
     segment_files,
 )
-
 from mailroom_desk import (
     WRITER_ID,
     AlreadyInReview,
@@ -78,7 +78,12 @@ def test_enqueue_appends_one_review_event_with_the_routing(env: SimpleNamespace)
     p = parse_payload(e.payload)
     assert isinstance(p, EnqueuePayload)
     assert (p.causes, p.rule, p.priority, p.sla_hours, p.queue, p.required_role) == (
-        ("flag_high", "flag_low"), "high_to_senior", "high", 4.0, "senior", "senior"
+        ("flag_high", "flag_low"),
+        "high_to_senior",
+        "high",
+        4.0,
+        "senior",
+        "senior",
     )
     assert (p.sampled, p.policy_name, p.policy_hash) == (False, "synthetic", env.policy.hash)
     assert (p.requested_by, p.class_hint, p.confidence_hint) == ("tester", "kind_c", 0.9)
@@ -86,7 +91,13 @@ def test_enqueue_appends_one_review_event_with_the_routing(env: SimpleNamespace)
     assert doc_events(env.root, "r1", "d1")[-1] == e
     assert any(name.startswith(WRITER_ID) for name in segment_files(env.root))
     case = done.case
-    assert (case.status, case.priority, case.queue, case.enqueued_at, case.opened_seq) == ("open", "high", "senior", T0, 1)
+    assert (case.status, case.priority, case.queue, case.enqueued_at, case.opened_seq) == (
+        "open",
+        "high",
+        "senior",
+        T0,
+        1,
+    )
     assert env.desk.case("r1", "d1") == case
     verify_ok(env)
 
@@ -109,7 +120,9 @@ def test_payload_holds_no_free_text(env: SimpleNamespace) -> None:
 # --- refusals before the record is touched -------------------------------------------
 
 
-@pytest.mark.parametrize("cause", ["transient_exhausted", "provider_unavailable", "slot:x:provider_unavailable"])
+@pytest.mark.parametrize(
+    "cause", ["transient_exhausted", "provider_unavailable", "slot:x:provider_unavailable"]
+)
 def test_outage_causes_are_refused(env: SimpleNamespace, cause: str) -> None:
     before = segment_files(env.root)
     with pytest.raises(OutageNotReviewable) as info:
@@ -209,7 +222,11 @@ def test_sample_only_request_enters_only_when_sampled(env: SimpleNamespace) -> N
         if d in picked:
             p = parse_payload(out.event.payload)
             assert (out.event.cause, p.causes, p.sampled, p.rule, p.queue) == (
-                "spot_check", ("spot_check",), True, "sampled", "qa"
+                "spot_check",
+                ("spot_check",),
+                True,
+                "sampled",
+                "qa",
             )
         else:
             assert out is None
@@ -345,7 +362,11 @@ def test_seal_landing_while_waiting_for_the_desk_lock_is_seen_under_the_lock(
 
     def enqueue() -> None:
         try:
-            outcome.append(Desk(env.root, clock=env.clock, lock_timeout=30).enqueue(request("d1", "flag_low"), env.policy))
+            outcome.append(
+                Desk(env.root, clock=env.clock, lock_timeout=30).enqueue(
+                    request("d1", "flag_low"), env.policy
+                )
+            )
         except BaseException as exc:  # noqa: BLE001 - asserted below
             outcome.append(exc)
 
@@ -408,7 +429,9 @@ def test_seal_guard_is_the_lock_seal_run_takes(env: SimpleNamespace, monkeypatch
 
 
 @LINUX_ONLY
-def test_seal_guard_creates_the_seals_directory_durably(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_seal_guard_creates_the_seals_directory_durably(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """``seal_run`` fsyncs the run directory only when it creates ``seals/`` itself, so the
     guard must do it when it creates the directory first: ``seals/`` and the run directory
     are fsynced after the ``mkdir`` and before the lock is taken, on every call. What a test
@@ -441,16 +464,14 @@ def test_seal_guard_creates_the_seals_directory_durably(env: SimpleNamespace, mo
 
 
 def test_seal_guard_on_a_missing_run_directory_creates_nothing(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError):
-        with seal_guard(tmp_path, "nope", timeout=0):
-            pass
+    with pytest.raises(FileNotFoundError), seal_guard(tmp_path, "nope", timeout=0):
+        pass
     assert list(tmp_path.iterdir()) == []
 
 
 def test_seal_lock_held_too_long_times_out(env: SimpleNamespace) -> None:
-    with seal_guard(env.root, "r1", timeout=1):
-        with pytest.raises(DeskLockTimeout) as info:
-            Desk(env.root, lock_timeout=0.1).enqueue(request("d1", "flag_low"), env.policy)
+    with seal_guard(env.root, "r1", timeout=1), pytest.raises(DeskLockTimeout) as info:
+        Desk(env.root, lock_timeout=0.1).enqueue(request("d1", "flag_low"), env.policy)
     assert info.value.lock == "seal"
     assert review_events(env.root) == []
 
@@ -533,9 +554,8 @@ def test_document_held_by_a_live_writer_in_this_process_is_busy(env: SimpleNames
 
 
 def test_desk_writer_id_held_elsewhere_is_busy(env: SimpleNamespace) -> None:
-    with env.log.open_writer("r1", WRITER_ID):
-        with pytest.raises(RecordBusy):
-            env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    with env.log.open_writer("r1", WRITER_ID), pytest.raises(RecordBusy):
+        env.desk.enqueue(request("d1", "flag_low"), env.policy)
     assert review_events(env.root) == []
 
 
@@ -555,9 +575,8 @@ def test_lock_timeout_refuses_and_appends_nothing(env: SimpleNamespace) -> None:
 
 @pytest.mark.parametrize("bad", [-1, float("inf"), float("nan"), "1", True, None])
 def test_bad_lock_timeouts_are_refused(env: SimpleNamespace, bad: object) -> None:
-    with pytest.raises(ValueError):
-        with desk_lock(env.root, "r1", timeout=bad):  # type: ignore[arg-type]
-            pass
+    with pytest.raises(ValueError), desk_lock(env.root, "r1", timeout=bad):  # type: ignore[arg-type]
+        pass
     with pytest.raises(ValueError):
         Desk(env.root, lock_timeout=bad)  # type: ignore[arg-type]
 
@@ -720,7 +739,10 @@ def test_index_drift_reports_and_never_raises(env: SimpleNamespace) -> None:
     a damaged log are problem lines, never exceptions."""
     env.desk.enqueue(request("d1", "flag_low"), env.policy)
     missing = Desk(env.root, index=Index(env.root / "never-built.sqlite"), clock=env.clock)
-    assert missing.index_drift() == [f"r1: index unavailable (IndexUnavailable: index {env.root / 'never-built.sqlite'} is missing; run reindex)"]
+    assert missing.index_drift() == [
+        f"r1: index unavailable (IndexUnavailable: index {env.root / 'never-built.sqlite'} "
+        "is missing; run reindex)"
+    ]
     assert [c.doc_id for c in missing.queue("r1")] == ["d1"]  # reading never needed it
     index = Index(env.root / "index.sqlite")
     index.reindex(env.log)
@@ -835,7 +857,7 @@ def test_request_validation() -> None:
 
 # --- the edges of time and a full disk ------------------------------------------------
 
-END = datetime(9999, 12, 31, 23, 0, tzinfo=timezone.utc)
+END = datetime(9999, 12, 31, 23, 0, tzinfo=UTC)
 
 
 def test_enqueue_at_the_end_of_time_returns_its_event(env: SimpleNamespace) -> None:
@@ -845,7 +867,7 @@ def test_enqueue_at_the_end_of_time_returns_its_event(env: SimpleNamespace) -> N
     done = env.desk.enqueue(request("d1", "flag_low"), env.policy)  # 72 h past the end
     assert done.event.ts == "9999-12-31T23:00:00.000000Z"
     assert doc_events(env.root, "r1", "d1") == [done.event]
-    assert done.case.sla_due == datetime.max.replace(tzinfo=timezone.utc)
+    assert done.case.sla_due == datetime.max.replace(tzinfo=UTC)
     assert any("saturated" in a for a in done.case.anomalies)
     assert not done.case.breached(END)
     verify_ok(env)
@@ -854,24 +876,36 @@ def test_enqueue_at_the_end_of_time_returns_its_event(env: SimpleNamespace) -> N
 def test_one_far_future_event_does_not_take_down_the_queue(env: SimpleNamespace) -> None:
     env.desk.enqueue(request("d1", "flag_high"), env.policy)
     far = EnqueuePayload(
-        action="enqueue", causes=("flag_low",), rule="default", priority="low", sla_hours=72, queue="main",
-        sampled=False, policy_name="synthetic", policy_hash=env.policy.hash, requested_by="node:x",
+        action="enqueue",
+        causes=("flag_low",),
+        rule="default",
+        priority="low",
+        sla_hours=72,
+        queue="main",
+        sampled=False,
+        policy_name="synthetic",
+        policy_hash=env.policy.hash,
+        requested_by="node:x",
     )
     with env.log.open_writer("r1", "other") as w:  # a record-valid event from another writer
-        w.append(doc_id="d2", node=NODE, kind="review", payload=far.model_dump(mode="json"), ts=format_ts(END))
+        w.append(
+            doc_id="d2", node=NODE, kind="review", payload=far.model_dump(mode="json"), ts=format_ts(END)
+        )
     cases = env.desk.queue("r1")
     assert [c.doc_id for c in cases] == ["d1", "d2"]
-    assert cases[1].sla_due == datetime.max.replace(tzinfo=timezone.utc) and cases[1].anomalies
+    assert cases[1].sla_due == datetime.max.replace(tzinfo=UTC) and cases[1].anomalies
 
 
 def test_enqueue_at_the_start_of_time_writes_a_valid_timestamp(env: SimpleNamespace) -> None:
-    env.clock.moment = datetime(5, 1, 1, tzinfo=timezone.utc)
+    env.clock.moment = datetime(5, 1, 1, tzinfo=UTC)
     done = env.desk.enqueue(request("d1", "flag_low"), env.policy)
     assert done.event.ts == "0005-01-01T00:00:00.000000Z"
     verify_ok(env)
 
 
-def test_close_failing_after_a_good_flush_does_not_raise(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_close_failing_after_a_good_flush_does_not_raise(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Once the flush succeeded the event is durable, so an ``OSError`` from closing the
     writer (closing a descriptor can report a late error) must not make ``enqueue``
     raise: it returns the event, the lock is free and the record verifies."""

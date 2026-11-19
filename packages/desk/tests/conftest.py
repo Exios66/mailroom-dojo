@@ -7,9 +7,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from desk_testkit import FakeClock, make_run, policy
 from hypothesis import HealthCheck, settings
 
+from desk_testkit import FakeClock, make_run, policy
 from mailroom_desk import Desk
 
 # Same profile names as the record and labels tests, so one HYPOTHESIS_PROFILE drives all.
@@ -34,5 +34,10 @@ def env(tmp_path: Path, clock: FakeClock) -> SimpleNamespace:
     log = make_run(tmp_path, "r1")
     desk = Desk(tmp_path, clock=clock, lock_timeout=5)
     return SimpleNamespace(
-        root=tmp_path, log=log, blobs=log.blobs, desk=desk, clock=clock, policy=policy(sample={"rate": 0.0, "seed": ""})
+        root=tmp_path,
+        log=log,
+        blobs=log.blobs,
+        desk=desk,
+        clock=clock,
+        policy=policy(sample={"rate": 0.0, "seed": ""}),
     )

@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 import yaml
-from desk_testkit import POLICY, policy, policy_dict, write_yaml
 
+from desk_testkit import POLICY, policy, policy_dict, write_yaml
 from mailroom_desk import OUTAGE_TOKENS, SPOT_CHECK, PolicyError, load_policy, parse_policy
 from mailroom_desk.policy import Sample, is_outage, pattern_matches, unknown_classes
 from mailroom_labels.profile import load_profile
@@ -49,7 +49,11 @@ def test_all_conditions_of_a_rule_must_hold() -> None:
     p = policy()
     hit = p.route(["flag_class"], "kind_b", 0.49)
     assert (hit.rule, hit.priority, hit.sla_hours, hit.queue, hit.prefill_ref) == (
-        "class_and_low_conf", "high", 1.0, "combo", "prefill-combo"
+        "class_and_low_conf",
+        "high",
+        1.0,
+        "combo",
+        "prefill-combo",
     )
     # Drop any one condition and the combined rule no longer matches: the next match wins.
     assert p.route(["flag_normal"], "kind_b", 0.49).rule == "class_only"  # cause_in fails
@@ -84,7 +88,13 @@ def test_default_rule_takes_catalog_priority_and_default_queue() -> None:
     r = policy().route(["flag_normal", "flag_low"])
     assert r.rule == "default"
     # The most urgent priority and the shortest SLA among the causes.
-    assert (r.priority, r.sla_hours, r.queue, r.required_role, r.prefill_ref) == ("normal", 24.0, "main", None, None)
+    assert (r.priority, r.sla_hours, r.queue, r.required_role, r.prefill_ref) == (
+        "normal",
+        24.0,
+        "main",
+        None,
+        None,
+    )
     r = policy().route(["flag_low", "flag_conf"])
     assert (r.priority, r.sla_hours) == ("low", 48.0)
 
@@ -204,7 +214,9 @@ def test_unknown_keys_are_refused_at_every_level(where: str, mutate: Any, expect
     assert any(expect in p for p in problems_of(raw)), where
 
 
-@pytest.mark.parametrize("token", ["Flag", "flag-x", "flag:", ":flag", "flag::x", "", "flag x", "flag\n", 7, None])
+@pytest.mark.parametrize(
+    "token", ["Flag", "flag-x", "flag:", ":flag", "flag::x", "", "flag x", "flag\n", 7, None]
+)
 def test_bad_cause_tokens_are_refused(token: Any) -> None:
     raw = policy_dict()
     raw["causes"][0]["token"] = token
@@ -309,7 +321,9 @@ def test_outage_tokens_are_refused_in_the_catalog_and_rules(outage: str) -> None
     raw["causes"].append({"token": outage, "description": "x", "priority": "high", "sla_hours": 1})
     assert any("names a provider outage" in p for p in problems_of(raw))
     raw = policy_dict()
-    raw["causes"].append({"token": f"slot_b:{outage}", "description": "x", "priority": "high", "sla_hours": 1})
+    raw["causes"].append(
+        {"token": f"slot_b:{outage}", "description": "x", "priority": "high", "sla_hours": 1}
+    )
     assert any("names a provider outage" in p for p in problems_of(raw))
     raw = policy_dict()
     raw["rules"][0]["when"]["cause_in"] = [f"slot:x:{outage}"]
@@ -350,7 +364,9 @@ def test_hash_ignores_key_order_comments_and_number_format(tmp_path: Path) -> No
     for cause in raw["causes"]:
         cause["sla_hours"] = float(cause["sla_hours"])  # 4 -> 4.0
     path = tmp_path / "default.yaml"
-    path.write_text("# no comments survive this\n" + yaml.safe_dump(_reordered(raw), sort_keys=False), encoding="utf-8")
+    path.write_text(
+        "# no comments survive this\n" + yaml.safe_dump(_reordered(raw), sort_keys=False), encoding="utf-8"
+    )
     assert path.read_text() != DEFAULT_POLICY.read_text()
     assert load_policy(path).hash == base.hash
     assert parse_policy(_reordered(policy_dict())).hash == policy().hash
@@ -360,22 +376,49 @@ def _mutations() -> list[tuple[str, Any]]:
     out: list[tuple[str, Any]] = []
     raw = policy_dict()
     for i, rule in enumerate(raw["rules"]):
-        out.append((f"rules[{i}].name", lambda r, i=i: r["rules"][i].update(name=r["rules"][i]["name"] + "_x")))
-        out.append((f"rules[{i}].then.queue", lambda r, i=i: r["rules"][i].setdefault("then", {}).update(queue="other_q")))
         out.append(
-            (f"rules[{i}].then.required_role", lambda r, i=i: r["rules"][i].setdefault("then", {}).update(required_role="role_x"))
+            (f"rules[{i}].name", lambda r, i=i: r["rules"][i].update(name=r["rules"][i]["name"] + "_x"))
+        )
+        out.append(
+            (
+                f"rules[{i}].then.queue",
+                lambda r, i=i: r["rules"][i].setdefault("then", {}).update(queue="other_q"),
+            )
+        )
+        out.append(
+            (
+                f"rules[{i}].then.required_role",
+                lambda r, i=i: r["rules"][i].setdefault("then", {}).update(required_role="role_x"),
+            )
         )
         if rule.get("when"):
             out.append(
-                (f"rules[{i}].when.class_in", lambda r, i=i: r["rules"][i]["when"].update(class_in=["kind_z"]))
+                (
+                    f"rules[{i}].when.class_in",
+                    lambda r, i=i: r["rules"][i]["when"].update(class_in=["kind_z"]),
+                )
             )
             out.append(
-                (f"rules[{i}].when.confidence_below", lambda r, i=i: r["rules"][i]["when"].update(confidence_below=0.77))
+                (
+                    f"rules[{i}].when.confidence_below",
+                    lambda r, i=i: r["rules"][i]["when"].update(confidence_below=0.77),
+                )
             )
     for i in range(len(raw["causes"])):
-        out.append((f"causes[{i}].sla_hours", lambda r, i=i: r["causes"][i].update(sla_hours=r["causes"][i]["sla_hours"] + 1)))
-        out.append((f"causes[{i}].priority", lambda r, i=i: r["causes"][i].update(
-            priority="high" if r["causes"][i]["priority"] != "high" else "low")))
+        out.append(
+            (
+                f"causes[{i}].sla_hours",
+                lambda r, i=i: r["causes"][i].update(sla_hours=r["causes"][i]["sla_hours"] + 1),
+            )
+        )
+        out.append(
+            (
+                f"causes[{i}].priority",
+                lambda r, i=i: r["causes"][i].update(
+                    priority="high" if r["causes"][i]["priority"] != "high" else "low"
+                ),
+            )
+        )
         out.append((f"causes[{i}].description", lambda r, i=i: r["causes"][i].update(description="Changed.")))
     out += [
         ("rules swapped", lambda r: r["rules"].insert(0, r["rules"].pop(1))),
@@ -517,18 +560,26 @@ def test_an_oversized_value_is_shown_shortened_in_the_problem() -> None:
     assert len(found) == 1 and found[0].startswith("default_queue is not a token: 'QQQ")
     assert "..." in found[0] and len(found[0]) < 120
     huge = problems_of(policy_dict(sample={"rate": 10**4000, "seed": "s"}))
-    assert len(huge) == 1 and huge[0].startswith("sample.rate must be a number in [0, 1], got ") and len(huge[0]) < 120
+    assert (
+        len(huge) == 1
+        and huge[0].startswith("sample.rate must be a number in [0, 1], got ")
+        and len(huge[0]) < 120
+    )
 
 
 def test_an_integer_literal_too_long_to_read_is_a_policy_error(tmp_path: Path) -> None:
     path = tmp_path / "synthetic.yaml"
-    text = yaml.safe_dump(POLICY, sort_keys=False).replace("sla_hours: 4\n", "sla_hours: " + "9" * 5000 + "\n", 1)
+    text = yaml.safe_dump(POLICY, sort_keys=False).replace(
+        "sla_hours: 4\n", "sla_hours: " + "9" * 5000 + "\n", 1
+    )
     path.write_text(text, encoding="utf-8")
     assert load_problems(path)
 
 
 @pytest.mark.parametrize("raised", [RecursionError, ValueError, OverflowError])
-def test_a_validator_crash_on_hostile_input_is_still_a_policy_error(monkeypatch: pytest.MonkeyPatch, raised: type) -> None:
+def test_a_validator_crash_on_hostile_input_is_still_a_policy_error(
+    monkeypatch: pytest.MonkeyPatch, raised: type
+) -> None:
     import mailroom_desk.policy as policy_module
     import mailroom_desk.reviewers as reviewers_module
     from mailroom_desk import RegistryError

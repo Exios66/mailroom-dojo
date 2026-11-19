@@ -90,11 +90,32 @@ def test_tokens_and_times() -> None:
 
 def test_case_state_is_frozen_and_breach_needs_a_due_time() -> None:
     fields = dict(
-        run_id="r1", doc_id="d1", status="open", as_of=parse_ts("2026-11-18T12:00:00Z"), causes=(), rule=None,
-        policy_name=None, policy_hash=None, priority=None, sla_hours=None, sla_due=None, queue=None,
-        required_role=None, prefill_ref=None, sampled=False, requested_by=None, enqueued_at=None, assignee=None,
-        claimed_by=None, lease_expires_at=None, deferred_until=None, opened_seq=0, head_seq=0, resolved_seq=None,
-        events=(), anomalies=(),
+        run_id="r1",
+        doc_id="d1",
+        status="open",
+        as_of=parse_ts("2026-11-18T12:00:00Z"),
+        causes=(),
+        rule=None,
+        policy_name=None,
+        policy_hash=None,
+        priority=None,
+        sla_hours=None,
+        sla_due=None,
+        queue=None,
+        required_role=None,
+        prefill_ref=None,
+        sampled=False,
+        requested_by=None,
+        enqueued_at=None,
+        assignee=None,
+        claimed_by=None,
+        lease_expires_at=None,
+        deferred_until=None,
+        opened_seq=0,
+        head_seq=0,
+        resolved_seq=None,
+        events=(),
+        anomalies=(),
     )
     case = CaseState(**fields)
     assert not case.breached(parse_ts("2100-01-01T00:00:00Z"))
@@ -107,13 +128,13 @@ def test_case_state_is_frozen_and_breach_needs_a_due_time() -> None:
 BAD_REFS = [
     "has space",
     "nul\x00byte",
-    "bidi‮override",
+    "bidi\u202eoverride",
     "line separator",
     "para separator",
     "c1\x85control",
     "tab\there",
     "esc\x1bseq",
-    "zero​width",
+    "zero\u200bwidth",
     "café",
     "-leading-dash",
     "",

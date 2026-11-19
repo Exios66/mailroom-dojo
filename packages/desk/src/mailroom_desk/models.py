@@ -44,8 +44,8 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import datetime, timedelta, timezone
-from typing import Annotated, Any, Literal, Union
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     AfterValidator,
@@ -85,7 +85,7 @@ __all__ = [
 ]
 
 #: The last representable moment; an SLA due time past it saturates here (``due``).
-END_OF_TIME = datetime.max.replace(tzinfo=timezone.utc)
+END_OF_TIME = datetime.max.replace(tzinfo=UTC)
 
 #: The node every desk event is recorded under.
 NODE = "human_review"
@@ -148,7 +148,7 @@ def parse_ts(value: str) -> datetime:
     if not isinstance(value, str) or not _TS_RE.fullmatch(value):
         raise ValueError(f"timestamp must be UTC ISO-8601 ending in Z, got {value!r}")
     fmt = "%Y-%m-%dT%H:%M:%S.%fZ" if "." in value else "%Y-%m-%dT%H:%M:%SZ"
-    return datetime.strptime(value, fmt).replace(tzinfo=timezone.utc)
+    return datetime.strptime(value, fmt).replace(tzinfo=UTC)
 
 
 def format_ts(moment: datetime) -> str:
@@ -156,8 +156,11 @@ def format_ts(moment: datetime) -> str:
     the year always has four digits, so year 5 is ``0005``)."""
     if moment.tzinfo is None or moment.utcoffset() is None:
         raise ValueError("a desk time must be timezone-aware")
-    m = moment.astimezone(timezone.utc)
-    return f"{m.year:04d}-{m.month:02d}-{m.day:02d}T{m.hour:02d}:{m.minute:02d}:{m.second:02d}.{m.microsecond:06d}Z"
+    m = moment.astimezone(UTC)
+    return (
+        f"{m.year:04d}-{m.month:02d}-{m.day:02d}"
+        f"T{m.hour:02d}:{m.minute:02d}:{m.second:02d}.{m.microsecond:06d}Z"
+    )
 
 
 def _check_ts(value: str) -> str:
@@ -310,7 +313,13 @@ class DeferPayload(_Frozen):
 
 
 ReviewPayload = Annotated[
-    Union[EnqueuePayload, ReopenPayload, AssignPayload, ClaimPayload, ReleasePayload, EscalatePayload, DeferPayload],
+    EnqueuePayload
+    | ReopenPayload
+    | AssignPayload
+    | ClaimPayload
+    | ReleasePayload
+    | EscalatePayload
+    | DeferPayload,
     Field(discriminator="action"),
 ]
 _PAYLOAD = TypeAdapter(ReviewPayload)

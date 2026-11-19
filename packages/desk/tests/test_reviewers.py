@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 import yaml
-from desk_testkit import write_yaml
 
+from desk_testkit import write_yaml
 from mailroom_desk import (
     RegistryError,
     RoleNotHeld,
@@ -26,7 +26,12 @@ SHIPPED = REPO / "config" / "review" / "reviewers.yaml"
 REGISTRY: dict[str, Any] = {
     "mode": "strict",
     "reviewers": [
-        {"id": "rv-a", "initials": "RVA", "roles": ["reviewer", "senior"], "token_sha256": token_sha256("token-a")},
+        {
+            "id": "rv-a",
+            "initials": "RVA",
+            "roles": ["reviewer", "senior"],
+            "token_sha256": token_sha256("token-a"),
+        },
         {"id": "rv-b", "initials": "RVB", "roles": ["qa"]},
     ],
 }
@@ -130,9 +135,15 @@ def test_shipped_example_registry_loads() -> None:
         (lambda r: r["reviewers"][0].update(roles="reviewer"), "roles must be a non-empty list"),
         (lambda r: r["reviewers"][0].update(roles=["Reviewer"]), "not a token"),
         (lambda r: r["reviewers"][0].update(roles=["qa", "qa"]), "lists a role twice"),
-        (lambda r: r["reviewers"][0].update(token_sha256="ABC"), "token_sha256 must be 64 lowercase hex digits"),
+        (
+            lambda r: r["reviewers"][0].update(token_sha256="ABC"),
+            "token_sha256 must be 64 lowercase hex digits",
+        ),
         (lambda r: r["reviewers"][1].update(id="rv-a"), "reviewers[1].id is used by another reviewer"),
-        (lambda r: r["reviewers"][1].update(initials="RVA"), "reviewers[1].initials is used by another reviewer"),
+        (
+            lambda r: r["reviewers"][1].update(initials="RVA"),
+            "reviewers[1].initials is used by another reviewer",
+        ),
         (
             lambda r: r["reviewers"][1].update(token_sha256=r["reviewers"][0]["token_sha256"]),
             "reviewers[1].token_sha256 is used by another reviewer",
@@ -163,7 +174,10 @@ def test_registry_file_errors(tmp_path: Path) -> None:
 
 def test_registry_hash_ignores_order_of_keys_and_changes_with_meaning(tmp_path: Path) -> None:
     base = registry().hash
-    flipped = {"reviewers": [dict(reversed(list(r.items()))) for r in REGISTRY["reviewers"]], "mode": "strict"}
+    flipped = {
+        "reviewers": [dict(reversed(list(r.items()))) for r in REGISTRY["reviewers"]],
+        "mode": "strict",
+    }
     assert parse_registry(flipped).hash == base
     path = write_yaml(tmp_path / "reviewers.yaml", REGISTRY)
     path.write_text("# a comment\n" + path.read_text(), encoding="utf-8")
@@ -187,7 +201,10 @@ def test_hostile_sizes_are_registry_errors(tmp_path: Path) -> None:
     with pytest.raises(RegistryError) as info:
         load_registry(path)
     assert any("nested too deeply" in p for p in info.value.problems)
-    path.write_text("mode: strict\nreviewers:\n  - {id: rv-a, initials: RVA, roles: [" + "9" * 5000 + "]}\n", encoding="utf-8")
+    path.write_text(
+        "mode: strict\nreviewers:\n  - {id: rv-a, initials: RVA, roles: [" + "9" * 5000 + "]}\n",
+        encoding="utf-8",
+    )
     with pytest.raises(RegistryError):
         load_registry(path)
     deep: Any = []
