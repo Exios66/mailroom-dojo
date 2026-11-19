@@ -15,6 +15,7 @@ import mailroom_labels.snapshot as snapshot_module
 from labels_testkit import (
     PROFILE_PATH,
     hub_row,
+    interim_row,
     make_snapshot,
     near_gold_row,
     profile,
@@ -343,3 +344,92 @@ def test_hub_import_parses_the_shard_bytes_it_hashed(tmp_path: Path, monkeypatch
 def test_the_declared_pydantic_floor_provides_jsonvalue() -> None:
     text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
     assert '"pydantic>=2.5' in text  # JsonValue first ships in pydantic 2.5
+
+
+# --- review round 3 -------------------------------------------------------------------------------
+
+
+def test_build_manifest_refuses_a_manifest_link_that_points_outside(tmp_path: Path) -> None:
+    d = tmp_path / "hub-a"
+    d.mkdir()
+    (d / "a.jsonl").write_text('{"x": 1}\n', encoding="utf-8")
+    outside = tmp_path / "elsewhere.txt"
+    outside.write_text("keep me", encoding="utf-8")
+    (d / "manifest.json").symlink_to(outside)
+    with pytest.raises(ManifestMismatch) as info:
+        build_manifest(
+            d, snapshot_id="hub-a", kind="hub", layer_schema=ARGS["layer_schema"], source={}, builder="test"
+        )
+    assert info.value.kind == "unsafe_path"
+    assert outside.read_text(encoding="utf-8") == "keep me"
+
+
+def test_source_lines_with_an_over_long_integer_are_rejected_and_later_rows_still_read() -> None:
+    from mailroom_labels.importers.common import parse_jsonl_lenient
+
+    data = b'{"x": ' + b"9" * 5000 + b"}\n" + b'{"x": 1}\n'
+    rows, rejected = parse_jsonl_lenient(data, "src.jsonl")
+    assert [r.data for r in rows] == [{"x": 1}]
+    assert [(r["line"], r["file"]) for r in rejected] == [(1, "src.jsonl")]
+
+
+def test_a_label_that_looks_like_a_token_is_not_trusted_as_one() -> None:
+    import importlib.util
+    import sys
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "labels_report.py"
+    spec = importlib.util.spec_from_file_location("labels_report_hardening_under_test", script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    fake = {"$token": "Jane Q. Person, 12 Elm Street"}
+    shown = module._token(fake)
+    assert "Jane" not in shown and shown.startswith("object of 1 keys, sha256:")
+    real = module._token("Jane Q. Person")
+    assert module._token({"$token": real}) == real  # a token it generated is kept as it is
+
+
+def test_findings_about_a_bad_status_or_verdict_never_repeat_the_supplied_text(tmp_path: Path) -> None:
+    hub = make_snapshot(tmp_path, "hub", [hub_row("D1", fields={"sender": "Ann"})])
+    interim = make_snapshot(
+        tmp_path, "interim", [interim_row("D1", {"sender": ("SECRET-status", "X")})], snapshot_id="in-a"
+    )
+    review = make_snapshot(
+        tmp_path, "review", [review_row("D1", "sender", "Ann", verdict="SECRET-verdict")], snapshot_id="rv-a"
+    )
+    report, _ = check_dirs([hub, interim, review], profile())
+    flagged = [f for f in report.findings if f.kind == "status_not_allowed"]
+    assert len(flagged) == 2  # positive control: both bad values were reported
+    assert all("SECRET" not in f.detail for f in report.findings)
+
+
+def test_an_absent_reason_that_is_not_text_is_a_malformed_review_entry(tmp_path: Path) -> None:
+    row = review_row("D1", "sender", "Ann")
+    row["entry"]["absent"] = {"unexpected": True}
+    hub = make_snapshot(tmp_path, "hub", [hub_row("D1", fields={"sender": "Ann"})])
+    review = make_snapshot(tmp_path, "review", [row], snapshot_id="rv-a")
+    report, _ = check_dirs([hub, review], profile())
+    assert [(f.kind, f.doc, f.field) for f in report.errors] == [("malformed_record", "D1", "sender")]
+
+
+def test_a_manifest_replaced_between_reading_and_checking_is_a_finding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dirs = standard_set(tmp_path)
+    snaps = [load_snapshot(d) for d in dirs]
+    from mailroom_labels import quality
+
+    real_layer = quality.read_layer
+
+    def read_then_replace(snap: object):  # the data is read, then the manifest changes underneath
+        result = real_layer(snap)  # type: ignore[arg-type]
+        manifest = snap.directory / "manifest.json"  # type: ignore[attr-defined]
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8").replace('"builder"', '"builder_x"', 1), encoding="utf-8"
+        )
+        return result
+
+    monkeypatch.setattr(quality, "read_layer", read_then_replace)
+    report = quality.check(snaps, profile())
+    assert any(f.kind == "manifest_mismatch" for f in report.findings)

@@ -417,6 +417,7 @@ def check(snapshots: Sequence[LabelSnapshot], profile: ClientProfile) -> Quality
     for snap in snapshots:
         try:
             part = read_layer(snap)
+            snap.check_manifest()  # the manifest is read after the data: it may have been replaced
         except UnknownSnapshotSchema as exc:
             extra.append(finding("unknown_schema", layer=snap.kind, location=str(exc.path), detail=str(exc)))
             continue

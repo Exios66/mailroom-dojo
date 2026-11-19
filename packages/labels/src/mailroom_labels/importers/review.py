@@ -29,8 +29,10 @@ Rules, applied per (document, field):
    it, so the quality gate reports a ``conflicting_decision`` error.
 2. An ``unsure`` mark is a mark like any other, so the latest one counts: when the latest
    ``unsure`` on a label is later than every human decision on it, those decisions are
-   withdrawn (listed under ``source.superseded``, never gold) and the label stays
-   undecided. A later human decision settles the label as usual. When an ``unsure`` mark
+   withdrawn (listed under ``source.superseded``, never gold) and the desk's label stays
+   undecided; a Claude decision on that label, if there is one, is then no longer beaten by
+   a human one and stands as ``near_gold`` (rule 3). A later human decision settles the
+   label as usual. When an ``unsure`` mark
    cannot be ordered against a human decision on the same label (either is undated, or the
    latest mark and the latest decision are the same instant), nothing is guessed: the mark
    is listed under ``source.unordered_undecided``, which refuses the import like a rejected

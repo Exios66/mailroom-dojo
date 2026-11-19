@@ -50,13 +50,28 @@ def _table(header: list[str], rows: list[list[Any]]) -> list[str]:
 
 
 _TOKEN_KEY = "$token"
+#: The exact text ``_token`` generates. A ``{"$token": ...}`` object is trusted only when its
+#: text has this shape; any other text under that key is a raw label that happens to look like
+#: a token, and is tokenised like any other value.
+_TOKEN_TEXT = re.compile(
+    r"null|true|false"
+    r"|string of \d+ chars, sha256:[0-9a-f]{12}"
+    r"|list of \d+, sha256:[0-9a-f]{12}"
+    r"|object of \d+ keys, sha256:[0-9a-f]{12}"
+    r"|number, sha256:[0-9a-f]{12}"
+)
 
 
 def _token(value: Any) -> str:
     """A label value as our own token: its JSON type, size and a short hash, never its text.
     ``null``, ``true`` and ``false`` are printed as they are; they carry no document text.
     A value already scrubbed by ``scrub_crosscheck`` (``{"$token": ...}``) prints its token."""
-    if isinstance(value, dict) and set(value) == {_TOKEN_KEY} and isinstance(value[_TOKEN_KEY], str):
+    if (
+        isinstance(value, dict)
+        and set(value) == {_TOKEN_KEY}
+        and isinstance(value[_TOKEN_KEY], str)
+        and _TOKEN_TEXT.fullmatch(value[_TOKEN_KEY])
+    ):
         return value[_TOKEN_KEY]
     if value is None or isinstance(value, bool):
         return json.dumps(value)

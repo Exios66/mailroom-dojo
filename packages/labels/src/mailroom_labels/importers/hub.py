@@ -243,9 +243,11 @@ def _fields(
     or None when the row is refused (recorded in ``tally.bad_gt_fields``)."""
     if not (isinstance(row.get("document_id"), str) and row["document_id"]):
         # Every later step keys on the id (the text check sorts the unverified ids).
-        tally.bad_gt_fields.append(
-            {"document_id": row.get("document_id"), "reason": "document_id must be a non-empty string"}
-        )
+        # A value that is not a string or null is recorded as text: a NaN or an over-long
+        # integer would not survive manifest hashing.
+        raw_id = row.get("document_id")
+        shown = raw_id if raw_id is None or isinstance(raw_id, str) else repr(raw_id)[:80]
+        tally.bad_gt_fields.append({"document_id": shown, "reason": "document_id must be a non-empty string"})
         return None
     doc_class = row.get("expected")
     gt = _json_or_raw(row.get("gt_fields"))

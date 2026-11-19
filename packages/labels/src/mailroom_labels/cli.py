@@ -214,7 +214,7 @@ def import_hub(
     sid = snapshot_id or out.name
     try:
         pinned = load_hub_pins(pins)
-    except (ImportRefused, OSError, yaml.YAMLError) as exc:
+    except (ImportRefused, OSError, UnicodeError, yaml.YAMLError) as exc:
         raise _usage_error(f"--pins {pins}: {exc.__class__.__name__}: {exc}") from exc
     _run_import(
         out,

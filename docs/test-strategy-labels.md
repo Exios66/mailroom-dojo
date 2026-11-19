@@ -12,8 +12,9 @@ What the labels package must prove and how each claim is tested. The plan is
   `manifest_hash`; a one-label change changes exactly one file hash and the `manifest_hash`.
 - **Precedence is tested against an oracle.** A tiny, independent, table-driven reference resolver in the
   tests; `hypothesis` generates random layer sets and asserts the real resolver equals the oracle, that
-  every resolved status and value comes from some layer, that Hub is never replaced by `gap_fill`,
-  `derived` or `near_gold`, that a gold decision always wins, that results do not depend on input order,
+  every resolved status and value comes from some layer, that a populated Hub value is never replaced
+  by `gap_fill`, `derived` or `near_gold` (a Hub absence may be replaced by interim `gap_fill` or
+  `derived`, never by `near_gold`), that a gold decision always wins, that results do not depend on input order,
   and that resolving twice gives the same result.
 - **Failure states are reported, not swallowed.** Malformed JSON line (reported with file and line),
   duplicate (document, field), unknown status, unknown field, wrong type, vocabulary violation,
@@ -23,8 +24,8 @@ What the labels package must prove and how each claim is tested. The plan is
   and class; zero quality errors; the coverage table; the known facts from the review (1,038 of the 1,039
   correspondence audit decisions equal the near-gold catalog value, one differs: DOC-672cec2c85c83c39
   action_items); the 8 human desk decisions resolve to `gold`.
-- **Parity with today's behavior.** A test restates the sandbox rules (Hub wins over `gap_fill`, `derived`
-  and `near_gold`; `correction` replaces; document hash mismatch leaves the document untouched) and runs
+- **Parity with today's behavior.** A test restates the sandbox rules (a populated Hub value wins over `gap_fill`,
+  `derived` and `near_gold`, a Hub absence yields to `gap_fill` and `derived`; `correction` replaces; document hash mismatch leaves the document untouched) and runs
   them on fixtures.
 - **Boundary.** `mailroom_labels` imports only `mailroom_record` among workspace packages; `record`
   still imports none.

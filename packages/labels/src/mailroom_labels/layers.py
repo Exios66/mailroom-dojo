@@ -200,7 +200,7 @@ def _read_hub(snap: LabelSnapshot, row: Row, out: LayerRead, unverified: frozens
             continue
         presence = lab["presence"]
         if presence not in HUB_PRESENCES:
-            out.findings.append(ctx.bad(f"unknown presence {presence!r}", doc, fname))
+            out.findings.append(ctx.bad("unknown presence code", doc, fname))
             continue
         if presence == HUB_UNLABELED:
             continue
@@ -261,7 +261,7 @@ def _read_interim(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
                     doc=doc,
                     field=fname,
                     layer="interim",
-                    detail=f"interim status {status!r} (allowed: {', '.join(INTERIM_STATUSES)})",
+                    detail=f"interim status is not allowed (allowed: {', '.join(INTERIM_STATUSES)})",
                     location=ctx.location,
                 )
             )
@@ -274,7 +274,7 @@ def _read_interim(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
                     doc=doc,
                     field=fname,
                     layer="interim",
-                    detail=f"status {status!r} with use_as_truth={lab.get('use_as_truth')!r}",
+                    detail="status does not match use_as_truth",
                     location=ctx.location,
                 )
             )
@@ -316,14 +316,14 @@ def _read_near_gold(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
                     doc=doc,
                     field=fname,
                     layer="near_gold",
-                    detail=f"basis {basis!r} is not near_gold:<how>",
+                    detail="basis must be near_gold:<how> with a method after the prefix",
                     location=ctx.location,
                 )
             )
             continue
         presence = lab.get("presence")
         if presence not in PRESENCES:
-            out.findings.append(ctx.bad(f"unknown presence {presence!r}", doc, fname))
+            out.findings.append(ctx.bad("unknown presence code", doc, fname))
             continue
         if presence == "populated" and lab["value"] is None:
             out.findings.append(ctx.bad(_POPULATED_NULL, doc, fname))
@@ -385,6 +385,7 @@ def _read_review(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
         isinstance(entry, dict)
         and "value" in entry
         and set(entry) <= {"value", "evidence", "absent", "basis"}
+        and isinstance(entry.get("absent"), (str, type(None)))
     ):
         problems.append("entry must be {value, evidence?, absent?, basis?}")
     if "note" in d and not isinstance(d["note"], (str, type(None))):
@@ -399,7 +400,7 @@ def _read_review(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
                 doc=doc,
                 field=fname,
                 layer="review",
-                detail=f"verdict {d.get('verdict')!r} (allowed: {', '.join(REVIEW_VERDICTS)})",
+                detail=f"verdict is not allowed (allowed: {', '.join(REVIEW_VERDICTS)})",
                 location=ctx.location,
             )
         )

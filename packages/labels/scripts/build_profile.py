@@ -36,12 +36,13 @@ import json
 import re
 import sys
 from collections import defaultdict
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from mailroom_labels.importers.common import ImportRefused, file_sha256
+from mailroom_labels.importers.common import ImportRefused
 from mailroom_labels.importers.hub import SPLITS, load_hub_pins, parse_dataset_manifest, shard_path
 from mailroom_labels.profile import load_unique_yaml, parse_profile
 from mailroom_labels.snapshot import load_snapshot
@@ -100,22 +101,26 @@ def _hub_rows(hub_dir: Path, pinned: dict[str, str]) -> tuple[list[dict[str, Any
     """The ground_truth rows, after checking manifest.txt and every shard against the hashes
     pinned for the dataset revision (``hub-revisions.yaml``) and manifest.txt itself: a
     self-consistent download of another revision is refused."""
+    import pyarrow as pa
     import pyarrow.parquet as pq
 
-    manifest_digest = file_sha256(hub_dir / "manifest.txt")
+    # Each file is read once: the bytes hashed are the bytes parsed.
+    manifest_bytes = (hub_dir / "manifest.txt").read_bytes()
+    manifest_digest = sha256(manifest_bytes).hexdigest()
     if pinned.get("manifest.txt") != manifest_digest:
         raise BuildError(
             f"manifest.txt: sha256 {manifest_digest} is not the one pinned for {DATASET['revision']}"
         )
-    listed = parse_dataset_manifest((hub_dir / "manifest.txt").read_text(encoding="utf-8"))
+    listed = parse_dataset_manifest(manifest_bytes.decode("utf-8"))
     rows, files = [], []
     for split in SPLITS:
         rel = shard_path("ground_truth", split)
-        digest = file_sha256(hub_dir / rel)
+        shard = (hub_dir / rel).read_bytes()
+        digest = sha256(shard).hexdigest()
         if listed.get(rel) != digest or pinned.get(rel) != digest:
             raise BuildError(f"{rel}: sha256 {digest} is not the one manifest.txt lists and the pins record")
         files.append({"path": rel, "sha256": digest})
-        rows += pq.read_table(hub_dir / rel).to_pylist()
+        rows += pq.read_table(pa.BufferReader(shard)).to_pylist()
     return rows, files
 
 
@@ -135,11 +140,13 @@ def _hub_facts(rows: list[dict[str, Any]]) -> tuple[dict[str, set[str]], dict[st
 
 
 def build(eda_dir: Path, eda_commit: str, hub_dir: Path, covers: list[Path], pinned: dict[str, str]) -> str:
+    fields_bytes = (eda_dir / FIELDS_YAML).read_bytes()  # read once: hashed below as parsed here
     try:
-        registry = load_unique_yaml((eda_dir / FIELDS_YAML).read_text(encoding="utf-8"))
+        registry = load_unique_yaml(fields_bytes.decode("utf-8"))
     except yaml.YAMLError as exc:  # a repeated field or class would silently replace the first
         raise BuildError(f"{FIELDS_YAML}: {exc}") from exc
-    dojo = json.loads((eda_dir / DOJO_SCHEMAS).read_text(encoding="utf-8"))
+    dojo_bytes = (eda_dir / DOJO_SCHEMAS).read_bytes()
+    dojo = json.loads(dojo_bytes.decode("utf-8"))
     rows, hub_files = _hub_rows(hub_dir, pinned)
     subclasses, hub_labelled = _hub_facts(rows)
     problems: list[str] = []
@@ -201,8 +208,8 @@ def build(eda_dir: Path, eda_commit: str, hub_dir: Path, covers: list[Path], pin
                 "repository": EDA_REPOSITORY,
                 "commit": eda_commit,
                 "files": [
-                    {"path": FIELDS_YAML, "sha256": file_sha256(eda_dir / FIELDS_YAML)},
-                    {"path": DOJO_SCHEMAS, "sha256": file_sha256(eda_dir / DOJO_SCHEMAS)},
+                    {"path": FIELDS_YAML, "sha256": sha256(fields_bytes).hexdigest()},
+                    {"path": DOJO_SCHEMAS, "sha256": sha256(dojo_bytes).hexdigest()},
                 ],
                 "dojo_version": dojo.get("dojo_version"),
                 "dojo_commit": dojo.get("dojo_commit"),
@@ -219,7 +226,14 @@ def build(eda_dir: Path, eda_commit: str, hub_dir: Path, covers: list[Path], pin
         for raw in snap.rows():
             row = raw.data
             cls = row.get("doc_class")
-            for name in sorted(row.get("labels") or {}):
+            if snap.kind == "review":
+                # A review row names a field but not its class: it must exist in some class.
+                name = row.get("field")
+                if isinstance(name, str) and not any(parsed.field_spec(c, name) for c in parsed.classes):
+                    problems.append(f"{snap.snapshot_id}: {name} is in no class of the profile")
+                continue
+            names = row.get("fields") if snap.kind == "hub" else row.get("labels")
+            for name in sorted(names or {}):
                 if parsed.field_spec(cls, name) is None:
                     problems.append(f"{snap.snapshot_id}: {cls}.{name} is not in the profile")
     if problems:
