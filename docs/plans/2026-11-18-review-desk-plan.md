@@ -67,8 +67,13 @@ the same process, so the desk serialises its own writes with one `flock` per run
 (a long-lived writer would cache a stale head). Each action re-reads the case state under the lock
 and refuses with a typed error if it no longer holds (`AssignedToOther`, `AlreadyResolved`,
 `StaleCase`). The engine must not write to a document that is in review; the node contract makes
-the engine wait for the disposition. A sealed experiment run is refused (`RunClosed`); production
-service-period runs stay open.
+the engine wait for the disposition. The record does not enforce one owner per document across
+processes, so the hand-off is a contract: the engine flushes and closes its writer for a document
+before handing it to the desk, and opens a fresh writer when processing resumes (a writer kept open
+across the review would cache a stale head and fork the chain). A broken contract forks the chain,
+which every later `enqueue`, `case` and `queue` refuses as `RecordDamaged` (`mailroom_desk.desk`,
+module doc). A sealed experiment run is refused (`RunClosed`); production service-period runs stay
+open.
 
 ### Routing rules into review (config, not code)
 

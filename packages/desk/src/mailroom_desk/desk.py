@@ -47,9 +47,11 @@ overflowing.
 The desk lock serializes desk actions, not other record writers. The record does not
 enforce one owner per document across processes (``mailroom_record.log``, "One owner per
 document"); the engine flushes and closes its writer for a document before handing it to
-the desk and never writes to a document in review. In this process a live writer holding
-the document gives ``RecordBusy``; across processes a broken contract forks the chain,
-which every later ``enqueue``, ``case`` and ``queue`` refuses as ``RecordDamaged``.
+the desk, never writes to a document in review, and opens a fresh writer when processing
+resumes (a writer kept open across the review caches a stale head). In this process a
+live writer holding the document gives ``RecordBusy``; across processes a broken contract
+forks the chain, which every later ``enqueue``, ``case`` and ``queue`` refuses as
+``RecordDamaged``.
 
 The closed-run rule and the seal lock are read from the record's documented layout
 (``runs/<run_id>/seals/<n>.json`` and ``seals/.lock``): the record has no public "is this

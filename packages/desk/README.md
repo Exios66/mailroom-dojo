@@ -56,8 +56,9 @@ desk.index_drift()                        # with an index: problem lines, [] whe
 - The desk lock serializes desk actions only; it does not lock out other record writers.
   The record leaves document ownership across processes to its callers (`mailroom_record.log`,
   "One owner per document"), so the contract is: the engine flushes and closes its writer
-  for a document before it hands the document to the desk, and never writes to a document
-  in review (plan follow-up 1). In one process a live writer holding the document makes
+  for a document before it hands the document to the desk, never writes to a document in
+  review, and opens a fresh writer when processing resumes (an open writer caches a stale
+  head) (plan follow-up 1). In one process a live writer holding the document makes
   `enqueue` raise `RecordBusy`. Across processes a broken contract forks the chain, and the
   fork is caught, not prevented: `verify_run` reports `forked_chain`, and `enqueue`, `case`
   and `queue` raise `RecordDamaged` (a process test breaks the rule on purpose).
