@@ -23,6 +23,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from ..values.summation import compensated_sum
 from ._checks import is_non_finite, validate_resampling
 
 __all__ = [
@@ -170,7 +171,9 @@ def percentile_indices(n_boot: int, alpha: float) -> tuple[int, int]:
 def resample_means(values: list[float], n_boot: int, rng: random.Random) -> list[float]:
     """``n_boot`` means of same-sized resamples drawn with replacement, in draw order."""
     n = len(values)
-    return [sum(values[i] for i in (rng.randrange(n) for _ in range(n))) / n for _ in range(n_boot)]
+    return [
+        compensated_sum(values[i] for i in (rng.randrange(n) for _ in range(n))) / n for _ in range(n_boot)
+    ]
 
 
 def bootstrap_ci(
@@ -223,13 +226,13 @@ def delta_significance(
         return None
     n_boot, _, seed = validate_resampling(n_boot, alpha, seed)
     rng = random.Random(seed)
-    mean_a = sum(a) / len(a)
-    mean_b = sum(b) / len(b)
+    mean_a = compensated_sum(a) / len(a)
+    mean_b = compensated_sum(b) / len(b)
 
     def sample_mean(values: list[float]) -> float:
         """The mean of one same-sized resample."""
         n = len(values)
-        return sum(values[rng.randrange(n)] for _ in range(n)) / n
+        return compensated_sum(values[rng.randrange(n)] for _ in range(n)) / n
 
     diffs = sorted(sample_mean(b) - sample_mean(a) for _ in range(n_boot))
     lo_index, hi_index = percentile_indices(n_boot, alpha)

@@ -27,6 +27,7 @@ from typing import Any
 import numpy
 from scipy.special import betaincinv
 
+from ..values.summation import compensated_sum
 from ._checks import is_non_finite, validate_confidence, validate_count
 from .bootstrap import WilsonInterval, wilson_ci
 
@@ -335,7 +336,7 @@ def expected_calibration_error(pairs: Iterable[Pair], *, bins: int = 10) -> floa
     for bucket in buckets:
         if not bucket:
             continue
-        mean_confidence = sum(value for value, _ in bucket) / len(bucket)
+        mean_confidence = compensated_sum(value for value, _ in bucket) / len(bucket)
         accuracy = sum(1 for _, correct in bucket if correct) / len(bucket)
         error += (len(bucket) / total) * abs(mean_confidence - accuracy)
     return round(error, 6)
@@ -346,7 +347,7 @@ def brier_score(pairs: Iterable[Pair]) -> float | None:
     clean = _clean_pairs(pairs)
     if not clean:
         return None
-    return round(sum((confidence - float(correct)) ** 2 for confidence, correct in clean) / len(clean), 6)
+    return round(compensated_sum((confidence - float(correct)) ** 2 for confidence, correct in clean) / len(clean), 6)
 
 
 def reliability_bins(pairs: Iterable[Pair], *, bins: int = 10) -> list[ReliabilityBin]:
@@ -365,7 +366,7 @@ def reliability_bins(pairs: Iterable[Pair], *, bins: int = 10) -> list[Reliabili
         if not bucket:
             out.append(ReliabilityBin(index, round(low, 6), round(high, 6), 0, None, None, None))
             continue
-        mean_confidence = sum(value for value, _ in bucket) / len(bucket)
+        mean_confidence = compensated_sum(value for value, _ in bucket) / len(bucket)
         accuracy = sum(1 for _, correct in bucket if correct) / len(bucket)
         out.append(
             ReliabilityBin(
@@ -424,7 +425,7 @@ def auroc(scores: Sequence[Any], labels: Sequence[Any]) -> float | None:
     if not positives or not negatives:
         return None
     ranks = _rank([score for score, _ in pairs])
-    positive_rank_sum = sum(rank for rank, (_, label) in zip(ranks, pairs, strict=True) if label)
+    positive_rank_sum = compensated_sum(rank for rank, (_, label) in zip(ranks, pairs, strict=True) if label)
     count = len(positives) * len(negatives)
     return round((positive_rank_sum - len(positives) * (len(positives) + 1) / 2.0) / count, 6)
 
@@ -441,9 +442,11 @@ def spearman(xs: Sequence[Any], ys: Sequence[Any]) -> float | None:
     if len(kept) < 3:
         return None
     rx, ry = _rank([x for x, _ in kept]), _rank([y for _, y in kept])
-    mean_x, mean_y = sum(rx) / len(rx), sum(ry) / len(ry)
-    covariance = sum((a - mean_x) * (b - mean_y) for a, b in zip(rx, ry, strict=True))
-    variance = math.sqrt(sum((a - mean_x) ** 2 for a in rx) * sum((b - mean_y) ** 2 for b in ry))
+    mean_x, mean_y = compensated_sum(rx) / len(rx), compensated_sum(ry) / len(ry)
+    covariance = compensated_sum((a - mean_x) * (b - mean_y) for a, b in zip(rx, ry, strict=True))
+    variance = math.sqrt(
+        compensated_sum((a - mean_x) ** 2 for a in rx) * compensated_sum((b - mean_y) ** 2 for b in ry)
+    )
     return round(covariance / variance, 6) if variance else None
 
 

@@ -203,7 +203,8 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
 
 - **Intended difference, on Python 3.11 and on 3.14 or later.** Every float mean (field audit
   support, `overall_score`, the entity-list audit mean, macro accuracy and the macro precision,
-  recall, F1 and F2) adds its values with `mailroom_dojo.values.summation.compensated_sum`. On
+  recall, F1 and F2, and in `statistics/` the bootstrap and paired means, ECE bin means, the
+  Brier score, the AUROC rank sum and Spearman's sums) adds its values with `mailroom_dojo.values.summation.compensated_sum`. On
   3.12 and 3.13 that is the builtin `sum()`, so nothing changes there. On every other version
   it is a port of 3.12's compensated loop: 3.11's own `sum()` is naive, and 3.14's also
   compensates integer addends (`[1e16, 1, 1, 1, 1]` sums to `1.0000000000000004e16` on 3.14

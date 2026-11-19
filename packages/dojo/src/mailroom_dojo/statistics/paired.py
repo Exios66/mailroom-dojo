@@ -32,6 +32,7 @@ from typing import Any
 import numpy
 from scipy.special import bdtr
 
+from ..values.summation import compensated_sum
 from ._checks import validate_alpha, validate_resampling
 from .bootstrap import DEFAULT_ALPHA, DEFAULT_N_BOOT, DEFAULT_SEED, percentile_indices, resample_means
 
@@ -192,7 +193,7 @@ def paired_bootstrap_delta(
     lo_index, hi_index = percentile_indices(n_boot, alpha)
     lo, hi = means[lo_index], means[hi_index]
     return PairedDelta(
-        delta=round(sum(differences) / len(differences), 4),
+        delta=round(compensated_sum(differences) / len(differences), 4),
         ci_lo=round(lo, 4),
         ci_hi=round(hi, 4),
         significant=bool(lo > 0 or hi < 0),
