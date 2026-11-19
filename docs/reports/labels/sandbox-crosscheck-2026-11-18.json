@@ -1,0 +1,243 @@
+{
+  "audit_vs_sandbox_gold_catalog": {
+    "audit_decisions": 1039,
+    "catalog_status_of_audited_labels": {
+      "near_gold": 1039
+    },
+    "different": [
+      {
+        "audit": {
+          "$token": "list of 2, sha256:5d89b1c4f6a3"
+        },
+        "catalog": {
+          "$token": "list of 0, sha256:4f53cda18c2b"
+        },
+        "catalog_status": "near_gold",
+        "doc": "DOC-672cec2c85c83c39",
+        "field": "action_items",
+        "near_gold_overlay": {
+          "$token": "list of 0, sha256:4f53cda18c2b"
+        }
+      }
+    ],
+    "equal": 1038,
+    "not_in_catalog": []
+  },
+  "comparison": {
+    "agree": 32976,
+    "sandbox scores hub, ours does not: document unverified (stale_label)": 24,
+    "sandbox scores interim, ours does not: document unverified (stale_label)": 29
+  },
+  "documents_compared": 3302,
+  "examples": {
+    "sandbox scores hub, ours does not: document unverified (stale_label)": [
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "intent",
+        "ours": [
+          "hub",
+          "populated",
+          {
+            "$token": "null"
+          }
+        ],
+        "sandbox": [
+          "hub",
+          "populated",
+          {
+            "$token": "string of 16 chars, sha256:0c4ff0e27162"
+          }
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "keywords",
+        "ours": [
+          "hub",
+          "populated",
+          {
+            "$token": "null"
+          }
+        ],
+        "sandbox": [
+          "hub",
+          "populated",
+          {
+            "$token": "list of 8, sha256:d79326e5d582"
+          }
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "record_type",
+        "ours": [
+          "hub",
+          "populated",
+          {
+            "$token": "null"
+          }
+        ],
+        "sandbox": [
+          "hub",
+          "populated",
+          {
+            "$token": "string of 6 chars, sha256:88da006bd212"
+          }
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "subject_matter",
+        "ours": [
+          "hub",
+          "populated",
+          {
+            "$token": "null"
+          }
+        ],
+        "sandbox": [
+          "hub",
+          "populated",
+          {
+            "$token": "string of 151 chars, sha256:8aedc3778861"
+          }
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-4a8f1db0546e42be",
+        "field": "intent",
+        "ours": [
+          "hub",
+          "populated",
+          {
+            "$token": "null"
+          }
+        ],
+        "sandbox": [
+          "hub",
+          "populated",
+          {
+            "$token": "string of 16 chars, sha256:0c4ff0e27162"
+          }
+        ]
+      }
+    ],
+    "sandbox scores interim, ours does not: document unverified (stale_label)": [
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "effective_date",
+        "ours": [
+          null,
+          null,
+          {
+            "$token": "null"
+          }
+        ],
+        "sandbox": [
+          "interim",
+          "populated",
+          {
+            "$token": "string of 10 chars, sha256:8e2788ed3ea1"
+          }
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "entity_name",
+        "ours": [
+          null,
+          null,
+          {
+            "$token": "null"
+          }
+        ],
+        "sandbox": [
+          "interim",
+          "populated",
+          {
+            "$token": "string of 23 chars, sha256:6e3e07b4367f"
+          }
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "filing_number",
+        "ours": [
+          "hub:absent",
+          "not_applicable",
+          {
+            "$token": "null"
+          }
+        ],
+        "sandbox": [
+          "interim",
+          "schema_documented_absence",
+          {
+            "$token": "null"
+          }
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "jurisdiction",
+        "ours": [
+          null,
+          null,
+          {
+            "$token": "null"
+          }
+        ],
+        "sandbox": [
+          "interim",
+          "populated",
+          {
+            "$token": "string of 6 chars, sha256:7a52c4ffc586"
+          }
+        ]
+      },
+      {
+        "class": "corporate_record",
+        "doc": "DOC-e00ef4799dbd6b37",
+        "field": "signatories",
+        "ours": [
+          null,
+          null,
+          {
+            "$token": "null"
+          }
+        ],
+        "sandbox": [
+          "interim",
+          "populated",
+          {
+            "$token": "list of 1, sha256:a1612be07b0e"
+          }
+        ]
+      }
+    ]
+  },
+  "method": "every Hub document; sandbox rows built as corpus.prepare_subset does (gt_fields parsed, doc_text from the default config); interim_labels.apply_overlay then gold_labels.apply_near_gold from local-mailroom-sandbox@93f298c2; compared with mailroom_labels resolved scorable fields (hub + interim + near_gold, no review) per profile field; values compared after decoding JSON list strings and treating '' as null",
+  "review_layer_effect": {
+    "review:gold wins over near_gold (same value)": 4,
+    "review:gold wins over nothing (different value)": 4,
+    "review:near_gold wins over interim:gap_fill (different value)": 47,
+    "review:near_gold wins over interim:gap_fill (same value)": 22,
+    "review:near_gold wins over near_gold (different value)": 1,
+    "review:near_gold wins over near_gold (same value)": 969,
+    "review:near_gold wins over nothing (different value)": 3
+  },
+  "sandbox_commit": "93f298c2c03c58d36c5ef15874736c6ea211d9ab",
+  "sandbox_fields_applied": {
+    "interim": 2322,
+    "near_gold": 5234
+  }
+}

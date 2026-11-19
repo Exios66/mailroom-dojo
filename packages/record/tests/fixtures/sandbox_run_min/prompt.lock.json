@@ -1,0 +1,16 @@
+{
+  "agents": {
+    "arbiter": {
+      "key": "arbiter@deploy_v1",
+      "sha256": "29e2ebed8cc2f524c4d79f345a41b5119436c8df2195d2bb94f8250316827dda"
+    },
+    "judge": {
+      "key": "judge@deploy_v1",
+      "sha256": "10e86c6514d40f2a3e861b31847340ee8c8ed181029a17b042f137121d28863e"
+    },
+    "sorter": {
+      "key": "sorter@deploy_v1",
+      "sha256": "d0a8e9fcfa2b88136d77e17cd385a89df4ea92bf22a69df77a67a1df260d9298"
+    }
+  }
+}

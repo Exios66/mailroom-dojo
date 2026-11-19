@@ -1,0 +1,194 @@
+{
+  "builder": "mailroom-labels import-interim 0.1.0",
+  "files": [
+    {
+      "bytes": 29712,
+      "path": "contract.jsonl",
+      "rows": 45,
+      "sha256": "e090d34e8cb8349680326d50561aaf7fcddef736d9744e99843ffb33ccbcc0fe"
+    },
+    {
+      "bytes": 204464,
+      "path": "corporate_record.jsonl",
+      "rows": 200,
+      "sha256": "93f47c5a6a0366ef0636accdf2b20759c2d453b81b1a1a539cd51d050104eee0"
+    },
+    {
+      "bytes": 247077,
+      "path": "correspondence.jsonl",
+      "rows": 300,
+      "sha256": "e44d9266e72acb5a54c0b43391e08cbe17b5ad771ddfc85ecff816559e5e2830"
+    },
+    {
+      "bytes": 263247,
+      "path": "insurance_claim.jsonl",
+      "rows": 536,
+      "sha256": "56df374ffa0e8caac1bd440b1f4f552154450bafcba79bcd4b055c52fc679ecc"
+    },
+    {
+      "bytes": 24726,
+      "path": "merger_agreement.jsonl",
+      "rows": 30,
+      "sha256": "a859f25a458eb6517101567b2cb165386ac6c9b7eef2f6691a36eac3acb66250"
+    }
+  ],
+  "kind": "interim",
+  "known_warnings": [
+    {
+      "doc": "DOC-033adce2fbdff0ec",
+      "field": null,
+      "kind": "subclass_mismatch",
+      "reason": "the interim label was built at dataset revision bc9eab28 when this document was filed as articles_of_incorporation; Hub ccd040f6 files it as rights_instrument. The label is stale: never truth, and the document is unverified (not scored) until the interim overlay is rebuilt on ccd040f6."
+    },
+    {
+      "doc": "DOC-4a8f1db0546e42be",
+      "field": null,
+      "kind": "subclass_mismatch",
+      "reason": "the interim label was built at dataset revision bc9eab28 when this document was filed as articles_of_incorporation; Hub ccd040f6 files it as bylaws. The label is stale: never truth, and the document is unverified (not scored) until the interim overlay is rebuilt on ccd040f6."
+    },
+    {
+      "doc": "DOC-5c087a08edcb4a91",
+      "field": null,
+      "kind": "subclass_mismatch",
+      "reason": "the interim label was built at dataset revision bc9eab28 when this document was filed as powers_of_attorney; Hub ccd040f6 files it as bylaws. The label is stale: never truth, and the document is unverified (not scored) until the interim overlay is rebuilt on ccd040f6."
+    },
+    {
+      "doc": "DOC-691191d21d96b75d",
+      "field": null,
+      "kind": "subclass_mismatch",
+      "reason": "the interim label was built at dataset revision bc9eab28 when this document was filed as articles_of_incorporation; Hub ccd040f6 files it as rights_instrument. The label is stale: never truth, and the document is unverified (not scored) until the interim overlay is rebuilt on ccd040f6."
+    },
+    {
+      "doc": "DOC-e00ef4799dbd6b37",
+      "field": null,
+      "kind": "subclass_mismatch",
+      "reason": "the interim label was built at dataset revision bc9eab28 when this document was filed as powers_of_attorney; Hub ccd040f6 files it as bylaws. The label is stale: never truth, and the document is unverified (not scored) until the interim overlay is rebuilt on ccd040f6."
+    },
+    {
+      "doc": "DOC-ea4b0e70dc4677d1",
+      "field": null,
+      "kind": "subclass_mismatch",
+      "reason": "the interim label was built at dataset revision bc9eab28 when this document was filed as other; Hub ccd040f6 files it as articles_of_incorporation. The label is stale: never truth, and the document is unverified (not scored) until the interim overlay is rebuilt on ccd040f6."
+    }
+  ],
+  "layer_schema": "mailroom-interim-labels/v1",
+  "manifest_hash": "1ddc940d6320eeda66cbbdbf62465e7656cc4488a8e55a92fd0c97048f7457bb",
+  "manifest_schema": "mailroom-labels/manifest/v1",
+  "snapshot_id": "interim-2026-11-01",
+  "source": {
+    "builder": {
+      "name": "mailroom_labels.importers.interim",
+      "version": "0.1.0"
+    },
+    "commit": "93f298c2c03c58d36c5ef15874736c6ea211d9ab",
+    "files": [
+      {
+        "path": "data/labels/interim/contract.jsonl",
+        "rows": 45,
+        "sha256": "17802d8b410cf32efffe6bd758365ef13ce2e6353c40079bcde088538c0aff44"
+      },
+      {
+        "path": "data/labels/interim/corporate_record.jsonl",
+        "rows": 200,
+        "sha256": "6ebb631993b1b1bd7f73010f6bec82aa24da3e0a1c736e3a3ab3e86207744d45"
+      },
+      {
+        "path": "data/labels/interim/correspondence.jsonl",
+        "rows": 300,
+        "sha256": "26786f65739b3cc8fb54a5fd425889eea971ca2a9f14e0467f93bfc65c403b48"
+      },
+      {
+        "path": "data/labels/interim/insurance_claim.jsonl",
+        "rows": 536,
+        "sha256": "5396ceb39cd72f110184212adbecf28167d0e868a9d1b189741a164377230c97"
+      },
+      {
+        "path": "data/labels/interim/merger_agreement.jsonl",
+        "rows": 30,
+        "sha256": "033732dc412f2fc4594283e909d42c3e9a55e27dd623ba7d1ea5862c41be1753"
+      }
+    ],
+    "label_counts": {
+      "contract": {
+        "correction": 45,
+        "disputed": 12
+      },
+      "corporate_record": {
+        "derived": 200,
+        "gap_fill": 806
+      },
+      "correspondence": {
+        "derived": 300,
+        "disputed": 72,
+        "gap_fill": 702
+      },
+      "insurance_claim": {
+        "derived": 536
+      },
+      "merger_agreement": {
+        "disputed": 1,
+        "gap_fill": 93
+      }
+    },
+    "native": {
+      "builder": "scripts/interim_labels.py build",
+      "built_at": "2026-11-01T18:35:54Z",
+      "rederived_at": "2026-11-16T06:15:32Z",
+      "rules": {
+        "gap_fields": {
+          "corporate_record": [
+            "entity_name",
+            "jurisdiction",
+            "effective_date",
+            "filing_number",
+            "signatories"
+          ],
+          "correspondence": [
+            "sender",
+            "recipient",
+            "communication_date"
+          ],
+          "merger_agreement": [
+            "document_name",
+            "parties",
+            "effective_date",
+            "effective_time",
+            "governing_law"
+          ]
+        },
+        "null_support_min": 0.95,
+        "support_min": 0.9,
+        "truth_statuses": [
+          "gap_fill",
+          "derived",
+          "correction"
+        ]
+      },
+      "schema": "mailroom-interim-labels/v1",
+      "sources": [
+        {
+          "dataset_revision": "bc9eab280044befb51e19dda3071d290a8677f42",
+          "dataset_sha256": "bbe359cf79fddf2c8da7d7bc004ca3a756361fedf054e6c977d2f4d70d6a43b6",
+          "docs": 1596,
+          "gate_run": "extraction-gate-luna-v1.3.0",
+          "question_set": "1.3.0"
+        }
+      ],
+      "status": "interim: unpublished enhancements to the mailroom-dataset ground truth; a Hub label supersedes the overlay field by field",
+      "superseded_by": {
+        "contract": "CUAD Parties / Effective Date scoring (dojo scorer)",
+        "corporate_record": "llm-dojo-scoring#52 (corporate-record annotation)",
+        "correspondence": "llm-dojo-scoring#94 (correspondence GT)",
+        "insurance_claim": "llm-dojo-scoring#93 (CMS mapping)",
+        "merger_agreement": "llm-dojo-scoring#95 (merger fields without GT)"
+      }
+    },
+    "path": "data/labels/interim",
+    "rejected_lines": [],
+    "repository": "Exios66/local-mailroom-sandbox",
+    "source_manifest": {
+      "path": "data/labels/interim/MANIFEST.json",
+      "sha256": "70e53b2b629651a31de93a9382b15c7830c8dbdae43f79fe7d67a7750d73200b"
+    }
+  }
+}

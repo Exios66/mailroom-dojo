@@ -1,0 +1,125 @@
+{
+  "builder": "packages/labels/scripts/derive_review_snapshot.py 0.1.0",
+  "files": [
+    {
+      "bytes": 431958,
+      "path": "decisions.jsonl",
+      "rows": 1050,
+      "sha256": "0a6f536598fc93752dba94a1903c192d58c06426ed327195647dcebd44b01bdb"
+    }
+  ],
+  "kind": "review",
+  "known_warnings": [
+    {
+      "doc": "DOC-6f036492d91cc9c4",
+      "field": "additional_recipients",
+      "kind": "orphan_decision",
+      "reason": "missing-field entry (gold-label-review REVIEW.md, Not covered: the catalog has no entry for this field); the Claude audit decision adds the label, ranked near_gold."
+    },
+    {
+      "doc": "DOC-998bd08aa3861cb3",
+      "field": "additional_recipients",
+      "kind": "orphan_decision",
+      "reason": "missing-field entry (gold-label-review REVIEW.md, Not covered: the catalog has no entry for this field); the Claude audit decision adds the label, ranked near_gold."
+    },
+    {
+      "doc": "DOC-ba0a00b00ba2ed62",
+      "field": "effective_date",
+      "kind": "orphan_decision",
+      "reason": "owner review-desk decision on a gold-catalog label that was still a candidate, so no committed layer carries it; the owner's decision is the label (gold)."
+    },
+    {
+      "doc": "DOC-bda69bc956881bab",
+      "field": "effective_date",
+      "kind": "orphan_decision",
+      "reason": "owner review-desk decision on a gold-catalog label that was still a candidate, so no committed layer carries it; the owner's decision is the label (gold)."
+    },
+    {
+      "doc": "DOC-bda69bc956881bab",
+      "field": "jurisdiction",
+      "kind": "orphan_decision",
+      "reason": "owner review-desk decision on a gold-catalog label that was still a candidate, so no committed layer carries it; the owner's decision is the label (gold)."
+    },
+    {
+      "doc": "DOC-bda69bc956881bab",
+      "field": "signatories",
+      "kind": "orphan_decision",
+      "reason": "owner review-desk decision on a gold-catalog label that was still a candidate, so no committed layer carries it; the owner's decision is the label (gold)."
+    },
+    {
+      "doc": "DOC-ca359bac49205614",
+      "field": "communication_date",
+      "kind": "orphan_decision",
+      "reason": "missing-field entry (gold-label-review REVIEW.md, Not covered: the catalog has no entry for this field); the Claude audit decision adds the label, ranked near_gold."
+    }
+  ],
+  "layer_schema": "mailroom-labels/review/v1",
+  "manifest_hash": "4e8266d64f0d95259bfe42d4134937bbdb90e510331474657ff7ccdfd8be52f2",
+  "manifest_schema": "mailroom-labels/manifest/v1",
+  "snapshot_id": "gold-review-2026-11-18-r2",
+  "source": {
+    "builder": {
+      "name": "mailroom_labels.importers.review",
+      "version": "0.1.0"
+    },
+    "decisions": {
+      "origin": "project files, gold-label-review (Claude Opus audit of the correspondence catalog under the top-reply rule, and owner desk decisions exported from the review desk)",
+      "reviewed": "2026-11-17"
+    },
+    "decisions_by_reviewer": {
+      "claude-opus:audit": 1042,
+      "human:review_desk": 8
+    },
+    "derived_from": {
+      "change": "note only: a leading 'top-reply rule (<initials> <date>)' now reads 'top-reply rule (review desk <date>)'; every other key and value of every row is unchanged",
+      "files": [
+        {
+          "path": "decisions.jsonl",
+          "rows": 1050,
+          "sha256": "72489b5aa69ec904e178330489e9d96e1410146ed1e0de909622651ea8472247"
+        }
+      ],
+      "manifest_hash": "cf19afd1b077056bc64d2d666bafb23f2bfe301d1c3f19b64121f7e50895c6bf",
+      "notes_changed": 1031,
+      "snapshot_id": "gold-review-2026-11-18"
+    },
+    "desk": {
+      "commit": "93f298c2c03c58d36c5ef15874736c6ea211d9ab",
+      "path": "data/labels/review/human_reviews.jsonl",
+      "repository": "Exios66/local-mailroom-sandbox"
+    },
+    "files": [
+      {
+        "path": "gold-label-review/correspondence-review-decisions.jsonl",
+        "rows": 1039,
+        "sha256": "f10c34c3c5aa677bded41afd4bb83ed20832565317aa2335083559fad4be9b55",
+        "shape": "decisions"
+      },
+      {
+        "path": "gold-label-review/corporate-owner-decisions.jsonl",
+        "rows": 4,
+        "sha256": "2c7839793893ad208c12db243bc59ca1a32e665f3ee39d34955fd62c441f7556",
+        "shape": "decisions"
+      },
+      {
+        "path": "gold-label-review/missing-field-entries.jsonl",
+        "rows": 3,
+        "sha256": "5606e0498709cac3f1d4ba28a7199aa6134d74109d04e213a16266f7acb483c5",
+        "shape": "decisions"
+      },
+      {
+        "path": "data/labels/review/human_reviews.jsonl",
+        "rows": 8,
+        "sha256": "05244782961983ceb741946ee25aa89ce45b5726dc0de9c2dbfe3b50b7624a1b",
+        "shape": "desk"
+      }
+    ],
+    "merged_duplicates": {
+      "human": 4
+    },
+    "not_imported": [],
+    "rejected_lines": [],
+    "reviewer_initials": "not recorded: the reviewer field holds the role the source states",
+    "superseded": []
+  }
+}

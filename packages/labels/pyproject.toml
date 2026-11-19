@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mailroom-labels"
+version = "0.1.0"
+description = "Versioned, hash-checked label snapshots, their precedence and their quality gate for the Mailroom."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mailroom-record",
+    "pydantic>=2.5",  # JsonValue first ships in 2.5.0
+    "pyyaml",
+    "typer",
+]
+
+[project.optional-dependencies]
+# Reading the Hub parquet shards (import-hub, scripts/build_profile.py) only.
+import = ["pyarrow"]
+# The importer tests write small parquet shards, so the dev extra needs pyarrow too.
+dev = ["pytest", "pytest-xdist", "hypothesis", "pyarrow"]
+
+[project.scripts]
+mailroom-labels = "mailroom_labels.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
