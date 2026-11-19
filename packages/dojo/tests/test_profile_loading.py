@@ -1119,3 +1119,33 @@ def test_a_synonym_the_regex_compiler_cannot_build_is_a_profile_error(synonym):
     _expect_error(mapping, "classes[0].synonyms[1]", "is not a valid regular expression")
     mapping["classes"][0]["synonyms"] = [r"auto\s+policy"]
     assert load_scoring_profile(mapping).classes[0].synonyms == (r"auto\s+policy",)
+
+
+def _two_live_classes(notice_label: str, claim_label: str | None = None, claim_status: str = "live") -> dict:
+    """A profile with live class ``notice`` and a class ``claim`` (labels as given)."""
+    mapping = minimal_profile_mapping()
+    template = mapping["classes"][0]
+    notice = {**copy.deepcopy(template), "key": "notice", "sorter_label": notice_label}
+    claim = {**copy.deepcopy(template), "key": "claim", "status": claim_status}
+    if claim_label is not None:
+        claim["sorter_label"] = claim_label
+    mapping["classes"] = [notice, claim]
+    return mapping
+
+
+@pytest.mark.parametrize(
+    ("notice_label", "claim_label"),
+    [("CLAIM", None), ("Claim Form", "claim form"), ("claim", None)],
+    ids=["label_is_another_key_in_capitals", "labels_differ_only_in_case", "label_is_another_key"],
+)
+def test_sorter_labels_are_unique_in_the_classifiers_case_blind_namespace(notice_label, claim_label):
+    """A sorter label the classifier would read as another live class (ignoring case) is refused at load,
+    not later by ClassLabelSet.from_profile."""
+    mapping = _two_live_classes(notice_label, claim_label)
+    with pytest.raises(ProfileError) as caught:
+        load_scoring_profile(mapping)
+    assert caught.value.path in ("classes[0].sorter_label", "classes[1].sorter_label"), str(caught.value)
+    assert "already" in caught.value.problem
+    retired = _two_live_classes(notice_label, claim_label, claim_status="retired")
+    if notice_label != "claim":  # the exact duplicate of a key or label is refused whatever the status
+        assert load_scoring_profile(retired).live_class_keys == ("notice",)

@@ -838,12 +838,14 @@ def load_scoring_profile(source: str | os.PathLike[str] | Mapping[str, Any]) -> 
     root.finish(_TOP_LEVEL_KEYS)
     _check_inventory_alias_targets(classes)
 
+    full_match_order = tuple(match_order) + tuple(key for key in class_keys if key not in match_order)
+    _check_classifier_labels(classes, full_match_order)
+
     parts = dict(
         client=client,
         version=version,
         classes=classes,
-        classification_match_order=tuple(match_order)
-        + tuple(key for key in class_keys if key not in match_order),
+        classification_match_order=full_match_order,
         unknown_label=unknown_label,
         unmapped_fields=unmapped_fields,
         never_scored_fields=frozenset(never_scored),
@@ -878,6 +880,33 @@ def _check_unique_classes(classes: tuple[ClassSpec, ...]) -> None:
             )
         keys[spec.key] = index
         labels[spec.sorter_label] = index
+
+
+def _check_classifier_labels(classes: tuple[ClassSpec, ...], match_order: tuple[str, ...]) -> None:
+    """Raise when two live classes would claim the same whole classifier output.
+
+    Mirrors :meth:`mailroom_dojo.classification.ClassLabelSet.from_profile`, which reads
+    an output case-blind as a live class's key or sorter label: a live sorter label
+    that equals another live class's key, or another live sorter label ignoring case,
+    is refused here at load time with the same message. Retired classes are not in
+    that namespace.
+    """
+    index_of = {spec.key: index for index, spec in enumerate(classes)}
+    live = [classes[index_of[key]] for key in match_order if classes[index_of[key]].is_live]
+    exact: dict[str, str] = {}
+    owners: dict[str, str] = {}
+    for spec in live:
+        exact[spec.key] = spec.key
+        owners[spec.key] = f"classes[{index_of[spec.key]}].key"
+    for spec in live:
+        label = spec.sorter_label.strip().lower()
+        label_path = f"classes[{index_of[spec.key]}].sorter_label"
+        if label in exact and exact[label] != spec.key:
+            raise ProfileError(
+                label_path, f"sorter label {spec.sorter_label!r} is already claimed by {owners[label]}"
+            )
+        exact[label] = spec.key
+        owners.setdefault(label, label_path)
 
 
 def _classification(value: Any, path: str, class_keys: list[str]) -> tuple[str, ...]:
