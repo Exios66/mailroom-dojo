@@ -9,6 +9,7 @@ model directory, or a model name already in the local cache.
 from __future__ import annotations
 
 import importlib
+import math
 from collections import OrderedDict
 from typing import Any
 
@@ -49,9 +50,15 @@ class SentenceTransformerBackend:
         self._vectors: OrderedDict[str, Any] = OrderedDict()
 
     def similarity(self, first: str, second: str) -> float:
-        """Return the clipped cosine similarity of the two texts' normalized embeddings."""
+        """Return the clipped cosine similarity of the two texts' normalized embeddings.
+
+        A NaN cosine (a degenerate embedding) is returned as NaN, not clipped (``max(0.0, nan)``
+        is 0.0), so :class:`EmbeddingRescue` keeps the string score and records the fallback.
+        """
         first_vector, second_vector = self._vector(first), self._vector(second)
         cosine = float(numpy.dot(first_vector, second_vector))
+        if math.isnan(cosine):
+            return cosine
         return min(1.0, max(0.0, cosine))
 
     def _vector(self, text: str) -> Any:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import socket
 import subprocess
 import sys
@@ -339,6 +340,23 @@ def test_sentence_backend_rescues_end_to_end():
     """Through EmbeddingRescue, a semantic match lifts a low string score."""
     rescue = EmbeddingRescue(SentenceTransformerBackend(model=_UnitModel()), 0.7)
     assert scalar_scorers.score_name_field("cat", "kitten", rescue) == pytest.approx(0.8)
+
+
+class _NanModel(_UnitModel):
+    """A model whose embedding of "broken" is NaN (a degenerate model output)."""
+
+    VECTORS = {**_UnitModel.VECTORS, "broken": numpy.array([float("nan"), 0.0])}
+
+
+def test_sentence_backend_reports_a_nan_cosine_instead_of_clipping_it():
+    """A NaN cosine stays NaN (``max(0.0, nan)`` would read it as 0.0), so the rescue records a fallback."""
+    backend = SentenceTransformerBackend(model=_NanModel())
+    assert math.isnan(backend.similarity("cat", "broken"))
+    assert backend.similarity("cat", "kitten") == pytest.approx(0.8)
+    rescue = EmbeddingRescue(backend, 0.7)
+    string_score = scalar_scorers.score_name_field("cat", "broken")
+    assert scalar_scorers.score_name_field("cat", "broken", rescue) == string_score
+    assert [fallback.reason for fallback in rescue.fallbacks] == ["not_a_number"]
 
 
 def test_sentence_backend_loads_local_files_only(monkeypatch):

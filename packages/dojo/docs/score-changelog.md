@@ -215,3 +215,7 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   first variant's fallback fields only, so a value only the second accepted scored as missing. Variants are now
   searched in profile order until one finds a token. No mailroom score moves: its class has one variant, and
   the old Dojo had one fixed marker field.
+- **The sentence-transformer backend no longer reads a NaN cosine as 0.0.** `max(0.0, nan)` is 0.0, so a
+  degenerate embedding was clipped to a valid similarity and no fallback was recorded. The backend now returns
+  NaN, and `EmbeddingRescue` keeps the string score and records `not_a_number`. The backend is new (the old Dojo
+  had a remote matcher), and no parity case uses it.
