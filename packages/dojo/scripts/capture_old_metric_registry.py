@@ -43,7 +43,9 @@ never in CI::
         --old-dojo <llm-dojo-scoring checkout at 23f8234c> \\
         --output packages/dojo/tests/fixtures/measures/old_metric_registry.json
 
-It writes nothing inside the old checkout.
+It refuses a checkout at another commit than ``EXPECTED_OLD_COMMIT`` (the parity test
+expects that commit's data) and an ``--output`` inside the old checkout (symlinks and
+``..`` resolved), so it writes nothing there.
 """
 
 from __future__ import annotations
@@ -186,7 +188,7 @@ def build(old_dojo: Path) -> dict[str, Any]:
     """The fixture document."""
     commit = _old_commit(old_dojo)
     if commit != EXPECTED_OLD_COMMIT:
-        print(f"warning: old Dojo is at {commit}, expected {EXPECTED_OLD_COMMIT}", file=sys.stderr)
+        raise SystemExit(f"refusing to capture: old Dojo is at {commit}, expected {EXPECTED_OLD_COMMIT}")
     metrics, order, families, version = _registry(old_dojo)
     scores_path = old_dojo / "tests" / "fixtures" / "golden" / "scores.json"
     scores_bytes = scores_path.read_bytes()
@@ -216,9 +218,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--old-dojo", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
-    document = build(args.old_dojo.resolve())
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(document, sort_keys=True, ensure_ascii=True, indent=1) + "\n")
+    old_dojo, output = args.old_dojo.resolve(), args.output.resolve()
+    if output.is_relative_to(old_dojo):
+        raise SystemExit(f"refusing to write {output}: it is inside the old checkout {old_dojo}")
+    document = build(old_dojo)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(document, sort_keys=True, ensure_ascii=True, indent=1) + "\n")
     print(
         f"old commit {document['old_commit']}, version {document['old_version']}: "
         f"{len(document['metrics'])} metrics, {len(document['golden']['names'])} golden names, "
