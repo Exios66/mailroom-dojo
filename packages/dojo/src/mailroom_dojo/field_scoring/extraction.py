@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from ..normalization.dates import expected_date_is_null, parse_date_parts
 from ..profile.field_types import element_type, is_entity_list
 from ..values.emptiness import is_empty_value, parse_json_container
+from ..values.summation import compensated_sum
 from .audits import audit_list_field, audit_scalar_field, field_audit_support
 from .entity_lists import EntityListScore, element_scorer, score_entity_list
 from .row_variants import (
@@ -100,7 +101,7 @@ class ExtractionScoreResult:
             for audit in self.entity_list_audit.values()
             if audit.get("n_predicted")
         ]
-        return round(sum(values) / len(values), 4) if values else None
+        return round(compensated_sum(values) / len(values), 4) if values else None
 
     @property
     def matcher_fallbacks(self) -> dict[str, str]:
@@ -432,7 +433,7 @@ def score_extraction(
             entity_list_audit[key] = audit
 
     scores = list(field_scores.values())
-    overall = round(sum(scores) / len(scores), 4) if scores else None
+    overall = round(compensated_sum(scores) / len(scores), 4) if scores else None
     return ExtractionScoreResult(
         class_key=class_key,
         field_scores=field_scores,

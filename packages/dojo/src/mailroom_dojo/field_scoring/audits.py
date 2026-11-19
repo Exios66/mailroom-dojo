@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..normalization.dates import MONTH_NAMES, DateParts, parse_date_parts
 from ..normalization.text import containment_tokens
+from ..values.summation import compensated_sum
 from .entity_lists import as_list, element_scorer, element_similarity
 from .scalar_scorers import date_match_similarity
 from .scorer_registry import FieldScorerRegistry, ScalarScorer
@@ -248,6 +249,10 @@ def field_audit_support(audits: Mapping[str, Mapping[str, Any]]) -> dict[str, An
         return {"n_audited": 0, "verified_precision": None, "hallucination_rate": None}
     return {
         "n_audited": count,
-        "verified_precision": round(sum(audit["verified_precision"] for audit in eligible) / count, 4),
-        "hallucination_rate": round(sum(audit["hallucination_rate"] for audit in eligible) / count, 4),
+        "verified_precision": round(
+            compensated_sum(audit["verified_precision"] for audit in eligible) / count, 4
+        ),
+        "hallucination_rate": round(
+            compensated_sum(audit["hallucination_rate"] for audit in eligible) / count, 4
+        ),
     }
