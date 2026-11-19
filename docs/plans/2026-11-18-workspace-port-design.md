@@ -101,7 +101,7 @@ checks them (spec line 9). Chunk numbers are those of section 6.
 | R3 classification with hand-off | D5, D6, E3 | Class accuracy, silent-wrong per 1,000 and cost per classification on v1 (100 of 100 reproduced); the hand-off's effect on extraction reported on v1 and r2 (r2 once supplied); `legacy` keeps sorter-to-specialist as its default shape (router replay) |
 | R4 new type by configuration | D3a, D3b, E2, E3, L1 | The synthetic-document-type test in labels, Dojo, engine and launcher: a new type added by profile entry, schema file, prompt and scorer config, no code edit |
 | R5 provider-agnostic, every launch path | E1, E6, L2, P4 | A test that finds no provider or model name in agents, prompts or policies; the HTTP API launch path: a mock upload through the E6 API writes a record that verifies (E6 gate), and the Compose backend's stage-4 mock run goes through that API (L2); the stage-4 mock run per backend (OpenRouter, Modal with vLLM, Compose, local); a prompt variant holds its gain on two worker models before it becomes the default |
-| R6 labels from the dataset and Claude labels | labels (project 2), D4, R-H | D4 checks the Dojo's Protocols against the real `LabelSet`; every scored run names its label snapshot (the `Run` header's `label_snapshot_ids`, on `main`) and, once R-H lands (section 3), the client-profile hash and schema version it was scored under; a content-hash mismatch is reported as unverified, never scored silently |
+| R6 labels from the dataset and Claude labels | labels (project 2), D4, R-H | D4 checks the Dojo's Protocols against the real `LabelSet`; every scored run names the label snapshot it was scored against: a native run in the `Run` header's `label_snapshot_ids` (on `main`), set from its run spec; an imported sandbox run has an empty list there, so the Dojo report records the snapshot instead (section 3, D5). Once R-H lands (section 3), the header also carries the client-profile hash and the engine schema version and hash it ran under; a content-hash mismatch is reported as unverified, never scored silently |
 | R7 CLI, TUI, floor replay | record replay timeline (chunk 0), L3, L4 | L3: every sandbox command maps to a new command or a listed retirement (section 10); reloaded JS tests green; L4: the record timeline equals sandbox `build_timeline` on the same folder |
 | R8 tests that detect failure | every chunk; section 6.1 | Each chunk's PR shows its fault, property or stateful tests and one deliberate mutation turning a test red; each package has its own test strategy |
 | R9 layout and boundaries | section 3; every chunk | Each package's boundary test; `make boundaries` and `make layout`; a new folder has a map line first |
@@ -131,8 +131,8 @@ checks them (spec line 9). Chunk numbers are those of section 6.
  seam), mailroom_dictionaries (closed vocabularies) — importable by every package above record.
 ```
 
-Data flow for one run: the launcher resolves a run spec (client profile hash, schema version and
-hash, policy hash, prompt set and overlays with hashes, label snapshot manifest hash, draw,
+Data flow for one run: the launcher resolves a run spec (client profile hash, engine schema
+version and hash, policy hash, prompt set and overlays with hashes, label snapshot manifest hash, draw,
 backend, caps) and hands it to the engine; the engine writes every step, handoff, decision and model response to the record
 (blob first, then the event, then the index); the Dojo later reads the sealed record plus the
 label snapshot named in the run and writes reports. Nothing flows back from the Dojo to the engine
@@ -144,16 +144,28 @@ from the Dojo's bar-check report; the engine never reads a report).
 `mailroom_record/models.py`, `CURRENT_RUN_VERSION = 1` in `upgrade.py`) carries `policy_hash`,
 `prompt_set`, `prompt_hashes` and `label_snapshot_ids`, but no client-profile hash and no schema
 version or hash. R-H is a Run header version bump (to version 2, with an upgrader from
-version 1) that adds `client_profile_hash` and `schema_version` with its hash. It is a
+version 1) that adds `client_profile_hash`, `engine_schema_version` and `engine_schema_hash`.
+The header's own `schema_version` is not reused: it is the record format version of `run.json`
+(the one R-H bumps from 1 to 2, read by `upgrade_run`), not the engine schema a run used. It is a
 record-schema change, so tier 3 (three adversarial rounds), owned by a new chunk in the record
 build plan's follow-ups, not by any Dojo or launcher chunk. P2 and P5 wait for it (section 4.5).
 For an imported sandbox run, the importer takes the thresholds the run used from the sandbox's
 `spec.lock.json` `confidence` block, which preflight writes only when the run spec set one
 (`job/preflight.py` line 1141, at `93f298c`; without it the run used the taxonomy defaults that
 `job/routing_audit.py` `effective_thresholds` merges), and records the client-profile values and
-hash from them; the schema version of an imported run is the frozen `legacy` engine schema
-version (section 4.1). How the importer hashes those values into `client_profile_hash` is for
-the record work to verify.
+hash from them; the `engine_schema_version` of an imported run is the frozen `legacy` engine
+schema version (section 4.1). How the importer hashes those values into `client_profile_hash` is
+for the record work to verify.
+
+**The label snapshot of an imported run.** The importer writes `label_snapshot_ids=[]`
+(`mailroom_record/importer/sandbox_run.py`) and R-H keeps it so: a sandbox run used no snapshot
+of this workspace, and which snapshot will score it is decided later, while the header is
+immutable. So the header alone cannot meet R6 for an imported run, and the run reader (D5) does:
+it takes the snapshot to score against explicitly (never a default), scores a native run only
+against a snapshot its header names, and stamps every report with the snapshot's `snapshot_id`
+and `manifest_hash` (the Dojo's `LabelSource` Protocol, which `mailroom_labels`' `LabelSet`
+meets). The R6 provenance of a scored run is the
+header plus that stamp.
 
 ### Package boundaries (the enforced rule)
 
@@ -514,14 +526,14 @@ Record (PR #2) and the shared leaves (PR #6) are merged to `main`.
 
 | # | Chunk | Waits for | Gate it must show |
 | --- | --- | --- | --- |
-| R-H | **Run header version 2** (record follow-up, section 3): `client_profile_hash`, `schema_version` and its hash | - | tier 3 (record schema): the upgrader reads every version-1 header unchanged in meaning (property test over generated headers); a version-2 header without the new fields is refused; the importer fills them for an imported sandbox run from `spec.lock.json` (section 3); one deliberate mutation turns a test red |
+| R-H | **Run header version 2** (record follow-up, section 3): `client_profile_hash`, `engine_schema_version` and `engine_schema_hash` (the header's own `schema_version` stays the record format version) | - | tier 3 (record schema): the upgrader reads every version-1 header unchanged in meaning (property test over generated headers); a version-2 header without the new fields is refused; the importer fills them for an imported sandbox run from `spec.lock.json` and leaves `label_snapshot_ids` empty (section 3); one deliberate mutation turns a test red |
 | 0 | **Stage-1 gate** (the record work, another thread: importer, replay timeline, pack and prune) | X1 | master design stage 1 (spec line 457): v1 and slice-100 r2 import cleanly, every chain verifies, `trace run` and `trace doc` work, stored size reported against today's; plus the routing-input audit of each stored folder (spec line 585) |
 | 1 | D1 statistics | - | old tests and a differential corpus, identical |
 | 2 | D2 headline registry metrics in one flat table, and `Measure` | - | a row for every old registry id and every metric `scores.json` emits, each with the same meaning (or an intended change with a reason) and a status: implemented, planned (with its chunk) or `not_ported` (with a reason); implemented or planned rows are exactly the scope in section 4.2, and a test checks that every `implemented` row names a producer; every old tier-0 id flagged `headline` (14, several per agent), and the dashboard queries leave `not_ported` rows out by default; every live agent has exactly one `default_view` (a metric with its guard and label layers, or `null` with a reason), the owner's decisions of section 10 marked confirmed and every other entry marked a proposal (section 4.2); every default-view and guard metric names its pairing or why it has none; provenance tests |
 | 3 | D3a one schema source per class | 2 | each section equals its own old table, as frozen JSON dumps: the `scored` sections equal the old Dojo's `doc_classes` and per-class profile tables at `23f8234`; the `legacy` `extracted` sections equal llm-mailroom `EXTRACTION_SCHEMAS` at `070663f` (section 4.1); labels, Dojo (and later engine) load the same files |
 | 4 | D3b tasks, suites, document scorers | 1 to 3 | `scores.json` (all 21 suites; 21 of 22 task kinds, `legalbench` an intended difference) and the 89 document-scorer goldens with the old Dojo's departures overlay (`tests/fixtures/doc_scorers/departures.json`, dojo 0.28.1) applied, reproduced exactly (section 4.2) |
 | 5 | D4 label layer, Dojo joined to `mailroom_labels` | 3 | old label-policy cases; Protocols checked against the real `LabelSet` |
-| 6 | D5 run reader and run layer | 0, 1, 2, 4, 5 | old tests; numbers on imported runs; class accuracy 100 of 100 on v1; per-field, per-class accuracy and coverage table (D4 scorability, D3b scorers); creates `config/prices/` (the price sheet, with its layout-map line) and cost figures read from it, never from code |
+| 6 | D5 run reader and run layer | 0, 1, 2, 4, 5 | old tests; numbers on imported runs; a run is scored only against a label snapshot named explicitly (for a native run, one its header names; an imported run, whose `label_snapshot_ids` is empty, against none by default), and every report records that snapshot's id and manifest hash (section 3); class accuracy 100 of 100 on v1; per-field, per-class accuracy and coverage table (D4 scorability, D3b scorers); creates `config/prices/` (the price sheet, with its layout-map line) and cost figures read from it, never from code |
 | 7 | D6 outcome and behaviour (archive gate, cause codes, wrong-archive and review rates, risk-coverage, routing audit, the eight slots, hand-off effect) | 4, 6 | old and sandbox tests; v1 outcome counts; wrong-archive and review rates with bounds; risk-coverage bounds checked against exact binomial bounds on planted data; per-slot reports on synthetic decision events with the R10 list (accuracy, override rate, silent-wrong per 1,000, cost per decision, risk-coverage with bounds), including a flagged cap breach; the archive gate's ranking power; creates `config/clients/<client>/bars.yaml` (with its layout-map line) equal to the sandbox's `config/production/bars.yaml` at `93f298c`, and the gate reads its bars from it |
 | 8 | D7 comparison, keep rule, projections, stability, cost truth, log health | 6, 7 | planted-curve property tests; refusal rules; keep-rule tests, including a candidate with a utility gain reverted for one field's accuracy drop beyond noise, one reverted for one field's coverage drop beyond noise (R2), and a `guard_classes` narrower than the scored classes refused; cost truth prices tokens from D5's `config/prices/` |
 | 9 | **Stage-2 gate** | 0 to 8, X1, X3 (Set A also X2) | goldens unchanged; v1 and slice-100 r2 reproduced (r2: 40 of 55 wrong archives and 9 of 95 reviews, spec line 323); Sets A and C scored |
