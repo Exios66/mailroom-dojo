@@ -857,8 +857,9 @@ gate" -> launcher, backends, cutover. The gate, quoted from the design ("The go 
 
 Notes on order:
 
-- Steps 1 to 3 and 10 need no record work and can start at once; D3a is on the critical path because the engine's
-  specialists and the prompt sets read the same schema files.
+- Steps 1 to 3 and 10 need no record work. Steps 1 and 2 can start at once; step 3 waits for D2 and step 10 for
+  D3a, because the prompt alignment check reads the extracted schemas. D3a is on the critical path because the
+  engine's specialists and the prompt sets read the same schema files.
 - Steps 6 to 9 cannot start until the other agent's importer lands; the r2 numbers also need the missing slice-100 r2 folder.
 - Engine work (12 to 17) is gated by step 11 and time-boxed by router replay (15).
 - Every launcher chunk except the parts sourced from llm-mailroom and The-Mailroom needs the sandbox and mailroom-reloaded

@@ -77,7 +77,8 @@ blob roles as data. No document class, node or client is hard-coded in it.
 1. Check the design names it and the project's plan exists. A package that is not in the
    map needs the owner's agreement and a map line first.
 2. Create `packages/<name>/` with `pyproject.toml` (Python 3.11 or later, a small core
-   dependency list, heavy or numerical dependencies behind an optional extra, a `dev`
+   dependency list, heavy or numerical dependencies behind an optional extra (the Dojo's
+   scipy and numpy are core, by owner decision of 2026-11-19), a `dev`
    extra with `pytest`, `pytest-xdist` and `hypothesis`), `README.md` (purpose, install,
    test command), `src/mailroom_<name>/`, `tests/` and `scripts/`.
 3. Add its boundary test, its test strategy (`docs/test-strategy-<name>.md`) and its line
@@ -185,8 +186,12 @@ each later package writes its own.
 Lint, type and spelling gates (owner decision, 2026-11-18): `make lint` (ruff check and
 format check, rules in the root `pyproject.toml`), `make typecheck` (mypy `--strict` over the
 packages in `[tool.mypy] files`; `record`, `labels` and `dojo` join it in follow-ups) and
-`make spell` (codespell). `make check` runs every gate in CI order. Rule changes and new
-ignore entries are their own commit, with the reason in the message.
+`make spell` (codespell). `make check` runs `lint`, `typecheck`, `spell`, `boundaries`,
+`layout`, `session-links` (tracked files and commit messages) and `test` (the `testpaths`
+of the root `pyproject.toml`). It does not run the governance tests (the command above) or
+check a pull request's title and description (`CIRCLE_PULL_REQUEST=<url> bash
+.circleci/check_no_session_links.sh`). Rule changes and new ignore entries are their own
+commit, with the reason in the message.
 
 ## 7. Commits
 
