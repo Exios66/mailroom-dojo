@@ -364,12 +364,14 @@ def test_ordinary_text_is_not_redacted(text: str) -> None:
 
 # Linearity is checked by growth, not by an absolute time: the CPU time of this process
 # (``time.process_time``, so other processes on a loaded machine do not count) at size
-# ``n`` and at ``_SCALE * n``. Linear work grows by about ``_SCALE`` (4), quadratic by
-# ``_SCALE**2`` (16); ``_MAX_RATIO`` sits halfway between them on a log scale. Each size
-# takes the minimum of ``_REPEATS`` runs (noise only ever adds time), and a ratio above
-# the bound is re-measured up to ``_ATTEMPTS`` times, because a fluke does not repeat
-# while a real super-linear path fails every time. ``_CPU_CEILING`` is only a backstop
-# against catastrophic slowness, never the primary check.
+# ``n`` and at ``_SCALE * n``. Linear work grows by about ``_SCALE`` (4), quadratic by up
+# to ``_SCALE**2`` (16); ``_MAX_RATIO`` sits halfway between them on a log scale. Each size
+# takes the minimum of ``_REPEATS`` runs (noise only ever adds time). A ratio above the
+# bound is re-measured up to ``_ATTEMPTS`` times and the first one under it passes, so a
+# one-off fluke does not fail the test, and a regression growing only a little faster
+# than 8x can pass by luck. The sizes are chosen so the quadratic regressions we have
+# tried grow about 11x or more. ``_CPU_CEILING`` fails any single run that is
+# catastrophically slow, as soon as it happens; it is a backstop, never the primary check.
 _SCALE = 4
 _MAX_RATIO = 8.0
 _REPEATS = 3
@@ -379,7 +381,8 @@ _CPU_CEILING = 10.0
 _T = TypeVar("_T")
 
 
-def _min_cpu_seconds(run: Callable[[_T], object], arg: _T) -> float:
+def _min_cpu_seconds(run: Callable[[_T], object], arg: _T, *, ceiling: float = _CPU_CEILING) -> float:
+    """Return the least CPU time of ``_REPEATS`` runs; fail at once if any run passes ``ceiling``."""
     best = float("inf")
     for _ in range(_REPEATS):
         gc.collect()
@@ -387,10 +390,26 @@ def _min_cpu_seconds(run: Callable[[_T], object], arg: _T) -> float:
         try:
             started = time.process_time()
             run(arg)
-            best = min(best, time.process_time() - started)
+            spent = time.process_time() - started
         finally:
             gc.enable()
+        assert spent < ceiling, f"one run took {spent:.2f}s of CPU (ceiling {ceiling}s)"
+        best = min(best, spent)
     return best
+
+
+def test_cpu_ceiling_fails_on_the_first_slow_run() -> None:
+    calls: list[int] = []
+
+    def burn(_: None) -> None:
+        calls.append(1)
+        deadline = time.process_time() + 0.01
+        while time.process_time() < deadline:
+            pass
+
+    with pytest.raises(AssertionError, match="ceiling"):
+        _min_cpu_seconds(burn, None, ceiling=0.005)
+    assert calls == [1]
 
 
 def assert_linear(make: Callable[[int], _T], run: Callable[[_T], object], n: int) -> None:
@@ -400,7 +419,6 @@ def assert_linear(make: Callable[[int], _T], run: Callable[[_T], object], n: int
     for _ in range(_ATTEMPTS):
         small_cpu = _min_cpu_seconds(run, small)
         large_cpu = _min_cpu_seconds(run, large)
-        assert large_cpu < _CPU_CEILING, f"{large_cpu:.2f}s of CPU at size {_SCALE * n}"
         ratios.append(large_cpu / max(small_cpu, 1e-6))
         if ratios[-1] < _MAX_RATIO:
             return
@@ -413,20 +431,20 @@ def assert_linear(make: Callable[[int], _T], run: Callable[[_T], object], n: int
 # Each case is a generator of its adversarial shape and a base repetition count ``n``;
 # the larger run uses ``_SCALE * n``.
 _ADVERSARIAL: dict[str, tuple[Callable[[int], str], int]] = {
-    "dotted run": (lambda n: "a." * n, 31_250),
-    "dashed run": (lambda n: "a-" * n, 31_250),
-    "token. run": (lambda n: "token." * n, 10_625),
-    "key-a run": (lambda n: "key-a" * n, 12_500),
-    "base64url-like": (lambda n: "aB3-_x9Z." * n, 6_875),
-    "long userinfo": (lambda n: "https://" + "u:p" * n + " x", 20_625),
-    "many schemes": (lambda n: "a://" * n, 15_625),
-    "long authorization line": (lambda n: "Authorization:" + " " * n + "'", 62_500),
-    "repeated authorization": (lambda n: "authorization " * n, 4_688),
-    "bearer spaces": (lambda n: "bearer" + " " * n + "!", 62_500),
-    "key= spaces": (lambda n: "password" + " " * n + "!", 62_500),
-    "pair chain": (lambda n: "a=" * n, 31_250),
-    "sensitive pairs": (lambda n: "token=x " * n, 7_813),
-    "at signs": (lambda n: "https://a:" + "@" * n, 62_500),
+    "dotted run": (lambda n: "a." * n, 125_000),
+    "dashed run": (lambda n: "a-" * n, 125_000),
+    "token. run": (lambda n: "token." * n, 42_500),
+    "key-a run": (lambda n: "key-a" * n, 50_000),
+    "base64url-like": (lambda n: "aB3-_x9Z." * n, 27_500),
+    "long userinfo": (lambda n: "https://" + "u:p" * n + " x", 82_500),
+    "many schemes": (lambda n: "a://" * n, 62_500),
+    "long authorization line": (lambda n: "Authorization:" + " " * n + "'", 250_000),
+    "repeated authorization": (lambda n: "authorization " * n, 18_750),
+    "bearer spaces": (lambda n: "bearer" + " " * n + "!", 250_000),
+    "key= spaces": (lambda n: "password" + " " * n + "!", 250_000),
+    "pair chain": (lambda n: "a=" * n, 125_000),
+    "sensitive pairs": (lambda n: "token=x " * n, 31_250),
+    "at signs": (lambda n: "https://a:" + "@" * n, 250_000),
 }
 
 
@@ -612,7 +630,9 @@ def test_quoted_secret_values_with_spaces_are_masked_whole(text: str) -> None:
 
 
 def test_unclosed_quote_does_not_make_redaction_quadratic() -> None:
-    assert_linear(lambda n: 'password="' * n, redact_text, 6_250)
+    # Twice the other cases' scale: at 25_000 a slice-per-match regression grows only
+    # about 9.5x here, too close to the 8x bound.
+    assert_linear(lambda n: 'password="' * n, redact_text, 50_000)
 
 
 def test_self_referential_values_are_truncated_not_a_recursion_error() -> None:
