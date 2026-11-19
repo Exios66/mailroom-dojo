@@ -1,0 +1,11 @@
+# sha256 of the mailroom-dataset files at each pinned Hub revision. `mailroom-labels
+# import-hub --pins` refuses files that are not exactly these for --revision, so a download
+# of another revision can never be recorded under this one. Values from the dataset's
+# manifest.txt at the revision (and that file's own hash), as recorded in
+# labels/hub-ccd040f6/manifest.json.
+ccd040f6a1b6b414bdefd161cdc622b68f6dacf8:
+  manifest.txt: 71001688f804aa338e4d72fc5b75cb40d17da42b8bf5b72f8334c7f77445f8ee
+  parquet/default/test/test-00000-of-00001.parquet: 1f6a9877b2e9c884a3c3484dceb60ccf6e1a4f37d0de0d1c2da887241d62ade9
+  parquet/default/train/train-00000-of-00001.parquet: 008165a2e66da9a8f0df9b800493746e68823458845104378e36991b55fb86f7
+  parquet/ground_truth/test/test-00000-of-00001.parquet: 769334cf81c2dc6dc9c64dc30f8676794adc48b2b8df19f013d19d337116f75a
+  parquet/ground_truth/train/train-00000-of-00001.parquet: 2b30be9e2f864f86a3c42c2d5fa6237bfd4e2210f82a0883bc3de6da9c9601d2
