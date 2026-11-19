@@ -10,12 +10,16 @@ readme = "README.md"
 requires-python = ">=3.11"
 # Every dependency is required: a missing one is an import error, never a quiet change
 # of algorithm (jellyfish for name similarity, scipy and numpy for list matching,
-# python-dateutil for dates, PyYAML for scoring profiles).
+# python-dateutil for dates, PyYAML for scoring profiles). scipy and numpy are core by the
+# owner's decision (2026-11-19). NumPy 2 is the floor: its scalar promotion (NEP 50) and
+# scalar repr are what the statistics code and its tests rely on (a float32 alpha keeps
+# float32 arithmetic; an error names np.float64(nan)), and the parity corpora were captured
+# with NumPy 2; scipy 1.13 is the first release built for NumPy 2.
 dependencies = [
     "python-dateutil>=2.8",
     "jellyfish>=1.0",
-    "scipy>=1.10",
-    "numpy>=1.24",
+    "scipy>=1.13",
+    "numpy>=2.0",
     "PyYAML>=6.0",
 ]
 
