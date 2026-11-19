@@ -32,7 +32,8 @@ Enqueue
    after the flush (write order: blob, event, index).
 
 A record the desk cannot read safely (a corrupt line, a forked chain, an unreadable
-header) raises ``RecordDamaged`` and nothing is appended. A torn tail is not damage: it is
+header) raises ``RecordDamaged`` and nothing is appended; ``case`` and ``queue`` raise it
+too, rather than fold a forked chain (``iter_events`` yields both sides of a fork). A torn tail is not damage: it is
 skipped (it was never an event) and the writer continues in a new segment. Another writer
 of this process holding the document raises ``RecordBusy``. A write or fsync that fails
 (a full disk) raises ``RecordWriteFailed`` with the ``OSError`` as its cause: the record
@@ -191,7 +192,7 @@ class Desk:
     def _events(self, run_id: str, doc_id: str) -> list[Event]:
         """One document's events, from the log (one scan of the run)."""
         try:
-            return list(self.log.iter_events(run_id, doc_id))
+            return _unforked(run_id, doc_id, list(self.log.iter_events(run_id, doc_id)))
         except RunPruned:
             raise RunArchived(run_id, pruned_archive(self.log, run_id)) from None
         except (CorruptLine, ValueError, TypeError, OSError) as exc:
@@ -399,7 +400,7 @@ class Desk:
         try:
             stream = self.log.iter_events(run_id)
             for doc_id, group in itertools.groupby(stream, key=lambda e: e.doc_id):
-                state = fold_case(run_id, doc_id, list(group), now)
+                state = fold_case(run_id, doc_id, _unforked(run_id, doc_id, list(group)), now)
                 if state is not None:
                     out.append(state)
         except RunPruned:
@@ -455,6 +456,17 @@ class Desk:
         if differ:
             return f"{len(differ)} document head(s) differ from the log"
         return None
+
+
+def _unforked(run_id: str, doc_id: str, events: list[Event]) -> list[Event]:
+    """``events`` (one document's, ``seq``-ordered, as ``iter_events`` yields them), unless two
+    share a ``seq``: ``iter_events`` returns both sides of a fork, and folding them would
+    report a case for an ambiguous history. A fork raises ``RecordDamaged`` with the record's
+    ``ForkedChain`` as its cause, the error a writer taking the document raises."""
+    for before, after in itertools.pairwise(events):
+        if before.seq == after.seq:
+            raise RecordDamaged(run_id, ForkedChain(run_id, doc_id, after.seq))
+    return events
 
 
 def _show_id(value: object) -> str:

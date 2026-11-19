@@ -542,6 +542,30 @@ def test_forked_chain_is_refused_as_damage(env: SimpleNamespace) -> None:
     assert type(info.value.cause).__name__ == "ForkedChain"
 
 
+def test_reading_a_forked_chain_is_damage_not_a_case(env: SimpleNamespace) -> None:
+    """``iter_events`` returns both sides of a fork; the desk must not fold them into a
+    case. ``case`` and ``queue`` (one run and every run) refuse as ``enqueue`` does."""
+    engine_append(env.root, "r1", "d1")
+    env.desk.enqueue(request("d1", "flag_low"), env.policy)
+    env.desk.enqueue(request("d2", "flag_low"), env.policy)  # an intact neighbour
+    seg = env.root / "runs" / "r1" / "segments"
+    review_line = next(
+        line for line in (seg / "desk.jsonl").read_bytes().splitlines(keepends=True) if b'"d1"' in line
+    )
+    (seg / "w9.jsonl").write_bytes(review_line)  # a second owner stored seq 1 of d1 too
+    reads = (
+        lambda: env.desk.case("r1", "d1"),
+        lambda: env.desk.queue("r1"),
+        lambda: env.desk.queue(),
+    )
+    for read in reads:
+        with pytest.raises(RecordDamaged) as info:
+            read()
+        assert type(info.value.cause).__name__ == "ForkedChain"
+        assert (info.value.cause.doc_id, info.value.cause.seq) == ("d1", 1)
+    assert env.desk.case("r1", "d2").in_review  # one document's fork does not hide another's case
+
+
 def test_document_held_by_a_live_writer_in_this_process_is_busy(env: SimpleNamespace) -> None:
     with env.log.open_writer("r1", "engine") as w:
         w.append(doc_id="d1", node="step", kind="decision")

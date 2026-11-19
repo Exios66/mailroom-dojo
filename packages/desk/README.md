@@ -84,6 +84,9 @@ desk.index_drift()                        # with an index: problem lines, [] whe
   anomaly. A failed write or fsync raises `RecordWriteFailed` (the cause is the `OSError`;
   the event may be on disk, so read the case again before retrying); a read failure while
   appending is `RecordDamaged`. Times are written with a four-digit year (year 5 is `0005`).
+- A forked chain (two stored events with one `seq` of a document) is `RecordDamaged` (the
+  cause is the record's `ForkedChain`) for `enqueue`, `case` and `queue` alike: the record's
+  `iter_events` returns both sides of a fork, and the desk never folds them into a case.
 - Hostile config files are typed errors, never crashes: integers too large for a float,
   integer literals too long to read and YAML nested thousands deep are a `PolicyError` or
   `RegistryError`, and problem messages show refused values shortened.
