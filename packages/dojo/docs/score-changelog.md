@@ -348,6 +348,16 @@ Changing any of these would change a score, so each waits for a deliberate score
   version moved with it. The version and content hash are frozen in
   `tests/fixtures/measures/table_identity.json`; a test fails when the hash moves, and says
   so when the version did not.
+- **A varied draw seed must be present (review of PR #8).** The old
+  `validate_comparison_provenance` skipped `draw_seed` when both legs lacked it, even when
+  `vary=("draw_seed",)` said the comparison was across draws, so two full-split runs passed as
+  a comparison of draws. `comparability_problems` now reports `provenance_missing (draw_seed)`
+  then; without `vary`, two full-split runs still compare. No number changes; only which
+  measures may be compared.
+- **A cost basis or label status must be a `str` (review of PR #8).** A NumPy array passed the
+  vocabulary check element-wise (`numpy.array(["none"])`) or raised a bare `ValueError`; it is
+  now a `MeasureError`, and a `str` subclass is stored as a plain `str`. The old Dojo had no
+  `Measure`, so no old behaviour changes.
 - **27 planned design rows** (`origin: design`, ids `dojo:<id>`) add numbers the old Dojo never
   had; none changes an old number. Eight of them are the `_vs_gold` rows above.
 
@@ -394,7 +404,7 @@ build chunks of the port design (section 6); "dropped" gives the reason.
 | `summarize_run_completion` (988) | D5: run-layer completion (rows `success_rate`, `error_rate`) |
 | `aggregate_quality_itt` (1023) | D5: intention-to-treat quality over attempted documents |
 | `stamp_provenance` (1055) | D2 shape (`Provenance`); D5 stamps it from the sealed record |
-| `validate_comparison_provenance` (1103) | D2: `comparability_problems(..., vary=...)`: every key on both sides and equal, `vary` keys present but free, `draw_seed` absent on both allowed, cost basis equal |
+| `validate_comparison_provenance` (1103) | D2: `comparability_problems(..., vary=...)`: every key on both sides and equal, `vary` keys present but free, `draw_seed` absent on both allowed unless `vary` names it, cost basis equal |
 | `normalize_serving_kind_token` (1165) | D5: serving by backend (`Provenance.serving_kind` is compared as given until then) |
 
 The old tests, `tests/test_v018_scorecard_honesty.py` (13 test functions):

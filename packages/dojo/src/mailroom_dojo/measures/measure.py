@@ -34,7 +34,7 @@ function, the chunk that owns it or why it was dropped.
    (agent, class and field), the same cost basis and the same provenance
    (``validate_comparison_provenance`` with ``PROVENANCE_KEYS``, #22: every key present
    on both sides and equal, except the keys named in ``vary``, which must be present
-   but may differ, and ``draw_seed``, which may be absent on both), the same label
+   but may differ, and ``draw_seed``, which may be absent on both unless ``vary`` names it), the same label
    status (new: both legs rest on the same ground truth), and both have a value (a delta
    with an unmeasured side is unmeasurable, as in ``delta_significance``).
 
@@ -177,7 +177,7 @@ class Provenance:
     """Where a measure comes from: the old ``PROVENANCE_KEYS`` (``metric_id`` is ``method``).
 
     Every key is optional when the measure is built; comparing two measures needs every
-    key on both sides (``draw_seed`` may be absent on both), see :func:`comparability_problems`.
+    key on both sides (``draw_seed`` may be absent on both unless it is varied), see :func:`comparability_problems`.
     """
 
     dataset_revision: str | None = None
@@ -253,12 +253,13 @@ class Measure:
             if number is None:
                 raise MeasureError(f"value must be a finite number or None, got {_shown(self.value)}")
             object.__setattr__(self, "value", number)
-        if self.cost_basis not in COST_BASES:
-            raise MeasureError(f"cost_basis {_shown(self.cost_basis)} is not one of {', '.join(COST_BASES)}")
-        if self.label_status not in LABEL_STATUSES:
-            raise MeasureError(
-                f"label_status {_shown(self.label_status)} is not one of {', '.join(LABEL_STATUSES)}"
-            )
+        # A word must be a str before the membership test: a NumPy array compares element-wise
+        # (one item passes, several raise a bare ValueError). A str subclass is stored as a str.
+        for name, words in (("cost_basis", COST_BASES), ("label_status", LABEL_STATUSES)):
+            word = getattr(self, name)
+            if not isinstance(word, str) or word not in words:
+                raise MeasureError(f"{name} {_shown(word)} is not one of {', '.join(words)}")
+            object.__setattr__(self, name, str(word))
         if not isinstance(self.method, str) or not self.method.strip():
             raise MeasureError("method must name the metric id or formula behind the value")
         if self.reason is not None and (not isinstance(self.reason, str) or not self.reason.strip()):
@@ -366,7 +367,8 @@ def _provenance_problems(left: Measure, right: Measure, vary: frozenset[str]) ->
     mismatched: list[str] = []
     for key in PROVENANCE_KEYS:
         lv, rv = getattr(left.provenance, key), getattr(right.provenance, key)
-        if key in _OPTIONAL_PAIRED_KEYS and _absent(lv) and _absent(rv):
+        # A key the comparison varies must be on both sides, draw_seed too.
+        if key in _OPTIONAL_PAIRED_KEYS and key not in vary and _absent(lv) and _absent(rv):
             continue
         if _absent(lv) or _absent(rv):
             missing.append(key)

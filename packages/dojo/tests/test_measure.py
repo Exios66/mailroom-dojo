@@ -291,6 +291,25 @@ def test_subject_and_provenance_words_are_non_empty_text(value: object) -> None:
         Provenance(split=value)  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("field", ["cost_basis", "label_status"])
+@pytest.mark.parametrize(
+    "bad",
+    [numpy.array(["none"]), numpy.array(["none", "gold"]), numpy.str_("none")],
+    ids=["one-item-array", "two-item-array", "numpy-str"],
+)
+def test_a_vocabulary_word_must_be_a_str(field: str, bad: object) -> None:
+    """A NumPy array passes ``in`` element-wise (or raises a bare ValueError); only a str is a word.
+
+    ``numpy.str_`` is a ``str`` subclass, so it is read as its word and stored as a plain ``str``.
+    """
+    if isinstance(bad, str):
+        measure = _measure(**{field: bad})
+        assert type(getattr(measure, field)) is str and getattr(measure, field) == "none"
+        return
+    with pytest.raises(MeasureError, match=rf"^{field} array\(\[.*\) is not one of"):
+        _measure(**{field: bad})
+
+
 class _ReprRaises:
     """A hostile value whose ``repr`` raises."""
 
@@ -414,6 +433,17 @@ def test_two_dataset_revisions_are_never_compared() -> None:
 def test_both_sides_without_a_draw_seed_compare() -> None:
     full_split = dataclasses.replace(RUN, draw_seed=None)
     assert comparability_problems(_measure(provenance=full_split), _measure(provenance=full_split)) == ()
+
+
+def test_a_varied_draw_seed_must_be_present_on_both_sides() -> None:
+    """Without vary, two full-split runs compare; varying the draw seed needs one on each side."""
+    full_split = _measure(provenance=dataclasses.replace(RUN, draw_seed=None))
+    assert comparability_problems(full_split, full_split, vary="draw_seed") == ("provenance_missing (draw_seed)",)
+    with pytest.raises(IncomparableMeasuresError, match=r"provenance_missing \(draw_seed\)"):
+        assert_comparable(full_split, full_split, vary="draw_seed")
+    assert comparability_problems(full_split, _measure(), vary="draw_seed") == ("provenance_missing (draw_seed)",)
+    other_draw = _measure(provenance=dataclasses.replace(RUN, draw_seed="8"))
+    assert comparability_problems(_measure(), other_draw, vary="draw_seed") == ()
 
 
 def test_vary_lets_the_compared_axis_differ_but_not_go_missing() -> None:

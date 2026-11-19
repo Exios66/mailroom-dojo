@@ -218,7 +218,7 @@ build chunks of the port design (section 6); "dropped" gives the reason.
 | `summarize_run_completion` (988) | D5: run-layer completion (rows `success_rate`, `error_rate`) |
 | `aggregate_quality_itt` (1023) | D5: intention-to-treat quality over attempted documents |
 | `stamp_provenance` (1055) | D2 shape (`Provenance`); D5 stamps it from the sealed record |
-| `validate_comparison_provenance` (1103) | D2: `comparability_problems(..., vary=...)`: every key on both sides and equal, `vary` keys present but free, `draw_seed` absent on both allowed, cost basis equal |
+| `validate_comparison_provenance` (1103) | D2: `comparability_problems(..., vary=...)`: every key on both sides and equal, `vary` keys present but free, `draw_seed` absent on both allowed unless `vary` names it, cost basis equal |
 | `normalize_serving_kind_token` (1165) | D5: serving by backend (`Provenance.serving_kind` is compared as given until then) |
 
 The old tests, `tests/test_v018_scorecard_honesty.py` (13 test functions):
