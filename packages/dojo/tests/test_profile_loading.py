@@ -1168,5 +1168,6 @@ def test_a_replaced_profile_gets_the_hash_of_its_own_rules(mailroom_profile):
         ).content_hash
     )
     assert dataclasses.replace(mailroom_profile) == mailroom_profile
-    with pytest.raises(TypeError):
+    # Python 3.11 and 3.12 refuse an init=False field with ValueError, 3.13 with TypeError.
+    with pytest.raises((TypeError, ValueError)):
         dataclasses.replace(mailroom_profile, content_hash="0" * 64)
