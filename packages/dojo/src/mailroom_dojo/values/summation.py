@@ -3,8 +3,10 @@
 CPython 3.12 made ``sum()`` of floats compensated (Neumaier's improved Kahan-Babuska
 summation); 3.11 adds them naively. A mean rounded to four places can then differ in its last
 digit between the two (the parity corpus, recorded on 3.12 or later, holds such a case). The
-Dojo's float means go through ``compensated_sum``: on 3.12 and later it is the builtin, and on
-3.11 it is a port of the 3.12 loop, so every version gives the 3.12 answer.
+Dojo's float means go through ``compensated_sum``: on 3.12 and 3.13 it is the builtin, and on
+every other version it is a port of the 3.12 loop, so every version gives the 3.12 answer.
+CPython 3.14 changed ``sum()`` again: it also compensates integer addends in the float phase,
+so ``sum([1e16, 1, 1, 1, 1])`` is ``1.0000000000000004e16`` there and ``1e16`` on 3.12.
 """
 
 from __future__ import annotations
@@ -67,6 +69,6 @@ def _neumaier_sum(values: Iterable[Any]) -> Any:
 
 def compensated_sum(values: Iterable[Any]) -> Any:
     """``sum(values)`` as CPython 3.12 computes it, on every supported Python."""
-    if sys.version_info >= (3, 12):
+    if (3, 12) <= sys.version_info < (3, 14):
         return sum(values)
     return _neumaier_sum(values)

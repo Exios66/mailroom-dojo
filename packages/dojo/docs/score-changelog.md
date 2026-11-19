@@ -201,11 +201,13 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
 
 ## One float sum on every Python
 
-- **Intended difference, on Python 3.11 only.** Every float mean (field audit support,
-  `overall_score`, the entity-list audit mean, macro accuracy and the macro precision, recall,
-  F1 and F2) adds its values with `mailroom_dojo.values.summation.compensated_sum`. On 3.12
-  and later that is the builtin `sum()`, so nothing changes there. On 3.11 it is a port of
-  3.12's compensated loop, where the old Dojo used 3.11's naive `sum()`. A four-place mean can
+- **Intended difference, on Python 3.11 and on 3.14 or later.** Every float mean (field audit
+  support, `overall_score`, the entity-list audit mean, macro accuracy and the macro precision,
+  recall, F1 and F2) adds its values with `mailroom_dojo.values.summation.compensated_sum`. On
+  3.12 and 3.13 that is the builtin `sum()`, so nothing changes there. On every other version
+  it is a port of 3.12's compensated loop: 3.11's own `sum()` is naive, and 3.14's also
+  compensates integer addends (`[1e16, 1, 1, 1, 1]` sums to `1.0000000000000004e16` on 3.14
+  and `1e16` on 3.12), where the old Dojo used the running Python's `sum()`. A four-place mean can
   therefore differ from the old Dojo's in its last digit on 3.11 only (one parity corpus case:
   0.5669, where 3.11's own `sum()` gave 0.5668). The corpus was recorded on 3.12 or later, so
   the new Dojo now matches it on every supported Python.

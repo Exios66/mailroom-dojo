@@ -17,6 +17,12 @@ def test_ten_tenths_add_up_to_one_on_every_python() -> None:
     assert compensated_sum([0.1] * 10) == 1.0
 
 
+def test_small_integers_after_a_large_float_add_up_as_on_python_3_12() -> None:
+    # CPython 3.14's sum() also compensates integer addends in the float phase and gives
+    # 1.0000000000000004e16 here; 3.12 and 3.13 add each integer to the running float.
+    assert compensated_sum([1e16, 1, 1, 1, 1]) == 1e16
+
+
 def test_an_empty_sum_is_the_integer_zero_and_integers_stay_exact() -> None:
     assert compensated_sum([]) == 0 and type(compensated_sum([])) is int
     assert compensated_sum([2**80, 1, True]) == 2**80 + 2
@@ -57,8 +63,11 @@ def _cases() -> list[list[object]]:
     return cases
 
 
-@pytest.mark.skipif(sys.version_info < (3, 12), reason="the reference is CPython 3.12's own sum()")
-def test_the_port_matches_the_builtin_sum_of_python_3_12_and_later() -> None:
+@pytest.mark.skipif(
+    not (3, 12) <= sys.version_info < (3, 14),
+    reason="the reference is the builtin sum() of CPython 3.12 and 3.13, the 3.12 algorithm",
+)
+def test_the_port_matches_the_builtin_sum_of_python_3_12_and_3_13() -> None:
     for values in _cases():
         got, want = _neumaier_sum(values), sum(values)  # type: ignore[arg-type]
         assert type(got) is type(want), values
