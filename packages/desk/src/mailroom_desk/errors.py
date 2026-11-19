@@ -26,6 +26,7 @@ __all__ = [
     "RecordWriteFailed",
     "RegistryError",
     "RoleNotHeld",
+    "RunArchived",
     "RunChainNotReviewable",
     "RunClosed",
     "TokenRejected",
@@ -83,6 +84,18 @@ class RunClosed(DeskError):
         super().__init__(f"run {run_id!r} ({kind}) is sealed and closed; the desk does not write to it")
         self.run_id = run_id
         self.kind = kind
+
+
+class RunArchived(DeskError):
+    """The run is pruned (``mailroom_record.pack.prune_run``): its events are in its archive,
+    not in this store, so the desk neither reads nor writes it. ``queue()`` over every run
+    skips it; naming it raises this. Unpack the archive (``mailroom-record unpack``) first.
+    ``archive`` is the archive the record names (not shown in the message)."""
+
+    def __init__(self, run_id: str, archive: str | None = None) -> None:
+        super().__init__(f"run {run_id!r} is pruned: its events are in its archive; unpack it first")
+        self.run_id = run_id
+        self.archive = archive
 
 
 class RunChainNotReviewable(DeskError):

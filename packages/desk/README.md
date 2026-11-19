@@ -58,6 +58,9 @@ desk.index_drift()                        # with an index: problem lines, [] whe
   after the parent releases it, until the child exits. Start workers with
   `multiprocessing`'s `spawn` context or `subprocess` (fork then exec): the desk's lock
   descriptors are not inheritable, so those children never hold a lock.
+- A pruned run (packed, then `prune_run`) keeps its `run.json`, but its events are in its
+  archive: `queue()` over every run skips it, and `queue(run_id)`, `case` and `enqueue` naming
+  it raise `RunArchived`. Unpack the archive (`mailroom-record unpack`) to review it again.
 - A sealed experiment run is refused (`RunClosed`); a `service_period` run is never closed.
   The closed check is repeated under the locks, so a seal that lands while an enqueue waits
   for the desk lock is still refused.

@@ -984,3 +984,46 @@ def test_full_disk_on_flush_is_a_typed_error_and_leaves_the_record_usable(
         pass
     assert env.desk.enqueue(request("d1", "flag_low"), env.policy).event.seq == 0
     verify_ok(env)
+
+
+# --- pruned runs (packed and pruned through the record's own API) --------------------
+
+
+def _prune(root: Path, run_id: str, tmp: Path) -> None:
+    from mailroom_record.pack import pack_run, prune_run
+    from mailroom_record.seal import seal_run
+
+    seal_run(log_of(root), run_id)
+    pack_run(root, run_id, tmp / f"{run_id}.tar.zst")
+    prune_run(root, run_id)
+
+
+@pytest.mark.parametrize("kind", ["specialist_only", "service_period"])
+def test_a_pruned_run_is_skipped_by_the_whole_queue_and_refused_by_name(
+    tmp_path: Path, kind: str
+) -> None:
+    from mailroom_desk import RunArchived
+
+    root = tmp_path / "store"
+    for run_id in ("gone", "live"):
+        make_run(root, run_id, kind)
+    desk = Desk(root, lock_timeout=5)
+    pol = policy(sample={"rate": 0.0, "seed": ""})
+    for run_id in ("gone", "live"):
+        desk.enqueue(request("d1", "flag_low", run_id=run_id), pol)
+    _prune(root, "gone", tmp_path)
+    assert "gone" in desk.run_ids()  # run.json stays after a prune
+    # One archived run does not abort the queue of every run: its cases are in the archive.
+    assert [(c.run_id, c.doc_id) for c in desk.queue()] == [("live", "d1")]
+    # Named directly, it is refused with a typed error, never read as an empty run.
+    with pytest.raises(RunArchived) as info:
+        desk.queue("gone")
+    assert info.value.run_id == "gone"
+    with pytest.raises(RunArchived):
+        desk.case("gone", "d1")
+    before = segment_files(root, "live")
+    for req in (request("d2", "flag_low", run_id="gone"), request("d3", run_id="gone")):
+        with pytest.raises(RunArchived):  # with causes, and sample-only too
+            desk.enqueue(req, policy(sample={"rate": 1.0, "seed": "s"}))
+    assert segment_files(root, "live") == before
+    assert list((root / "runs" / "gone").rglob("*.jsonl")) == []  # nothing appended

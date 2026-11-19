@@ -13,8 +13,8 @@ Enqueue
 1. Refuses the run-level chain ``_run`` (``RunChainNotReviewable``: it holds run events,
    not a document), an outage cause (``OutageNotReviewable``) and a cause the policy's
    catalog does not list (``UnknownCause``), an unknown run (``UnknownRun``), a closed run
-   (``RunClosed``) and a shown blob that is not in the store (``BlobNotPresent``), before
-   touching the record.
+   (``RunClosed``), a pruned run (``RunArchived``) and a shown blob that is not in the store
+   (``BlobNotPresent``), before touching the record.
 2. Decides the sample: ``policy.sample.selects(doc_id)``. A request with no causes enters
    only if sampled, with the cause ``spot_check``; otherwise ``enqueue`` returns ``None``
    and appends nothing. A request with causes enters with them, and ``sampled`` records
@@ -52,8 +52,10 @@ The log is the truth, and reading never needs the index. ``case(run_id, doc_id)`
 one document from its events in the log. ``queue(run_id=None)`` folds every document in
 review, of one run or of all, ordered by ``CaseState.sort_key`` (priority, SLA due,
 opened, ids): one ordered scan of each run's log, grouped by document and folded per
-document, so the work grows with the run, never with the number of cases. The index is
-only a target the desk applies its events to (for other readers of the record); a stale,
+document, so the work grows with the run, never with the number of cases. A pruned run
+(``mailroom_record.pack.prune_run``) keeps its header but its events are in its archive:
+``queue()`` over every run skips it, and ``queue(run_id)``, ``case`` and ``enqueue``
+naming it raise ``RunArchived`` (unpack it first). The index is only a target the desk applies its events to (for other readers of the record); a stale,
 locked or broken index changes no answer and slows nothing down. ``index_drift()`` is a
 diagnostic: it compares the index's document heads with the log's and returns the
 problems it finds, never raising. Leases, deferrals and SLA breach are judged against
@@ -78,6 +80,7 @@ from mailroom_desk.errors import (
     RecordBusy,
     RecordDamaged,
     RecordWriteFailed,
+    RunArchived,
     RunChainNotReviewable,
     RunClosed,
     UnknownCause,
@@ -89,7 +92,16 @@ from mailroom_desk.models import NODE, RUN_CHAIN, CaseState, EnqueuePayload, Rev
 from mailroom_desk.policy import SPOT_CHECK, Policy, is_outage
 from mailroom_record.blobs import BlobStore
 from mailroom_record.index import Index
-from mailroom_record.log import BlobNotStored, CorruptLine, DocumentInUse, EventLog, ForkedChain, WriterInUse
+from mailroom_record.log import (
+    BlobNotStored,
+    CorruptLine,
+    DocumentInUse,
+    EventLog,
+    ForkedChain,
+    RunPruned,
+    WriterInUse,
+    pruned_archive,
+)
 from mailroom_record.models import BlobRef, Event, Run
 
 __all__ = ["WRITER_ID", "Desk", "Enqueued"]
@@ -180,6 +192,8 @@ class Desk:
         """One document's events, from the log (one scan of the run)."""
         try:
             return list(self.log.iter_events(run_id, doc_id))
+        except RunPruned:
+            raise RunArchived(run_id, pruned_archive(self.log, run_id)) from None
         except (CorruptLine, ValueError, TypeError, OSError) as exc:
             raise RecordDamaged(run_id, exc) from exc
 
@@ -249,8 +263,12 @@ class Desk:
         return Enqueued(event=event, case=case, index_error=index_error)
 
     def _check_open(self, run_id: str) -> Run:
-        """The run header, unless the run is unknown (``UnknownRun``) or closed (``RunClosed``)."""
+        """The run header, unless the run is unknown (``UnknownRun``), pruned (``RunArchived``)
+        or closed (``RunClosed``)."""
         run = self.run(run_id)
+        archive = pruned_archive(self.log, run_id)
+        if archive is not None:
+            raise RunArchived(run_id, archive)
         if self.is_closed(run_id):
             raise RunClosed(run_id, run.kind)
         return run
@@ -286,6 +304,8 @@ class Desk:
             raise UnknownRun(run_id) from None
         except WriterInUse as exc:
             raise RecordBusy(run_id, doc_id, exc) from exc
+        except RunPruned:
+            raise RunArchived(run_id, pruned_archive(self.log, run_id)) from None
         except (CorruptLine, OSError) as exc:
             raise RecordDamaged(run_id, exc) from exc
         try:
@@ -348,14 +368,22 @@ class Desk:
         """Every case in review (of ``run_id``, or of every run), in queue order, from the
         log: one scan per run.
 
-        ``queue`` keeps one named queue; ``statuses`` keeps those statuses only.
+        ``queue`` keeps one named queue; ``statuses`` keeps those statuses only. Over every
+        run, a pruned run is skipped (its events are in its archive); named, it raises
+        ``RunArchived``.
         """
         moment = now or self.now()
         if run_id is not None:
             self.run(run_id)
         cases: list[CaseState] = []
-        for rid in [run_id] if run_id is not None else self.run_ids():
-            cases.extend(self._cases(rid, moment))
+        if run_id is not None:
+            cases.extend(self._cases(run_id, moment))
+        else:
+            for rid in self.run_ids():
+                try:
+                    cases.extend(self._cases(rid, moment))
+                except RunArchived:
+                    continue
         keep = None if statuses is None else set(statuses)
         out = [
             c
@@ -374,6 +402,8 @@ class Desk:
                 state = fold_case(run_id, doc_id, list(group), now)
                 if state is not None:
                     out.append(state)
+        except RunPruned:
+            raise RunArchived(run_id, pruned_archive(self.log, run_id)) from None
         except (CorruptLine, ValueError, TypeError, OSError) as exc:
             raise RecordDamaged(run_id, exc) from exc
         return out
