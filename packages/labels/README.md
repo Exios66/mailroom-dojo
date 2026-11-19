@@ -109,8 +109,9 @@ the manifest's `source` (for example `presence_mapped` for `pending_annotation` 
 | `import-review` | review decision files and the review desk log | a source with a malformed line or a desk decision word it does not know (see below). An `unsure` desk mark is a normal outcome, never a label: it is listed under `source.undecided` (with `replaced` when a later dated human decision settled the label), and it is refused only when it cannot be ordered against a human decision on its label (see below). A decision replaced by a later decision or `unsure` mark, or by a human decision, is listed under `superseded` with its reason |
 
 A source the importer cannot take whole is refused (exit 1, nothing written): a line that is
-not a strict JSON object (a repeated key, `NaN`, `Infinity` or `-Infinity` included), lacks
-a required key, or would not load as a snapshot row (nested more than 64 levels deep, or a
+not a strict JSON object (a repeated key, `NaN`, `Infinity` or `-Infinity` included, or a
+float such as `1e999` that overflows), lacks a required key, has a review `doc_id` or `field`
+that is not a name, or would not load as a snapshot row (nested more than 64 levels deep, or a
 string holding a lone surrogate) (`source.rejected_lines`), a Hub row whose
 `gt_fields` or `gt_presence` is not an object (`unparseable_gt_fields`), a desk decision
 word other than `keep`, `use_suggestion`, `correct` or `unsure` (`not_imported`), an `unsure` mark

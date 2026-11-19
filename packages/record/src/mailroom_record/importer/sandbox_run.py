@@ -712,7 +712,10 @@ def _hashes(run_id: str, doc_id: str, chain: list[dict[str, Any]]) -> list[str]:
 def _ms(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    v = float(value)
+    try:
+        v = float(value)
+    except OverflowError:  # a JSON integer such as 10**400 has no float: an unusable latency
+        return None
     return v if v >= 0 and v == v and v != float("inf") else None
 
 

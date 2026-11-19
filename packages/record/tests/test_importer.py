@@ -824,6 +824,21 @@ def test_a_node_row_with_an_integer_timestamp_too_large_for_a_float_still_import
     assert verify_run(tmp_store.log, tmp_store.blobs, r.run_id).ok
 
 
+@pytest.mark.parametrize(("name", "key"), [("nodes.jsonl", "ms"), ("items.jsonl", "latency_ms")])
+def test_a_latency_too_large_for_a_float_is_absent_not_an_overflow(
+    tmp_store: SimpleNamespace, fixture_folder: Path, name: str, key: str
+) -> None:
+    """A latency such as 10**400 is unusable like a negative one, so the row imports without
+    it; it never aborts the import with an ``OverflowError``."""
+    rows = read_jsonl(fixture_folder / name)
+    for row in rows:  # start rows carry no latency, so set it on every row
+        row[key] = 10**400
+    write_jsonl(fixture_folder / name, rows)
+    r = import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    assert r.status == "imported"
+    assert verify_run(tmp_store.log, tmp_store.blobs, r.run_id).ok
+
+
 def test_a_content_sha256_that_does_not_hash_doc_text_is_a_folder_error(
     tmp_store: SimpleNamespace, fixture_folder: Path
 ) -> None:
