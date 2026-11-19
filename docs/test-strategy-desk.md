@@ -79,7 +79,7 @@ one-off unit tests.
 | A lease or deferral outlives its time | Injected clock at the boundary (one microsecond before; exactly at) | `test_claim_holds_until_the_lease_expires_exactly`, `test_injected_clock_drives_lease_expiry_in_the_queue`, `test_release_escalate_defer_and_reopen` |
 | SLA breach is off by one | Boundary: due minus 1 us, due, due plus 1 us; a resolved case never breaches | `test_sla_breach_boundaries`, `test_resolution_ends_the_episode` |
 | Queue order is wrong | Priority, then due time, then opened time, then id; an unreadable case first | `test_queue_order_priority_then_due_then_opened_then_id` |
-| An unreadable case drops out of the queue | Garbage review payloads stay in the queue with `anomalies` that never echo content | `test_unreadable_and_out_of_place_payloads_are_anomalies_not_drops` |
+| An unreadable case drops out of the queue, or its anomaly echoes content | Garbage review payloads stay in the queue with `anomalies` that never echo content; an unknown key (at top level, inside `actor`, and nested) is masked as `*`, while schema field names, the action tag and list indices stay | `test_unreadable_and_out_of_place_payloads_are_anomalies_not_drops`, `test_an_unknown_payload_key_never_reaches_the_anomaly`, `test_anomaly_locations_keep_field_names_and_indices` |
 | Boundary creep | Static AST walk: the desk imports only record and labels; record and labels import nothing of the desk; positive controls | `test_boundaries.py` |
 | A class, field or cause token in code | Static: no class, field or subclass of the labels' synthetic profile, and no cause token of `config/review/default.yaml` (other than the reserved `spot_check`), is quoted in library code | `test_boundaries.py` |
 

@@ -323,6 +323,16 @@ ReviewPayload = Annotated[
     Field(discriminator="action"),
 ]
 _PAYLOAD = TypeAdapter(ReviewPayload)
+#: The action payload models (the members of ``ReviewPayload``).
+REVIEW_PAYLOADS: tuple[type[_Frozen], ...] = (
+    EnqueuePayload,
+    ReopenPayload,
+    AssignPayload,
+    ClaimPayload,
+    ReleasePayload,
+    EscalatePayload,
+    DeferPayload,
+)
 
 
 def parse_payload(payload: Any) -> Any:

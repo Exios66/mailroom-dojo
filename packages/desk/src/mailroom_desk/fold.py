@@ -23,21 +23,24 @@ Leases and deferrals are judged at read time against the ``now`` given (the desk
 injectable clock): a lease holds while ``now < lease_expires_at``, a deferral while
 ``now < until``. A payload the desk cannot read, an ``enqueue`` inside an open episode, or
 an action before any opening event is listed in ``anomalies`` (``seq`` and reason only,
-never content) and the fold carries on: an unreadable case is never dropped from the queue.
+never content: a validation error is named by schema field names and error types, and a
+key the payload carried that is not a field is masked as ``*``) and the fold carries on: an unreadable case is never dropped from the queue.
 An SLA due time past 9999-12-31 saturates at ``models.END_OF_TIME`` (never breached) and is
 listed as an anomaly too, so one far-future event never raises out of the queue.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import typing
+from collections.abc import Iterator, Sequence
 from datetime import datetime
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from mailroom_desk.models import (
     END_OF_TIME,
     OPENING_ACTIONS,
+    REVIEW_PAYLOADS,
     AssignPayload,
     CaseState,
     ClaimPayload,
@@ -72,10 +75,49 @@ def episode(events: Sequence[Event]) -> tuple[list[Event], Event | None] | None:
     return list(events[start : last + 1]), resolution
 
 
+def _models(annotation: object) -> Iterator[type[BaseModel]]:
+    """The models an annotation names, however deeply nested (``X | None``, tuples, ...)."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        yield annotation
+    for arg in typing.get_args(annotation):
+        yield from _models(arg)
+
+
+def _schema_names() -> frozenset[str]:
+    """Every field name of the payload models and the models they nest, plus the action
+    tags: the only words an anomaly may take from a validation error's location."""
+    names: set[str] = set()
+    seen: set[type[BaseModel]] = set()
+    todo: list[type[BaseModel]] = list(REVIEW_PAYLOADS)
+    while todo:
+        model = todo.pop()
+        if model in seen:
+            continue
+        seen.add(model)
+        for name, info in model.model_fields.items():
+            names.add(name)
+            if name == "action":
+                names.update(typing.get_args(info.annotation))
+            todo.extend(_models(info.annotation))
+    return frozenset(names)
+
+
+_SCHEMA_NAMES = _schema_names()
+
+
+def _part(x: object) -> str:
+    """One location component: a schema name or a list index as is, anything else ``*``
+    (an unknown key a payload carried, which may be any text)."""
+    if isinstance(x, int) and not isinstance(x, bool):
+        return str(x)
+    return x if isinstance(x, str) and x in _SCHEMA_NAMES else "*"
+
+
 def _why(exc: ValidationError) -> str:
-    """Field locations and error types only: a payload may hold anything."""
+    """Schema field locations and error types only: a payload may hold anything, keys
+    included, so a location component that is not a schema name is masked as ``*``."""
     return "; ".join(
-        ".".join(str(x) for x in e.get("loc", ())) + ": " + str(e.get("type")) for e in exc.errors()
+        ".".join(_part(x) for x in e.get("loc", ())) + ": " + str(e.get("type")) for e in exc.errors()
     )
 
 

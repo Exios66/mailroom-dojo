@@ -4,6 +4,7 @@ breach, queue order, and agreement with ``Index.review_queue()`` on random histo
 from __future__ import annotations
 
 import itertools
+import typing
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -18,6 +19,7 @@ from mailroom_desk.fold import episode
 from mailroom_desk.models import (
     END_OF_TIME,
     NODE,
+    REVIEW_PAYLOADS,
     AssignPayload,
     ClaimPayload,
     DeferPayload,
@@ -25,6 +27,7 @@ from mailroom_desk.models import (
     ReleasePayload,
     ReopenPayload,
     ReviewerRef,
+    ReviewPayload,
     format_ts,
 )
 from mailroom_record.index import Index
@@ -228,6 +231,64 @@ def test_episode_is_review_events_since_the_last_non_review_event(env: SimpleNam
     assert episode(events[:2]) == ([events[0]], events[1])
     assert episode([e for e in events if e.kind != "review"]) is None
     assert second.case.opened_seq == 2
+
+
+SECRET_KEY = "Jane Roe 555-0100"  # stands in for document text used as a payload key
+
+
+@pytest.mark.parametrize(
+    ("place", "expected"),
+    [
+        ("top", "claim.*: extra_forbidden"),
+        ("actor", "claim.actor.*: extra_forbidden"),
+        ("nested", "claim.*: extra_forbidden"),
+    ],
+)
+def test_an_unknown_payload_key_never_reaches_the_anomaly(
+    env: SimpleNamespace, place: str, expected: str
+) -> None:
+    """Payload models forbid extra keys, and Pydantic names the extra key in the error's
+    location; the anomaly keeps schema field names and masks anything else as ``*``."""
+    enqueue(env, "d1", "flag_low")
+    raw: dict[str, Any] = ClaimPayload(
+        action="claim", actor=ACTOR, lease_expires_at=format_ts(T0 + timedelta(hours=1))
+    ).model_dump(mode="json")
+    if place == "top":
+        raw[SECRET_KEY] = 1
+    elif place == "actor":
+        raw["actor"][SECRET_KEY] = 1
+    else:
+        raw[SECRET_KEY] = {SECRET_KEY + " again": [1]}
+    event = desk_event(env, "d1", raw, T0)
+    c = env.desk.case("r1", "d1", now=T0)
+    assert c.anomalies == (f"seq {event.seq}: not a desk review payload ({expected})",)
+    assert SECRET_KEY not in " ".join(c.anomalies)
+
+
+def test_anomaly_locations_keep_field_names_and_indices(env: SimpleNamespace) -> None:
+    """Schema field names, the action tag and list indices are not content: they stay."""
+    enqueue(env, "d1", "flag_low")
+    raw = ReopenPayload(
+        action="reopen",
+        actor=ACTOR,
+        causes=("flag_low",),
+        rule="default",
+        priority="low",
+        sla_hours=1,
+        queue="main",
+        sampled=False,
+        policy_name="synthetic",
+        policy_hash="a" * 64,
+    ).model_dump(mode="json")
+    raw["causes"] = ["flag_low", "Not A Token"]
+    raw["actor"]["role"] = "Bad Role"
+    event = desk_event(env, "d1", raw, T0)
+    (anomaly,) = env.desk.case("r1", "d1", now=T0).anomalies
+    assert anomaly.startswith(f"seq {event.seq}: not a desk review payload (")
+    assert "reopen.causes.1: " in anomaly and "reopen.actor.role: " in anomaly
+    assert "Not A Token" not in anomaly and "Bad Role" not in anomaly
+    # The names come from every payload model, so none is masked by mistake.
+    assert set(REVIEW_PAYLOADS) == set(typing.get_args(typing.get_args(ReviewPayload)[0]))
 
 
 def test_unreadable_and_out_of_place_payloads_are_anomalies_not_drops(env: SimpleNamespace) -> None:
