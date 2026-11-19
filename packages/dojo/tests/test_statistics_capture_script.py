@@ -268,6 +268,9 @@ def test_loading_the_old_modules_by_path_runs_the_verified_bytes_not_a_stale_cac
     """
     script = capture_script()
     pinned = {}
+    # Plant and look up the stale bytecode in the same place (beside the source), even
+    # when PYTHONPYCACHEPREFIX is set.
+    monkeypatch.setattr(sys, "pycache_prefix", None)
     for relative in script.TARGETS:
         path = tmp_path / "llm_dojo_scoring" / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -283,7 +286,6 @@ def test_loading_the_old_modules_by_path_runs_the_verified_bytes_not_a_stale_cac
             importlib._bootstrap_external._code_to_timestamp_pyc(code, int(stat.st_mtime), stat.st_size)
         )
     monkeypatch.setattr(script, "EXPECTED_OLD_SOURCE_SHA256", pinned)
-    monkeypatch.setattr(sys, "pycache_prefix", None)
     for name in [name for name in sys.modules if name.startswith("_old_dojo_analysis")]:
         monkeypatch.delitem(sys.modules, name)
     functions = script.old_functions_from_files(tmp_path)
