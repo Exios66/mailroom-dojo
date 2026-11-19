@@ -39,8 +39,10 @@ Meaning
   in a policy, as a whole token or as a segment: a provider outage makes a document wait,
   never park (R1). ``Desk.enqueue`` refuses them in a request too.
 - Sampling is deterministic: a document is in the sample when the SHA-256 of
-  ``{"doc_id": <doc_id>, "seed": <seed>}`` (canonical JSON), read as a fraction of 2**64
-  from its first 16 hex digits, is below ``rate``. A policy with ``rate > 0`` must list
+  ``{"doc_id": <doc_id>, "seed": <seed>}`` (canonical JSON), read as a fraction of 2**53
+  from its first 53 bits, is below ``rate``. That fraction is exact as a float and at most
+  1 - 2**-53, so ``rate == 1`` selects every document and ``rate == 0`` none (a fraction of
+  2**64 would round to 1.0 for the largest hashes). A policy with ``rate > 0`` must list
   ``spot_check`` in its catalog (sampled documents enter with that cause).
 
 The policy hash is ``hash_obj`` of the validated, normalised content (every value, in a
@@ -184,8 +186,9 @@ class Sample(BaseModel):
     seed: str = ""
 
     def fraction(self, doc_id: str) -> float:
-        """Where ``doc_id`` falls in ``[0, 1)`` for this seed (see the module doc)."""
-        return int(hash_obj({"doc_id": doc_id, "seed": self.seed})[:16], 16) / 2**64
+        """Where ``doc_id`` falls in ``[0, 1)`` for this seed (see the module doc): the
+        hash's first 53 bits over 2**53, exact as a float, so never 1.0."""
+        return (int(hash_obj({"doc_id": doc_id, "seed": self.seed})[:16], 16) >> 11) / 2**53
 
     def selects(self, doc_id: str) -> bool:
         """True when ``doc_id`` is in the spot-check sample."""

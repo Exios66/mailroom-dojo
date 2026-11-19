@@ -483,6 +483,20 @@ def test_sampling_boundaries_and_monotonicity() -> None:
     assert not exact.selects(some)  # strictly below the rate
 
 
+@pytest.mark.parametrize("digest", ["f" * 64, "f" * 15 + "c" + "0" * 48, "0" * 64])
+def test_rate_one_samples_and_rate_zero_skips_at_the_hash_extremes(
+    digest: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The largest hash prefixes (from 2**64 - 1024 up) used to round to a fraction of 1.0,
+    which ``rate == 1`` did not select. The fraction stays below 1 for every hash."""
+    import mailroom_desk.policy as policy_mod
+
+    monkeypatch.setattr(policy_mod, "hash_obj", lambda obj: digest)
+    assert Sample(rate=1.0, seed="s").selects("any")
+    assert 0.0 <= Sample(rate=1.0, seed="s").fraction("any") < 1.0
+    assert not Sample(rate=0.0, seed="s").selects("any")
+
+
 def test_integer_seed_is_its_text() -> None:
     a = policy(sample={"rate": 0.2, "seed": 17})
     b = policy(sample={"rate": 0.2, "seed": "17"})
