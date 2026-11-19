@@ -1,9 +1,13 @@
 # Architecture decision records
 
-Decisions behind the `mailroom_record` package (project 1 of the lean rewrite). Each record
-states the context, the options weighed, the decision and its consequences. The design they
-come from is `docs/specs/2026-11-18-lean-rewrite-design.md`; the build plan is
-`docs/plans/2026-11-18-record-and-store-plan.md`.
+Each record (ADR) explains one decision behind the `mailroom_record` package (project 1 of
+the lean rewrite) or, in 0007, the shared leaf packages. It states the context, the options
+weighed, the decision and its consequences.
+
+The decisions come from the design, `docs/specs/2026-11-18-lean-rewrite-design.md`. The
+build plan is `docs/plans/2026-11-18-record-and-store-plan.md`.
+
+## Records
 
 | ADR | Decision | Status |
 |:---|:---|:---|
@@ -15,5 +19,7 @@ come from is `docs/specs/2026-11-18-lean-rewrite-design.md`; the build plan is
 | [0006](0006-importing-sandbox-runs.md) | Sandbox run folders import as records; absent fields stay absent and labels stay out | Accepted |
 | [0007](0007-shared-leaf-packages.md) | Shared plumbing lives in `common` and vocabularies in `dictionaries`, two leaf packages every package may use | Accepted |
 
-Status values: Proposed, Accepted, Deprecated, Superseded. A superseding ADR names the one it
-replaces, and the old one is marked, not deleted.
+## Status values
+
+An ADR's status is one of Proposed, Accepted, Deprecated or Superseded. A superseding ADR
+names the one it replaces. The old one is marked, not deleted.
