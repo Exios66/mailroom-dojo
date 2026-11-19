@@ -1,0 +1,3975 @@
+# The Dojo's metric table: one row per metric, flat and versioned.
+#
+# It keeps every metric of the old Dojo's registry (llm-dojo-scoring 0.30.1, commit
+# 23f8234c, metrics/registry.py) under the same id and with the same description,
+# unit, aggregation, applicable agents, ground-truth requirement, citation and
+# inclusion rule, so a number means the same before and after cutover. Rows with
+# `origin: golden` are metrics the old golden baseline (tests/fixtures/golden/scores.json)
+# emits that the old registry never listed. `load_metric_table()` reads and validates
+# this file; its content hash goes on every scorecard. Change a meaning only with an
+# entry in packages/dojo/docs/score-changelog.md, and bump `version` on every change (the
+# version and content hash are frozen in tests/fixtures/measures/table_identity.json).
+#
+# Columns (required unless a default is given):
+#   id            the old registry name, unchanged
+#   description, unit, aggregation, ground_truth, citation, inclusion, notes
+#                 verbatim from the old registry (citation and inclusion merged from the
+#                 old metric_meta.py); ground_truth null = the old registry left it unset,
+#                 read as unknown (it may need labels: check() refuses label_status none
+#                 for it). The nine kept numeric rows it left unset or never listed state it
+#                 here (tests/test_metric_table_parity.py, GROUND_TRUTH_STATED); null stays
+#                 on structure rows and dropped rows. One stated value is corrected:
+#                 confidence_calibration_error is required, not none (its correctness is
+#                 graded against labels; GROUND_TRUTH_CORRECTED).
+#                 Units are a closed vocabulary (table.UNITS), the old ones normalised:
+#                 usd is USD, int is count, and the three structure rows
+#                 (confusion_matrix, per_class_stats, bootstrap_ci) are structure, not
+#                 float[0,1] (tests/test_metric_table_parity.py, UNIT_NORMALISED)
+#   agents        as the old registry wrote them; family tokens expand through
+#                 agent_families below (the old roster, frozen)
+#   direction     higher | lower | none, stated per row; this column is the source of
+#                 truth and nothing derives it. New here: the old registry stated no
+#                 direction, so every value is proposed for the owner to confirm. none is
+#                 for descriptive behaviour rates and resource readings (audit, intake and
+#                 routing rates, token counts, GPU readings), and always for a row whose unit
+#                 is not a number (structure, tag, text), which also has no pairing and is
+#                 never a default view or guard. A row the keep rule reads,
+#                 and a metric an agent's default view or guard uses, has a direction other
+#                 than none. Every value is frozen in
+#                 tests/fixtures/measures/metric_directions.json; a lint in
+#                 tests/test_metric_directions.py compares each with what the id's words
+#                 suggest and lists the disagreements, which must be the reviewed ones in
+#                 that fixture's name_rule_exceptions (each with its reason).
+#   headline      true exactly for the old tier-0 metrics (tiers are gone)
+#   metric_id     the old canonical comparison id (docs/contracts/METRIC_IDS.md), else
+#                 registry:<id>, as the old emitter stamped it
+#   layer         which part of the new Dojo produces it: an existing module
+#                 (classification, field_scoring) or the build chunk that will
+#                 (D1 statistics, D3b tasks and suites, D4 label layer, D5 run layer,
+#                 D6 outcome and behaviour, D7 compare, stability, cost truth, log
+#                 health); null when not ported
+#   status        implemented (producer names the function) | planned | not_ported.
+#                 A metric is kept (implemented or planned) only when a named reader
+#                 uses it: the master design's rule that a module survives only if a
+#                 gate, a report or a projection reads its output. Every other old id
+#                 stays as a not_ported row with its meaning, so it can be revived.
+#   readers       default []; required for implemented and planned rows, empty for
+#                 not_ported. The readers, and where the designs name them:
+#                   golden_parity_gate   the D3b gate: the old golden scores.json is
+#                                        reproduced (port design, section 6; master
+#                                        design, stage 2 gate "golden cases unchanged")
+#                   archive_gate         the sandbox's production slice gate, ported in
+#                                        D6 (local-mailroom-sandbox job/gate.py: pass
+#                                        rule, wrong-archive and review rates with
+#                                        Wilson 95% upper bounds, no judge_error)
+#                   headline_view        the headline dashboard query (port design 4.2)
+#                   keep_rule            the autoresearch keep rule: paired gain over the
+#                                        noise floor, no class worse (master design,
+#                                        "Comparing runs" and "Prompt optimization")
+#                   specialist_report    R2: per field and per class, coverage and
+#                                        precision apart (master design, R2 item 1)
+#                   classification_report R3: class accuracy, silent-wrong, cost per
+#                                        classification (master design, R2/R3 item 2)
+#                   merger_report        per MAUD question, coverage and precision apart
+#                                        (master design, "Mergers")
+#                   behaviour_report     was each oversight step right, retries
+#                                        (master design, "What it scores", Behavior)
+#                   confidence_report    calibration error per agent (same table)
+#                   run_report           run layer: schema adherence, cost, serving
+#                                        figures by backend (same table, Run)
+#                   cost_truth_report    token-priced estimate against the bill (same
+#                                        table, Cost truth)
+#                   run_comparison       bootstrap intervals for differences (master
+#                                        design, "Comparing runs")
+#                   cost_projection      cost for larger volumes (master design,
+#                                        "Projections")
+#                   set_a_report, set_c_report, set_e_report
+#                                        what the Dojo must produce for experiment Sets
+#                                        A, C and E (master design, the Sets table)
+#                   log_health_report    share of steps with complete entries and chain
+#                                        verification (master design, Log health)
+#                   gold_generation      the future step that generates additional gold
+#                                        for evaluation (owner decision 2026-11-18; a
+#                                        paid run behind the spend gate, not built yet)
+#   status_reason default null; required for not_ported (which design rule drops it)
+#   producer      default null; the new function that computes it today
+#   cost          default false; true when the value is money spent (a Measure of it
+#                 needs a cost basis other than none)
+#   pairing       default null; how two runs' values are compared, one of the tests D1
+#                 implements (table.PAIRING_METHODS): paired_percentile_bootstrap (D1
+#                 paired_bootstrap_delta: per-document values over the same documents,
+#                 paired by document id, the design's "Comparing runs") or
+#                 two_sample_percentile_bootstrap (D1 delta_significance, the old
+#                 compare_serving on latencies). Required on every kept headline row,
+#                 every row the keep rule reads, and every metric a default view shows
+#                 (as its number or its guard), unless pairing_note says why not.
+#   pairing_note  default null; why such a row has no pairing (a statistic of the whole
+#                 set, such as macro F1, a bound, or a share of the run's own decisions)
+#   denominator   default null (not stated); what sets the denominator: gold (the
+#                 evaluation set: its documents, or those with gold, the same for every
+#                 run) or run (the run's own decisions: documents that reached a lane, its
+#                 rulings, accepts or archives, a verdict read from its own extraction). A
+#                 run row has no pairing (two runs divide by different documents; a
+#                 pairing_note says so and D7 builds the resample); every
+#                 paired_percentile_bootstrap row states gold. Stated on every paired row
+#                 and every kept row whose denominator the run sets
+#                 (tests/test_metric_table.py, RUN_DENOMINATOR).
+#   noise_floor   default null everywhere, on purpose: the smallest difference that
+#                 counts is measured by D7 (repeat runs of one configuration), not
+#                 guessed here; the old code and docs define none. Until D7 sets it, a
+#                 comparison reports its interval and no "beats the noise" verdict.
+#   alias_of      default null; for a not_ported row that is another row's value under
+#                 a second name: the kept row it is reported under (no alias and no
+#                 duplicate itself; same unit, direction
+#                 and aggregation). MetricTable.resolve(id) follows it; check() refuses a
+#                 Measure filed under the alias.
+#   same_as       default null; a duplicate that keeps its own row (it may be computed at
+#                 another level, or is kept for golden parity): the canonical row it
+#                 duplicates (same unit and direction; the target is itself canonical and
+#                 kept).
+#                 Groups: laziness_rate and contracteval_false_no_related ->
+#                 false_no_related_rate; schema_adherence -> schema_valid;
+#                 expected_field_presence -> field_presence (an alias).
+#                 audit_disagreement_rate is 1 - audit_resolution_rate (its status_reason).
+#   origin        registry | golden | design. design rows meet a need the master design
+#                 names that no old metric meets (metric_id dojo:<id>); each is planned and
+#                 its status_reason names its reader. A new rule for an old metric is a design
+#                 row too, never an edit of the old row: <old id>_vs_gold carries the decision
+#                 agents' gold derived from the label layers, and the old id keeps its old rule.
+#
+# default_views (top level): the one number each agent's dashboard shows by default
+# (the old registry's tier 0, "ONE number per agent on the default view", registry.py
+# line 13), with a guard beside it. agent -> {metric, confirmed, source, guard?,
+# guard_confirmed?, label_layers, reason?}. The loader checks: every live agent of
+# agent_roster has an entry, and no legacy or retired agent has one; the metric and the
+# guard are kept rows that apply to the agent and have a direction (never none); the
+# guard is not the metric; label_layers names the layers the gold comes from
+# (table.LABEL_LAYERS: the labels package's layer kinds hub, interim, near_gold and
+# review, or derived_gold alone), empty only for a metric that needs no labels; a view on
+# derived_gold shows design rows only (derived gold is a new rule); metric null needs a reason and has no guard
+# and no layers. confirmed is true only where the owner decided; every other entry is
+# a proposal. The entries are part of the content hash and frozen in
+# tests/fixtures/measures/default_views.json.
+#   old_source    default null; the old function, relative to llm_dojo_scoring
+
+table_format: 1
+version: 3
+source:
+  old_dojo_commit: "23f8234c3c548bdc203033388bb316e52e588a2c"
+  old_dojo_version: "0.30.1"
+  old_registry: "llm_dojo_scoring/metrics/registry.py"
+
+
+agent_families:
+  AUDITORS: ["audit_agent", "contract_auditor", "corporate_records_auditor", "due_diligence_auditor", "correspondence_auditor", "compliance_auditor", "court_opinions_auditor", "insurance_claims_auditor", "arbiter"]
+  CLASSIFIERS: ["sorter", "sorter_reviewer", "judge"]
+  INTAKE: ["intake"]
+  LIVE_SPECIALISTS: ["contracts_specialist", "merger_agreement_specialist", "corporate_records_specialist", "correspondence_specialist", "insurance_claims_specialist"]
+  SERVING: ["local_vs_api"]
+  SPECIALISTS: ["contracts_specialist", "merger_agreement_specialist", "corporate_records_specialist", "due_diligence_specialist", "correspondence_specialist", "compliance_specialist", "court_opinions_specialist", "insurance_claims_specialist"]
+  TRANSCRIBERS: ["pdf_transcriber", "image_extractor"]
+
+# agent_roster (top level): every agent a row or family names, and the agents of the
+# running pipeline, each with a status (table.AGENT_STATUSES). live = the 16 agents of
+# llm-mailroom src/config/taxonomy.yaml (agents:); legacy = the eight auditors, whose rows
+# stay for golden parity only; retired = the specialists of classes the pipeline no
+# longer routes (history only); procedural, human, comparison and graph_node name an
+# entry that is not a model agent.
+agent_roster:
+  sorter: {status: "live"}
+  sorter_reviewer: {status: "live"}
+  judge: {status: "live"}
+  arbiter: {status: "live"}
+  boss: {status: "live"}
+  intake: {status: "live"}
+  gmail_triage: {status: "live"}
+  relations: {status: "live"}
+  reporter: {status: "live", note: "procedural: builds the report from the record; makes no model decision"}
+  pdf_transcriber: {status: "live"}
+  image_extractor: {status: "live"}
+  contracts_specialist: {status: "live"}
+  merger_agreement_specialist: {status: "live"}
+  corporate_records_specialist: {status: "live"}
+  correspondence_specialist: {status: "live"}
+  insurance_claims_specialist: {status: "live"}
+  due_diligence_specialist: {status: "retired", note: "class no longer routed; rows kept for history and golden parity"}
+  compliance_specialist: {status: "retired", note: "class no longer routed; rows kept for history and golden parity"}
+  court_opinions_specialist: {status: "retired", note: "class no longer routed; rows kept for history and golden parity"}
+  audit_agent: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  contract_auditor: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  corporate_records_auditor: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  due_diligence_auditor: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  correspondence_auditor: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  compliance_auditor: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  court_opinions_auditor: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  insurance_claims_auditor: {status: "legacy", note: "auditor; rows kept for golden parity only"}
+  archivist: {status: "procedural", note: "files the document; judged by the archive gate's checks"}
+  human_review: {status: "human", note: "the people who resolve review items"}
+  local_vs_api: {status: "comparison", note: "a serving comparison; the backend is a column of the run, not an agent"}
+  classification_arbiter: {status: "graph_node", note: "the graph node that runs the arbiter agent"}
+
+default_views:
+  sorter:
+    metric: "f1_macro"
+    confirmed: true
+    guard: "accuracy"
+    label_layers: ["hub", "interim", "near_gold", "review"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 308: f1_macro is 'the universal classifier headline'; line 13: tier 0 is ONE number per agent on the default view."
+  sorter_reviewer:
+    metric: "reviewer_class_accuracy_vs_gold"
+    confirmed: false
+    guard: "reviewer_wrong_accept_upper_95_vs_gold"
+    label_layers: ["derived_gold"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 352-353 and 370: reviewer_class_accuracy, tier 0, with reviewer_wrong_accept_upper_95 as its guard. Gold derived from the class labels, a new rule, so the view shows their _vs_gold rows (rule in each row's status_reason); the old ids keep the old rule."
+  judge:
+    metric: "judge_verdict_accuracy_vs_gold"
+    confirmed: false
+    guard: "judge_escalation_recall_vs_gold"
+    label_layers: ["derived_gold"]
+    source: "Review of the provisional defaults: f1_macro has no gold for the judge in the new system; the verdict is graded against a verdict derived from the field labels, a new rule, so the view shows the _vs_gold rows (rule in each row's status_reason); judge_verdict_accuracy and judge_escalation_recall keep the old rule."
+  arbiter:
+    metric: "arbiter_decision_accuracy_vs_gold"
+    confirmed: false
+    guard: "arbiter_wrongful_accept_rate_vs_gold"
+    label_layers: ["derived_gold"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 526-534: the arbiter's quality metric (tier 1); the arbiter has no tier-0 metric. Gold derived, a new rule, so the view shows the _vs_gold rows (rule in each row's status_reason); the old ids keep the old rule."
+  boss:
+    metric: "boss_wrongful_approve_rate_vs_gold"
+    confirmed: true
+    guard: "boss_needless_review_rate_vs_gold"
+    guard_confirmed: false
+    label_layers: ["derived_gold"]
+    source: "Owner decision, 2026-11-18: the boss is judged on wrong approvals. Not extraction_overall_score, which grades the specialist. Gold derived, a new rule, so the view shows the _vs_gold rows (rule in each row's status_reason); boss_wrongful_approve_rate and boss_needless_review_rate keep the old rule (human outcome only)."
+  intake:
+    metric: "intake_class_accuracy"
+    confirmed: true
+    label_layers: ["hub", "interim", "near_gold", "review"]
+    source: "Owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class against the gold class, with no guard; the clerk diagnostics are not needed to judge intake. Its own row, because the shared ids keep their old meaning: the old intake suite's accuracy is the exact match of the cleaned text and its f1_macro the token F1 (llm_dojo_scoring/pipeline/intake.py at 23f8234c, _score_one)."
+  contracts_specialist:
+    metric: "extraction_overall_score"
+    confirmed: false
+    guard: "per_field_scores"
+    label_layers: ["hub", "interim", "near_gold", "review"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
+  merger_agreement_specialist:
+    metric: "extraction_overall_score"
+    confirmed: false
+    guard: "per_field_scores"
+    label_layers: ["hub", "interim", "near_gold", "review"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
+  corporate_records_specialist:
+    metric: "extraction_overall_score"
+    confirmed: false
+    guard: "per_field_scores"
+    label_layers: ["hub", "interim", "near_gold", "review"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326: extraction_overall_score is the 'Specialist headline'; line 13."
+  insurance_claims_specialist:
+    metric: "extraction_f2"
+    confirmed: false
+    guard: "per_field_scores"
+    label_layers: ["hub", "interim", "near_gold", "review"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 344: extraction_f2 is the 'insurance claims board number'; line 13."
+  correspondence_specialist:
+    metric: "extraction_overall_score"
+    confirmed: false
+    guard: "per_field_scores"
+    label_layers: ["hub", "interim", "near_gold", "review"]
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, line 326 (the specialist headline). Not content_topic_f1_macro (line 997): the live correspondence schema has no content_topic field, so a perfect extraction would score 0.0; that row stays for eval-lineage runs."
+  local_vs_api:
+    metric: "tokens_per_second"
+    confirmed: false
+    guard: "cost_per_document"
+    label_layers: []
+    source: "llm_dojo_scoring/metrics/registry.py at 23f8234c, lines 1097-1098: tokens_per_second, tier 0, kept for continuity. The backend is a column of the run, not an agent."
+  pdf_transcriber:
+    metric: null
+    confirmed: true
+    reason: "deferred by owner decision"
+    source: "Owner decision, 2026-11-18: transcribers are out of scope for this step."
+  image_extractor:
+    metric: null
+    confirmed: true
+    reason: "deferred by owner decision"
+    source: "Owner decision, 2026-11-18: transcribers are out of scope for this step."
+  reporter:
+    metric: null
+    confirmed: false
+    reason: "procedural; no model decision to score"
+    source: "Review of the provisional defaults: extraction_overall_score grades the specialist, not the reporter."
+  archivist:
+    metric: null
+    confirmed: false
+    reason: "procedural; no model decision to score"
+    source: "tests/fixtures/golden/scores.json at 23f8234c: suites.archivist is a cost suite with an empty score; no registry metric names the archivist."
+  human_review:
+    metric: null
+    confirmed: true
+    reason: "humans are the gold source"
+    source: "Owner decision, 2026-11-18. Wasted review is attributed to the routing policy that sent the document (review_tray_wasted_review_rate), not to the reviewers."
+  relations:
+    metric: null
+    confirmed: false
+    reason: "no metric yet: the old registry has none for relations and no reader needs one"
+    source: "llm-mailroom src/config/taxonomy.yaml (agents:); llm_dojo_scoring/metrics/registry.py at 23f8234c names no relations metric."
+  gmail_triage:
+    metric: null
+    confirmed: false
+    reason: "no metric yet: mail intake ahead of the pipeline; the old registry has none and no reader needs one"
+    source: "llm-mailroom src/config/taxonomy.yaml (agents:); llm_dojo_scoring/metrics/registry.py at 23f8234c names no gmail_triage metric."
+  classification_arbiter:
+    metric: null
+    confirmed: false
+    reason: "the graph node of the arbiter agent; its decisions are scored under arbiter"
+    source: "llm-mailroom src/graph/build_graph.py: classification_arbiter is the node that runs the arbiter agent."
+
+metrics:
+  - id: "f1_macro"
+    description: "Macro-averaged F1 across classes — the universal classifier headline"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: true
+    metric_id: "pipeline.classification.f1_macro"
+    layer: "classification"
+    status: "implemented"
+    readers: ["golden_parity_gate", "headline_view"]
+    pairing_note: "Macro F1 is a statistic of the whole confusion matrix, not a mean of per-document values, so D1's paired_bootstrap_delta (mean per-document difference) does not apply; a paired document resample that recomputes the statistic on both runs is D7's to build. Compare runs on accuracy (paired) meanwhile."
+    producer: "mailroom_dojo.classification.metrics.macro_prf"
+    origin: "registry"
+    old_source: "classification.macro_prf"
+    citation: "Unweighted macro-average of one-vs-rest F1 (classification.macro_prf); F1 is van Rijsbergen Fβ with β=1."
+    inclusion: "Computed when expected and predicted label sequences are non-empty. Empty/null labels dropped. score_task drops ERROR_PREFIX rows."
+  - id: "accuracy"
+    description: "Overall exact-match accuracy"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: true
+    metric_id: "pipeline.classification.accuracy"
+    layer: "classification"
+    status: "implemented"
+    readers: ["golden_parity_gate", "headline_view", "classification_report"]
+    pairing: "paired_percentile_bootstrap"
+    producer: "mailroom_dojo.classification.metrics.accuracy"
+    denominator: "gold"
+    origin: "registry"
+    old_source: "classification.accuracy"
+    citation: "Exact-match accuracy after task-aware normalize_label (classification.accuracy)."
+    inclusion: "Computed when expected and predicted label sequences are non-empty. Empty/null labels dropped."
+  - id: "extraction_overall_score"
+    description: "Specialist headline: overall extraction score for the run"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SPECIALISTS", "reporter", "boss"]
+    ground_truth: "required"
+    headline: true
+    metric_id: "pipeline.extraction.overall"
+    layer: "field_scoring"
+    status: "implemented"
+    readers: ["golden_parity_gate", "headline_view", "specialist_report", "keep_rule", "set_c_report"]
+    pairing: "paired_percentile_bootstrap"
+    producer: "mailroom_dojo.field_scoring.extraction.score_extraction"
+    denominator: "gold"
+    origin: "registry"
+    old_source: "field_scoring.score_extraction"
+    citation: "Mean of per-field typed scores from field_scoring.score_extraction (soft mean; partial list credit stays here)."
+    inclusion: "None when there are no scorable fields. Empty/null expected dict yields no overall score."
+  - id: "extraction_f1"
+    description: "Field-micro F1 over (field, value) events (ACE / CoNLL / SemEval slot filling)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "required"
+    headline: true
+    metric_id: "pipeline.extraction.field_micro_f1"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate", "headline_view"]
+    pairing_note: "Field-micro F1 pools true positives, false positives and false negatives over every document of the run before dividing (old suites.py merge_extraction_counts, extraction_metrics.extraction_binary_metrics), so it is a statistic of the whole set, not a mean of per-document values, and D1's paired_bootstrap_delta does not apply; a paired document resample that recomputes the pooled F1 on both runs is D7's to build. Compare runs on extraction_overall_score (paired) meanwhile."
+    origin: "registry"
+    old_source: "extraction_metrics.extraction_binary_metrics"
+    citation: "ACE / CoNLL / SemEval slot filling; TP requires typed score ≥ 1.0. F1 is van Rijsbergen β=1."
+    inclusion: "Skipped when expected is empty/null. Empty GT field values are not FN. List F1 is None if no list fields. A schema field the GT does not label is excluded on both sides (a value there is not an FP); with no labelled field the suite reports P/R/F1/F2 as null."
+  - id: "extraction_f2"
+    description: "Field-micro F2 (β=2, van Rijsbergen) — recall-weighted; insurance claims board number"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "required"
+    headline: true
+    metric_id: "pipeline.extraction.field_micro_f2"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate", "headline_view"]
+    pairing_note: "Field-micro F2 pools true positives, false positives and false negatives over every document of the run before dividing (old suites.py merge_extraction_counts, extraction_metrics.extraction_binary_metrics), so it is a statistic of the whole set, not a mean of per-document values, and D1's paired_bootstrap_delta does not apply; a paired document resample that recomputes the pooled F2 on both runs is D7's to build. Compare runs on extraction_overall_score (paired) meanwhile."
+    origin: "registry"
+    old_source: "extraction_metrics.extraction_binary_metrics"
+    citation: "ACE / CoNLL / SemEval slot filling; F2 is van Rijsbergen Fβ with β=2 (5PR/(4P+R))."
+    inclusion: "Same inclusion as extraction_f1. Partial list matches are not TP."
+    notes: "Partial list matches are not TP; they stay in extraction_overall_score"
+  - id: "reviewer_class_accuracy"
+    description: "Reviewer class accuracy against verified targets"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["sorter_reviewer"]
+    ground_truth: "required"
+    headline: true
+    metric_id: "review.lane.class_accuracy"
+    layer: "D6"
+    status: "planned"
+    readers: ["headline_view", "set_a_report"]
+    pairing_note: "A share of the documents the reviewer answered: the sorter's confidence and class, this run's own decisions, set which documents reach the reviewer, so two runs divide by different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
+    origin: "registry"
+    old_source: "reviewer.score_review_lane"
+    citation: "Exact class match over reviewer-answered rows with a verified target."
+    inclusion: "None when no row has both a target and a reviewer label."
+  - id: "reviewer_class_accuracy_vs_gold"
+    description: "Share of reviewer-answered documents whose reviewer class equals the gold class from the label layers (hub, interim, near_gold and review)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["sorter_reviewer"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:reviewer_class_accuracy_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["set_a_report"]
+    status_reason: "Reader: set_a_report and sorter_reviewer's default view. Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): the reviewer's class is right when it equals the resolved class label (hub, interim, near_gold or review, in the labels package's order). A row of its own: reviewer_class_accuracy keeps the old rule (verified targets). No scoring code in D2."
+    pairing_note: "A share of the documents the reviewer answered: the sorter's confidence and class, this run's own decisions, set which documents reach the reviewer, so two runs divide by different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on reviewer_class_accuracy."
+    inclusion: "Reviewer-answered documents with a gold class in those layers; none when there is none."
+  - id: "reviewer_wrong_accept_rate"
+    description: "Wrong auto-accepts divided by accepted documents with truth"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["sorter_reviewer"]
+    ground_truth: "required"
+    headline: true
+    metric_id: "review.lane.wrong_accept_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["headline_view", "set_a_report"]
+    pairing_note: "A share of the reviewer's own accepts: the denominator is what this run accepted, so two runs divide by different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
+    origin: "registry"
+    old_source: "reviewer.score_review_lane"
+    citation: "Accepted = the pipeline routed the document to extraction; wrong = accepted label differs from the verified target."
+    inclusion: "None when no accepted document has truth."
+  - id: "reviewer_wrong_accept_upper_95"
+    description: "Exact 95% one-sided upper bound on the wrong-accept rate"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["sorter_reviewer"]
+    ground_truth: "required"
+    headline: true
+    metric_id: "review.lane.wrong_accept_upper_95"
+    layer: "D6"
+    status: "planned"
+    readers: ["headline_view", "set_a_report"]
+    pairing_note: "An upper confidence bound is a guard, not a number two runs are compared on, and its denominator is the run's own accepts; each run reports its own bound, and any comparison of two runs is D7's to build."
+    denominator: "run"
+    origin: "registry"
+    old_source: "reviewer.score_review_lane"
+    citation: "Clopper-Pearson exact upper bound (analysis.calibration.clopper_pearson_upper)."
+    inclusion: "None when no accepted document has truth."
+  - id: "reviewer_wrong_accept_upper_95_vs_gold"
+    description: "Exact 95% one-sided upper bound on the share of reviewer accepts whose accepted class differs from the gold class from the label layers (hub, interim, near_gold and review)"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["sorter_reviewer"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:reviewer_wrong_accept_upper_95_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["set_a_report"]
+    status_reason: "Reader: set_a_report and sorter_reviewer's default view (its guard). Gold derived (owner decision, 2026-11-18): an accept is wrong when the accepted class differs from the resolved class label; the bound is Clopper-Pearson over those accepts. A row of its own: reviewer_wrong_accept_upper_95 keeps the old rule (verified targets). No scoring code in D2."
+    pairing_note: "An upper confidence bound is a guard, not a number two runs are compared on, and its denominator is the run's own accepts; each run reports its own bound, and any comparison of two runs is D7's to build."
+    denominator: "run"
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on reviewer_wrong_accept_upper_95."
+    inclusion: "Accepted documents with a gold class in those layers; none when there is none."
+  - id: "reviewer_routed_to_human_review_rate"
+    description: "Share of reviewer-reached documents parked for a person"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["sorter_reviewer"]
+    ground_truth: "structural"
+    headline: true
+    metric_id: "review.lane.human_review_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["headline_view", "set_a_report"]
+    pairing_note: "A share of the documents that reached the reviewer: the sorter's confidence and class, this run's own decisions, set which documents reach it, so two runs divide by different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
+    origin: "registry"
+    old_source: "reviewer.score_review_lane"
+    citation: "Pipeline reviewer routing basis: a human verdict, no usable answer, or a confidence below the class cutoff."
+    inclusion: "None when no document reached the reviewer lane."
+  - id: "reviewer_accept_rule_violations"
+    description: "Accepted documents that violate the reviewer accept rule"
+    unit: "count"
+    direction: "lower"
+    aggregation: "sum"
+    agents: ["sorter_reviewer"]
+    ground_truth: "structural"
+    headline: true
+    metric_id: "review.lane.accept_rule_violations"
+    layer: "D6"
+    status: "planned"
+    readers: ["headline_view", "set_a_report"]
+    pairing: "paired_percentile_bootstrap"
+    denominator: "gold"
+    origin: "registry"
+    old_source: "reviewer.score_review_lane"
+    citation: "Every accept must have text, an eligible reviewer label, no causes, a cutoff, and agreement unless the sorter was below its low band."
+    inclusion: "Always defined; 0 means every accepted row passed the rule."
+  - id: "ml_intake_doc_type_accuracy"
+    description: "Intake classifier document-class accuracy"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["INTAKE"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "ml.intake.doc_type_accuracy"
+    layer: null
+    status: "not_ported"
+    status_reason: "The mailroom-ml label and intake contract stays on the 0.30 line with its user (master design, 'What is not ported'); the new Dojo does not score the intake model."
+    origin: "registry"
+    old_source: "ml.score_intake_model"
+    citation: "Exact match of the predicted class with the dataset class."
+    inclusion: "None when no record has a gold class."
+  - id: "ml_intake_doc_type_macro_f1"
+    description: "Intake classifier document-class macro F1"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["INTAKE"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "ml.intake.doc_type_macro_f1"
+    layer: null
+    status: "not_ported"
+    status_reason: "The mailroom-ml label and intake contract stays on the 0.30 line with its user (master design, 'What is not ported'); the new Dojo does not score the intake model."
+    origin: "registry"
+    old_source: "ml.score_intake_model"
+    citation: "Unweighted one-vs-rest macro F1 over the gold classes (classification.macro_prf)."
+    inclusion: "None when no record has a gold class."
+  - id: "ml_intake_doc_type_ece"
+    description: "Calibration error of the class head"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["INTAKE"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "ml.intake.doc_type_ece"
+    layer: null
+    status: "not_ported"
+    status_reason: "The mailroom-ml label and intake contract stays on the 0.30 line with its user (master design, 'What is not ported'); the new Dojo does not score the intake model."
+    origin: "registry"
+    old_source: "ml.score_intake_model"
+    citation: "Equal-width 10-bin ECE of doc_type_confidence against class correctness (analysis.calibration)."
+    inclusion: "None when no scored record carries a confidence in [0, 1]."
+  - id: "ml_intake_subclass_accuracy"
+    description: "Intake classifier subclass accuracy"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["INTAKE"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "ml.intake.subclass_accuracy"
+    layer: null
+    status: "not_ported"
+    status_reason: "The mailroom-ml label and intake contract stays on the 0.30 line with its user (master design, 'What is not ported'); the new Dojo does not score the intake model."
+    origin: "registry"
+    old_source: "ml.score_intake_model"
+    citation: "Subclass right only when the class is right and the predicted subclass normalizes (normalize_corpus_subclass, gold class) to the gold one."
+    inclusion: "None when no scored record has a gold subclass."
+  - id: "ml_intake_subclass_macro_f1"
+    description: "Intake classifier subclass macro F1"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["INTAKE"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "ml.intake.subclass_macro_f1"
+    layer: null
+    status: "not_ported"
+    status_reason: "The mailroom-ml label and intake contract stays on the 0.30 line with its user (master design, 'What is not ported'); the new Dojo does not score the intake model."
+    origin: "registry"
+    old_source: "ml.score_intake_model"
+    citation: "Macro F1 over gold class/subclass pairs, after the same normalization."
+    inclusion: "None when no scored record has a gold subclass."
+  - id: "ml_intake_subclass_ece"
+    description: "Calibration error of the subclass head"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["INTAKE"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "ml.intake.subclass_ece"
+    layer: null
+    status: "not_ported"
+    status_reason: "The mailroom-ml label and intake contract stays on the 0.30 line with its user (master design, 'What is not ported'); the new Dojo does not score the intake model."
+    origin: "registry"
+    old_source: "ml.score_intake_model"
+    citation: "Equal-width 10-bin ECE of subclass_confidence against subclass correctness."
+    inclusion: "None when no subclass-scored record carries a confidence in [0, 1]."
+  - id: "ml_intake_fast_path_coverage"
+    description: "Share of documents the model answered without the LLM sorter"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["INTAKE"]
+    ground_truth: "structural"
+    headline: false
+    metric_id: "ml.intake.fast_path_coverage"
+    layer: null
+    status: "not_ported"
+    status_reason: "The mailroom-ml label and intake contract stays on the 0.30 line with its user (master design, 'What is not ported'); the new Dojo does not score the intake model."
+    origin: "registry"
+    old_source: "ml.score_intake_model"
+    citation: "fast_path records over scored records."
+    inclusion: "None when no record has a gold class."
+  - id: "ml_intake_selective_risk"
+    description: "Error rate of fast-path answers"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["INTAKE"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "ml.intake.selective_risk"
+    layer: null
+    status: "not_ported"
+    status_reason: "The mailroom-ml label and intake contract stays on the 0.30 line with its user (master design, 'What is not ported'); the new Dojo does not score the intake model."
+    origin: "registry"
+    old_source: "ml.score_intake_model"
+    citation: "Fast-path records whose class, or gold-labelled subclass, is wrong, over fast-path records."
+    inclusion: "None when no record took the fast path."
+  - id: "ml_intake_selective_risk_upper"
+    description: "Wilson upper bound of the fast-path error rate"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["INTAKE"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "ml.intake.selective_risk_upper"
+    layer: null
+    status: "not_ported"
+    status_reason: "The mailroom-ml label and intake contract stays on the 0.30 line with its user (master design, 'What is not ported'); the new Dojo does not score the intake model."
+    origin: "registry"
+    old_source: "ml.score_intake_model"
+    citation: "Upper end of the Wilson score interval (z = 1.96 by default) of selective_risk; the value a release gate holds under its error budget."
+    inclusion: "None when no record took the fast path."
+  - id: "judge_verdict_accuracy"
+    description: "Judge verdict accuracy against human or corpus gold"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["judge"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "decision.judge.verdict_accuracy"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    denominator: "run"
+    origin: "registry"
+    old_source: "decision_lanes.score_judge_lane"
+    citation: "Exact match of the judge verdict with the gold verdict: human resolution (approve_as_is complete, correct partial, reject/reclassify incomplete), else the dataset extraction score read through the ambiguous band."
+    inclusion: "None when no judged row has gold. judge_error rows and rows without gold are unscored, never 0."
+  - id: "judge_verdict_accuracy_vs_gold"
+    description: "Share of judged documents whose judge verdict equals the verdict derived from the gold labels (hub, interim, near_gold and review): the run's extraction scored against the gold field labels through the scoring profile's bands, incomplete under a wrong class"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["judge"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:judge_verdict_accuracy_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report and the judge's default view. Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): the gold verdict is complete when the extraction scores at or above the high band against the resolved field labels and the class is right, partial between the low and high bands, incomplete below the low band or under a wrong class. A row of its own: judge_verdict_accuracy keeps the old rule (human resolution first, else the dataset score through the ambiguous band). No scoring code in D2."
+    pairing_note: "A share of the documents the judge ruled on: routing (this run's own decisions) sets which documents reach the judge, and its judge_error rows are left out, so two runs divide by different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on judge_verdict_accuracy."
+    inclusion: "Judged documents with gold field labels in those layers; judge_error rows are unscored, never 0; none when there is none."
+  - id: "judge_verdict_macro_f1"
+    description: "Judge macro F1 over the gold verdict classes"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["judge"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "decision.judge.macro_f1"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "decision_lanes.score_judge_lane"
+    citation: "Unweighted one-vs-rest macro F1 over the gold verdict classes (classification.macro_prf); gold as in judge_verdict_accuracy."
+    inclusion: "None when no judged row has gold."
+  - id: "judge_escalation_recall"
+    description: "Share of not-complete documents the judge did not call complete"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["judge"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "decision.judge.escalation_recall"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    denominator: "run"
+    origin: "registry"
+    old_source: "decision_lanes.score_judge_lane"
+    citation: "Recall of the judge's escalation (verdict other than complete) over documents whose gold verdict is partial or incomplete."
+    inclusion: "None when no scored row has a not-complete gold verdict."
+  - id: "judge_escalation_recall_vs_gold"
+    description: "Share of documents with a derived partial or incomplete verdict that the judge did not call complete (verdict derived from the gold labels (hub, interim, near_gold and review) as in judge_verdict_accuracy_vs_gold)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["judge"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:judge_escalation_recall_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report and the judge's default view (its guard). Gold derived (owner decision, 2026-11-18): over documents whose derived verdict (judge_verdict_accuracy_vs_gold's rule) is partial or incomplete. A row of its own: judge_escalation_recall keeps the old rule. No scoring code in D2."
+    pairing_note: "A share of the documents whose derived verdict is partial or incomplete: that verdict is read from this run's own extraction, so the denominator is set by the run, so two runs divide by different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on judge_escalation_recall."
+    inclusion: "Judged documents whose derived verdict is partial or incomplete; none when there is none."
+  - id: "judge_false_escalation_rate"
+    description: "Share of complete documents the judge escalated"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["judge"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "decision.judge.false_escalation_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    denominator: "run"
+    origin: "registry"
+    old_source: "decision_lanes.score_judge_lane"
+    citation: "Complement of complete-class recall: gold complete, judge partial or incomplete."
+    inclusion: "None when no scored row has a complete gold verdict."
+  - id: "judge_error_rate"
+    description: "Share of judge runs that ended in judge_error"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["judge"]
+    ground_truth: "structural"
+    headline: false
+    metric_id: "decision.judge.error_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["archive_gate"]
+    status_reason: "Read by the archive gate: its pass rule requires no judge_error document in the slice (local-mailroom-sandbox src/mailroom_sandbox/job/gate.py at 93f298c, lines 20 and 397-398). D6 ports the gate."
+    denominator: "run"
+    origin: "registry"
+    old_source: "decision_lanes.score_judge_lane"
+    citation: "judge_error verdicts over every row the judge ran on; needs no gold."
+    inclusion: "None when the judge ran on no row."
+  - id: "arbiter_decision_accuracy"
+    description: "Share of arbiter rulings that matched their outcome"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["arbiter"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "decision.arbiter.decision_accuracy"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    denominator: "run"
+    origin: "registry"
+    old_source: "decision_lanes.score_arbiter_lane"
+    citation: "Retry right when the next attempt's dataset score rose by epsilon; accept right when the person approved as is or the final score is at or above the high band; human_review right when the person changed the work or the final score is below the high band."
+    inclusion: "None when no ruling has gold. Rulings without gold are unscored, never 0."
+  - id: "arbiter_decision_accuracy_vs_gold"
+    description: "Share of arbiter rulings that were right against gold derived from the label layers (hub, interim, near_gold and review): a retry when the next attempt's score rose by at least epsilon, an accept when the final score is at or above the high band under the right class, a human_review when it is not"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["arbiter"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:arbiter_decision_accuracy_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report and the arbiter's default view. Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): a retry is right when the next attempt's score against the resolved field labels rose by at least epsilon; an accept is right when the final score is at or above the high band and the class is right; a human_review is right when the final score is below the high band or the class is wrong. A row of its own: arbiter_decision_accuracy keeps the old rule (human resolution first). No scoring code in D2."
+    pairing_note: "A share of the run's own arbiter rulings: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on arbiter_decision_accuracy."
+    inclusion: "Rulings whose documents have gold field labels in those layers; rulings without gold are unscored, never 0."
+  - id: "arbiter_retry_usefulness"
+    description: "Share of retry_extraction rulings whose next attempt rose by at least epsilon"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["arbiter"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "decision.arbiter.retry_usefulness"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    denominator: "run"
+    origin: "registry"
+    old_source: "decision_lanes.score_arbiter_lane"
+    citation: "Dataset extraction score of attempt k+1 minus attempt k, at least epsilon (default 0.05), for a retry ruled on after attempt k."
+    inclusion: "None when no retry has the dataset score of both attempts."
+  - id: "arbiter_wrongful_accept_rate"
+    description: "Share of accept_with_caveats rulings that were wrong"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["arbiter"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "decision.arbiter.wrongful_accept_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    denominator: "run"
+    origin: "registry"
+    old_source: "decision_lanes.score_arbiter_lane"
+    citation: "Accept wrong when the person corrected, reclassified or rejected the work, or, with no resolution, the final dataset score is below the high band."
+    inclusion: "None when no accept ruling has gold."
+  - id: "arbiter_wrongful_accept_rate_vs_gold"
+    description: "Share of accept_with_caveats rulings whose final extraction scores below the high band against the gold field labels (hub, interim, near_gold and review), or whose class is wrong"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["arbiter"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:arbiter_wrongful_accept_rate_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report and the arbiter's default view (its guard). Gold derived (owner decision, 2026-11-18): an accept_with_caveats ruling is wrong when the final extraction scores below the high band against the resolved field labels, or the class is wrong. A row of its own: arbiter_wrongful_accept_rate keeps the old rule (human resolution first). No scoring code in D2."
+    pairing_note: "A share of the run's own accept_with_caveats rulings: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on arbiter_wrongful_accept_rate."
+    inclusion: "accept_with_caveats rulings whose documents have gold field labels in those layers; none when there is none."
+  - id: "arbiter_unnecessary_escalation_rate"
+    description: "Share of human_review rulings that were not needed"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["arbiter"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "decision.arbiter.unnecessary_escalation_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    denominator: "run"
+    origin: "registry"
+    old_source: "decision_lanes.score_arbiter_lane"
+    citation: "Escalation unnecessary when the person approved as is, or, with no resolution, the final dataset score is at or above the high band."
+    inclusion: "None when no human_review ruling has gold."
+  - id: "boss_wrongful_approve_rate"
+    description: "Share of audited boss approvals the person later changed or refused"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["boss"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "decision.boss.wrongful_approve_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    denominator: "run"
+    origin: "registry"
+    old_source: "decision_lanes.score_boss_lane"
+    citation: "Human outcome only: approved, then the person corrected, reclassified or rejected the document."
+    inclusion: "None when no approved row has a human resolution (row is no_boss_gold otherwise)."
+  - id: "boss_wrongful_approve_rate_vs_gold"
+    description: "Share of boss approvals whose approved extraction scores below the high band against the gold field labels (hub, interim, near_gold and review), or whose class is wrong"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["boss"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:boss_wrongful_approve_rate_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report and the boss's default view (owner decision, 2026-11-18: the boss is judged on wrong approvals). Gold derived (owner decision, 2026-11-18: gold no longer waits for human resolutions): an approval is wrong when the approved extraction scores below the high band against the resolved field labels, or the class is wrong. A row of its own: boss_wrongful_approve_rate keeps the old rule (human outcome only). No scoring code in D2."
+    pairing_note: "A share of the run's own boss approvals: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on boss_wrongful_approve_rate."
+    inclusion: "Boss approvals whose documents have gold field labels in those layers; none when there is none."
+  - id: "boss_needless_review_rate"
+    description: "Share of boss review rulings the person approved as is"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["boss"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "decision.boss.needless_review_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    denominator: "run"
+    origin: "registry"
+    old_source: "decision_lanes.score_boss_lane"
+    citation: "Human outcome only: review, then the person approved as is."
+    inclusion: "None when no review row has a human resolution."
+  - id: "boss_needless_review_rate_vs_gold"
+    description: "Share of boss review rulings whose extraction scores at or above the high band against the gold field labels (hub, interim, near_gold and review) under the right class"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["boss"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:boss_needless_review_rate_vs_gold"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report and the boss's default view (its guard). Gold derived (owner decision, 2026-11-18): a review ruling was needless when the extraction scores at or above the high band against the resolved field labels and the class is right. A row of its own: boss_needless_review_rate keeps the old rule (human outcome only). No scoring code in D2."
+    pairing_note: "A share of the run's own boss review rulings: the denominator is what this run decided, so two runs rule on different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile."
+    denominator: "run"
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold comes from the label layers (hub, interim, near_gold, review) and no longer waits for human resolutions; the bands come from the scoring profile in config/, never from code. The old rule stays on boss_needless_review_rate."
+    inclusion: "Boss review rulings whose documents have gold field labels in those layers; none when there is none."
+  - id: "review_tray_wasted_review_rate"
+    description: "Share of resolved reviews approved as is with no field corrections"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["human_review"]
+    ground_truth: "structural"
+    headline: false
+    metric_id: "decision.review_tray.wasted_review_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Attributed to the routing policy that sent the document to review, not to the reviewers: humans are the gold source (owner decision, 2026-11-18)."
+    denominator: "run"
+    origin: "registry"
+    old_source: "decision_lanes.score_review_tray"
+    citation: "A review that changed nothing: resolution approve_as_is and empty field_corrections."
+    inclusion: "None when no parked document is resolved."
+  - id: "review_tray_correction_rate"
+    description: "Share of resolved reviews that corrected fields"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["human_review"]
+    ground_truth: "structural"
+    headline: false
+    metric_id: "decision.review_tray.correction_rate"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "decision_lanes.score_review_tray"
+    citation: "Resolution correct over resolved reviews."
+    inclusion: "None when no parked document is resolved."
+  - id: "review_tray_reject_rate"
+    description: "Share of resolved reviews that rejected the document"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["human_review"]
+    ground_truth: "structural"
+    headline: false
+    metric_id: "decision.review_tray.reject_rate"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "decision_lanes.score_review_tray"
+    citation: "Resolution reject over resolved reviews."
+    inclusion: "None when no parked document is resolved."
+  - id: "precision"
+    description: "Precision (TP / (TP + FP))"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:precision"
+    layer: "classification"
+    status: "implemented"
+    readers: ["golden_parity_gate"]
+    producer: "mailroom_dojo.classification.metrics.binary_metrics"
+    origin: "registry"
+    old_source: "classification.binary_metrics"
+    citation: "One-vs-rest / binary precision TP/(TP+FP). van Rijsbergen Fβ (Information Retrieval, 1979); F1 is the harmonic mean (β=1), F2 uses β=2 so 5PR/(4P+R). score_task fills this from classification.macro_prf for multiclass."
+    inclusion: "Computed when expected and predicted label sequences are non-empty. Empty/null labels are dropped. score_task drops ERROR_PREFIX rows. Returns 0.0 with n=0 rather than inventing a score on an empty run."
+  - id: "recall"
+    description: "Recall (TP / (TP + FN))"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:recall"
+    layer: "classification"
+    status: "implemented"
+    readers: ["golden_parity_gate"]
+    producer: "mailroom_dojo.classification.metrics.binary_metrics"
+    origin: "registry"
+    old_source: "classification.binary_metrics"
+    citation: "One-vs-rest / binary recall TP/(TP+FN). van Rijsbergen Fβ (Information Retrieval, 1979); F1 is the harmonic mean (β=1), F2 uses β=2 so 5PR/(4P+R)."
+    inclusion: "Computed when expected and predicted label sequences are non-empty. Empty/null labels are dropped. score_task drops ERROR_PREFIX rows. Returns 0.0 with n=0 rather than inventing a score on an empty run."
+  - id: "f2"
+    description: "F-beta beta=2 — recall-weighted; flags false negatives early (legal work)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:f2"
+    layer: "classification"
+    status: "implemented"
+    readers: ["golden_parity_gate"]
+    producer: "mailroom_dojo.classification.metrics.binary_metrics"
+    origin: "registry"
+    old_source: "classification.binary_metrics"
+    citation: "van Rijsbergen Fβ (Information Retrieval, 1979); F1 is the harmonic mean (β=1), F2 uses β=2 so 5PR/(4P+R). classification.binary_metrics / macro_prf."
+    inclusion: "Computed when expected and predicted label sequences are non-empty. Empty/null labels are dropped. score_task drops ERROR_PREFIX rows. Returns 0.0 with n=0 rather than inventing a score on an empty run."
+  - id: "false_positive_rate"
+    description: "FP / (FP + TN)"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:false_positive_rate"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "classification.binary_metrics"
+    citation: "FP/(FP+TN) from classification.binary_metrics."
+    inclusion: "Undefined (None) when FP+TN is 0."
+  - id: "false_negative_rate"
+    description: "FN / (FN + TP)"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:false_negative_rate"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "classification.binary_metrics"
+    citation: "FN/(FN+TP) from classification.binary_metrics."
+    inclusion: "Undefined (None) when FN+TP is 0."
+  - id: "jaccard_similarity"
+    description: "Token-set Jaccard over positive spans (ContractEval method)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["contracts_specialist", "court_opinions_specialist", "judge"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:jaccard_similarity"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "tasks.get_jaccard"
+    citation: "Token-set Jaccard over positive spans; ContractEval method (arXiv 2508.03080) via tasks.get_jaccard."
+    inclusion: "Skipped when both sides are empty. ContractEval tasks only."
+    notes: "Promoted to T1 per proposal section 3.1 (section 2.2 draft had T2); KANBAN-054 made ContractEval KPIs core."
+  - id: "contracteval_false_no_related"
+    description: "Rate of 'no related clause' answers when ground truth expects content"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["contracts_specialist", "judge"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:contracteval_false_no_related"
+    layer: null
+    status: "not_ported"
+    status_reason: "An alias of false_no_related_rate (old metric_meta.py lines 301-308 and tasks.contracteval_metrics: false no-related answers over positive pairs). The old note 'mirrors ContractEval no_related_rate' is wrong: no_related_rate divides by all pairs. The value is reported once, under false_no_related_rate, the name the golden baseline emits; this row keeps the registry name and meaning."
+    alias_of: "false_no_related_rate"
+    origin: "registry"
+    old_source: "tasks.contracteval_metrics"
+    citation: "ContractEval (arXiv 2508.03080) no-related rate: model says no related clause when GT expects content (tasks.contracteval_metrics)."
+    inclusion: "ContractEval rows only; skipped outside that task."
+    notes: "alias: laziness (KANBAN-054); mirrors ContractEval no_related_rate"
+  - id: "laziness_rate"
+    description: "Laziness detector — empty/bail responses when content is expected"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["contracts_specialist", "judge"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:laziness_rate"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived. It is the record-level form of false_no_related_rate (same_as), which the golden baseline emits and the table keeps."
+    same_as: "false_no_related_rate"
+    origin: "registry"
+    old_source: "tasks.said_no_related"
+    citation: "Record-level alias of contracteval_false_no_related (tasks.said_no_related): empty/bail responses when content is expected."
+    inclusion: "ContractEval / contracts specialist rows; skipped when GT expects empty."
+    notes: "alias of contracteval_false_no_related at record level"
+  - id: "field_presence"
+    description: "Share of expected fields populated by the model"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:field_presence"
+    layer: "D3b"
+    status: "planned"
+    readers: ["specialist_report"]
+    status_reason: "The old source (score_extraction) never emitted this name (the old registry's honest gap); D3b defines it from the field scores."
+    origin: "registry"
+    old_source: "field_scoring.score_extraction"
+    citation: "ACE-style expected-field presence. Registry source points at score_extraction, which does not emit this name."
+    inclusion: "Not computed in this package as of 0.11.0 — honesty gap, not a scorer. Do not treat a missing key as 0.0."
+    notes: "mailroom alias: expected_field_presence. HONEST GAP: score_extraction does not emit this name as of 0.11.0."
+  - id: "entity_list_precision"
+    description: "Precision over extracted list items (bipartite match)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:entity_list_precision"
+    layer: "field_scoring"
+    status: "implemented"
+    readers: ["specialist_report"]
+    producer: "mailroom_dojo.field_scoring.entity_lists.score_entity_list"
+    origin: "registry"
+    old_source: "field_scoring.score_entity_list"
+    citation: "Optimal bipartite matching (Hungarian / Kuhn–Munkres via scipy linear_sum_assignment) over a pairwise similarity matrix, then P/R/F1 on the matched set. Per-list-field precision from field_scoring.score_entity_list."
+    inclusion: "None if the document has no entity_list fields. Empty GT lists are not FN."
+  - id: "entity_list_recall"
+    description: "Recall over extracted list items (bipartite match)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:entity_list_recall"
+    layer: "field_scoring"
+    status: "implemented"
+    readers: ["specialist_report"]
+    producer: "mailroom_dojo.field_scoring.entity_lists.score_entity_list"
+    origin: "registry"
+    old_source: "field_scoring.score_entity_list"
+    citation: "Optimal bipartite matching (Hungarian / Kuhn–Munkres via scipy linear_sum_assignment) over a pairwise similarity matrix, then P/R/F1 on the matched set. Per-list-field recall from field_scoring.score_entity_list."
+    inclusion: "None if the document has no entity_list fields."
+  - id: "entity_list_f1"
+    description: "Mean entity-list bipartite F1 (dashboard name for diagnostics.entity_list_raw_f1)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:entity_list_f1"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "extraction_metrics.mean_entity_list_f1"
+    citation: "Optimal bipartite matching (Hungarian / Kuhn–Munkres via scipy linear_sum_assignment) over a pairwise similarity matrix, then P/R/F1 on the matched set. Mean list F1 (extraction_metrics.mean_entity_list_f1); dashboard name for diagnostics.entity_list_raw_f1."
+    inclusion: "None if the document has no list fields."
+    notes: "existing diagnostics.entity_list_raw_f1 registered under this name"
+  - id: "extraction_precision"
+    description: "Field-micro precision over (field, value) extraction events"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "pipeline.extraction.field_micro_precision"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate", "specialist_report"]
+    origin: "registry"
+    old_source: "extraction_metrics.extraction_binary_metrics"
+    citation: "ACE / CoNLL / SemEval slot-filling: (field, value) events. TP requires the typed field score ≥ 1.0; partial list matches are not TP. Source: extraction_metrics.extraction_binary_metrics."
+    inclusion: "Skipped when expected is empty/null (no events). Empty GT field values are not FN; correctly-empty pairs credit 1.0 on the empty-field contract (#20) and never enter archive overall_score. ERROR_PREFIX predictions are dropped by the suite. entity_list F1 is None when the document has no list fields. A schema field the GT does not label is excluded on both sides (a value there is not an FP); with no labelled field the suite reports field-micro P/R/F1/F2 as null."
+  - id: "extraction_recall"
+    description: "Field-micro recall over (field, value) extraction events"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "pipeline.extraction.field_micro_recall"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate", "specialist_report"]
+    origin: "registry"
+    old_source: "extraction_metrics.extraction_binary_metrics"
+    citation: "ACE / CoNLL / SemEval slot-filling: (field, value) events. TP requires the typed field score ≥ 1.0; partial list matches are not TP. Source: extraction_metrics.extraction_binary_metrics."
+    inclusion: "Skipped when expected is empty/null (no events). Empty GT field values are not FN; correctly-empty pairs credit 1.0 on the empty-field contract (#20) and never enter archive overall_score. ERROR_PREFIX predictions are dropped by the suite. entity_list F1 is None when the document has no list fields. A schema field the GT does not label is excluded on both sides (a value there is not an FP); with no labelled field the suite reports field-micro P/R/F1/F2 as null."
+  - id: "determination_consistency"
+    description: "Insurance coverage_determination agrees with denial_reasons (approved ⇒ empty; denied/partial ⇒ non-empty)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["insurance_claims_specialist"]
+    ground_truth: "structural"
+    headline: false
+    metric_id: "registry:determination_consistency"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "claims_consistency.determination_consistency"
+    citation: "Structural check on the prediction; ground truth is unused (claims_consistency.determination_consistency)."
+    inclusion: "Always defined on a predicted dict; 0.0 when determination is missing. CMS GT homogeneity makes GT-shaped predictions degenerate (always 1.0)."
+  - id: "amount_exactness"
+    description: "Claimed-amount exact match after money normalize (complement of money_mae_usd)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["insurance_claims_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:amount_exactness"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "claims_consistency.amount_exactness"
+    citation: "Money-field exact after one-cent normalize (claims_consistency.amount_exactness)."
+    inclusion: "None if either side is empty or unparseable."
+  - id: "reviewer_accepted_accuracy"
+    description: "Class accuracy among documents the reviewer accepted"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["sorter_reviewer"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "review.lane.accepted_accuracy"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "reviewer.score_review_lane"
+    citation: "Correct accepted labels divided by accepted documents with truth."
+    inclusion: "None when no accepted document has truth."
+  - id: "reviewer_class_macro_accuracy"
+    description: "Unweighted mean of per-class reviewer accuracy"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["sorter_reviewer"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "review.lane.macro_accuracy"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "reviewer.score_review_lane"
+    citation: "Macro accuracy over expected classes with at least one reviewer answer."
+    inclusion: "None when no class has a scored answer."
+  - id: "reviewer_subclass_accuracy"
+    description: "Subclass accuracy where the reviewer got the class right"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["sorter_reviewer"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "review.lane.subclass_accuracy"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "reviewer.score_review_lane"
+    citation: "Exact subclass match over class-correct rows with a scorable target subclass; contract keys use normalize_subtype."
+    inclusion: "Merger 'other' and blank targets are unscorable and excluded."
+  - id: "reviewer_verdict_accuracy"
+    description: "Reviewer verdict accuracy against the derivable expected verdict"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["sorter_reviewer"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "review.lane.verdict_accuracy"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "reviewer.score_review_lane"
+    citation: "Expected verdict from the sorter handoff and target: reclassify, correct subclass, or continue."
+    inclusion: "None when no row has both a derivable expected verdict and a model verdict."
+  - id: "reviewer_confidence_ece"
+    description: "Expected calibration error of reviewer confidence"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["sorter_reviewer"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "review.lane.confidence_ece"
+    layer: "D6"
+    status: "planned"
+    readers: ["confidence_report"]
+    denominator: "run"
+    origin: "registry"
+    old_source: "reviewer.score_review_lane"
+    citation: "Equal-width 10-bin ECE over answered rows with a verified target."
+    inclusion: "None when no answered row carries a valid confidence and target."
+  - id: "reviewer_confidence_brier"
+    description: "Brier score of reviewer confidence"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["sorter_reviewer"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "review.lane.confidence_brier"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "reviewer.score_review_lane"
+    citation: "Mean squared difference between reviewer confidence and class correctness."
+    inclusion: "None when no answered row carries a valid confidence and target."
+  - id: "reviewer_cost_per_accepted_usd"
+    description: "Reviewer cost per accepted document"
+    unit: "USD"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["sorter_reviewer"]
+    ground_truth: "structural"
+    headline: false
+    metric_id: "review.lane.cost_per_accepted_usd"
+    layer: "D6"
+    status: "planned"
+    readers: ["set_a_report"]
+    cost: true
+    denominator: "run"
+    origin: "registry"
+    old_source: "reviewer.score_review_lane"
+    citation: "Measured reviewer cost divided by accepted documents; None unless every row is priced."
+    inclusion: "None when any row is unpriced or no document was accepted."
+  - id: "precision_macro"
+    description: "Unweighted mean of one-vs-rest precision (doc_type)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["CLASSIFIERS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:precision_macro"
+    layer: "classification"
+    status: "implemented"
+    readers: ["golden_parity_gate"]
+    producer: "mailroom_dojo.classification.metrics.macro_prf"
+    origin: "registry"
+    old_source: "classification.macro_prf"
+    citation: "Unweighted macro-average of one-vs-rest P/R/Fβ over the label set (Sokolova & Lapalme 2009-style). Same Fβ as classification.fbeta."
+    inclusion: "Computed when expected and predicted label sequences are non-empty. Empty/null labels are dropped. score_task drops ERROR_PREFIX rows. Returns 0.0 with n=0 rather than inventing a score on an empty run."
+  - id: "recall_macro"
+    description: "Unweighted mean of one-vs-rest recall (doc_type)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["CLASSIFIERS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:recall_macro"
+    layer: "classification"
+    status: "implemented"
+    readers: ["golden_parity_gate"]
+    producer: "mailroom_dojo.classification.metrics.macro_prf"
+    origin: "registry"
+    old_source: "classification.macro_prf"
+    citation: "Unweighted macro-average of one-vs-rest P/R/Fβ over the label set (Sokolova & Lapalme 2009-style). Same Fβ as classification.fbeta."
+    inclusion: "Computed when expected and predicted label sequences are non-empty. Empty/null labels are dropped. score_task drops ERROR_PREFIX rows. Returns 0.0 with n=0 rather than inventing a score on an empty run."
+  - id: "f2_macro"
+    description: "Unweighted mean of one-vs-rest F2 (doc_type)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["CLASSIFIERS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:f2_macro"
+    layer: "classification"
+    status: "implemented"
+    readers: ["golden_parity_gate"]
+    producer: "mailroom_dojo.classification.metrics.macro_prf"
+    origin: "registry"
+    old_source: "classification.macro_prf"
+    citation: "Unweighted macro-average of one-vs-rest P/R/Fβ over the label set (Sokolova & Lapalme 2009-style). Same Fβ as classification.fbeta. van Rijsbergen Fβ (Information Retrieval, 1979); F1 is the harmonic mean (β=1), F2 uses β=2 so 5PR/(4P+R)."
+    inclusion: "Computed when expected and predicted label sequences are non-empty. Empty/null labels are dropped. score_task drops ERROR_PREFIX rows. Returns 0.0 with n=0 rather than inventing a score on an empty run."
+  - id: "subclass_f1_macro"
+    description: "Macro-F1 over doc subclasses (CUAD family / CMS table / Enron form / …)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["CLASSIFIERS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:subclass_f1_macro"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "tasks.score_task"
+    citation: "Macro-F1 over document subclasses. Unweighted macro-average of one-vs-rest P/R/Fβ over the label set (Sokolova & Lapalme 2009-style). Same Fβ as classification.fbeta."
+    inclusion: "Attached by score_task only when subclass kwargs (or per-row subclass labels) are present; otherwise the subclass_* keys are omitted / None."
+  - id: "subclass_precision_macro"
+    description: "Macro precision over doc subclasses"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["CLASSIFIERS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:subclass_precision_macro"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "tasks.score_task"
+    citation: "Macro precision over document subclasses. Unweighted macro-average of one-vs-rest P/R/Fβ over the label set (Sokolova & Lapalme 2009-style). Same Fβ as classification.fbeta."
+    inclusion: "Attached by score_task only when subclass kwargs (or per-row subclass labels) are present; otherwise the subclass_* keys are omitted / None."
+  - id: "subclass_recall_macro"
+    description: "Macro recall over doc subclasses"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["CLASSIFIERS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:subclass_recall_macro"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "tasks.score_task"
+    citation: "Macro recall over document subclasses. Unweighted macro-average of one-vs-rest P/R/Fβ over the label set (Sokolova & Lapalme 2009-style). Same Fβ as classification.fbeta."
+    inclusion: "Attached by score_task only when subclass kwargs (or per-row subclass labels) are present; otherwise the subclass_* keys are omitted / None."
+  - id: "subclass_f2_macro"
+    description: "Macro F2 over doc subclasses"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["CLASSIFIERS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:subclass_f2_macro"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "tasks.score_task"
+    citation: "Macro F2 over document subclasses. Unweighted macro-average of one-vs-rest P/R/Fβ over the label set (Sokolova & Lapalme 2009-style). Same Fβ as classification.fbeta. van Rijsbergen Fβ (Information Retrieval, 1979); F1 is the harmonic mean (β=1), F2 uses β=2 so 5PR/(4P+R)."
+    inclusion: "Attached by score_task only when subclass kwargs (or per-row subclass labels) are present; otherwise the subclass_* keys are omitted / None."
+  - id: "verified_precision"
+    description: "Precision restricted to doc-verifiable items"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SPECIALISTS", "AUDITORS"]
+    ground_truth: "optional"
+    headline: false
+    metric_id: "registry:verified_precision"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "field_scoring.audit_list_field"
+    citation: "Precision restricted to doc-verifiable list items (field_scoring.audit_list_field token-coverage check)."
+    inclusion: "None when verification is disabled or the row has no audited list fields."
+    notes: "mailroom alias: extraction_overall_verified_precision"
+  - id: "schema_valid"
+    description: "Output parsed to the expected schema (T1 headline gate — v0.18)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "structural"
+    headline: false
+    metric_id: "registry:schema_valid"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate", "run_report"]
+    origin: "registry"
+    old_source: "scorecard_honesty.score_format_layer"
+    citation: "v0.18 fail-closed format layer — JSON/schema parse before field scoring."
+    inclusion: "Every specialist score() with structured output; headline dashboards."
+  - id: "parse_ok"
+    description: "Prediction parsed as JSON / structured output without prose wrapper"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "structural"
+    headline: false
+    metric_id: "registry:parse_ok"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate", "run_report"]
+    origin: "registry"
+    old_source: "scorecard_honesty.score_format_layer"
+    citation: "v0.18 format vs extraction split — parse success without field match."
+    inclusion: "Emitted alongside schema_valid on every extraction scorecard."
+  - id: "schema_adherence"
+    description: "Required schema keys present after parse (alias of schema_valid when keys match)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "structural"
+    headline: false
+    metric_id: "registry:schema_adherence"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate", "run_report"]
+    status_reason: "A duplicate of schema_valid when the required keys match (old description); both stay for golden parity, and schema_valid is the canonical id."
+    same_as: "schema_valid"
+    origin: "registry"
+    old_source: "scorecard_honesty.score_format_layer"
+    citation: "Required-key coverage after parse (scorecard_honesty.score_format_layer)."
+    inclusion: "T1 diagnostic when schema_valid < 1.0."
+  - id: "parse_error"
+    description: "Output failed to parse (quick health check — promoted per pruning plan)"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:parse_error"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "mailroom SCORE_CONFIGS name preserved; not computed in this package"
+  - id: "success_rate"
+    description: "Runs completing without abort/stage failure"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:success_rate"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "consolidates mailroom stage_completed + run_aborted; not computed in this package"
+  - id: "completeness"
+    description: "Numeric completeness of the required output shape"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:completeness"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "mailroom completeness_label (CATEGORICAL) folds into this numeric score; not computed in this package"
+  - id: "classification_correct"
+    description: "Per-document classification correctness (strict/equiv)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["CLASSIFIERS", "boss"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:classification_correct"
+    layer: "classification"
+    status: "implemented"
+    readers: ["classification_report"]
+    producer: "mailroom_dojo.classification.labels.exact_match"
+    origin: "registry"
+    old_source: "classification.exact_match"
+    citation: "Per-document exact-match after normalize_label (classification.exact_match)."
+    inclusion: "Skipped when either side is empty/null."
+  - id: "class_correct"
+    description: "Per-document class correctness (mailroom pipeline pilot)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:class_correct"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "mailroom SCORE_CONFIGS name; alias of classification_correct"
+  - id: "stage_correct"
+    description: "Per-stage correctness (mailroom pipeline pilot)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:stage_correct"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "mailroom SCORE_CONFIGS name"
+  - id: "extraction_correctness"
+    description: "Per-document extraction correctness (mailroom pilot)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:extraction_correctness"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "mailroom SCORE_CONFIGS name"
+  - id: "extraction_needs_judge_review"
+    description: "Routing signal: extraction ambiguous enough to escalate to the judge"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:extraction_needs_judge_review"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "mailroom SCORE_CONFIGS name"
+  - id: "expected_field_presence"
+    description: "Share of expected fields populated"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:expected_field_presence"
+    layer: null
+    status: "not_ported"
+    status_reason: "An llm-mailroom emitter alias of field_presence (old registry notes); field_presence is the row that is kept and reported."
+    alias_of: "field_presence"
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "mailroom SCORE_CONFIGS name; alias of field_presence"
+  - id: "extraction_overall_verified_precision"
+    description: "Precision restricted to doc-verifiable items"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:extraction_overall_verified_precision"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "mailroom SCORE_CONFIGS name; alias of verified_precision"
+  - id: "extraction_verified_precision"
+    description: "Langfuse wire alias of extraction_overall_verified_precision (35-char config limit)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:extraction_verified_precision"
+    layer: null
+    status: "not_ported"
+    status_reason: "A Langfuse transport alias of extraction_overall_verified_precision (35-character score-config limit); the record has no such limit and Langfuse sync is dropped (section 7). The value lives on as extraction_overall_verified_precision."
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "mailroom LANGFUSE_SCORE_NAME_ALIASES transport name"
+  - id: "mailroom-pipeline-judge"
+    description: "The-Mailroom LLM-as-judge verdict (CORRECT / PARTIAL / MISS)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["judge"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:mailroom-pipeline-judge"
+    layer: null
+    status: "not_ported"
+    status_reason: "A Langfuse score written by The-Mailroom's hosted judge; the port design replaces The-Mailroom trace sources with the record (section 7). The judge agent's own verdicts are scored by judge_verdict_accuracy."
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "The-Mailroom JUDGE_VERDICT_SCORES; CATEGORICAL"
+  - id: "mailroom-pipeline-quality"
+    description: "The-Mailroom LLM-as-judge quality (0..1)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["judge"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:mailroom-pipeline-quality"
+    layer: null
+    status: "not_ported"
+    status_reason: "A Langfuse score written by The-Mailroom's hosted judge; the port design replaces The-Mailroom trace sources with the record (section 7)."
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "The-Mailroom JUDGE_QUALITY_SCORES; NUMERIC"
+  - id: "exact_accuracy"
+    description: "HF pipeline exact doc-type accuracy (merger_agreement ≠ contract)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["CLASSIFIERS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:exact_accuracy"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "mailroom.score_aligned_classification"
+    citation: "HF pipeline exact doc-type accuracy; merger_agreement ≠ contract (mailroom.score_aligned_classification)."
+    inclusion: "Requires paired predicted/expected doc types. Empty sequences skipped."
+  - id: "aligned_accuracy"
+    description: "HF pipeline aligned doc-type accuracy (extract aliases only; merger_agreement ≠ contract)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["CLASSIFIERS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:aligned_accuracy"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "mailroom.score_aligned_classification"
+    citation: "HF pipeline aligned doc-type accuracy; extract aliases only (mailroom.score_aligned_classification). merger_agreement ≠ contract."
+    inclusion: "Requires paired predicted/expected doc types. Empty sequences skipped."
+  - id: "subclass_accuracy"
+    description: "HF pipeline subclass accuracy (CUAD family / CMS table / Enron form / …)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["CLASSIFIERS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:subclass_accuracy"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "tasks.score_task"
+    citation: "Exact-match accuracy over the document subclass catalog (CUAD family / CMS table / Enron form / record type)."
+    inclusion: "Attached by score_task only when subclass kwargs (or per-row subclass labels) are present; otherwise the subclass_* keys are omitted / None."
+  - id: "extraction_hallucination_rate"
+    description: "Share of reported values not grounded in GT or the source doc"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:extraction_hallucination_rate"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "mailroom SCORE_CONFIGS name; complement of verified precision"
+  - id: "completeness_label"
+    description: "Categorical completeness label (complete/partial/incomplete)"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:completeness_label"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+    notes: "mailroom SCORE_CONFIGS name; label form of completeness"
+  - id: "extraction_correctness_label"
+    description: "Categorical correctness label (accurate/partial/inaccurate)"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:extraction_correctness_label"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+    notes: "mailroom SCORE_CONFIGS name; label form of extraction_correctness"
+  - id: "estimated_cost_usd"
+    description: "Estimated USD cost of the call/run"
+    unit: "USD"
+    direction: "lower"
+    aggregation: "sum"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:estimated_cost_usd"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate", "run_report", "cost_truth_report"]
+    cost: true
+    origin: "registry"
+    old_source: "cost.estimate_cost"
+    citation: "USD cost from token counts × model table (cost.estimate_cost)."
+    inclusion: "0 when usage is missing. Not a quality score."
+  - id: "cost_per_document"
+    description: "Total cost / documents processed"
+    unit: "USD"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:cost_per_document"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate", "run_report", "cost_projection"]
+    cost: true
+    pairing: "paired_percentile_bootstrap"
+    denominator: "gold"
+    origin: "registry"
+    old_source: "cost.estimate_for_record"
+    citation: "Total estimated cost / documents processed (cost.estimate_for_record)."
+    inclusion: "None when document count is 0."
+  - id: "audit_disagreement_rate"
+    description: "Rate where the audit pass disagrees with the specialist output"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["AUDITORS"]
+    ground_truth: "optional"
+    headline: false
+    metric_id: "registry:audit_disagreement_rate"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    status_reason: "Equals 1 - audit_resolution_rate (old citation: the complement of the same overall score), so it carries no information of its own; kept for golden parity only (the auditors are legacy)."
+    origin: "registry"
+    old_source: "suites.ScoringSuite._score_audit"
+    citation: "Complement of typed extraction overall_score between auditor output and the reference dict (suites.ScoringSuite._score_audit). No new algorithm — 1 − score_extraction.overall_score."
+    inclusion: "None when overall_score is None (no scorable fields). Requires two dicts."
+    notes: "NEW (KANBAN-061) — feeds KANBAN-060's contracts_audit_v0 pass; shared by every named auditor + arbiter"
+  - id: "audit_resolution_rate"
+    description: "Rate where the specialist adopts the audit pass correction"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["AUDITORS"]
+    ground_truth: "optional"
+    headline: false
+    metric_id: "registry:audit_resolution_rate"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "suites.ScoringSuite._score_audit"
+    citation: "Typed extraction overall_score of auditor vs reference — the rate the audit pass agrees with (and would correct toward) the reference (suites.ScoringSuite._score_audit)."
+    inclusion: "None when overall_score is None. Requires two dicts."
+    notes: "NEW (KANBAN-061); shared by every named auditor + arbiter"
+  - id: "legalbench_accuracy"
+    description: "LegalBench binary accuracy"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["court_opinions_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:legalbench_accuracy"
+    layer: null
+    status: "not_ported"
+    status_reason: "LegalBench is dropped by the master design (port design, section 7: LegalBench is not ported)."
+    origin: "registry"
+    old_source: "tasks.legalbench_score"
+    citation: "LegalBench binary accuracy (tasks.legalbench_score)."
+    inclusion: "Court-opinion / LegalBench rows only; skipped when no questions."
+    notes: "part of the legalbench_* cluster — one bundle entry, sub-fields"
+  - id: "legalbench_macro_f1"
+    description: "LegalBench macro F1"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["court_opinions_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:legalbench_macro_f1"
+    layer: null
+    status: "not_ported"
+    status_reason: "LegalBench is dropped by the master design (port design, section 7: LegalBench is not ported)."
+    origin: "registry"
+    old_source: "tasks.legalbench_score"
+    citation: "LegalBench macro-F1. Unweighted macro-average of one-vs-rest P/R/Fβ over the label set (Sokolova & Lapalme 2009-style). Same Fβ as classification.fbeta."
+    inclusion: "Court-opinion / LegalBench rows only; skipped when no questions."
+    notes: "legalbench_* cluster"
+  - id: "date_mae_days"
+    description: "Mean absolute date error in days (run-level diagnostic)"
+    unit: "days"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:date_mae_days"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "diagnostics.extraction_diagnostics"
+    citation: "Mean absolute error in days after date parse (diagnostics.extraction_diagnostics)."
+    inclusion: "None when neither side parses to a date. Empty GT dates skipped."
+    notes: "Existing diagnostics surface; registered so every specialist suite can emit it"
+  - id: "money_mae_usd"
+    description: "Mean absolute money-field error in USD (run-level diagnostic)"
+    unit: "USD"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:money_mae_usd"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "diagnostics.extraction_diagnostics"
+    citation: "Mean absolute money-field error in USD after one-cent normalize (diagnostics.extraction_diagnostics / field_scoring.parse_money)."
+    inclusion: "None when either side is unparseable. Empty GT amounts skipped."
+    notes: "Existing diagnostics surface; registered so money-bearing specialist suites can emit it"
+  - id: "duration_mae_days"
+    description: "Mean absolute duration-field error in days"
+    unit: "days"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:duration_mae_days"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "diagnostics.extraction_diagnostics"
+    citation: ""
+    inclusion: ""
+  - id: "content_topic_accuracy"
+    description: "Enron correspondence content_topic exact-match accuracy (11 topics)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["correspondence_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "pipeline.enron.topic_accuracy"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "content_scoring.score_content_topic"
+    citation: "Enron 11-topic exact-match accuracy (content_scoring.score_content_topic)."
+    inclusion: "Skipped when content_topic gold is empty/null."
+  - id: "content_topic_f1_macro"
+    description: "Enron correspondence content_topic macro-F1 over expected topics (imbalanced 11-way)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["correspondence_specialist"]
+    ground_truth: "required"
+    headline: true
+    metric_id: "pipeline.enron.topic_f1_macro"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate", "headline_view"]
+    status_reason: "For eval-lineage runs only: the live correspondence schema has no content_topic field, so a perfect live extraction would score 0.0. The correspondence specialist's default view is extraction_overall_score."
+    pairing_note: "Macro F1 over topics is a statistic of the whole set, not a mean of per-document values, so D1's paired_bootstrap_delta does not apply; a paired document resample that recomputes it is D7's to build."
+    origin: "registry"
+    old_source: "content_scoring.score_content_topic"
+    citation: "Enron 11-topic catalog; unweighted macro-F1 (content_scoring.score_content_topic)."
+    inclusion: "Computed when a content_topic gold label is present; skipped when the field is empty/null."
+    notes: "Promoted to T0 — topic imbalance makes macro-F1 the correspondence board number"
+  - id: "sentiment_accuracy"
+    description: "Enron correspondence sentiment_label accuracy (negative/neutral/positive)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["correspondence_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "pipeline.enron.sentiment_accuracy"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "content_scoring.score_sentiment"
+    citation: "Enron sentiment_label exact-match (negative/neutral/positive) (content_scoring.score_sentiment)."
+    inclusion: "Skipped when sentiment gold is empty/null."
+  - id: "sentiment_f1_macro"
+    description: "Enron correspondence sentiment_label macro-F1"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["correspondence_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "pipeline.enron.sentiment_f1_macro"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "content_scoring.score_sentiment"
+    citation: "Enron sentiment_label macro-F1 (content_scoring.score_sentiment)."
+    inclusion: "Skipped when sentiment gold is empty/null."
+  - id: "maud_question_accuracy"
+    description: "MAUD per-question micro exact-answer accuracy over the 22 Hub keys"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["contracts_specialist", "merger_agreement_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "maud.question.micro_accuracy"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "content_scoring.score_maud_extraction"
+    citation: "MAUD per-question micro exact-answer accuracy over clean keys (content_scoring.score_maud_extraction). Collapsed multi-answer GT is gt_ambiguous / unscorable and excluded from the micro average."
+    inclusion: "None when no scorable MAUD questions remain (empty map or all keys gt_ambiguous). n_ambiguous is always surfaced."
+  - id: "maud_question_macro_accuracy"
+    description: "MAUD per-question macro accuracy (unweighted mean over questions)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["contracts_specialist", "merger_agreement_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:maud_question_macro_accuracy"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "content_scoring.score_maud_extraction"
+    citation: "MAUD per-question macro accuracy (unweighted mean over questions) (content_scoring.score_maud_extraction)."
+    inclusion: "None when no MAUD questions are present on the row."
+  - id: "maud_clause_presence"
+    description: "Share of expected MAUD questions present in the prediction"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["contracts_specialist", "merger_agreement_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "maud.clause_presence.rate"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate", "merger_report"]
+    origin: "registry"
+    old_source: "content_scoring.score_maud_extraction"
+    citation: "Share of expected MAUD questions present in the prediction."
+    inclusion: "None when the expected MAUD map is empty."
+  - id: "maud_valid_class_rate"
+    description: "Share of predicted MAUD answers in the question's known class set"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["contracts_specialist", "merger_agreement_specialist"]
+    ground_truth: "optional"
+    headline: false
+    metric_id: "registry:maud_valid_class_rate"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "content_scoring.score_maud_extraction"
+    citation: "Share of predicted MAUD answers in the question's known class set."
+    inclusion: "None when there are no predicted MAUD answers."
+  - id: "maud_category_accuracy"
+    description: "MAUD clause-category exact match when both sides have a category"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["contracts_specialist", "merger_agreement_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:maud_category_accuracy"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "content_scoring.score_maud_extraction"
+    citation: ""
+    inclusion: ""
+  - id: "wer"
+    description: "Word error rate (word-level Levenshtein / |reference|); lower is better"
+    unit: "error_rate"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["TRANSCRIBERS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:wer"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "asr.word_error_rate"
+    citation: "Word error rate: word-level Levenshtein / |reference| (NIST ASR; asr.word_error_rate). May exceed 1.0 when the hypothesis is longer."
+    inclusion: "Requires a non-empty reference transcript. Empty hypothesis is WER=1.0 when reference is non-empty."
+    notes: "WER may exceed 1.0 when the hypothesis is longer than the reference"
+  - id: "cer"
+    description: "Character error rate (character-level Levenshtein / |reference|); lower is better"
+    unit: "error_rate"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["TRANSCRIBERS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:cer"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "asr.character_error_rate"
+    citation: "Character error rate: character-level Levenshtein / |reference| (asr.character_error_rate)."
+    inclusion: "Requires a non-empty reference transcript."
+  - id: "word_accuracy"
+    description: "max(0, 1 - WER) complementary transcription headline"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["TRANSCRIBERS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:word_accuracy"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "asr.word_accuracy"
+    citation: "max(0, 1 − WER) complementary transcription headline (asr.word_accuracy)."
+    inclusion: "Same inclusion as wer."
+  - id: "character_accuracy"
+    description: "max(0, 1 - CER) complementary character-level transcription accuracy"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["TRANSCRIBERS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:character_accuracy"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "asr.character_accuracy"
+    citation: ""
+    inclusion: ""
+  - id: "intake_prep_completeness"
+    description: "Share of intake prep-step invariants that hold before sorter handoff"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["INTAKE"]
+    ground_truth: "structural"
+    headline: false
+    metric_id: "registry:intake_prep_completeness"
+    layer: null
+    status: "not_ported"
+    status_reason: "Clerk diagnostics; not needed to judge intake (owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class). The old golden intake suite emits it, so D3b lists it as an intended difference of the parity gate; the row keeps its meaning."
+    origin: "registry"
+    old_source: "intake.intake_prep_completeness"
+    citation: "Share of intake prep-step invariants that hold (NFC, newline unify, NBSP, zero-width, C0, hyphen unwrap, blank-run collapse, horizontal space, trim). Structural check on predicted text vs the clerk contract; not a labeled GT score (intake.intake_prep_completeness)."
+    inclusion: "Computed whenever predicted text is a string. Empty string still scores the invariants (trim/NFC hold; content is empty)."
+    notes: "NFC, newline unify, NBSP, zero-width, C0, hyphen unwrap, blank-run collapse, horizontal space, trim"
+  - id: "intake_changed_rate"
+    description: "Share of documents whose intake clerk mutated the transcribed text"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["INTAKE"]
+    ground_truth: "optional"
+    headline: false
+    metric_id: "registry:intake_changed_rate"
+    layer: null
+    status: "not_ported"
+    status_reason: "Clerk diagnostics; not needed to judge intake (owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class). The old golden intake suite emits it, so D3b lists it as an intended difference of the parity gate; the row keeps its meaning."
+    origin: "registry"
+    old_source: "intake.score_intake"
+    citation: "Share of documents whose intake clerk mutated the transcribed text (intake.score_intake)."
+    inclusion: "Requires paired pre/post text; skipped on empty runs."
+  - id: "intake_messy_rate"
+    description: "Share of documents flagged looks_messy after intake (OCR residue / wrap artifacts)"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["INTAKE"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:intake_messy_rate"
+    layer: null
+    status: "not_ported"
+    status_reason: "Clerk diagnostics; not needed to judge intake (owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class). The old golden intake suite emits it, so D3b lists it as an intended difference of the parity gate; the row keeps its meaning."
+    origin: "registry"
+    old_source: "intake.looks_messy"
+    citation: "Share of documents flagged looks_messy after intake (OCR residue / wrap artifacts) (intake.looks_messy)."
+    inclusion: "Computed on predicted (post-intake) text."
+  - id: "intake_hyphen_unwraps"
+    description: "Hyphen-wrap unwraps performed (line-broken words rejoined)"
+    unit: "count"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["INTAKE"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:intake_hyphen_unwraps"
+    layer: null
+    status: "not_ported"
+    status_reason: "Clerk diagnostics; not needed to judge intake (owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class). The old golden intake suite emits it, so D3b lists it as an intended difference of the parity gate; the row keeps its meaning."
+    origin: "registry"
+    old_source: "intake.deterministic_normalize"
+    citation: ""
+    inclusion: ""
+  - id: "intake_collapsed_blanks"
+    description: "Collapsed 3+ blank-line runs (paragraph-break normalize)"
+    unit: "count"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["INTAKE"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:intake_collapsed_blanks"
+    layer: null
+    status: "not_ported"
+    status_reason: "Clerk diagnostics; not needed to judge intake (owner decision, 2026-11-18: intake is judged only by the accuracy of its triage class). The old golden intake suite emits it, so D3b lists it as an intended difference of the parity gate; the row keeps its meaning."
+    origin: "registry"
+    old_source: "intake.deterministic_normalize"
+    citation: ""
+    inclusion: ""
+  - id: "ttft_seconds"
+    description: "Time to first token (streaming first-token timestamp − request start)"
+    unit: "seconds"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: true
+    metric_id: "registry:ttft_seconds"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate", "headline_view", "run_report"]
+    pairing: "two_sample_percentile_bootstrap"
+    origin: "registry"
+    old_source: "serving.score_serving_run"
+    citation: "Time to first token: t_first_token − t_request_start (vLLM / NVIDIA NIM / OpenAI streaming). serving.score_serving_run."
+    inclusion: "None unless first-token timestamp or explicit ttft_seconds is recorded. Never inferred from e2e / n_tokens."
+  - id: "tokens_per_second"
+    description: "Decode throughput: completion_tokens / e2e latency"
+    unit: "tokens/s"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: true
+    metric_id: "registry:tokens_per_second"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate", "headline_view", "run_report"]
+    pairing: "two_sample_percentile_bootstrap"
+    origin: "registry"
+    old_source: "serving.score_serving_run"
+    citation: "Decode throughput: completion_tokens / e2e_latency (vLLM tokens/s convention)."
+    inclusion: "None when e2e ≤ 0 or completion_tokens missing."
+  - id: "tpot_seconds"
+    description: "Time per output token after first token ((e2e − ttft) / (completion_tokens − 1))"
+    unit: "seconds"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:tpot_seconds"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "serving.score_serving_run"
+    citation: "Time per output token after the first: (e2e − ttft) / (completion_tokens − 1) (NVIDIA NIM TPOT / inter-token latency)."
+    inclusion: "None when TTFT missing, completion_tokens ≤ 1, or e2e < ttft."
+  - id: "e2e_latency_seconds"
+    description: "End-to-end request wall-clock (start → last token)"
+    unit: "seconds"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:e2e_latency_seconds"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate", "run_report"]
+    pairing: "two_sample_percentile_bootstrap"
+    origin: "registry"
+    old_source: "serving.score_serving_run"
+    citation: "End-to-end wall-clock from request start to last token (or recorded latency)."
+    inclusion: "None when neither duration nor start/end timestamps are present."
+  - id: "ttft_p50"
+    description: "Median time to first token over requests"
+    unit: "seconds"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:ttft_p50"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "serving.aggregate_serving"
+    citation: "Median TTFT over per-request observations (linear interpolation percentile)."
+    inclusion: "None when no request has TTFT."
+  - id: "ttft_p95"
+    description: "95th-percentile time to first token over requests"
+    unit: "seconds"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:ttft_p95"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "serving.aggregate_serving"
+    citation: "95th-percentile TTFT over per-request observations."
+    inclusion: "None when no request has TTFT."
+  - id: "e2e_p50"
+    description: "Median end-to-end latency over requests"
+    unit: "seconds"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:e2e_p50"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "serving.aggregate_serving"
+    citation: "Median end-to-end latency over per-request observations."
+    inclusion: "None when no request has e2e."
+  - id: "e2e_p95"
+    description: "95th-percentile end-to-end latency over requests"
+    unit: "seconds"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:e2e_p95"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "serving.aggregate_serving"
+    citation: "95th-percentile end-to-end latency over per-request observations."
+    inclusion: "None when no request has e2e."
+  - id: "output_tokens_per_second"
+    description: "completion_tokens / (e2e − ttft) — decode-only throughput"
+    unit: "tokens/s"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:output_tokens_per_second"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "serving.score_serving_run"
+    citation: "Decode-only throughput: completion_tokens / (e2e − ttft)."
+    inclusion: "None when TTFT missing or e2e ≤ ttft."
+  - id: "prompt_tokens_per_second"
+    description: "prompt_tokens / ttft — prefill throughput when TTFT is recorded"
+    unit: "tokens/s"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:prompt_tokens_per_second"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "serving.score_serving_run"
+    citation: "Prefill throughput: prompt_tokens / ttft."
+    inclusion: "None when TTFT missing or prompt_tokens missing."
+  - id: "requests_per_second"
+    description: "n_requests / summed e2e window (sequential throughput)"
+    unit: "req/s"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:requests_per_second"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "serving.aggregate_serving"
+    citation: "n_requests / summed e2e window (sequential serving throughput)."
+    inclusion: "None when no e2e observations."
+  - id: "docs_per_second"
+    description: "n_docs / summed e2e window (documents processed per second)"
+    unit: "docs/s"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:docs_per_second"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate", "run_report"]
+    origin: "registry"
+    old_source: "serving.aggregate_serving"
+    citation: "n_docs / summed e2e window (documents processed per second)."
+    inclusion: "None when no e2e observations or n_docs is 0."
+  - id: "gpu_utilization"
+    description: "Local GPU SM utilization in [0,1] (nvidia-smi / vLLM). None on API-key runs"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:gpu_utilization"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate", "run_report"]
+    origin: "registry"
+    old_source: "serving.score_serving_run"
+    citation: "Local GPU SM utilization in [0,1] from nvidia-smi / vLLM. Values >1 treated as percent."
+    inclusion: "None on API-key providers and when the local run did not record utilization."
+  - id: "kv_cache_utilization"
+    description: "vLLM KV-cache / prefix-cache occupancy in [0,1]. None on API-key runs"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:kv_cache_utilization"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "serving.score_serving_run"
+    citation: "vLLM KV-cache / prefix-cache occupancy in [0,1]."
+    inclusion: "None on API-key providers and when the local engine did not expose cache stats."
+  - id: "gpu_memory_used_gb"
+    description: "Local GPU memory used in GiB. None on API-key runs"
+    unit: "GB"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:gpu_memory_used_gb"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "serving.score_serving_run"
+    citation: "Local GPU memory used (GiB)."
+    inclusion: "None on API-key providers and when memory was not recorded."
+  - id: "queue_time_seconds"
+    description: "Scheduler wait before generation starts (vLLM waiting_time / queue_time)"
+    unit: "seconds"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:queue_time_seconds"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "serving.score_serving_run"
+    citation: "Scheduler wait before generation (vLLM waiting_time / queue_time)."
+    inclusion: "None when the engine did not record queue wait."
+  - id: "error_rate"
+    description: "Share of serving requests recorded as failed"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:error_rate"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    old_source: "serving.aggregate_serving"
+    citation: "Share of serving requests flagged error/failed."
+    inclusion: "0.0 when n_requests > 0 and none failed. None when there are no requests."
+  - id: "prompt_tokens"
+    description: "Prompt / input token count for the serving run"
+    unit: "count"
+    direction: "none"
+    aggregation: "sum"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:prompt_tokens"
+    layer: "D5"
+    status: "planned"
+    readers: ["cost_truth_report"]
+    origin: "registry"
+    old_source: "serving.score_serving_run"
+    citation: "Sum of prompt/input tokens over observations (OpenAI usage.prompt_tokens)."
+    inclusion: "None when no observation recorded prompt tokens."
+  - id: "completion_tokens"
+    description: "Completion / output token count for the serving run"
+    unit: "count"
+    direction: "none"
+    aggregation: "sum"
+    agents: ["SERVING"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:completion_tokens"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate", "cost_truth_report"]
+    origin: "registry"
+    old_source: "serving.score_serving_run"
+    citation: "Sum of completion/output tokens over observations (OpenAI usage.completion_tokens)."
+    inclusion: "None when no observation recorded completion tokens."
+  - id: "serving_kind"
+    description: "local | api | unknown — serving family of the run"
+    unit: "tag"
+    direction: "none"
+    aggregation: "none"
+    agents: ["SERVING"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:serving_kind"
+    layer: null
+    status: "not_ported"
+    status_reason: "Run metadata, not a measure: the run spec in the record names the backend, model, prompt set and serving settings, and the backend is a report column."
+    origin: "registry"
+    old_source: "serving.classify_serving_kind"
+    citation: ""
+    inclusion: ""
+  - id: "quantization"
+    description: "Quantization tag (awq, gptq, fp16, q4_k_m, …) registered with the run"
+    unit: "tag"
+    direction: "none"
+    aggregation: "none"
+    agents: ["SERVING"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:quantization"
+    layer: null
+    status: "not_ported"
+    status_reason: "Run metadata, not a measure: the run spec in the record names the backend, model, prompt set and serving settings, and the backend is a report column."
+    origin: "registry"
+    old_source: "serving.normalize_serving_record"
+    citation: ""
+    inclusion: ""
+  - id: "gpu_name"
+    description: "Local GPU product name when recorded"
+    unit: "tag"
+    direction: "none"
+    aggregation: "none"
+    agents: ["SERVING"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:gpu_name"
+    layer: null
+    status: "not_ported"
+    status_reason: "Run metadata, not a measure: the run spec in the record names the backend, model, prompt set and serving settings, and the backend is a report column."
+    origin: "registry"
+    old_source: "serving.normalize_serving_record"
+    citation: ""
+    inclusion: ""
+  - id: "max_model_len"
+    description: "Context window / max_model_len of the served model"
+    unit: "count"
+    direction: "none"
+    aggregation: "none"
+    agents: ["SERVING"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:max_model_len"
+    layer: null
+    status: "not_ported"
+    status_reason: "Run metadata, not a measure: the run spec in the record names the backend, model, prompt set and serving settings, and the backend is a report column."
+    origin: "registry"
+    old_source: "serving.normalize_serving_record"
+    citation: ""
+    inclusion: ""
+  - id: "model"
+    description: "Served model slug (Ollama tag or OpenRouter id)"
+    unit: "tag"
+    direction: "none"
+    aggregation: "none"
+    agents: ["SERVING"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:model"
+    layer: null
+    status: "not_ported"
+    status_reason: "Run metadata, not a measure: the run spec in the record names the backend, model, prompt set and serving settings, and the backend is a report column."
+    origin: "registry"
+    old_source: "serving.normalize_serving_record"
+    citation: ""
+    inclusion: ""
+  - id: "provider"
+    description: "Serving provider family (ollama, vllm, openrouter, …)"
+    unit: "tag"
+    direction: "none"
+    aggregation: "none"
+    agents: ["SERVING"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:provider"
+    layer: null
+    status: "not_ported"
+    status_reason: "Run metadata, not a measure: the run spec in the record names the backend, model, prompt set and serving settings, and the backend is a report column."
+    origin: "registry"
+    old_source: "serving.normalize_serving_record"
+    citation: ""
+    inclusion: ""
+  - id: "dtype"
+    description: "Model dtype (fp16, bf16, fp8, …) when recorded"
+    unit: "tag"
+    direction: "none"
+    aggregation: "none"
+    agents: ["SERVING"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:dtype"
+    layer: null
+    status: "not_ported"
+    status_reason: "Run metadata, not a measure: the run spec in the record names the backend, model, prompt set and serving settings, and the backend is a report column."
+    origin: "registry"
+    old_source: "serving.normalize_serving_record"
+    citation: ""
+    inclusion: ""
+  - id: "gpu_count"
+    description: "Local GPU count / tensor-parallel width when recorded"
+    unit: "count"
+    direction: "none"
+    aggregation: "none"
+    agents: ["SERVING"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:gpu_count"
+    layer: null
+    status: "not_ported"
+    status_reason: "Run metadata, not a measure: the run spec in the record names the backend, model, prompt set and serving settings, and the backend is a report column."
+    origin: "registry"
+    old_source: "serving.normalize_serving_record"
+    citation: ""
+    inclusion: ""
+  - id: "tensor_parallel"
+    description: "vLLM tensor_parallel_size when recorded"
+    unit: "count"
+    direction: "none"
+    aggregation: "none"
+    agents: ["SERVING"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:tensor_parallel"
+    layer: null
+    status: "not_ported"
+    status_reason: "Run metadata, not a measure: the run spec in the record names the backend, model, prompt set and serving settings, and the backend is a report column."
+    origin: "registry"
+    old_source: "serving.normalize_serving_record"
+    citation: ""
+    inclusion: ""
+  - id: "serving_profile"
+    description: "Sandbox profile name (ollama, vllm-local, openrouter, …)"
+    unit: "tag"
+    direction: "none"
+    aggregation: "none"
+    agents: ["SERVING"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:serving_profile"
+    layer: null
+    status: "not_ported"
+    status_reason: "Run metadata, not a measure: the run spec in the record names the backend, model, prompt set and serving settings, and the backend is a report column."
+    origin: "registry"
+    old_source: "serving.normalize_serving_record"
+    citation: ""
+    inclusion: ""
+  - id: "base_url_host"
+    description: "Hostname of the local or API endpoint"
+    unit: "tag"
+    direction: "none"
+    aggregation: "none"
+    agents: ["SERVING"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:base_url_host"
+    layer: null
+    status: "not_ported"
+    status_reason: "Run metadata, not a measure: the run spec in the record names the backend, model, prompt set and serving settings, and the backend is a report column."
+    origin: "registry"
+    old_source: "serving.normalize_serving_record"
+    citation: ""
+    inclusion: ""
+  - id: "n_requests"
+    description: "Number of per-request serving observations in the run"
+    unit: "count"
+    direction: "none"
+    aggregation: "sum"
+    agents: ["SERVING"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:n_requests"
+    layer: null
+    status: "not_ported"
+    status_reason: "A sample size, not a measure: every Measure carries its own n."
+    origin: "registry"
+    old_source: "serving.aggregate_serving"
+    citation: ""
+    inclusion: ""
+  - id: "n_docs"
+    description: "Document count for the serving run (identity.n, else n_requests)"
+    unit: "count"
+    direction: "none"
+    aggregation: "sum"
+    agents: ["SERVING"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:n_docs"
+    layer: null
+    status: "not_ported"
+    status_reason: "A sample size, not a measure: every Measure carries its own n."
+    origin: "registry"
+    old_source: "serving.aggregate_serving"
+    citation: ""
+    inclusion: ""
+  - id: "confusion_matrix"
+    description: "Class-confusion matrix"
+    unit: "structure"
+    direction: "none"
+    aggregation: "none"
+    agents: ["CLASSIFIERS", "boss"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:confusion_matrix"
+    layer: "classification"
+    status: "implemented"
+    readers: ["classification_report"]
+    producer: "mailroom_dojo.classification.metrics.confusion_matrix"
+    origin: "registry"
+    old_source: "classification.confusion_matrix"
+    citation: ""
+    inclusion: ""
+  - id: "per_class_stats"
+    description: "Per-class precision/recall/support"
+    unit: "structure"
+    direction: "none"
+    aggregation: "none"
+    agents: ["CLASSIFIERS"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:per_class_stats"
+    layer: "classification"
+    status: "implemented"
+    readers: ["classification_report"]
+    producer: "mailroom_dojo.classification.metrics.per_class_stats"
+    origin: "registry"
+    old_source: "classification.per_class_stats"
+    citation: ""
+    inclusion: ""
+  - id: "failure_mode_breakdown"
+    description: "Failure taxonomy counts (family_confusion, function_over_form, ...)"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "none"
+    agents: ["CLASSIFIERS"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:failure_mode_breakdown"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "failure_modes.summarize_failures"
+    citation: ""
+    inclusion: ""
+  - id: "bootstrap_ci"
+    description: "Percentile bootstrap CI for the headline metric"
+    unit: "structure"
+    direction: "none"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:bootstrap_ci"
+    layer: "D1"
+    status: "planned"
+    readers: ["run_comparison"]
+    origin: "registry"
+    old_source: "bootstrap.bootstrap_ci"
+    citation: ""
+    inclusion: ""
+  - id: "confidence_calibration_error"
+    description: "|confidence - correctness| calibration gap"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:confidence_calibration_error"
+    layer: "field_scoring"
+    status: "implemented"
+    readers: ["confidence_report"]
+    producer: "mailroom_dojo.field_scoring.trace_capture.confidence_calibration_error"
+    origin: "registry"
+    old_source: "trace_knobs.confidence_calibration_error"
+    citation: "|confidence − correctness| (trace_knobs.confidence_calibration_error). Raw confidence is a captured experiment knob, never overall_score."
+    inclusion: "When capture_confidence and compute_calibration_error are on and both values are in [0, 1]."
+    notes: "absorbs mailroom classification_confidence + extraction_confidence (raw confidences stay at T3 as inputs)"
+  - id: "hallucination_rate"
+    description: "Rate of doc-unverifiable extracted items"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["SPECIALISTS", "AUDITORS"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:hallucination_rate"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    old_source: "field_scoring.verify_list_items"
+    citation: ""
+    inclusion: ""
+    notes: "mailroom alias: extraction_hallucination_rate"
+  - id: "per_field_scores"
+    description: "Type-aware per-field scores (date MAE, money error, name fuzzy match)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "none"
+    agents: ["SPECIALISTS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:per_field_scores"
+    layer: "field_scoring"
+    status: "implemented"
+    readers: ["specialist_report", "keep_rule"]
+    pairing: "paired_percentile_bootstrap"
+    producer: "mailroom_dojo.field_scoring.extraction.score_extraction"
+    denominator: "gold"
+    origin: "registry"
+    old_source: "field_scoring.score_field"
+    citation: ""
+    inclusion: ""
+  - id: "extraction_field_score"
+    description: "Per-field score value (mailroom pilot detail)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:extraction_field_score"
+    layer: null
+    status: "not_ported"
+    status_reason: "The llm-mailroom pilot's per-field detail; the per-field score is per_field_scores, which the keep rule and the specialist report read."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+    notes: "mailroom SCORE_CONFIGS name; sibling of per_field_scores"
+  - id: "extraction_category_presence"
+    description: "Category-presence scoring result (verbatim-clause fields)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["contracts_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "cuad.clause_presence.micro_f1"
+    layer: "field_scoring"
+    status: "implemented"
+    readers: ["specialist_report"]
+    producer: "mailroom_dojo.field_scoring.category_presence.score_category_presence"
+    origin: "registry"
+    old_source: "field_scoring.score_category_presence"
+    citation: ""
+    inclusion: ""
+    notes: "mailroom SCORE_CONFIGS name"
+  - id: "classification_quality"
+    description: "Legacy numeric quality score (mailroom); superseded by structured metrics"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["sorter"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:classification_quality"
+    layer: null
+    status: "not_ported"
+    status_reason: "A legacy llm-mailroom pilot score the old registry already marked superseded by the structured classification metrics; nothing in the new system produces it."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+    notes: "mailroom SCORE_CONFIGS name; demoted per pruning plan"
+  - id: "guardrail_triggered"
+    description: "Guardrail fired (interesting in aggregate, not per-document)"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:guardrail_triggered"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+    notes: "demoted from mailroom flat list per pruning plan"
+  - id: "legalbench_calibration_error"
+    description: "LegalBench confidence calibration error"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["court_opinions_specialist"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:legalbench_calibration_error"
+    layer: null
+    status: "not_ported"
+    status_reason: "LegalBench is dropped by the master design (port design, section 7: LegalBench is not ported)."
+    origin: "registry"
+    old_source: "tasks.legalbench_score"
+    citation: ""
+    inclusion: ""
+    notes: "legalbench_* cluster"
+  - id: "sandbox_maud_accuracy"
+    description: "All labeled sandbox MAUD questions; missing answers and conflicts miss; None with no labels."
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "none"
+    agents: ["merger_agreement_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "maud.sandbox_labeled.micro_accuracy"
+    layer: "D3b"
+    status: "planned"
+    readers: ["merger_report"]
+    origin: "registry"
+    old_source: "sandbox_scoring.sandbox_metric_scores"
+    citation: "sandbox_scoring benchmark rubric adopted from sandbox 872b081."
+    inclusion: "All labeled sandbox MAUD questions; missing answers and conflicts miss; None with no labels."
+  - id: "sandbox_maud_clean_accuracy"
+    description: "Frozen sandbox CLEAN_QUESTIONS subset; None with no supported questions."
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "none"
+    agents: ["merger_agreement_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "maud.sandbox_clean_subset.micro_accuracy"
+    layer: "D3b"
+    status: "planned"
+    readers: ["merger_report", "set_e_report"]
+    origin: "registry"
+    old_source: "sandbox_scoring.sandbox_metric_scores"
+    citation: "sandbox_scoring benchmark rubric adopted from sandbox 872b081."
+    inclusion: "Frozen sandbox CLEAN_QUESTIONS subset; None with no supported questions."
+  - id: "sandbox_maud_precision_answered"
+    description: "Sandbox real answers only; placeholders excluded except catalog classes; conflicts count answered and wrong."
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "none"
+    agents: ["merger_agreement_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "maud.sandbox_answered.precision"
+    layer: "D3b"
+    status: "planned"
+    readers: ["merger_report"]
+    origin: "registry"
+    old_source: "sandbox_scoring.sandbox_metric_scores"
+    citation: "sandbox_scoring benchmark rubric adopted from sandbox 872b081."
+    inclusion: "Sandbox real answers only; placeholders excluded except catalog classes; conflicts count answered and wrong."
+  - id: "sandbox_cuad_presence_f1"
+    description: "Category detection within the row-labeled universe; empty universe is unscorable."
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "none"
+    agents: ["contracts_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "cuad.sandbox_category_detection.micro_f1"
+    layer: "D3b"
+    status: "planned"
+    readers: ["specialist_report"]
+    origin: "registry"
+    old_source: "sandbox_scoring.sandbox_metric_scores"
+    citation: "sandbox_scoring benchmark rubric adopted from sandbox 872b081."
+    inclusion: "Category detection within the row-labeled universe; empty universe is unscorable."
+  - id: "sandbox_cuad_presence_precision"
+    description: "TP/(TP+FP) within row-labeled categories; zero when no detected categories on a labeled row."
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "none"
+    agents: ["contracts_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "cuad.sandbox_category_detection.micro_precision"
+    layer: "D3b"
+    status: "planned"
+    readers: ["specialist_report"]
+    origin: "registry"
+    old_source: "sandbox_scoring.sandbox_metric_scores"
+    citation: "sandbox_scoring benchmark rubric adopted from sandbox 872b081."
+    inclusion: "TP/(TP+FP) within row-labeled categories; zero when no detected categories on a labeled row."
+  - id: "sandbox_cuad_presence_recall"
+    description: "TP/(TP+FN) within row-labeled categories; zero when no positive categories on a labeled row."
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "none"
+    agents: ["contracts_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "cuad.sandbox_category_detection.micro_recall"
+    layer: "D3b"
+    status: "planned"
+    readers: ["specialist_report"]
+    origin: "registry"
+    old_source: "sandbox_scoring.sandbox_metric_scores"
+    citation: "sandbox_scoring benchmark rubric adopted from sandbox 872b081."
+    inclusion: "TP/(TP+FN) within row-labeled categories; zero when no positive categories on a labeled row."
+  - id: "classification_confidence"
+    description: "Raw classifier confidence (input to calibration)"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["CLASSIFIERS"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:classification_confidence"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+    notes: "merged into confidence_calibration_error per pruning plan"
+  - id: "extraction_confidence"
+    description: "Raw extractor confidence (input to calibration)"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["SPECIALISTS"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:extraction_confidence"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+    notes: "merged into confidence_calibration_error per pruning plan"
+  - id: "judge_notes"
+    description: "Free-text adjudication notes — belongs in logs, not scored metrics"
+    unit: "text"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["judge"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:judge_notes"
+    layer: null
+    status: "not_ported"
+    status_reason: "Free-text adjudication notes; the old registry kept them for logs only, and the workspace never puts model free text in logs or reports."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+    notes: "demoted from mailroom flat list per pruning plan"
+  - id: "stage_completed"
+    description: "Legacy per-stage completion flag"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:stage_completed"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+    notes: "consolidated into success_rate"
+  - id: "run_aborted"
+    description: "Legacy abort flag"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:run_aborted"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+    notes: "consolidated into success_rate"
+  - id: "llm_call_count"
+    description: "LLM calls made (cost-calc input, not performance)"
+    unit: "count"
+    direction: "none"
+    aggregation: "sum"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:llm_call_count"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+    notes: "demoted per pruning plan"
+  - id: "total_tokens"
+    description: "Total tokens in+out"
+    unit: "count"
+    direction: "none"
+    aggregation: "sum"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:total_tokens"
+    layer: "D5"
+    status: "planned"
+    readers: ["golden_parity_gate", "cost_truth_report"]
+    origin: "registry"
+    old_source: "cost.tokens_summary"
+    citation: ""
+    inclusion: ""
+  - id: "run_duration_seconds"
+    description: "Wall-clock run duration"
+    unit: "seconds"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:run_duration_seconds"
+    layer: null
+    status: "not_ported"
+    status_reason: "No reader in the new system: no gate, report or projection named in the master or port design reads it (master design: a module survives only if one does). The row keeps its meaning so it can be revived."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+  - id: "bert_pass"
+    description: "Intake BERT gate verdict (true = gate passed / BERT label forwarded)"
+    unit: "boolean"
+    direction: "none"
+    aggregation: "none"
+    agents: ["INTAKE"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:bert_pass"
+    layer: null
+    status: "not_ported"
+    status_reason: "Emitted by llm-mailroom's BERT intake gate (bert_intake), which the port design drops (section 7)."
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "mailroom SCORE_CONFIGS name; emitted by intake gate (llm-mailroom agents/bert_intake.py)"
+  - id: "bert_sorter_agreement"
+    description: "BERT fast-path label agrees with the sorter/reviewer reference label"
+    unit: "boolean"
+    direction: "higher"
+    aggregation: "none"
+    agents: ["INTAKE", "sorter"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:bert_sorter_agreement"
+    layer: null
+    status: "not_ported"
+    status_reason: "Emitted by llm-mailroom's BERT intake gate (bert_intake), which the port design drops (section 7)."
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "mailroom SCORE_CONFIGS name; computed off-line for drift tracking"
+  - id: "bert_fail_soft"
+    description: "BERT gate failed OPEN (label discarded, sorter authority restored)"
+    unit: "boolean"
+    direction: "none"
+    aggregation: "none"
+    agents: ["INTAKE"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:bert_fail_soft"
+    layer: null
+    status: "not_ported"
+    status_reason: "Emitted by llm-mailroom's BERT intake gate (bert_intake), which the port design drops (section 7)."
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "mailroom SCORE_CONFIGS name; never true with bert_pass true for the same doc"
+  - id: "bert_elapsed_ms"
+    description: "BERT fast-path classifier wall-clock time (ONNX inference, intake doc)"
+    unit: "milliseconds"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["INTAKE"]
+    ground_truth: "none"
+    headline: true
+    metric_id: "registry:bert_elapsed_ms"
+    layer: null
+    status: "not_ported"
+    status_reason: "Emitted by llm-mailroom's BERT intake gate (bert_intake), which the port design drops (section 7)."
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "mailroom SCORE_CONFIGS name; measured at intake gate"
+  - id: "fast_path_est_cost_usd"
+    description: "Derived estimated cost of the BERT fast path (elapsed_ms x power x power price)"
+    unit: "USD"
+    direction: "lower"
+    aggregation: "sum"
+    agents: ["INTAKE"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:fast_path_est_cost_usd"
+    layer: null
+    status: "not_ported"
+    status_reason: "Emitted by llm-mailroom's BERT intake gate (bert_intake), which the port design drops (section 7)."
+    cost: true
+    origin: "registry"
+    citation: "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless."
+    inclusion: "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key."
+    notes: "mailroom SCORE_CONFIGS name; derived from bert_elapsed_ms, never conflated with estimated_cost_usd (LLM call cost)"
+  - id: "classification_attempts"
+    description: "Retry attempts for the classification stage"
+    unit: "count"
+    direction: "none"
+    aggregation: "sum"
+    agents: ["sorter"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:classification_attempts"
+    layer: "D5"
+    status: "planned"
+    readers: ["behaviour_report"]
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+  - id: "extraction_attempts"
+    description: "Retry attempts for the extraction stage"
+    unit: "count"
+    direction: "none"
+    aggregation: "sum"
+    agents: ["SPECIALISTS"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:extraction_attempts"
+    layer: "D5"
+    status: "planned"
+    readers: ["behaviour_report"]
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+  - id: "prompt_version"
+    description: "Prompt version used (permanent metadata tag)"
+    unit: "tag"
+    direction: "none"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:prompt_version"
+    layer: null
+    status: "not_ported"
+    status_reason: "Run metadata, not a measure: the run spec in the record names the backend, model, prompt set and serving settings, and the backend is a report column."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+  - id: "model_slug"
+    description: "Model slug used"
+    unit: "tag"
+    direction: "none"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:model_slug"
+    layer: null
+    status: "not_ported"
+    status_reason: "Run metadata, not a measure: the run spec in the record names the backend, model, prompt set and serving settings, and the backend is a report column."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+  - id: "trace_id"
+    description: "Observability trace id (permanent, linked to source docs)"
+    unit: "tag"
+    direction: "none"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:trace_id"
+    layer: null
+    status: "not_ported"
+    status_reason: "An observability trace id; the record's own run and event ids replace trace ids (section 7: Langfuse setup and sync are dropped)."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+  - id: "raw_prediction"
+    description: "Per-document raw prediction (30-day retention window)"
+    unit: "text"
+    direction: "none"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:raw_prediction"
+    layer: null
+    status: "not_ported"
+    status_reason: "The per-document raw model output; the record stores it, and reports never carry model free text, so it is not a reported metric."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+  - id: "legalbench_n_questions"
+    description: "LegalBench question count for the run"
+    unit: "count"
+    direction: "none"
+    aggregation: "sum"
+    agents: ["court_opinions_specialist"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:legalbench_n_questions"
+    layer: null
+    status: "not_ported"
+    status_reason: "LegalBench is dropped by the master design (port design, section 7: LegalBench is not ported)."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+    notes: "legalbench_* cluster"
+  - id: "legalbench_task"
+    description: "LegalBench task identifier"
+    unit: "tag"
+    direction: "none"
+    aggregation: "none"
+    agents: ["court_opinions_specialist"]
+    ground_truth: null
+    headline: false
+    metric_id: "registry:legalbench_task"
+    layer: null
+    status: "not_ported"
+    status_reason: "LegalBench is dropped by the master design (port design, section 7: LegalBench is not ported)."
+    origin: "registry"
+    citation: ""
+    inclusion: ""
+    notes: "legalbench_* cluster"
+  - id: "exact_match"
+    description: "Share of rows exactly right after task normalization; for a class task with subclasses, class and subclass must both be right"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:exact_match"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "golden"
+    old_source: "tasks.score_task"
+    citation: "Old tasks._label_score and score_task (docclass): mean of per-row exact matches after normalize_task_answer; ERROR rows are wrong. Equals accuracy on label tasks; with subclass labels it is the joint class-and-subclass match."
+    inclusion: "Old code returned 0.0 for an empty row list; as a Measure, n = 0 has no value."
+  - id: "macro_accuracy"
+    description: "Unweighted mean of per-class accuracy over the expected classes"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:macro_accuracy"
+    layer: "classification"
+    status: "implemented"
+    readers: ["golden_parity_gate"]
+    producer: "mailroom_dojo.classification.metrics.macro_accuracy"
+    origin: "golden"
+    old_source: "classification.macro_accuracy"
+    citation: "Old classification.macro_accuracy: per expected class, the share of its rows predicted right; then the unweighted mean."
+    inclusion: "Computed by label tasks (tasks._label_score); old code returned 0.0 on an empty run."
+  - id: "f1"
+    description: "Binary F1 (TP, FP, FN over positive answers)"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:f1"
+    layer: "classification"
+    status: "implemented"
+    readers: ["golden_parity_gate"]
+    producer: "mailroom_dojo.classification.metrics.binary_metrics"
+    origin: "golden"
+    old_source: "tasks.contracteval_metrics"
+    citation: "van Rijsbergen F-beta with beta = 1 over binary counts (old classification.binary_metrics f1; tasks.contracteval_metrics computes the same from its TP/FP/FN)."
+    inclusion: "0.0 when precision + recall is 0 (old behaviour)."
+  - id: "subclass_accuracy_equiv"
+    description: "Subclass accuracy counting documented-equivalent subclasses as right"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["CLASSIFIERS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:subclass_accuracy_equiv"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "golden"
+    old_source: "tasks.score_task"
+    citation: "Old tasks.score_task (docclass): a subclass row is right when the normalized subclass matches or schemas.corpus.subclass_equivalent says the two are equivalent; parent-class errors are wrong."
+    inclusion: "Only rows with a scorable expected subclass; unannotated subclasses (merger 'other') are left out. Old code returned 0.0 with no scored row."
+  - id: "maud_precision_answered"
+    description: "MAUD answers exactly right among the questions the prediction answered"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["contracts_specialist", "merger_agreement_specialist"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:maud_precision_answered"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate", "merger_report"]
+    origin: "golden"
+    old_source: "content_scoring.score_maud_extraction"
+    citation: "Old content_scoring.score_maud_extraction: exact answers / answered (present) questions. Not the sandbox rubric sandbox_maud_precision_answered, which has its own placeholder and conflict rules."
+    inclusion: "None when no expected question was answered."
+  - id: "no_related_rate"
+    description: "ContractEval: share of all pairs answered 'no related clause'"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["contracts_specialist", "judge"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "registry:no_related_rate"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "golden"
+    old_source: "tasks.contracteval_metrics"
+    citation: "Old tasks.contracteval_metrics (ContractEval, arXiv 2508.03080, section III-D): no-related answers / all pairs."
+    inclusion: "Old code returned 0.0 with no pairs."
+  - id: "false_no_related_rate"
+    description: "ContractEval: share of pairs with a labelled clause answered 'no related clause'"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["contracts_specialist", "judge"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:false_no_related_rate"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "golden"
+    old_source: "tasks.contracteval_metrics"
+    citation: "Old tasks.contracteval_metrics: false no-related answers / positive pairs (TP + FN)."
+    inclusion: "Old code returned 0.0 with no positive pair."
+  - id: "false_no_related_rate_paper"
+    description: "ContractEval: false 'no related clause' answers over the paper's fixed positive denominator"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["contracts_specialist", "judge"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:false_no_related_rate_paper"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "golden"
+    old_source: "tasks.contracteval_metrics"
+    citation: "Old tasks.contracteval_metrics: false no-related answers / CONTRACTEVAL_POSITIVE_DENOMINATOR (the paper's count), else the positive pairs."
+    inclusion: "Old code returned 0.0 with a zero denominator."
+  - id: "jaccard_median"
+    description: "ContractEval: median token-set Jaccard over positive pairs"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "none"
+    agents: ["contracts_specialist", "judge"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:jaccard_median"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "golden"
+    old_source: "tasks.contracteval_metrics"
+    citation: "Old tasks.contracteval_metrics: the upper median (sorted list, index n // 2) of tasks.get_jaccard over pairs with label spans."
+    inclusion: "Old code returned 0.0 with no positive pair."
+  - id: "composite"
+    description: "Chained sorter-then-extractor run: weighted mean of the sorter's exact match and the extractor's overall extraction score"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "none"
+    agents: ["sorter", "SPECIALISTS"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "registry:composite"
+    layer: "D3b"
+    status: "planned"
+    readers: ["golden_parity_gate"]
+    origin: "golden"
+    old_source: "tasks.chained_summary"
+    citation: "Old tasks.chained_composite: round(0.25 * sorter exact match + 0.75 * extractor overall extraction score, 4) with the default weights (0.25, 0.75), which chained_summary also reports under weights."
+    inclusion: "Chained runs only (task kind chained). A missing sorter or extractor score raises instead of scoring 0."
+  - id: "silent_wrong_per_1000"
+    description: "Documents archived under a wrong class with no review, per 1,000 documents"
+    unit: "per_1000"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["sorter", "sorter_reviewer"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:silent_wrong_per_1000"
+    layer: "D5"
+    status: "planned"
+    readers: ["classification_report", "set_a_report"]
+    status_reason: "Readers: classification_report (R3: silent-wrong per 1,000 not higher) and set_a_report (Set A); R10's decision-slot experiments are scored on it."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: R3 bar (line 50), the Sets table row A (line 467), R10 (line 119)."
+    inclusion: "Documents with a gold class in any label layer; none when there are none."
+  - id: "wrong_archive_rate"
+    description: "Wrong archives over scorable archives: archived below the quality bar, or under a wrong class"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:wrong_archive_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["archive_gate", "run_report", "keep_rule"]
+    status_reason: "Readers: archive_gate (its pass rule), run_report (wrong-archive rate with bounds) and keep_rule (kept at a fixed review rate)."
+    pairing_note: "A share of the run's own scorable archives: which documents are archived rather than sent to review is this run's decision, so two runs divide by different sets of documents, and D1's paired_bootstrap_delta (a mean per-document difference over the same documents) would compare different populations; a document resample that recomputes the share on both runs is D7's to build. Report each run's interval meanwhile. The keep rule compares it at a fixed review rate (review_rate, paired over every document)."
+    denominator: "run"
+    origin: "design"
+    citation: "local-mailroom-sandbox src/mailroom_sandbox/job/gate.py at 93f298c, lines 7-8 and 24; docs/specs/2026-11-18-lean-rewrite-design.md, 'Fewer wrong archives' (line 34) and 'Utility is the objective' (line 382)."
+    inclusion: "Scorable archives only (enough labelled fields); unscorable archives and reviews are left out; none when nothing is scorable."
+  - id: "wrong_archive_upper95"
+    description: "Wilson 95% upper bound on wrong_archive_rate"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:wrong_archive_upper95"
+    layer: "D6"
+    status: "planned"
+    readers: ["archive_gate", "run_report"]
+    status_reason: "Readers: archive_gate and run_report (rates with bounds). Method: the Wilson score upper bound at 95%, as the sandbox gate computes it. Named as the gate names it."
+    denominator: "run"
+    origin: "design"
+    citation: "local-mailroom-sandbox src/mailroom_sandbox/job/gate.py at 93f298c, _wilson_upper (lines 182-188) and line 405."
+    inclusion: "None when no archive is scorable."
+  - id: "review_rate"
+    description: "Documents routed to human review over all documents"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "structural"
+    headline: false
+    metric_id: "dojo:review_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["archive_gate", "run_report", "keep_rule"]
+    status_reason: "Readers: archive_gate (its pass rule), run_report and keep_rule (the wrong-archive rate is compared at a fixed review rate). Direction lower at equal wrong-archive rate ('Less human review'); owner to confirm."
+    pairing: "paired_percentile_bootstrap"
+    denominator: "gold"
+    origin: "design"
+    citation: "local-mailroom-sandbox src/mailroom_sandbox/job/gate.py at 93f298c, lines 9 and 23; docs/specs/2026-11-18-lean-rewrite-design.md, 'Less human review' (line 35)."
+    inclusion: "Every document of the pool; none for an empty pool."
+  - id: "correct_archive_rate"
+    description: "Correct archives (archived at or above the quality bar) over all documents"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:correct_archive_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["run_report"]
+    status_reason: "Reader: run_report (per class, reporting only, as in the sandbox gate)."
+    origin: "design"
+    citation: "local-mailroom-sandbox src/mailroom_sandbox/job/gate.py at 93f298c, lines 6 and 24-25."
+    inclusion: "Every document; none for an empty run."
+  - id: "document_utility"
+    description: "Mean per-document utility of the outcome (correct, review, unscorable, wrong or crash)"
+    unit: "utility"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:document_utility"
+    layer: "D6"
+    status: "planned"
+    readers: ["run_report", "keep_rule"]
+    status_reason: "Readers: keep_rule (a variant is kept on whole-pipeline utility) and run_report. The utility of each outcome is configuration, never code; it can be negative (v1: -0.101 and -0.140)."
+    pairing: "paired_percentile_bootstrap"
+    denominator: "gold"
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: 'Document outcome' row (line 283), 'Utility is the objective' (line 382), the v1 re-score (line 322)."
+    inclusion: "Every document with an outcome; none for an empty run."
+  - id: "slot_override_rate"
+    description: "Per decision slot: share of the slot's decisions that changed the default route"
+    unit: "float[0,1]"
+    direction: "none"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "structural"
+    headline: false
+    metric_id: "dojo:slot_override_rate"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report (per-slot summaries and override caps). A descriptive rate: whether more overrides is better depends on whether they were right."
+    denominator: "run"
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: Behavior row (line 284), R10 (lines 119-123)."
+    inclusion: "Per slot, over the slot's recorded decisions; none for a slot that never ran."
+  - id: "slot_cap_use"
+    description: "Per decision slot: overrides used over the slot's cap"
+    unit: "ratio"
+    direction: "none"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:slot_cap_use"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report (override caps). Descriptive: a cap is a budget, not a target."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: Behavior row (line 284) and policies 'decision-slot settings with their caps' (line 400)."
+    inclusion: "Slots with a cap; none for an uncapped slot."
+  - id: "slot_cap_breaches"
+    description: "Per decision slot: overrides made beyond the slot's cap"
+    unit: "count"
+    direction: "lower"
+    aggregation: "sum"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:slot_cap_breaches"
+    layer: "D6"
+    status: "planned"
+    readers: ["behaviour_report"]
+    status_reason: "Reader: behaviour_report (override caps). A breach means the policy did not hold its cap."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: Behavior row (line 284), policy caps (line 400)."
+    inclusion: "Slots with a cap."
+  - id: "cost_per_decision"
+    description: "Per decision slot: cost of the slot's model calls over its decisions"
+    unit: "USD"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:cost_per_decision"
+    layer: "D5"
+    status: "planned"
+    readers: ["behaviour_report", "set_a_report"]
+    status_reason: "Readers: behaviour_report and set_a_report (Set A: cost per review)."
+    cost: true
+    denominator: "run"
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: the Sets table row A (line 467), R10 (line 123)."
+    inclusion: "Slots with at least one decision."
+  - id: "outcome_flip_rate"
+    description: "Share of documents whose outcome differs between two runs of the same configuration on the same draw"
+    unit: "float[0,1]"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:outcome_flip_rate"
+    layer: "D7"
+    status: "planned"
+    readers: ["run_comparison"]
+    status_reason: "Reader: run_comparison (stability: a paired test for outcome flips)."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: 'Comparing runs' (line 295)."
+    inclusion: "Documents both runs scored; none when they share none."
+  - id: "cost_per_classification"
+    description: "Cost of the sorter and sorter-reviewer calls per classified document"
+    unit: "USD"
+    direction: "lower"
+    aggregation: "mean"
+    agents: ["sorter", "sorter_reviewer"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:cost_per_classification"
+    layer: "D5"
+    status: "planned"
+    readers: ["classification_report"]
+    status_reason: "Reader: classification_report (R3: cost per classified document not higher)."
+    cost: true
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: R3 bar (line 50)."
+    inclusion: "Classified documents; none when none was classified."
+  - id: "cost_per_1000_documents"
+    description: "Cost per 1,000 documents, with an interval from resampling to the target mix"
+    unit: "USD"
+    direction: "lower"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:cost_per_1000_documents"
+    layer: "D7"
+    status: "planned"
+    readers: ["cost_projection", "run_report"]
+    status_reason: "Readers: cost_projection (dollars per 1,000 documents) and run_report ('Lower cost' bar)."
+    cost: true
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: 'Lower cost' (line 36), Projections (line 307), Set F (line 472)."
+    inclusion: "Runs with a cost record; none otherwise."
+  - id: "documents_per_minute"
+    description: "Documents finished per minute of wall time"
+    unit: "docs/min"
+    direction: "higher"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:documents_per_minute"
+    layer: "D5"
+    status: "planned"
+    readers: ["run_report"]
+    status_reason: "Reader: run_report (the throughput floor of at least 249 documents per minute with the fake model)."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: throughput (lines 215, 421 and 498)."
+    inclusion: "Runs with a start and an end time."
+  - id: "log_complete_step_rate"
+    description: "Share of steps with complete log entries"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:log_complete_step_rate"
+    layer: "D7"
+    status: "planned"
+    readers: ["log_health_report"]
+    status_reason: "Reader: log_health_report (Log health)."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: Log health row (line 289)."
+    inclusion: "Every recorded step."
+  - id: "log_chains_verified"
+    description: "Whether every hash chain of the run verifies"
+    unit: "boolean"
+    direction: "higher"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:log_chains_verified"
+    layer: "D7"
+    status: "planned"
+    readers: ["log_health_report"]
+    status_reason: "Reader: log_health_report (Log health)."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: Log health row (line 289)."
+    inclusion: "Every sealed run."
+  - id: "cost_estimate_to_billed_ratio"
+    description: "Token-priced cost estimate over the billed bound"
+    unit: "ratio"
+    direction: "none"
+    aggregation: "none"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:cost_estimate_to_billed_ratio"
+    layer: "D7"
+    status: "planned"
+    readers: ["cost_truth_report"]
+    status_reason: "Reader: cost_truth_report (Cost truth). No better direction: 1 is right, and either side of it is a gap (v1: 1.8 to 1.9 times)."
+    origin: "design"
+    citation: "docs/specs/2026-11-18-lean-rewrite-design.md: Cost truth row (line 288)."
+    inclusion: "Runs with a billed bound; none otherwise."
+  - id: "fields_without_gold"
+    description: "Fields of the evaluation set with no gold in any label layer"
+    unit: "count"
+    direction: "lower"
+    aggregation: "sum"
+    agents: ["ALL"]
+    ground_truth: "none"
+    headline: false
+    metric_id: "dojo:fields_without_gold"
+    layer: "D4"
+    status: "planned"
+    readers: ["gold_generation"]
+    status_reason: "Reader: the future gold-generation step, which produces the additional gold for evaluation (owner decision, 2026-11-18). Generating gold with a model is a paid run behind the spend gate; nothing of it is built in D2."
+    origin: "design"
+    citation: "Owner decision, 2026-11-18: gold for evaluation is the interim and near_gold labels, the Hub ground truth, and additional gold generated to support the evaluations."
+    inclusion: "Fields the scoring profile scores, over the evaluation set."
+  - id: "intake_class_accuracy"
+    description: "Share of documents whose intake triage class equals the gold class"
+    unit: "float[0,1]"
+    direction: "higher"
+    aggregation: "mean"
+    agents: ["intake"]
+    ground_truth: "required"
+    headline: false
+    metric_id: "dojo:intake_class_accuracy"
+    layer: "D6"
+    status: "planned"
+    readers: ["classification_report"]
+    status_reason: "Reader: classification_report (class accuracy per agent) and intake's default view (owner decision, 2026-11-18: intake is judged only by its triage class against the gold class, no guard). A row of its own: the old intake suite's accuracy (exact match of the cleaned text against the clerk's gold) and f1_macro (token F1) keep their meaning (llm_dojo_scoring/pipeline/intake.py at 23f8234c, _score_one)."
+    pairing: "paired_percentile_bootstrap"
+    denominator: "gold"
+    origin: "design"
+    citation: "Owner decision, 2026-11-18 (intake simplified to what is absolutely necessary: triage-class accuracy, no guard)."
+    inclusion: "Documents with a gold class in the named label layers (hub, interim, near_gold, review; precedence unchanged); none for an empty set."

@@ -39,11 +39,28 @@ FallbackReason = Literal["backend_raised", "not_a_number", "out_of_range"]
 
 
 def shown_value(value: object) -> str:
-    """``repr(value)`` for a fallback detail; an integer over Python's digit limit is named, not printed."""
+    """``repr(value)`` for a fallback detail; never raises.
+
+    An integer over Python's digit limit is named, not printed; a value whose ``repr``
+    raises is named by its type.
+    """
     try:
         return repr(value)
     except ValueError:
-        return f"<{type(value).__name__} too large to show>"
+        if isinstance(value, int):
+            return f"<{type(value).__name__} too large to show>"
+        return f"<{type(value).__name__} that cannot be shown>"
+    except Exception:  # the recorded fallback is the contract, not the repr
+        return f"<{type(value).__name__} that cannot be shown>"
+
+
+def shown_error(error: BaseException) -> str:
+    """``"<type>: <message>"`` for a ``backend_raised`` detail; never raises."""
+    try:
+        message = str(error)
+    except Exception:  # a hostile __str__ must not escape the fallback
+        message = "<message cannot be shown>"
+    return f"{type(error).__name__}: {message}"
 
 
 @runtime_checkable
@@ -137,7 +154,7 @@ class EmbeddingRescue:
         try:
             similarity = self._backend.similarity(predicted_text, expected_text)
         except Exception as error:  # the reported fallback below is the contract
-            return self._fall_back("backend_raised", f"{type(error).__name__}: {error}", string_score)
+            return self._fall_back("backend_raised", shown_error(error), string_score)
         if similarity is None:
             return string_score
         if isinstance(similarity, bool) or not isinstance(similarity, numbers.Real):

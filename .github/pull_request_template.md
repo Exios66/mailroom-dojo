@@ -26,7 +26,7 @@ Commit: `<short sha>`
 - **Governance guards:** `PYTHONDONTWRITEBYTECODE=1 python -m pytest tools/governance/tests -q --import-mode=importlib -p no:cacheprovider` -> `<summary line>`
 - **Regression test (bug fixes):** `<test name>` fails before, passes after
 - **Failure detection (R8):** `<the deliberate mutation or injected fault, and the test that went red>`
-- **Lint and types:** not configured in this repository
+- **Lint, types and spelling:** `make lint` -> `<exit, last line>`; `make typecheck` -> `<exit, last line>`; `make spell` -> `<exit, last line>`
 - **Session links:** `CIRCLE_PULL_REQUEST=<this PR's URL> bash .circleci/check_no_session_links.sh` -> `<exit code>`; title and body read back after the last edit
 
 <details><summary>Raw output</summary>

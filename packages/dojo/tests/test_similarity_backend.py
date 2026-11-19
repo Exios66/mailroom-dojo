@@ -36,6 +36,27 @@ def _constant(value: object) -> FakeSimilarity:
     return FakeSimilarity({"kind": "value", "value": value})
 
 
+class _ReprRaises:
+    """A non-number whose ``repr`` raises."""
+
+    def __repr__(self) -> str:
+        raise RuntimeError("repr refused")
+
+
+class _StrRaisesError(Exception):
+    """An exception whose ``str`` raises."""
+
+    def __str__(self) -> str:
+        raise RuntimeError("str refused")
+
+
+class _RaisesUnprintable:
+    """A backend that raises an exception that cannot be printed."""
+
+    def similarity(self, first: str, second: str) -> float | None:
+        raise _StrRaisesError
+
+
 def test_far_pair_has_a_low_string_score():
     """The pair the tests rely on is below every threshold used here."""
     assert scalar_scorers.score_name_field(FAR_PREDICTED, FAR_EXPECTED) < 0.3
@@ -121,6 +142,8 @@ def test_only_name_like_scorers_consult_the_backend():
         (_constant(Decimal("0.9")), "not_a_number", "Decimal('0.9')"),
         (_constant(10**400), "out_of_range", repr(10**400)[:80]),
         (_constant(10**5000), "out_of_range", "<int too large to show>"),
+        (_constant(_ReprRaises()), "not_a_number", "<_ReprRaises that cannot be shown>"),
+        (_RaisesUnprintable(), "backend_raised", "_StrRaisesError: <message cannot be shown>"),
     ],
     ids=[
         "raises",
@@ -135,6 +158,8 @@ def test_only_name_like_scorers_consult_the_backend():
         "decimal",
         "huge-int",
         "int-over-digit-limit",
+        "repr-raises",
+        "message-raises",
     ],
 )
 @pytest.mark.usefixtures("default_int_digit_limit")

@@ -35,7 +35,7 @@ run), so a wrong number here becomes a wrong number in every report built on it.
 | Governance guards pass | `PYTHONDONTWRITEBYTECODE=1 python -m pytest tools/governance/tests -q --import-mode=importlib -p no:cacheprovider` summary line (the two settings keep caches out of the tree until PR #2's `.gitignore` is on `main`), and `bash -n .circleci/check_no_session_links.sh` exit 0. |
 | Bug fixed | The regression test, its failing output on the old code, its passing output on the new code. |
 | Tests detect failure (R8) | The fault, property or stateful test, and one deliberate mutation or injected fault that turns it red, with that output. |
-| Lint or types | **Not configured in this repository.** Say "not configured". Never claim "lint clean" or "type-safe", and do not add a linter inside an unrelated PR. |
+| Lint, types and spelling | `make lint`, `make typecheck` and `make spell`: each exit code and last line, on the final commit. mypy `--strict` covers only the packages in `[tool.mypy] files`; never claim "type-safe" for a package it does not cover. |
 | Package boundaries hold | The package's boundary test (for the record package, `packages/record/tests/test_boundaries.py`, after PR #2 merges) passes. |
 | Docs are true | Every path, count and command named exists, was run (paste the result) or is marked unverified. |
 | Stage gate met | Numbers from the stored runs, produced by the gate script, with the method, the sample size and the commit; the report under `docs/reports/` is written by that script, never by hand. |

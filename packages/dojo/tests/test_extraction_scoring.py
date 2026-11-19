@@ -3,6 +3,7 @@ input."""
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import socket
 import threading
@@ -30,7 +31,7 @@ from mailroom_dojo.field_scoring import (
     score_extraction,
 )
 from mailroom_dojo.field_scoring.row_variants import active_row_variant, marker_from_fallback
-from mailroom_dojo.profile import load_scoring_profile
+from mailroom_dojo.profile import ProfileError, load_scoring_profile
 
 SAMPLE_VALUES = {
     "id": "C-1001",
@@ -374,6 +375,29 @@ def test_a_numeric_marker_value_zero_marks_its_variant(marker):
         assert active is None
     else:
         assert active is not None and active.marker_value == "0"
+
+
+@pytest.mark.parametrize("blank", ["nan", "null", "none", "n/a", "[]"])
+def test_a_blank_marker_value_is_refused_by_the_loader(blank):
+    """A marker value the scorer reads as blank never marks a row, so a profile listing one is refused."""
+    mapping = minimal_profile_mapping()
+    fields = mapping["classes"][0]["fields"]
+    fields["plan_tier"] = "free_text"
+    marker = {"field": "plan_tier", "values": [blank]}
+    mapping["classes"][0]["variants"] = [{"name": "blank_tier", "marker": marker}]
+    with pytest.raises(ProfileError, match="a blank or null token never marks a row"):
+        load_scoring_profile(mapping)
+
+
+@pytest.mark.parametrize("expected", [math.nan, "NaN", " null ", None, []], ids=repr)
+def test_a_blank_expected_marker_never_marks_a_variant(expected):
+    """A missing expected marker (float NaN, a null token) stays blank, even under a marker built in code."""
+    spec = _numeric_marker_profile().require_class(FLEET)
+    variant = spec.variants[0]
+    blank_marker = dataclasses.replace(variant.marker, values=("nan", "null", "none", ""))
+    blank_spec = dataclasses.replace(spec, variants=(dataclasses.replace(variant, marker=blank_marker),))
+    assert active_row_variant(blank_spec, {"plan_tier": expected}) is None
+    assert marker_from_fallback(blank_spec, "plan_tier", None, {"tier_note": expected}) == (True, None)
 
 
 def test_a_numeric_fallback_marker_value_zero_is_read():

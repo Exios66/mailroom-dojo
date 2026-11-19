@@ -33,6 +33,8 @@ from `llm_dojo_scoring`.
 | `field_scoring/trace_capture.py` | `capture_trace`: model-emitted `confidence` and `reasoning`, captured for the run log under the profile's `TraceCaptureOptions`, never scored. |
 | `field_scoring/extraction.py` | `score_extraction(profile, class_key, predicted, expected, ...)` → `ExtractionScoreResult` (field scores, overall score, judge-review fields, list scores, audits, trace). A plug-in scorer that returns anything but a finite number in `[0, 1]` raises `ScorerResultError`. |
 | `classification/` | `ClassLabelSet.from_profile(profile)` and the classification metrics: `normalize_label`, `exact_match`, `accuracy`, `fbeta`, `per_class_stats`, `macro_accuracy`, `macro_prf`, `confusion_matrix`, `top_confusions`, `binary_metrics`, `class_distribution`. The class set, its match order and retired classes come from the profile. |
+| `measures/` | `Measure(value, n, cost_basis, label_status, method, ci=None, reason=None, subject=Subject(), provenance=None)`: an immutable number that carries its sample size, cost basis (closed vocabulary), label status, subject (agent, class, field) and provenance (the old provenance keys), validated when built, plus `comparability_problems` / `assert_comparable` (same method, subject, cost basis, label status and provenance; `vary` for the compared axis) and `combined_label_status`. `load_metric_table()` reads the metric table (`measures/metrics.yaml`, package data) into a `MetricTable` identified by `content_hash`; `MetricTable.check(measure)` applies the per-metric rules (unit range, whole counts, interval in range and around the value, labels required, cost basis, and a subject agent the row targets); `MetricTable.default_view(agent)` gives the agent's one default number. |
+| `statistics/` | `bootstrap_ci`, `delta_significance` (unpaired), `wilson_ci`, `wilson_bounds`; calibration and risk: `clopper_pearson_upper`, `required_samples`, `cutoff_at_target`, `cross_fit_cutoffs`, `cutoff_for_precision`, `expected_calibration_error`, `brier_score`, `reliability_bins`, `auroc` (ranking power), `spearman`, and `calibration_by_group` (per agent and class). Paired run comparison, over `{document id: value}` mappings paired by id (unpaired documents refused unless `allow_unpaired=True`): `paired_bootstrap_delta` (per-document score differences) and `outcome_flip_test` (exact McNemar). Seeds are arguments; results are frozen dataclasses whose `to_dict()` is the old Dojo's dictionary. |
 | `labels_interface/` | structural Protocols (`LabelSource`, `ExpectedDocument`, `PresenceExpectation`) meant to match the labels package's shapes (tested with stand-ins; not yet checked against `mailroom_labels`, where `doc_class` and `content_sha256` may be None), `expected_values(...)` (keeps scorable fields only; refuses or flags unverified documents), and `hub_rows.py`, a reference adapter for Hub rows that is meant to move to `mailroom_labels`. |
 
 ## The scoring profile
@@ -102,6 +104,46 @@ unregistered type in a caller's map raises `UnknownFieldTypeError`; an expected 
 no type follows the profile's `unmapped_fields` policy. Pass `apply_variants=False` when
 the expected values are not ground truth (comparing two model outputs).
 
+## The metric table
+
+`src/mailroom_dojo/measures/metrics.yaml` has one row for every id of the old Dojo's metric
+registry (184, in the old order), ten metrics the old golden baseline emits outside it,
+and 27 planned rows (`origin: design`) for numbers the master design needs that no old
+metric gives (wrong-archive and review rates, utility, silent-wrong per 1,000, per-slot
+summaries, cost per classification and per 1,000 documents, throughput, log health, cost
+truth, the gaps a future gold-generation step fills, intake's class accuracy, and eight
+`<old id>_vs_gold` rows that grade the decision agents on gold derived from the label layers,
+a new rule, while the old ids keep the old one). Each old row keeps the old
+description, aggregation, agents, ground truth, inclusion and citation, and its unit
+(normalised to one spelling per unit); the nine kept numeric rows whose ground truth the old
+registry left unset (or never listed) now state it, and `confidence_calibration_error`, which
+the old registry called label-free, needs labels (its correctness is graded against them); tiers are replaced by `headline` (exactly the old
+tier-0 ids), a `layer`, a `status` and the `readers` (gate, report or projection) that use
+it. A row is `implemented` or `planned` only when a named reader uses it; every other id
+stays as a `not_ported` row with its reason, so it can be revived without changing its
+meaning. Duplicates point at their canonical row (`alias_of`, `same_as`).
+
+`agent_roster` lists every agent with a status: the 16 `live` agents of llm-mailroom, the
+`legacy` auditors and `retired` specialists (rows kept for golden parity, no default view),
+and the entries that are not model agents. `default_views` gives every live agent one
+default number and a guard, with the label layers its gold comes from (the labels
+package's layer kinds `hub`, `interim`, `near_gold` and `review`, or `derived_gold`,
+computed from them for the decision agents, whose views show `_vs_gold` design rows), or
+`null` with a reason; `confirmed` marks
+the owner's decisions, the rest are proposals.
+`direction` is stated per row (the source of truth), frozen in
+`tests/fixtures/measures/metric_directions.json`, and a test lints it against the id's
+words. `noise_floor` is unset (D7 measures it). The header of the file documents every
+column, reader and rule. `MetricTable.content_hash` is the sha256 of the table's canonical
+JSON form, so a run can record which table it was scored against; it is frozen with the
+table's `version` (3) in `tests/fixtures/measures/table_identity.json`, so a content change
+without a version bump fails a test.
+
+`tests/test_metric_table_parity.py` checks the table against
+`tests/fixtures/measures/old_metric_registry.json`, which
+`scripts/capture_old_metric_registry.py` captures from an old checkout (commit recorded in
+the file); the tests never read an old checkout.
+
 ## Tests
 
 See `docs/test-strategy-dojo-core.md`. The differential corpus
@@ -115,3 +157,21 @@ path and hash, the calls the old tests make into the extraction layers, and seed
 generated inputs, many under non-default settings that the replay builds into a profile,
 180 of them through fake embedding backends.
 `scripts/capture_old_dojo_extraction_cases.py` regenerates it byte for byte.
+
+The statistics corpus (`tests/fixtures/differential/statistics_cases.jsonl`, 2,000 cases)
+holds every encodable call the old golden run and eleven old test files made into the old
+bootstrap and calibration modules, plus seeded inputs. Four old-test calls with NumPy
+arguments are not encodable and are counted in the header's `captured_test_skipped`
+instead: `auroc` with a float32 and with an int64 argument, `clopper_pearson_upper` with
+an int64 and `required_samples` with an int32. Every valid input gives the old number;
+the 195 invalid inputs that now raise are listed with reasons in
+`statistics_intended_differences.json` and in `docs/score-changelog.md`.
+`scripts/capture_old_dojo_statistics_cases.py` regenerates its case lines byte for byte on
+Python 3.12, the version in the corpus header (the header's `supplements` record, from the
+`--supplement` run that added 21 generated cases, is not rewritten by a full run). On
+Python 3.13 the old code sorts NaN differently, so three `bootstrap_ci` cases with a NaN
+score come out otherwise; all three are listed refusals in the new code. The script refuses
+an old checkout at another commit or with an edited `analysis/bootstrap.py` or
+`analysis/calibration.py` (their SHA-256 is pinned with the commit), or an
+`llm_dojo_scoring` imported from outside it; `--supplement` also refuses a corpus whose
+header names another seed or old commit.

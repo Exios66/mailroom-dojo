@@ -166,6 +166,9 @@ def test_the_source_tree_is_found():
         "mailroom_dojo/labels_interface/__init__.py",
         "mailroom_dojo/profile/loading.py",
         "mailroom_dojo/field_scoring/extraction.py",
+        "mailroom_dojo/statistics/bootstrap.py",
+        "mailroom_dojo/statistics/calibration.py",
+        "mailroom_dojo/statistics/paired.py",
     ):
         assert expected in names
     assert len(SOURCE_FILES) >= 30
@@ -228,15 +231,25 @@ def test_the_checks_catch_each_violation(tmp_path):
     assert len(problems) == 16
 
 
+#: The third-party modules the Dojo's source imports. The runtime test imports these first, so a
+#: standard-library module a dependency loads itself is not charged to the Dojo: on Python 3.11,
+#: scipy 1.17's ``scipy.special`` imports ``numpy.testing``, whose ``importlib.metadata`` loads
+#: ``email.utils`` and with it ``socket``. A direct ``import socket`` in Dojo source is still
+#: refused by the source scan above, on every Python.
+DEPENDENCY_IMPORTS = ("dateutil.parser", "jellyfish", "numpy", "scipy.optimize", "scipy.special", "yaml")
+
+
 def test_importing_every_module_loads_nothing_forbidden():
     """In a fresh interpreter, importing every Dojo module loads no engine, old Dojo, network client or model
-    library."""
+    library, and adds no network module beyond what its own dependencies load."""
     script = (
         "import importlib, json, pkgutil, sys\n"
+        f"for name in {DEPENDENCY_IMPORTS!r}: importlib.import_module(name)\n"
+        "baseline = sorted(sys.modules)\n"
         "import mailroom_dojo\n"
         "names = [m.name for m in pkgutil.walk_packages(mailroom_dojo.__path__, 'mailroom_dojo.')]\n"
         "for name in names: importlib.import_module(name)\n"
-        "print(json.dumps({'imported': names, 'loaded': sorted(sys.modules)}))\n"
+        "print(json.dumps({'imported': names, 'baseline': baseline, 'loaded': sorted(sys.modules)}))\n"
     )
     completed = subprocess.run(
         [sys.executable, "-c", script], capture_output=True, text=True, check=True, cwd=PACKAGE_ROOT
@@ -246,8 +259,9 @@ def test_importing_every_module_loads_nothing_forbidden():
     report = json.loads(completed.stdout)
     assert len(report["imported"]) >= 30
     loaded_tops = {name.split(".")[0] for name in report["loaded"]}
-    forbidden = (NAMED_FORBIDDEN | {"socket", "ssl", "http", "sentence_transformers"}) & loaded_tops
-    assert not forbidden
+    added_tops = loaded_tops - {name.split(".")[0] for name in report["baseline"]}
+    assert not (NAMED_FORBIDDEN | {"sentence_transformers"}) & loaded_tops
+    assert not {"socket", "ssl", "http"} & added_tops
     assert {name for name in loaded_tops if name.startswith("mailroom_")} <= WORKSPACE_ALLOWED
 
 

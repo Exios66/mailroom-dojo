@@ -1,0 +1,474 @@
+{
+ "description": "The direction of every metric in measures/metrics.yaml, frozen for review. The direction column of the table is the source of truth; the old registry stated none, so every value is proposed for the owner to confirm. name_rule_exceptions lists each row whose direction differs from what its id's whole words suggest (the lint in tests/test_metric_directions.py), with the reason. A change to any direction must change this file in the same commit.",
+ "status": "proposed, owner to confirm",
+ "name_rule_exceptions": {
+  "extraction_overall_score": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "ml_intake_selective_risk": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "arbiter_retry_usefulness": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "arbiter_unnecessary_escalation_rate": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an unnecessary escalation is needless work, so lower is better; no lower-is-better word of the lint is in the name"
+  },
+  "boss_needless_review_rate": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "boss_needless_review_rate_vs_gold": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "laziness_rate": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "field_presence": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "determination_consistency": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "amount_exactness": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "schema_valid": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "parse_ok": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "schema_adherence": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "success_rate": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "classification_correct": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "class_correct": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "stage_correct": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "extraction_correctness": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "expected_field_presence": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "mailroom-pipeline-judge": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "mailroom-pipeline-quality": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "extraction_hallucination_rate": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "completeness_label": {
+   "direction": "none",
+   "name_rule": "higher",
+   "why": "a category label, not a better-or-worse number"
+  },
+  "date_mae_days": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "duration_mae_days": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "maud_clause_presence": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "maud_valid_class_rate": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "hallucination_rate": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "per_field_scores": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "extraction_field_score": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "extraction_category_presence": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "classification_quality": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "stage_completed": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "run_aborted": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "bert_sorter_agreement": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "bert_elapsed_ms": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "an error, risk, needless-work rate or a latency, so lower is better; the name does not say so"
+  },
+  "exact_match": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "jaccard_median": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "composite": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share or score of right answers, so higher is better; the name does not say so"
+  },
+  "review_rate": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "fewer reviews at the same wrong-archive rate is better ('Less human review'); the name has no rule word"
+  },
+  "correct_archive_rate": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share of right outcomes, so higher is better; the name has no rule word"
+  },
+  "document_utility": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "utility is the objective, so higher is better; the name has no rule word"
+  },
+  "slot_cap_breaches": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "a breach means the policy did not hold its cap, so lower is better; the name has no rule word"
+  },
+  "outcome_flip_rate": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "flips between identical runs are noise, so lower is better; the name has no rule word"
+  },
+  "documents_per_minute": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "throughput, so higher is better; the name has no rule word"
+  },
+  "log_complete_step_rate": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a share of complete entries, so higher is better; the name has no rule word"
+  },
+  "log_chains_verified": {
+   "direction": "higher",
+   "name_rule": "none",
+   "why": "a chain that verifies is better; the name has no rule word"
+  },
+  "cost_estimate_to_billed_ratio": {
+   "direction": "none",
+   "name_rule": "lower",
+   "why": "1 is right and either side is a gap, so no better direction, although the name has cost in it"
+  },
+  "fields_without_gold": {
+   "direction": "lower",
+   "name_rule": "none",
+   "why": "fewer fields without gold is better; the name has no rule word"
+  }
+ },
+ "directions": {
+  "f1_macro": "higher",
+  "accuracy": "higher",
+  "extraction_overall_score": "higher",
+  "extraction_f1": "higher",
+  "extraction_f2": "higher",
+  "reviewer_class_accuracy": "higher",
+  "reviewer_class_accuracy_vs_gold": "higher",
+  "reviewer_wrong_accept_rate": "lower",
+  "reviewer_wrong_accept_upper_95": "lower",
+  "reviewer_wrong_accept_upper_95_vs_gold": "lower",
+  "reviewer_routed_to_human_review_rate": "none",
+  "reviewer_accept_rule_violations": "lower",
+  "ml_intake_doc_type_accuracy": "higher",
+  "ml_intake_doc_type_macro_f1": "higher",
+  "ml_intake_doc_type_ece": "lower",
+  "ml_intake_subclass_accuracy": "higher",
+  "ml_intake_subclass_macro_f1": "higher",
+  "ml_intake_subclass_ece": "lower",
+  "ml_intake_fast_path_coverage": "higher",
+  "ml_intake_selective_risk": "lower",
+  "ml_intake_selective_risk_upper": "lower",
+  "judge_verdict_accuracy": "higher",
+  "judge_verdict_accuracy_vs_gold": "higher",
+  "judge_verdict_macro_f1": "higher",
+  "judge_escalation_recall": "higher",
+  "judge_escalation_recall_vs_gold": "higher",
+  "judge_false_escalation_rate": "lower",
+  "judge_error_rate": "lower",
+  "arbiter_decision_accuracy": "higher",
+  "arbiter_decision_accuracy_vs_gold": "higher",
+  "arbiter_retry_usefulness": "higher",
+  "arbiter_wrongful_accept_rate": "lower",
+  "arbiter_wrongful_accept_rate_vs_gold": "lower",
+  "arbiter_unnecessary_escalation_rate": "lower",
+  "boss_wrongful_approve_rate": "lower",
+  "boss_wrongful_approve_rate_vs_gold": "lower",
+  "boss_needless_review_rate": "lower",
+  "boss_needless_review_rate_vs_gold": "lower",
+  "review_tray_wasted_review_rate": "lower",
+  "review_tray_correction_rate": "none",
+  "review_tray_reject_rate": "none",
+  "precision": "higher",
+  "recall": "higher",
+  "f2": "higher",
+  "false_positive_rate": "lower",
+  "false_negative_rate": "lower",
+  "jaccard_similarity": "higher",
+  "contracteval_false_no_related": "lower",
+  "laziness_rate": "lower",
+  "field_presence": "higher",
+  "entity_list_precision": "higher",
+  "entity_list_recall": "higher",
+  "entity_list_f1": "higher",
+  "extraction_precision": "higher",
+  "extraction_recall": "higher",
+  "determination_consistency": "higher",
+  "amount_exactness": "higher",
+  "reviewer_accepted_accuracy": "higher",
+  "reviewer_class_macro_accuracy": "higher",
+  "reviewer_subclass_accuracy": "higher",
+  "reviewer_verdict_accuracy": "higher",
+  "reviewer_confidence_ece": "lower",
+  "reviewer_confidence_brier": "lower",
+  "reviewer_cost_per_accepted_usd": "lower",
+  "precision_macro": "higher",
+  "recall_macro": "higher",
+  "f2_macro": "higher",
+  "subclass_f1_macro": "higher",
+  "subclass_precision_macro": "higher",
+  "subclass_recall_macro": "higher",
+  "subclass_f2_macro": "higher",
+  "verified_precision": "higher",
+  "schema_valid": "higher",
+  "parse_ok": "higher",
+  "schema_adherence": "higher",
+  "parse_error": "lower",
+  "success_rate": "higher",
+  "completeness": "higher",
+  "classification_correct": "higher",
+  "class_correct": "higher",
+  "stage_correct": "higher",
+  "extraction_correctness": "higher",
+  "extraction_needs_judge_review": "none",
+  "expected_field_presence": "higher",
+  "extraction_overall_verified_precision": "higher",
+  "extraction_verified_precision": "higher",
+  "mailroom-pipeline-judge": "higher",
+  "mailroom-pipeline-quality": "higher",
+  "exact_accuracy": "higher",
+  "aligned_accuracy": "higher",
+  "subclass_accuracy": "higher",
+  "extraction_hallucination_rate": "lower",
+  "completeness_label": "none",
+  "extraction_correctness_label": "none",
+  "estimated_cost_usd": "lower",
+  "cost_per_document": "lower",
+  "audit_disagreement_rate": "none",
+  "audit_resolution_rate": "none",
+  "legalbench_accuracy": "higher",
+  "legalbench_macro_f1": "higher",
+  "date_mae_days": "lower",
+  "money_mae_usd": "lower",
+  "duration_mae_days": "lower",
+  "content_topic_accuracy": "higher",
+  "content_topic_f1_macro": "higher",
+  "sentiment_accuracy": "higher",
+  "sentiment_f1_macro": "higher",
+  "maud_question_accuracy": "higher",
+  "maud_question_macro_accuracy": "higher",
+  "maud_clause_presence": "higher",
+  "maud_valid_class_rate": "higher",
+  "maud_category_accuracy": "higher",
+  "wer": "lower",
+  "cer": "lower",
+  "word_accuracy": "higher",
+  "character_accuracy": "higher",
+  "intake_prep_completeness": "higher",
+  "intake_changed_rate": "none",
+  "intake_messy_rate": "none",
+  "intake_hyphen_unwraps": "none",
+  "intake_collapsed_blanks": "none",
+  "ttft_seconds": "lower",
+  "tokens_per_second": "higher",
+  "tpot_seconds": "lower",
+  "e2e_latency_seconds": "lower",
+  "ttft_p50": "lower",
+  "ttft_p95": "lower",
+  "e2e_p50": "lower",
+  "e2e_p95": "lower",
+  "output_tokens_per_second": "higher",
+  "prompt_tokens_per_second": "higher",
+  "requests_per_second": "higher",
+  "docs_per_second": "higher",
+  "gpu_utilization": "none",
+  "kv_cache_utilization": "none",
+  "gpu_memory_used_gb": "none",
+  "queue_time_seconds": "lower",
+  "error_rate": "lower",
+  "prompt_tokens": "none",
+  "completion_tokens": "none",
+  "serving_kind": "none",
+  "quantization": "none",
+  "gpu_name": "none",
+  "max_model_len": "none",
+  "model": "none",
+  "provider": "none",
+  "dtype": "none",
+  "gpu_count": "none",
+  "tensor_parallel": "none",
+  "serving_profile": "none",
+  "base_url_host": "none",
+  "n_requests": "none",
+  "n_docs": "none",
+  "confusion_matrix": "none",
+  "per_class_stats": "none",
+  "failure_mode_breakdown": "none",
+  "bootstrap_ci": "none",
+  "confidence_calibration_error": "lower",
+  "hallucination_rate": "lower",
+  "per_field_scores": "higher",
+  "extraction_field_score": "higher",
+  "extraction_category_presence": "higher",
+  "classification_quality": "higher",
+  "guardrail_triggered": "none",
+  "legalbench_calibration_error": "lower",
+  "sandbox_maud_accuracy": "higher",
+  "sandbox_maud_clean_accuracy": "higher",
+  "sandbox_maud_precision_answered": "higher",
+  "sandbox_cuad_presence_f1": "higher",
+  "sandbox_cuad_presence_precision": "higher",
+  "sandbox_cuad_presence_recall": "higher",
+  "classification_confidence": "none",
+  "extraction_confidence": "none",
+  "judge_notes": "none",
+  "stage_completed": "higher",
+  "run_aborted": "lower",
+  "llm_call_count": "none",
+  "total_tokens": "none",
+  "run_duration_seconds": "lower",
+  "bert_pass": "none",
+  "bert_sorter_agreement": "higher",
+  "bert_fail_soft": "none",
+  "bert_elapsed_ms": "lower",
+  "fast_path_est_cost_usd": "lower",
+  "classification_attempts": "none",
+  "extraction_attempts": "none",
+  "prompt_version": "none",
+  "model_slug": "none",
+  "trace_id": "none",
+  "raw_prediction": "none",
+  "legalbench_n_questions": "none",
+  "legalbench_task": "none",
+  "exact_match": "higher",
+  "macro_accuracy": "higher",
+  "f1": "higher",
+  "subclass_accuracy_equiv": "higher",
+  "maud_precision_answered": "higher",
+  "no_related_rate": "none",
+  "false_no_related_rate": "lower",
+  "false_no_related_rate_paper": "lower",
+  "jaccard_median": "higher",
+  "composite": "higher",
+  "silent_wrong_per_1000": "lower",
+  "wrong_archive_rate": "lower",
+  "wrong_archive_upper95": "lower",
+  "review_rate": "lower",
+  "correct_archive_rate": "higher",
+  "document_utility": "higher",
+  "slot_override_rate": "none",
+  "slot_cap_use": "none",
+  "slot_cap_breaches": "lower",
+  "cost_per_decision": "lower",
+  "outcome_flip_rate": "lower",
+  "cost_per_classification": "lower",
+  "cost_per_1000_documents": "lower",
+  "documents_per_minute": "higher",
+  "log_complete_step_rate": "higher",
+  "log_chains_verified": "higher",
+  "cost_estimate_to_billed_ratio": "none",
+  "fields_without_gold": "lower",
+  "intake_class_accuracy": "higher"
+ }
+}

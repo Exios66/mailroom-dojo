@@ -204,6 +204,13 @@ def test_an_expectation_without_a_field_needs_a_default(mailroom_profile):
     assert detail["Audit Rights"]["matched"] is True
 
 
+class _ReprRaises:
+    """A non-number whose ``repr`` raises."""
+
+    def __repr__(self) -> str:
+        raise RuntimeError("repr refused")
+
+
 @pytest.mark.parametrize(
     "spec, reason",
     [
@@ -214,6 +221,7 @@ def test_an_expectation_without_a_field_needs_a_default(mailroom_profile):
         ({"kind": "value", "value": 1.5}, "out_of_range"),
         ({"kind": "value", "value": 10**400}, "out_of_range"),
         ({"kind": "value", "value": 10**5000}, "out_of_range"),
+        ({"kind": "value", "value": _ReprRaises()}, "not_a_number"),
     ],
 )
 def test_a_failing_presence_backend_never_matches_and_is_reported(spec, reason, caplog):

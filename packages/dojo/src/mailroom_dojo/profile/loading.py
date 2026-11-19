@@ -30,6 +30,7 @@ from typing import Any
 import yaml
 
 from ..normalization.text import compact_label
+from ..values.emptiness import is_empty_value
 from .field_types import BUILTIN_SCALAR_TYPES, ENTITY_LIST_PREFIX, element_type, is_entity_list
 from .frozen import FrozenMapping
 from .label_folding import FOLD_METHODS, CatalogEntry, LabelVocabulary
@@ -560,6 +561,12 @@ def _marker(
     skip_when_unstated = section.take("skip_when_unstated", _boolean, False)
     derive_from = section.take("derive_from", _choice(("subclass",)))
     section.finish(("field", "values", "fallback_fields", "skip_when_unstated", "derive_from"))
+    for index, marker_value in enumerate(values):
+        if is_empty_value(marker_value):
+            raise ProfileError(
+                f"{path}.values[{index}]",
+                f"{marker_value!r} reads as empty; a blank or null token never marks a row",
+            )
     vocabulary = known[field_name].vocabulary
     if vocabulary is not None:
         for index, marker_value in enumerate(values):
