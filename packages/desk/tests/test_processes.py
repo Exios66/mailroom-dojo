@@ -8,11 +8,13 @@ expose is wide on every run, not only on a lucky schedule.
 
 from __future__ import annotations
 
+import contextlib
 import multiprocessing as mp
 import os
 import signal
 import time
 from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -80,6 +82,19 @@ def test_processes_enqueueing_different_documents_all_succeed(tmp_path: Path) ->
     _verify_clean(tmp_path)
 
 
+@contextlib.contextmanager
+def _reaped(proc: mp.process.BaseProcess) -> Iterator[None]:
+    """Kill and join ``proc`` on the way out, whatever happened inside. The hanging children
+    sleep for 600 s; a non-daemon child left alive by a failed assertion would hold the
+    suite (multiprocessing joins it at exit) until it woke."""
+    try:
+        yield
+    finally:
+        if proc.is_alive():
+            proc.kill()
+        proc.join(30)
+
+
 def _wait_for(path: Path, proc: mp.Process, seconds: float = 60) -> None:
     deadline = time.monotonic() + seconds
     while not path.exists():
@@ -93,14 +108,15 @@ def test_desk_killed_between_lock_and_append_leaves_a_clean_record_and_no_lock(t
     marker = tmp_path / "holding"
     child = CTX.Process(target=enqueue_then_hang, args=(str(tmp_path), "r1", "d1", str(marker)))
     child.start()
-    _wait_for(marker, child)
-    # The child is inside enqueue, holding the desk lock (and the seal lock), checked and
-    # about to append. Positive control: the lock really is held now.
-    with pytest.raises(DeskLockTimeout), desk_lock(tmp_path, "r1", timeout=0.1):
-        pass
-    os.kill(child.pid, signal.SIGKILL)
-    child.join(30)
-    assert child.exitcode == -signal.SIGKILL
+    with _reaped(child):
+        _wait_for(marker, child)
+        # The child is inside enqueue, holding the desk lock (and the seal lock), checked and
+        # about to append. Positive control: the lock really is held now.
+        with pytest.raises(DeskLockTimeout), desk_lock(tmp_path, "r1", timeout=0.1):
+            pass
+        os.kill(child.pid, signal.SIGKILL)
+        child.join(30)
+        assert child.exitcode == -signal.SIGKILL
     # The kernel released both locks; nothing was appended; the next process proceeds.
     with desk_lock(tmp_path, "r1", timeout=2):
         pass
@@ -123,15 +139,17 @@ def test_lock_held_by_another_process_times_out_then_frees_on_its_death(tmp_path
     marker = tmp_path / "held"
     child = CTX.Process(target=hold_desk_lock, args=(str(tmp_path), "r1", str(marker)))
     child.start()
-    _wait_for(marker, child)
     pol = policy(sample={"rate": 0.0, "seed": ""})
-    started = time.monotonic()
-    with pytest.raises(DeskLockTimeout):
-        Desk(tmp_path, lock_timeout=0.3).enqueue(request("d1", "flag_low"), pol)
-    assert time.monotonic() - started >= 0.3
-    assert review_events(tmp_path) == []
-    os.kill(child.pid, signal.SIGKILL)
-    child.join(30)
+    with _reaped(child):
+        _wait_for(marker, child)
+        started = time.monotonic()
+        with pytest.raises(DeskLockTimeout):
+            Desk(tmp_path, lock_timeout=0.3).enqueue(request("d1", "flag_low"), pol)
+        assert time.monotonic() - started >= 0.3
+        assert review_events(tmp_path) == []
+        os.kill(child.pid, signal.SIGKILL)
+        child.join(30)
+        assert child.exitcode == -signal.SIGKILL
     assert Desk(tmp_path, lock_timeout=5).enqueue(request("d1", "flag_low"), pol)
     _verify_clean(tmp_path)
 
