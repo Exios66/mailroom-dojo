@@ -45,8 +45,9 @@ also give a test command.
 | `dictionaries` | `mailroom_dictionaries` | Versioned vocabularies and the glossary | [`packages/dictionaries/README.md`](packages/dictionaries/README.md) |
 | `record` | `mailroom_record` | Run record, blob store, index, verify, replay | [`packages/record/README.md`](packages/record/README.md) |
 | `labels` | `mailroom_labels` | Label snapshots, precedence, the quality gate and coverage | [`packages/labels/README.md`](packages/labels/README.md) |
+| `dojo` | `mailroom_dojo` | Scoring core: the scoring profile, field-type scorers, classification metrics | [`packages/dojo/README.md`](packages/dojo/README.md) |
 
-Later projects add `dojo`, `engine` and `launcher` (see the layout map below).
+Later projects add `engine` and `launcher` (see the layout map below).
 
 ## Development
 
@@ -117,7 +118,7 @@ mailroom-dojo/
 ```
 
 `scripts/check_layout.py` (`make layout`) checks this map against the real folders.
-Folders of projects not built yet (the `dojo`, `engine` and `launcher` packages,
+Folders of projects not built yet (the `engine` and `launcher` packages,
 `config/policies/` and `config/prompts/`) do not exist yet. The requirements behind this layout
 are R9 in `docs/specs/2026-11-18-lean-rewrite-design.md`.
 

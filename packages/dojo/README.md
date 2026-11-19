@@ -4,8 +4,8 @@ The `mailroom_dojo` package: the pure scoring layers of the Mailroom Dojo, drive
 per-client **scoring profile**. It decides what "correct" means for one extracted field,
 one label or one document class. It holds no global state, reads no environment
 variable or clock, and opens no network connection. It depends on no other workspace
-package today (it may import `mailroom_record` and, once it lands, `mailroom_labels`; the
-label interface is structural, so no import is needed) and nothing from any engine or
+package today (it may import `mailroom_record` and `mailroom_labels`; the label interface
+is structural, so no import is needed) and nothing from any engine or
 from `llm_dojo_scoring`.
 
 ```bash
