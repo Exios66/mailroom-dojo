@@ -44,8 +44,11 @@ never in CI::
         --output packages/dojo/tests/fixtures/measures/old_metric_registry.json
 
 It refuses a checkout at another commit than ``EXPECTED_OLD_COMMIT`` (the parity test
-expects that commit's data) and an ``--output`` inside the old checkout (symlinks and
-``..`` resolved), so it writes nothing there.
+expects that commit's data) or with local changes (``git status --porcelain``: edited,
+staged or untracked files), an ``llm_dojo_scoring`` imported from outside the checkout,
+and an ``--output`` inside the old checkout (symlinks and ``..`` resolved), so it writes
+nothing there. The fixture is written beside its destination and then replaced, so a
+failed write keeps the previous one.
 """
 
 from __future__ import annotations
@@ -53,9 +56,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -73,12 +78,42 @@ def _old_commit(old_dojo: Path) -> str:
     ).stdout.strip()
 
 
+def _local_changes(old_dojo: Path) -> list[str]:
+    """``git status --porcelain`` lines of the old checkout: edited, staged or untracked files.
+
+    ``HEAD`` alone does not say what is on disk: an edit to the registry (or an added file
+    that shadows a module) would be captured and labelled as the pinned commit.
+    """
+    output = subprocess.run(
+        ["git", "-C", str(old_dojo), "status", "--porcelain"], check=True, capture_output=True, text=True
+    ).stdout
+    return [line for line in output.splitlines() if line.strip()]
+
+
+def _require_inside(module: Any, old_dojo: Path) -> None:
+    """Refuse a module that was not imported from inside the old checkout."""
+    location = Path(module.__file__).resolve()
+    if old_dojo.resolve() not in location.parents:
+        raise SystemExit(
+            f"{module.__name__} was imported from {location}, not from {old_dojo}; refusing to capture"
+        )
+
+
 def _registry(old_dojo: Path) -> tuple[dict[str, Any], list[str], dict[str, list[str]], str]:
-    """The old registry's entries, their YAML order, the agent families and the old version."""
+    """The old registry's entries, their YAML order, the agent families and the old version.
+
+    Inserting the checkout into ``sys.path`` does not replace a copy already imported, so
+    every module read here must resolve inside the checkout.
+    """
     sys.path.insert(0, str(old_dojo))
     import llm_dojo_scoring
+
+    _require_inside(llm_dojo_scoring, old_dojo)
     import yaml
-    from llm_dojo_scoring.metrics import registry
+    from llm_dojo_scoring.metrics import registry, scorecard_honesty
+
+    for module in (registry, scorecard_honesty):
+        _require_inside(module, old_dojo)
 
     raw = yaml.safe_load(registry.DEFAULT_METRICS_YAML)["metrics"]
     loaded = registry.Registry.from_dict({"metrics": raw})
@@ -189,6 +224,8 @@ def build(old_dojo: Path) -> dict[str, Any]:
     commit = _old_commit(old_dojo)
     if commit != EXPECTED_OLD_COMMIT:
         raise SystemExit(f"refusing to capture: old Dojo is at {commit}, expected {EXPECTED_OLD_COMMIT}")
+    if changes := _local_changes(old_dojo):
+        raise SystemExit(f"refusing to capture: old Dojo has local changes ({'; '.join(changes)})")
     metrics, order, families, version = _registry(old_dojo)
     scores_path = old_dojo / "tests" / "fixtures" / "golden" / "scores.json"
     scores_bytes = scores_path.read_bytes()
@@ -223,7 +260,11 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"refusing to write {output}: it is inside the old checkout {old_dojo}")
     document = build(old_dojo)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(document, sort_keys=True, ensure_ascii=True, indent=1) + "\n")
+    # Write beside the fixture, then replace it: a failed write leaves the old fixture whole.
+    with tempfile.TemporaryDirectory(dir=output.parent, prefix=".capture-") as scratch:
+        partial = Path(scratch) / output.name
+        partial.write_text(json.dumps(document, sort_keys=True, ensure_ascii=True, indent=1) + "\n")
+        os.replace(partial, output)
     print(
         f"old commit {document['old_commit']}, version {document['old_version']}: "
         f"{len(document['metrics'])} metrics, {len(document['golden']['names'])} golden names, "
