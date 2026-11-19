@@ -587,12 +587,18 @@ def _guard(value: Any, path: str, known_field: Callable[[Any, str], str]) -> Var
 
 
 def _synonym(value: Any, path: str) -> str:
-    """A regular expression that compiles."""
+    """A regular expression that compiles (a repetition too large or nesting too deep is refused too)."""
     pattern = _text(value, path)
     try:
         re.compile(pattern)
     except re.error as error:
         raise ProfileError(path, f"is not a valid regular expression: {error}") from None
+    except OverflowError as error:
+        raise ProfileError(path, f"is not a valid regular expression: {error}") from None
+    except RecursionError:
+        raise ProfileError(
+            path, "is not a valid regular expression: nested deeper than the compiler allows"
+        ) from None
     return pattern
 
 

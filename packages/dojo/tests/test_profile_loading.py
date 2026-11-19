@@ -1104,3 +1104,18 @@ def test_a_lone_surrogate_is_a_profile_error_at_its_key(place, path):
         assert caught.value.path == path and "lone surrogate" in caught.value.problem
     str(caught.value).encode("utf-8")  # the message itself is valid text
     assert isinstance(load_scoring_profile(minimal_profile_mapping(client="Société")), ScoringProfile)
+
+
+@pytest.mark.parametrize(
+    "synonym",
+    ["x{999999999999}", "(" * 5000 + "x" + ")" * 5000],
+    ids=["repetition_overflow", "nesting_too_deep"],
+)
+def test_a_synonym_the_regex_compiler_cannot_build_is_a_profile_error(synonym):
+    """re.compile raises OverflowError or RecursionError (not re.error) for these; the loader names the
+    synonym instead. A valid synonym is kept as written."""
+    mapping = minimal_profile_mapping()
+    mapping["classes"][0]["synonyms"] = ["auto policy", synonym]
+    _expect_error(mapping, "classes[0].synonyms[1]", "is not a valid regular expression")
+    mapping["classes"][0]["synonyms"] = [r"auto\s+policy"]
+    assert load_scoring_profile(mapping).classes[0].synonyms == (r"auto\s+policy",)
