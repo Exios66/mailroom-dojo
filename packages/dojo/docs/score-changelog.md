@@ -379,6 +379,11 @@ the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
   (`cutoff_at_target`, `cross_fit_cutoffs`, `cutoff_for_precision`); the old Dojo sorted it
   to an arbitrary place and returned a cutoff that depended on where it landed. ECE, Brier,
   reliability bins, AUROC and Spearman still drop such values, as before.
+- **An integer confidence too large for a float is dropped by ECE, Brier and reliability
+  bins**, like any other confidence outside `[0, 1]`; the old Dojo raised `OverflowError`
+  from `float(10**400)`. `bootstrap_ci` and `cutoff_for_precision` still raise it, as
+  in the old Dojo and the corpus. The corpus holds no such calibration call, so the ledger has no entry;
+  `tests/test_statistics_faults.py` pins it.
 - **Resampling parameters are checked.** `n_boot` must be an integer of at least 1
   (`n_boot=0` raised `IndexError` inside the old resampler), `alpha` must be in `(0, 1)`
   (`alpha=1.5` gave an interval with `lo` above `hi`), and `seed` must be an integer (the

@@ -154,6 +154,17 @@ def test_calibration_drops_unusable_confidences_and_ranking_drops_nan():
     assert spearman([1, NAN, 2, 3], [1, 5, 2, 3]) == 1.0
 
 
+@pytest.mark.parametrize("huge", [10**400, -(10**400), 10**5000], ids=["1e400", "-1e400", "1e5000"])
+def test_calibration_drops_an_integer_too_large_for_a_float(huge):
+    """An integer confidence beyond float range is outside [0, 1]: dropped, not an OverflowError."""
+    pairs = [(huge, True), (0.75, True)]
+    assert expected_calibration_error(pairs) == 0.25
+    assert brier_score(pairs) == 0.0625
+    assert [row.n for row in reliability_bins(pairs)] == [0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
+    assert expected_calibration_error([(huge, False)]) is None
+    assert brier_score([(huge, False)]) is None
+
+
 # --- mismatched lengths -----------------------------------------------------
 
 

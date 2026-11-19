@@ -306,7 +306,10 @@ def _clean_pairs(pairs: Iterable[Pair]) -> list[Pair]:
     for confidence, correct in pairs:
         if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
             continue
-        value = float(confidence)
+        try:
+            value = float(confidence)
+        except OverflowError:  # an integer too large for a float is outside [0, 1]
+            continue
         if not math.isfinite(value) or not 0.0 <= value <= 1.0:
             continue
         clean.append((value, bool(correct)))
