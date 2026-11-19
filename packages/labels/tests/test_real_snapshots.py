@@ -372,4 +372,5 @@ def test_layout_map_names_the_label_folders() -> None:
         "hub-revisions.yaml",
         "known-warnings.yaml",
         "profile.yaml",
+        "scoring.yaml",
     ]
