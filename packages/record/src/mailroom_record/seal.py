@@ -31,6 +31,10 @@ each seal's own hash (``seal_mismatch``).
 
 Rules
 -----
+- ``seal_run`` holds the store's maintenance lock shared for its whole run, as a writer
+  does, and refuses a pruned run (``RunPruned``, from ``log.refuse_if_pruned``) under it:
+  a prune deleted the run's seals, so sealing would start a new chain at seal 0 over an
+  empty log, which a later unpack would conflict with. A prune waits for a live seal.
 - ``seal_run`` holds an exclusive ``flock`` on ``seals/.lock`` for its whole run, so
   concurrent calls (threads or processes) produce seals ``0, 1, 2, ...`` each chained to
   the one before. The seal file is written write-once (fsynced temp file hard-linked into
@@ -139,7 +143,15 @@ import pyarrow.parquet as pq
 
 from mailroom_record.blobs import _fsync_dir, _makedirs_durable, _open_fd_for_write, write_exclusive
 from mailroom_record.hashing import canonical_json
-from mailroom_record.log import CorruptLine, EventLog, StoredLine, _Heads, _safe_detail
+from mailroom_record.log import (
+    CorruptLine,
+    EventLog,
+    StoredLine,
+    _Heads,
+    _safe_detail,
+    _shared_maintenance_lock,
+    refuse_if_pruned,
+)
 from mailroom_record.models import GENESIS, Event, Seal, event_hash, seal_hash, utc_now, validation_detail
 
 __all__ = ["EVENT_COLUMNS", "SealCorrupt", "SealRefused", "list_seals", "seal_run"]
@@ -482,12 +494,20 @@ def seal_run(log: EventLog, run_id: str, *, sealed_at: str | None = None) -> Sea
     chain, ``SealRefused`` when the log or the seal chain disagrees with the stored seals,
     a document's chain has a gap on disk, a line to be sealed does not hash to its stored
     hash or does not link to its predecessor, or a column file outlives its seal file;
+    ``RunPruned`` for a pruned run (``log.refuse_if_pruned``);
     ``CorruptLine`` for a stored line that is not a valid event, ``SealCorrupt`` for an
     unreadable seal file, and ``ValueError`` for a bad ``sealed_at``.
     """
     sealed_at = utc_now() if sealed_at is None else sealed_at
     if not (log.run_dir(run_id) / "run.json").is_file():
         raise FileNotFoundError(f"no run {run_id!r} under {log.root}")
+    with contextlib.closing(_shared_maintenance_lock(log.root)):  # a prune waits for us, and we for it
+        refuse_if_pruned(log, run_id, "sealed")  # its seals are gone: a seal now would start a new chain
+        return _seal_unlocked(log, run_id, sealed_at)
+
+
+def _seal_unlocked(log: EventLog, run_id: str, sealed_at: str) -> Seal:
+    """``seal_run`` once the caller holds the maintenance lock shared and checked the run is not pruned."""
     seals_dir = _seals_dir(log, run_id)
     _makedirs_durable(seals_dir, log.root)
     with _seal_lock(seals_dir):

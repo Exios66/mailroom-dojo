@@ -1,0 +1,7 @@
+{"ts": "2026-11-18T12:00:00.000+00:00", "event": "preflight_ok", "level": "info", "detail": null}
+{"ts": "2026-11-18T12:00:00.001+00:00", "event": "spend_authorized", "level": "info", "detail": {"initials": "ZZ"}}
+{"ts": "2026-11-18T12:00:00.002+00:00", "event": "start", "level": "info", "detail": {"task": "pipeline"}}
+{"ts": "2026-11-18T12:00:05.968+00:00", "event": "item_done", "level": "info", "detail": {"index": 0, "item_id": "DOC-00000000000000a1"}}
+{"ts": "2026-11-18T12:00:05.969+00:00", "event": "item_done", "level": "info", "detail": {"index": 1, "item_id": "DOC-00000000000000b2"}}
+{"ts": "2026-11-18T12:00:05.970+00:00", "event": "item_failed", "level": "warn", "detail": {"index": 2, "item_id": "DOC-00000000000000c3", "error": "RateLimitError: synthetic quota note"}}
+{"ts": "2026-11-18T12:00:05.971+00:00", "event": "done", "level": "info", "detail": null}
