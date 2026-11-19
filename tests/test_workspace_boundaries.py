@@ -43,10 +43,12 @@ def test_table_rows_state_the_agreed_rule() -> None:
     assert ALLOWED["dictionaries"] == {"common"}
     assert ALLOWED["record"] == frozenset()  # changes when record adopts common
     assert ALLOWED["labels"] == {"common", "dictionaries", "record"}
+    assert ALLOWED["desk"] == {"common", "dictionaries", "record", "labels"}
     assert ALLOWED["dojo"] == {"common", "dictionaries", "record", "labels"}
     assert ALLOWED["engine"] == {"common", "dictionaries", "record"}
     assert ALLOWED["launcher"] == set(ALLOWED) - {"launcher"}
     assert ("dojo", "engine") in NEVER
+    assert ("dojo", "desk") in NEVER
     assert table_problems(ALLOWED, NEVER) == []
 
 

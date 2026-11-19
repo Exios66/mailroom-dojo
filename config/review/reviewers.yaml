@@ -1,0 +1,17 @@
+# Example reviewer registry (mailroom_desk). Synthetic reviewers only: replace this file per
+# deployment. A token hash is the SHA-256 (hex) of a reviewer's API token; the token itself is
+# never stored. In strict mode an unknown reviewer is refused; open mode (development, tests)
+# records an unknown id as "asserted".
+mode: strict
+reviewers:
+  - id: rv-example-a
+    initials: EXA
+    roles: [reviewer, senior]
+    # SHA-256 of the made-up token "example-token-a" (never use it outside examples).
+    token_sha256: 2a2554fae1917d61ac285a9ebbb6a2bdeeebe5879940b14989868e9a95a2e6e3
+  - id: rv-example-b
+    initials: EXB
+    roles: [reviewer]
+  - id: rv-example-qa
+    initials: EXQ
+    roles: [qa, reviewer]

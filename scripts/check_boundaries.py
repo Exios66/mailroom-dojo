@@ -44,7 +44,7 @@ SKIPPED_FOLDERS = frozenset({".venv", "build", "dist"})
 #: Folder names skipped at any depth: bytecode caches and packaging metadata.
 SKIPPED_ANYWHERE = frozenset({"__pycache__"})
 
-_EVERY_OTHER = frozenset({"common", "dictionaries", "record", "labels", "dojo", "engine"})
+_EVERY_OTHER = frozenset({"common", "dictionaries", "record", "labels", "desk", "dojo", "engine"})
 
 # Package folder name -> the sibling packages it may import. A package may always import itself.
 ALLOWED: Mapping[str, frozenset[str]] = {
@@ -54,14 +54,15 @@ ALLOWED: Mapping[str, frozenset[str]] = {
     # planned follow-up; that change moves this row to frozenset({"common"}).
     "record": frozenset(),
     "labels": frozenset({"common", "dictionaries", "record"}),
+    "desk": frozenset({"common", "dictionaries", "record", "labels"}),
     "dojo": frozenset({"common", "dictionaries", "record", "labels"}),
     "engine": frozenset({"common", "dictionaries", "record"}),
     "launcher": _EVERY_OTHER,
 }
 
 # Pairs that must never be allowed, whatever the table above says: the Dojo scores runs and
-# must not depend on the engine that produces them.
-NEVER: frozenset[tuple[str, str]] = frozenset({("dojo", "engine")})
+# must not depend on the engine that produces them, nor on the review desk that annotates them.
+NEVER: frozenset[tuple[str, str]] = frozenset({("dojo", "engine"), ("dojo", "desk")})
 
 
 @dataclass(frozen=True, order=True)

@@ -58,7 +58,8 @@ Dependencies point one way, and a test in each package enforces it:
 
 - `record` imports nothing of ours.
 - `labels` imports `record`.
-- `dojo` imports `record` and `labels`, and **never** imports `engine`.
+- `desk` imports `record` and `labels`.
+- `dojo` imports `record` and `labels`, and **never** imports `engine` or `desk`.
 - `engine` imports `record` and reads client profiles from `config/`.
 - `launcher` may import all of them; it is the only package that composes the others.
 

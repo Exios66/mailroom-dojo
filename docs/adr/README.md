@@ -18,6 +18,7 @@ build plan is `docs/plans/2026-11-18-record-and-store-plan.md`.
 | [0005](0005-schema-versions-and-read-time-upgrades.md) | Every stored object carries `schema_version`; old data is upgraded on read, never rewritten | Accepted |
 | [0006](0006-importing-sandbox-runs.md) | Sandbox run folders import as records; absent fields stay absent and labels stay out | Accepted |
 | [0007](0007-shared-leaf-packages.md) | Shared plumbing lives in `common` and vocabularies in `dictionaries`, two leaf packages every package may use | Accepted |
+| [0008](0008-review-desk-is-event-sourced-on-the-record.md) | The review desk is event-sourced on the run record; decisions export as gold label candidates | Accepted |
 
 ## Status values
 

@@ -7,7 +7,7 @@ PYTHON := $(VENV)/bin/python
 BIN := $(VENV)/bin
 
 # Packages in dependency order; ones that do not exist yet are skipped.
-PACKAGE_ORDER := common dictionaries record labels engine dojo launcher
+PACKAGE_ORDER := common dictionaries record labels desk engine dojo launcher
 PACKAGES := $(foreach p,$(PACKAGE_ORDER),$(if $(wildcard packages/$(p)/pyproject.toml),$(p)))
 # Extras installed per package (default: dev).
 EXTRAS_record := dev,analysis

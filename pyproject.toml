@@ -8,10 +8,10 @@
 # Every package's tests plus the workspace-level tests (dependency rule, layout, scripts).
 testpaths = ["packages/*/tests", "tests"]
 addopts = "--import-mode=importlib"
-# packages/record/tests, packages/labels/tests and packages/dojo/tests: shared helpers
-# (record_testkit.py, labels_testkit.py, dojo_testkit.py).
+# packages/{record,labels,dojo,desk}/tests: shared helpers (record_testkit.py, labels_testkit.py,
+# dojo_testkit.py, desk_testkit.py).
 # scripts: the workspace tests import the checks they test (check_boundaries, check_layout).
-pythonpath = ["packages/record/tests", "packages/labels/tests", "packages/dojo/tests", "scripts"]
+pythonpath = ["packages/record/tests", "packages/labels/tests", "packages/dojo/tests", "packages/desk/tests", "scripts"]
 
 [tool.ruff]
 line-length = 110
