@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import sys
@@ -49,6 +50,7 @@ from mailroom_desk import (
 from mailroom_desk.lock import seal_lock_path
 from mailroom_desk.models import NODE, format_ts
 from mailroom_record.index import Index
+from mailroom_record.log import LogWriter
 from mailroom_record.seal import seal_run
 from mailroom_record.verify import verify_run
 
@@ -346,26 +348,41 @@ def test_unsealed_experiment_and_sealed_service_runs_stay_open(tmp_path: Path) -
     assert verify_run(log, log.blobs, "svc").ok
 
 
-def test_seal_cannot_land_between_the_closed_check_and_the_append(env: SimpleNamespace) -> None:
-    """The desk holds the record's seal lock while it checks and appends: a seal_run started
-    meanwhile waits, then seals the review event, and the next enqueue is refused."""
+def test_seal_cannot_land_between_the_closed_check_and_the_append(
+    env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The desk holds the record's seal lock while it checks and appends. Right before the
+    desk's flush, a separate descriptor must fail to take the seal lock (no sleep, no
+    scheduling assumption); a seal_run started there waits, then seals the review event,
+    and the next enqueue is refused."""
     engine_append(env.root, "r1", "d0")
-    entered = threading.Event()
+    probes: list[bool] = []
     sealed: list[object] = []
+    threads: list[threading.Thread] = []
+    real_flush = LogWriter.flush
 
-    def clock():
-        entered.set()
-        time.sleep(0.4)  # seal_run starts now and must wait for the desk
-        return T0
+    def probing_flush(self: LogWriter) -> None:
+        if self.writer_id == WRITER_ID and not probes:
+            fd = os.open(seal_lock_path(env.root, "r1"), os.O_RDWR)
+            try:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    probes.append(True)  # held: a seal cannot land now
+                else:
+                    probes.append(False)
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
+            t = threading.Thread(target=lambda: sealed.append(seal_run(env.log, "r1")), daemon=True)
+            t.start()
+            threads.append(t)
+        real_flush(self)
 
-    def sealer() -> None:
-        entered.wait(5)
-        sealed.append(seal_run(env.log, "r1"))
-
-    t = threading.Thread(target=sealer, daemon=True)
-    t.start()
-    done = Desk(env.root, clock=clock).enqueue(request("d1", "flag_low"), env.policy)
-    t.join(10)
+    monkeypatch.setattr(LogWriter, "flush", probing_flush)
+    done = Desk(env.root, clock=env.clock).enqueue(request("d1", "flag_low"), env.policy)
+    assert probes == [True], "the seal lock was free while the desk flushed its event"
+    threads[0].join(10)
     assert sealed and done is not None
     seal = sealed[0]
     assert seal.doc_heads["d1"] == done.event.hash  # the seal came after the append
