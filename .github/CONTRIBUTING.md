@@ -22,8 +22,10 @@ This workspace replaces three older repositories with packages around one run re
    --import-mode=importlib -p no:cacheprovider` (no caches in the tree until a
    `.gitignore` lands), and `bash .circleci/check_no_session_links.sh`. Never skip, loosen or disable a test to get
    green; reproduce a CI failure locally before fixing it.
-5. **Get an independent review.** A fresh-context Opus reviewer reads the final diff before
-   the PR is pushed; anything a cheaper model produced gets its own Opus review.
+5. **Get one independent review.** A fresh-context Opus reviewer reads the final diff and
+   the draft PR description once, before the PR is pushed; that review also covers
+   anything a cheaper model produced. Fixes are verified with red-then-green tests (docs fixes: the probe re-run) and
+   the gates re-run, not re-reviewed (`.claude/rules/orchestration.md`).
 
 ## Writing the PR
 
@@ -61,8 +63,8 @@ This workspace replaces three older repositories with packages around one run re
   must name this exception (`AGENTS.md`, section 12). The governance PR merges
   independently of PRs #1 to #3 (no overlapping files); the wiring follow-up comes after.
 - Merge only when both jobs are green on the verified head, every review thread is
-  handled, a final independent review has run, a final sweep for session links is clean,
-  and the owner has given the go-ahead (unless the owner has durably said otherwise).
+  handled, the one independent review has run and its fixes are verified, a final sweep
+  for session links is clean, and the owner has given the go-ahead (unless the owner has durably said otherwise).
 - **Squash-merge** with a hand-written title (`type(scope): summary (#N)`) and body (what
   and why, `Fixes #N`, optional `Co-Authored-By`). Never accept GitHub's concatenated
   default or the PR body as the message. End the title with `(#N)` yourself (GitHub adds

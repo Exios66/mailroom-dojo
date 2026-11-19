@@ -99,11 +99,15 @@ Read your own diff top to bottom before handing it to a reviewer:
 - Cross-repo impact is stated ("none" with a reason is a claim too).
 - No session links or tool footers anywhere (step 0).
 
-## 3. Fresh-context pre-PR review (required)
+## 3. One fresh-context review (required)
 
-Dispatch a **new** `pre-pr-reviewer` (Opus, effort high) for every PR, and a new one again
-after any non-trivial fix. Never reuse a reviewer that saw the implementation: no
-`SendMessage` to an earlier reviewer and no fork.
+Each PR gets **one review** (`.claude/rules/orchestration.md`, "One review per PR").
+Before the first push, dispatch a **new** `pre-pr-reviewer` (Opus, effort high). It
+reviews the final diff and the draft PR description in a single pass, through the
+checklist in its agent file. Never reuse a reviewer that saw the implementation: no
+`SendMessage` to an earlier reviewer and no fork. For a record schema, security or
+governance-guard change, or when the owner asks, an `adversarial-reviewer` does this
+review instead; it does not add a second one.
 
 Give it only:
 
@@ -113,9 +117,12 @@ Give it only:
 - the draft PR description with its evidence section, leaving out its Review log;
 - the gate commands you ran and their exit codes.
 
-Fix every BLOCKING and MAJOR finding and re-run the local gate. If the fixes were more
-than trivial, dispatch another fresh `pre-pr-reviewer` (at most two passes; then escalate
-to the owner).
+Fix every BLOCKING and MAJOR finding (a code fix with a red-then-green test, a docs fix
+with the probe that showed it re-run), and re-run the
+local gate on the final commit yourself. The fixes are verified by you, not re-reviewed.
+Dispatch a second, new `pre-pr-reviewer` only when the fixes changed the design or added
+more than about 150 lines. Never more than two reviews per PR; beyond that, escalate to
+the owner. Never review an unchanged commit.
 
 ## 4. Push and open a draft PR (only when asked)
 
@@ -169,8 +176,10 @@ PR, so the next fresh reviewer checks for it.
    the guard script (with `CIRCLE_PULL_REQUEST` set to the PR), their exit codes quoted
    in the PR, and the owner's go-ahead (item 5) must name this exception.
 2. Every review thread is handled (fixed, or answered in the PR body and resolved).
-3. A final independent Opus review has run on the final diff, and anything Sonnet or
-   Haiku produced has had its own Opus review (`.claude/rules/orchestration.md`).
+3. The PR's one independent Opus review has run (step 3), and you verified its fixes on
+   the final head (red-then-green tests for code fixes, probes re-run for docs fixes,
+   gates re-run). That same review covers anything
+   Sonnet or Haiku produced (`.claude/rules/orchestration.md`).
 4. A final sweep for session links is clean: commit messages (the guard script), the PR
    title and body (read back), and tracked files.
 5. The owner gave the go-ahead for this merge, unless the owner has durably said

@@ -19,7 +19,8 @@ The document is read through the index when one is given and usable, else from t
 and never raises on damaged data (see ``_reading``): lines that cannot be read are
 skipped, a forked chain's events are all listed (both branches' blobs appear), and
 ``read_versions`` returns the damage next to the chain. Only a malformed run id
-(``BadRunId``) or an unknown run (``UnknownRun``) raises. A document the run does not
+(``BadRunId``), an unknown run (``UnknownRun``) or a pruned run (``RunPruned``, naming the
+archive that holds its events) raises. A document the run does not
 hold gives an empty chain.
 """
 
@@ -32,7 +33,7 @@ from typing import Literal
 from mailroom_record._reading import Damage, open_index, read_document, require_run
 from mailroom_record.blobs import BlobStore
 from mailroom_record.index import Index
-from mailroom_record.log import EventLog
+from mailroom_record.log import EventLog, refuse_if_pruned
 from mailroom_record.models import Event
 
 __all__ = ["Version", "VersionRead", "read_versions", "version_chain", "versions_from_events"]
@@ -95,6 +96,7 @@ def versions_from_events(events: Iterable[Event], blobs: BlobStore) -> list[Vers
 def read_versions(log: EventLog, run_id: str, doc_id: str, *, index: Index | None = None) -> VersionRead:
     """``version_chain`` with the damage met while reading the document."""
     rid = require_run(log, run_id)
+    refuse_if_pruned(log, rid, "read")  # its events are in the archive: never an empty chain
     usable, _ = open_index(log, index)
     read = read_document(log, usable, rid, doc_id)
     return VersionRead(tuple(versions_from_events(read.events, log.blobs)), read.damage, len(read.events))

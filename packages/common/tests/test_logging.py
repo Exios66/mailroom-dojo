@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import io
 import json
 import logging
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, TypeVar
 
 import pytest
 from hypothesis import assume, given
@@ -361,37 +362,102 @@ def test_ordinary_text_is_not_redacted(text: str) -> None:
     assert redact_text(text) == text
 
 
-_ADVERSARIAL = {
-    "dotted run": "a." * 500_000,
-    "dashed run": "a-" * 500_000,
-    "token. run": "token." * 170_000,
-    "key-a run": "key-a" * 200_000,
-    "base64url-like": "aB3-_x9Z." * 110_000,
-    "long userinfo": "https://" + "u:p" * 330_000 + " x",
-    "many schemes": "a://" * 250_000,
-    "long authorization line": "Authorization:" + " " * 1_000_000 + "'",
-    "repeated authorization": "authorization " * 75_000,
-    "bearer spaces": "bearer" + " " * 1_000_000 + "!",
-    "key= spaces": "password" + " " * 1_000_000 + "!",
-    "pair chain": "a=" * 500_000,
-    "sensitive pairs": "token=x " * 125_000,
-    "at signs": "https://a:" + "@" * 1_000_000,
+# Linearity is checked by growth, not by an absolute time: the CPU time of this process
+# (``time.process_time``, so other processes on a loaded machine do not count) at size
+# ``n`` and at ``_SCALE * n``. Linear work grows by about ``_SCALE`` (4), quadratic by up
+# to ``_SCALE**2`` (16); ``_MAX_RATIO`` sits halfway between them on a log scale. Each size
+# takes the minimum of ``_REPEATS`` runs (noise only ever adds time). A ratio above the
+# bound is re-measured up to ``_ATTEMPTS`` times and the first one under it passes, so a
+# one-off fluke does not fail the test, and a regression growing only a little faster
+# than 8x can pass by luck. The sizes are chosen so the quadratic regressions we have
+# tried grow about 11x or more. ``_CPU_CEILING`` fails any single run that is
+# catastrophically slow, as soon as it happens; it is a backstop, never the primary check.
+_SCALE = 4
+_MAX_RATIO = 8.0
+_REPEATS = 3
+_ATTEMPTS = 3
+_CPU_CEILING = 10.0
+
+_T = TypeVar("_T")
+
+
+def _min_cpu_seconds(run: Callable[[_T], object], arg: _T, *, ceiling: float = _CPU_CEILING) -> float:
+    """Return the least CPU time of ``_REPEATS`` runs; fail at once if any run passes ``ceiling``."""
+    best = float("inf")
+    for _ in range(_REPEATS):
+        gc.collect()
+        gc.disable()
+        try:
+            started = time.process_time()
+            run(arg)
+            spent = time.process_time() - started
+        finally:
+            gc.enable()
+        assert spent < ceiling, f"one run took {spent:.2f}s of CPU (ceiling {ceiling}s)"
+        best = min(best, spent)
+    return best
+
+
+def test_cpu_ceiling_fails_on_the_first_slow_run() -> None:
+    calls: list[int] = []
+
+    def burn(_: None) -> None:
+        calls.append(1)
+        deadline = time.process_time() + 0.01
+        while time.process_time() < deadline:
+            pass
+
+    with pytest.raises(AssertionError, match="ceiling"):
+        _min_cpu_seconds(burn, None, ceiling=0.005)
+    assert calls == [1]
+
+
+def assert_linear(make: Callable[[int], _T], run: Callable[[_T], object], n: int) -> None:
+    """Assert that ``run(make(_SCALE * n))`` costs about ``_SCALE`` times ``run(make(n))``."""
+    small, large = make(n), make(_SCALE * n)
+    ratios: list[float] = []
+    for _ in range(_ATTEMPTS):
+        small_cpu = _min_cpu_seconds(run, small)
+        large_cpu = _min_cpu_seconds(run, large)
+        ratios.append(large_cpu / max(small_cpu, 1e-6))
+        if ratios[-1] < _MAX_RATIO:
+            return
+    pytest.fail(
+        f"CPU time grew {', '.join(f'{r:.1f}x' for r in ratios)} for {_SCALE}x the input "
+        f"(linear is about {_SCALE}x, the bound {_MAX_RATIO}x)"
+    )
+
+
+# Each case is a generator of its adversarial shape and a base repetition count ``n``;
+# the larger run uses ``_SCALE * n``.
+_ADVERSARIAL: dict[str, tuple[Callable[[int], str], int]] = {
+    "dotted run": (lambda n: "a." * n, 125_000),
+    "dashed run": (lambda n: "a-" * n, 125_000),
+    "token. run": (lambda n: "token." * n, 42_500),
+    "key-a run": (lambda n: "key-a" * n, 50_000),
+    "base64url-like": (lambda n: "aB3-_x9Z." * n, 27_500),
+    "long userinfo": (lambda n: "https://" + "u:p" * n + " x", 82_500),
+    "many schemes": (lambda n: "a://" * n, 62_500),
+    "long authorization line": (lambda n: "Authorization:" + " " * n + "'", 250_000),
+    "repeated authorization": (lambda n: "authorization " * n, 18_750),
+    "bearer spaces": (lambda n: "bearer" + " " * n + "!", 250_000),
+    "key= spaces": (lambda n: "password" + " " * n + "!", 250_000),
+    "pair chain": (lambda n: "a=" * n, 125_000),
+    "sensitive pairs": (lambda n: "token=x " * n, 31_250),
+    "at signs": (lambda n: "https://a:" + "@" * n, 250_000),
 }
 
 
 @pytest.mark.parametrize("name", sorted(_ADVERSARIAL))
 def test_redaction_is_linear_on_adversarial_input(name: str) -> None:
-    text = _ADVERSARIAL[name]
-    started = time.perf_counter()
-    redact_text(text)
-    assert time.perf_counter() - started < 2.0
+    make, n = _ADVERSARIAL[name]
+    assert_linear(make, redact_text, n)
 
 
 def test_a_long_dashed_argument_logs_quickly() -> None:
     stream = configured()
-    started = time.perf_counter()
-    get_logger("t").info("doc id %s", "-".join(["ab"] * 50_000))
-    assert time.perf_counter() - started < 2.0
+    logger = get_logger("t")
+    assert_linear(lambda n: "-".join(["ab"] * n), lambda arg: logger.info("doc id %s", arg), 12_500)
     assert lines(stream)[0]["event"].startswith("doc id ab-ab")
 
 
@@ -564,12 +630,9 @@ def test_quoted_secret_values_with_spaces_are_masked_whole(text: str) -> None:
 
 
 def test_unclosed_quote_does_not_make_redaction_quadratic() -> None:
-    import time
-
-    text = 'password="' * 100_000
-    start = time.perf_counter()
-    redact_text(text)
-    assert time.perf_counter() - start < 2.0
+    # Twice the other cases' scale: at 25_000 a slice-per-match regression grows only
+    # about 9.5x here, too close to the 8x bound.
+    assert_linear(lambda n: 'password="' * n, redact_text, 50_000)
 
 
 def test_self_referential_values_are_truncated_not_a_recursion_error() -> None:

@@ -8,9 +8,10 @@
 # Every package's tests plus the workspace-level tests (dependency rule, layout, scripts).
 testpaths = ["packages/*/tests", "tests"]
 addopts = "--import-mode=importlib"
-# packages/record/tests and packages/dojo/tests: shared helpers (record_testkit.py, dojo_testkit.py).
+# packages/record/tests, packages/labels/tests and packages/dojo/tests: shared helpers
+# (record_testkit.py, labels_testkit.py, dojo_testkit.py).
 # scripts: the workspace tests import the checks they test (check_boundaries, check_layout).
-pythonpath = ["packages/record/tests", "packages/dojo/tests", "scripts"]
+pythonpath = ["packages/record/tests", "packages/labels/tests", "packages/dojo/tests", "scripts"]
 
 [tool.ruff]
 line-length = 110
@@ -89,12 +90,15 @@ module = ["pyarrow", "pyarrow.*", "zstandard", "duckdb", "mailroom_record", "mai
 ignore_missing_imports = true
 
 [tool.codespell]
-skip = "./.venv,./.git,*.egg-info,./build,./dist,*.parquet,*.zst,*.lock,./packages/dojo/tests/fixtures"
+skip = "./.venv,./.git,*.egg-info,./build,./dist,*.parquet,*.zst,*.lock,./labels/*/*.jsonl,./packages/dojo/tests/fixtures"
 check-filenames = true
 # `caf` is the start of the byte escape in b"caf\xe9" (a non-UTF-8 test input).
-# `unparseable`: the word the Dojo's own messages use. `nd`: the "2nd" ordinal suffix in the
-# date parser. `thur`: a weekday abbreviation the date parser accepts. `nmae`, `lable`, `nam`,
-# `aproved`: deliberate typos in tests that check misspelled field names, types and values.
+# `unparseable`: the word the labels package's and the Dojo's own messages use. `nd`: the "2nd"
+# ordinal suffix in the date parser. `thur`: a weekday abbreviation the date parser accepts.
+# `nmae`, `lable`, `nam`, `aproved`: deliberate typos in tests that check misspelled field names,
+# types and values.
+# labels/*/*.jsonl is skipped: committed, immutable snapshots of label values and evidence
+# excerpts quoted from the documents (full document text only by hash).
 # packages/dojo/tests/fixtures is skipped: golden and differential corpora with deliberately
 # garbled strings, never edited to satisfy a spelling check.
 # Add a word here only with the reason in the commit message.

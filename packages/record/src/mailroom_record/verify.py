@@ -116,7 +116,17 @@ first scan saw are kept: each of those was on disk before the first scan ended, 
 still there is real. Lines written after the first scan are left to the next verify.
 
 Every other kind always fails the run (``columns_missing`` of an older seal included).
-``ok`` is true when no problem fails.
+``ok`` is true when no problem fails and the run is not pruned.
+
+A pruned run
+------------
+A run with ``runs/<run_id>/prune.json`` (``prune_run`` removed its segments and seals, and
+maybe its Parquet files, after packing it) is neither damaged nor an empty run: its events
+are in the archive. ``verify_run`` checks nothing then and returns a report with
+``pruned_archive`` (the archive ``pack.json`` names) and ``pruned_seal`` (the latest seal it
+covers), no problems, and ``ok`` false. If a prune finishes while verify reads the run, the
+report is that pruned report too. ``mailroom-record verify`` prints a line that starts
+``PRUNED`` and exits 0. Unpack the archive to verify the run's contents.
 """
 
 from __future__ import annotations
@@ -137,7 +147,7 @@ import zstandard
 
 from mailroom_record.blobs import BlobStore, _zstd_frame_whole
 from mailroom_record.hashing import canonical_json
-from mailroom_record.log import MAX_LINE, EventLog, OverlongLine, RawLine, StoredLine, TornTail, iter_raw_segment
+from mailroom_record.log import MAX_LINE, PACK_RECORD, EventLog, OverlongLine, RawLine, StoredLine, TornTail, iter_raw_segment, pruned_archive
 from mailroom_record.models import GENESIS, INT64_MAX, Event, Run, Seal, event_hash, seal_hash, validation_detail
 from mailroom_record.seal import EVENT_SCHEMA, _columns_path, _row, _seals_dir
 
@@ -219,7 +229,14 @@ class Problem:
 
 @dataclass(frozen=True)
 class VerifyReport:
-    """The outcome of ``verify_run``. ``ok`` is true when no problem ``fails``."""
+    """The outcome of ``verify_run``. ``ok`` is true when no problem ``fails`` and the run is
+    not pruned.
+
+    ``pruned_archive`` is set (and ``pruned_seal``, the latest seal the pack covers, when its
+    ``pack.json`` says) when the run is pruned: then nothing was checked, ``problems`` is
+    empty and ``ok`` is false, because the run's events are in the archive, not here. That
+    is its own state, not damage: unpack the archive to verify the run.
+    """
 
     ok: bool
     problems: list[Problem]
@@ -228,6 +245,8 @@ class VerifyReport:
     tombstoned_blobs: int
     seals_checked: int = 0
     closed: bool = False
+    pruned_archive: str | None = None
+    pruned_seal: int | None = None
 
 
 @dataclass(slots=True)
@@ -276,6 +295,39 @@ def verify_run(log: EventLog, blobs: BlobStore, run_id: str) -> VerifyReport:
     run_dir = log.run_dir(run_id)
     if not run_dir.is_dir():
         raise FileNotFoundError(f"no run {run_id!r} under {log.root}")
+    pruned = _pruned_report(log, run_id)
+    if pruned is not None:
+        return pruned
+    report = _verify_contents(log, blobs, run_id)
+    # A prune that finished while we read deleted what we read: report the run as pruned,
+    # never the damage that deletion looks like.
+    return _pruned_report(log, run_id) or report
+
+
+def _pruned_report(log: EventLog, run_id: str) -> VerifyReport | None:
+    archive = pruned_archive(log, run_id)
+    if archive is None:
+        return None
+    seal: int | None = None
+    try:
+        n = json.loads((log.run_dir(run_id) / PACK_RECORD).read_bytes())["last_seal"]["n"]
+        seal = n if isinstance(n, int) and not isinstance(n, bool) else None
+    except (OSError, ValueError, RecursionError, KeyError, TypeError):
+        pass
+    return VerifyReport(
+        ok=False,
+        problems=[],
+        events_checked=0,
+        documents_checked=0,
+        tombstoned_blobs=0,
+        pruned_archive=archive,
+        pruned_seal=seal,
+    )
+
+
+def _verify_contents(log: EventLog, blobs: BlobStore, run_id: str) -> VerifyReport:
+    """Verify what is on disk for ``run_id``, pruned or not (``unpack_run`` checks a run it
+    placed this way before it removes ``prune.json``)."""
     st = _State(run_id)
     run = _check_header(log, run_id, st)
     # Column files, then seal files, then segments: each is written only after the one
