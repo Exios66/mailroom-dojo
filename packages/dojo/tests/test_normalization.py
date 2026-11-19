@@ -269,14 +269,35 @@ def test_a_missing_required_dependency_is_an_import_error(module):
     assert module in result.stderr
 
 
+#: The child process running the huge inputs, which prints the seconds the calls took.
+_HUGE_INPUTS_PROGRAM = """
+import time
+from mailroom_dojo.field_scoring.scalar_scorers import score_date_field
+from mailroom_dojo.normalization import money, text
+from mailroom_dojo.normalization.dates import parse_date_parts
+huge_words = "1 " + "word " * 40_000
+huge_digits = "1-" * 100_000
+started = time.perf_counter()
+for value in (huge_words, huge_digits, "August " * 30_000):
+    parse_date_parts(value)
+    score_date_field(value, "August 18, 2014")
+    text.normalize_text(value)
+    money.parse_money(value)
+print(time.perf_counter() - started)
+"""
+
+
 def test_huge_inputs_finish_quickly():
-    """A 200,000-character value does not trigger catastrophic regular-expression backtracking."""
-    huge_words = "1 " + "word " * 40_000
-    huge_digits = "1-" * 100_000
-    started = time.perf_counter()
-    for value in (huge_words, huge_digits, "August " * 30_000):
-        parse_date_parts(value)
-        score_date_field(value, "August 18, 2014")
-        text.normalize_text(value)
-        money.parse_money(value)
-    assert time.perf_counter() - started < 20.0
+    """A 200,000-character value does not trigger catastrophic regular-expression backtracking.
+
+    The calls run in a child process with a deadline, so a regression fails the test instead of hanging the
+    worker.
+    """
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", _HUGE_INPUTS_PROGRAM], capture_output=True, text=True, timeout=60
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail("the huge inputs did not finish within 60 seconds")
+    assert result.returncode == 0, result.stderr
+    assert float(result.stdout) < 20.0
