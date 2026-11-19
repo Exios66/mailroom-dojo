@@ -196,3 +196,14 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   Python's digit limit (`10**5000`) made the fallback detail itself raise `ValueError` in both places; the detail
   now reads `<int too large to show>`. The old Dojo raised on both (`float(similarity)`); in every case the
   string or containment score is kept, so no score moves and no fixture changes.
+
+## One float sum on every Python
+
+- **Intended difference, on Python 3.11 only.** Every float mean (field audit support,
+  `overall_score`, the entity-list audit mean, macro accuracy and the macro precision, recall,
+  F1 and F2) adds its values with `mailroom_dojo.values.summation.compensated_sum`. On 3.12
+  and later that is the builtin `sum()`, so nothing changes there. On 3.11 it is a port of
+  3.12's compensated loop, where the old Dojo used 3.11's naive `sum()`. A four-place mean can
+  therefore differ from the old Dojo's in its last digit on 3.11 only (one parity corpus case:
+  0.5669, where 3.11's own `sum()` gave 0.5668). The corpus was recorded on 3.12 or later, so
+  the new Dojo now matches it on every supported Python.
