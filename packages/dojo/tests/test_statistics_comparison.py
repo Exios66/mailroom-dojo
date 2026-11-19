@@ -39,6 +39,7 @@ from mailroom_dojo.statistics import (
     outcome_flip_test,
     paired_bootstrap_delta,
 )
+from mailroom_dojo.values.summation import compensated_sum
 
 NAN = float("nan")
 unit = st.floats(min_value=0.0, max_value=1.0, allow_nan=False)
@@ -461,8 +462,22 @@ def test_a_seed_fixes_the_paired_result(values, other, seed):
 def test_paired_delta_is_the_mean_difference_inside_an_ordered_interval(a, data, seed):
     """The point estimate is mean(b) - mean(a); the interval is ordered; swapping runs negates the delta."""
     b = data.draw(st.lists(unit, min_size=len(a), max_size=len(a)))
+    _check_paired_delta(a, b, seed)
+
+
+def test_paired_delta_oracle_rounds_like_the_compensated_mean():
+    """A case where a naive left-to-right sum (Python 3.11's ``sum``) rounds the other way.
+
+    ``1.0 + 0.00015 - 1.0`` summed naively is ``0.00015000000000000946``, whose mean rounds
+    to ``0.0001``; the exact mean ``0.00005`` rounds to ``0.0``. The oracle must use the
+    same compensated sum as the implementation, on every supported Python.
+    """
+    _check_paired_delta([0.0, 0.0, 1.0], [1.0, 0.00015, 0.0], seed=0)
+
+
+def _check_paired_delta(a, b, seed):
     out = paired_bootstrap_delta(by_document(a), by_document(b), n_boot=200, seed=seed)
-    expected = sum(y - x for x, y in zip(a, b, strict=True)) / len(a)
+    expected = compensated_sum(y - x for x, y in zip(a, b, strict=True)) / len(a)
     assert out.delta == round(expected, 4)
     assert out.ci_lo <= out.ci_hi
     assert out.significant is False or out.ci_lo >= 0 or out.ci_hi <= 0

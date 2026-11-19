@@ -494,7 +494,11 @@ FAULTS: list[tuple[str, Callable[[dict[str, Any]], None], str]] = [
         _view(CONFIRMED_AGENT, metric=DIRECTIONLESS_METRIC),
         "has no direction (none)",
     ),
-    ("guard without direction", _view(GUARDED_AGENT, guard=DIRECTIONLESS_METRIC), ".guard: "),
+    (
+        "guard without direction",
+        _view(GUARDED_AGENT, guard=DIRECTIONLESS_METRIC),
+        f"default_views.{GUARDED_AGENT}.guard: {DIRECTIONLESS_METRIC!r} has no direction (none)",
+    ),
     (
         "view on a structure",
         _view(CONFIRMED_AGENT, metric=STRUCTURE_METRIC),

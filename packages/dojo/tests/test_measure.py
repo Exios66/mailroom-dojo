@@ -11,6 +11,8 @@ import dataclasses
 import decimal
 import fractions
 import math
+import sys
+from collections.abc import Iterator
 
 import numpy
 import pytest
@@ -323,6 +325,22 @@ UNPRINTABLE = [10**5000, -(10**5000), _ReprRaises()]
 UNPRINTABLE_IDS = ["1e5000", "-1e5000", "repr-raises"]
 
 
+@pytest.fixture
+def default_int_digit_limit() -> Iterator[None]:
+    """Python's default digit limit (4300), whatever ``PYTHONINTMAXSTRDIGITS`` says.
+
+    With the limit off (``0``), ``10**5000`` prints, and the integer cases would not test
+    the fallback at all.
+    """
+    before = sys.get_int_max_str_digits()
+    sys.set_int_max_str_digits(4300)
+    try:
+        yield
+    finally:
+        sys.set_int_max_str_digits(before)
+
+
+@pytest.mark.usefixtures("default_int_digit_limit")
 @pytest.mark.parametrize("bad", UNPRINTABLE, ids=UNPRINTABLE_IDS)
 def test_a_refusal_of_an_unprintable_value_is_still_a_measure_error(bad: object) -> None:
     """The message names the value's type instead of escaping as a bare ValueError or RuntimeError."""
@@ -354,16 +372,25 @@ def test_a_measure_is_immutable() -> None:
     assert hash(measure) == hash(_measure())
 
 
+@pytest.mark.parametrize(
+    ("statuses", "expected"),
+    [
+        (["gold"], "gold"),
+        (["none", "none"], "none"),
+        (["unverified"], "unverified"),
+        (["gold", "none"], "mixed"),
+        (["gold", "gold", "none"], "mixed"),
+        (["gold", "unverified"], "unverified"),
+        (["none", "unverified", "gold"], "unverified"),
+    ],
+)
+def test_combined_label_status(statuses: list[str], expected: str) -> None:
+    assert combined_label_status(statuses) == expected
+
+
 @given(st.lists(st.sampled_from(LABEL_STATUSES), min_size=1, max_size=8))
-def test_combined_label_status(statuses: list[str]) -> None:
-    combined = combined_label_status(statuses)
-    assert combined == combined_label_status(reversed(statuses))
-    if len(set(statuses)) == 1:
-        assert combined == statuses[0]
-    elif "unverified" in statuses:
-        assert combined == "unverified"
-    else:
-        assert combined == "mixed"
+def test_combined_label_status_ignores_order(statuses: list[str]) -> None:
+    assert combined_label_status(statuses) == combined_label_status(reversed(statuses))
 
 
 def test_combined_label_status_refuses_nothing_and_unknown_words() -> None:
