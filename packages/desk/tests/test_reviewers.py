@@ -219,3 +219,24 @@ def test_hostile_sizes_are_registry_errors(tmp_path: Path) -> None:
     with pytest.raises(RegistryError) as info:
         parse_registry(raw)
     assert any("roles holds" in p and "not a token" in p for p in info.value.problems)
+
+
+class _BadRepr:
+    def __repr__(self) -> str:
+        raise RuntimeError("repr refused")
+
+
+@pytest.mark.parametrize("bad", [10**5000, _BadRepr()], ids=["huge_int", "bad_repr"])
+def test_refusals_never_format_hostile_input(bad: object) -> None:
+    """A refusal names a non-string id or role by its type (``str()`` of a huge int raises
+    ``ValueError``), so a caller catching the desk error gets it, with the original kept."""
+    with pytest.raises(UnknownReviewer) as unknown:
+        registry().identify(bad)  # type: ignore[arg-type]
+    assert unknown.value.reviewer is bad and type(bad).__name__ in str(unknown.value)
+    with pytest.raises(UnknownReviewer):
+        registry(mode="open").identify(bad)  # type: ignore[arg-type]
+    for reg, reviewer in ((registry(), "rv-b"), (registry(mode="open"), "rv-unknown")):
+        with pytest.raises(RoleNotHeld) as role:
+            reg.identify(reviewer, role=bad)  # type: ignore[arg-type]
+        assert (role.value.reviewer, role.value.role) == (reviewer, bad)
+        assert role.value.role is bad and type(bad).__name__ in str(role.value)

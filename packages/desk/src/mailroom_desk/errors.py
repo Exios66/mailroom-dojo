@@ -5,6 +5,11 @@ exactly what happened, and a test can assert it. A refused action never appends:
 raised here means the record did not change. Messages name runs, documents, tokens and
 file positions only, never document text. The one exception is ``RecordWriteFailed``: a
 write failed part way, so the record may have changed (its doc says how to find out).
+
+A value the caller passed in is shown with ``repr`` when it is a string and by its type
+alone otherwise, never with a ``repr`` or ``str`` that can raise (a huge integer, a hostile
+``__repr__``), so building the error never raises something else in its place. The
+attribute keeps the original value.
 """
 
 from __future__ import annotations
@@ -34,6 +39,15 @@ __all__ = [
     "UnknownReviewer",
     "UnknownRun",
 ]
+
+
+def _said(value: object) -> str:
+    """A caller's value for a message: a string's ``repr`` (an ordinary id is named whole,
+    a long one shortened), anything else by its type; never raises."""
+    if isinstance(value, str):
+        text = repr(str.__str__(value))  # a str subclass's own __repr__ is not trusted
+        return text if len(text) <= 210 else text[:207] + "..."
+    return f"<{type(value).__name__}>"
 
 
 class DeskError(Exception):
@@ -69,7 +83,7 @@ class UnknownRun(DeskError):
     """The run has no ``run.json`` under the record root (or its id is not a run id)."""
 
     def __init__(self, run_id: object) -> None:
-        super().__init__(f"no run {run_id!r} in the record")
+        super().__init__(f"no run {_said(run_id)} in the record")
         self.run_id = run_id
 
 
@@ -81,7 +95,7 @@ class RunClosed(DeskError):
     """
 
     def __init__(self, run_id: str, kind: str) -> None:
-        super().__init__(f"run {run_id!r} ({kind}) is sealed and closed; the desk does not write to it")
+        super().__init__(f"run {_said(run_id)} ({kind}) is sealed and closed; the desk does not write to it")
         self.run_id = run_id
         self.kind = kind
 
@@ -93,7 +107,7 @@ class RunArchived(DeskError):
     ``archive`` is the archive the record names (not shown in the message)."""
 
     def __init__(self, run_id: str, archive: str | None = None) -> None:
-        super().__init__(f"run {run_id!r} is pruned: its events are in its archive; unpack it first")
+        super().__init__(f"run {_said(run_id)} is pruned: its events are in its archive; unpack it first")
         self.run_id = run_id
         self.archive = archive
 
@@ -104,7 +118,7 @@ class RunChainNotReviewable(DeskError):
 
     def __init__(self, run_id: str, doc_id: str) -> None:
         super().__init__(
-            f"{doc_id!r} of run {run_id!r} is the run-level chain, not a document; it is never reviewed"
+            f"{_said(doc_id)} of run {_said(run_id)} is the run-level chain, not a document; it is never reviewed"
         )
         self.run_id = run_id
         self.doc_id = doc_id
@@ -114,7 +128,7 @@ class AlreadyInReview(DeskError):
     """The document's head event is a ``review`` event: its case is already open."""
 
     def __init__(self, run_id: str, doc_id: str, seq: int) -> None:
-        super().__init__(f"document {doc_id!r} of run {run_id!r} is already in review (head seq {seq})")
+        super().__init__(f"document {_said(doc_id)} of run {_said(run_id)} is already in review (head seq {seq})")
         self.run_id = run_id
         self.doc_id = doc_id
         self.seq = seq
@@ -124,7 +138,7 @@ class OutageNotReviewable(DeskError):
     """A cause names a provider outage: an outage makes a document wait, never park (R1)."""
 
     def __init__(self, cause: str) -> None:
-        super().__init__(f"cause {cause!r} is a provider outage; outages wait, they are never reviewed")
+        super().__init__(f"cause {_said(cause)} is a provider outage; outages wait, they are never reviewed")
         self.cause = cause
 
 
@@ -132,7 +146,7 @@ class UnknownCause(DeskError):
     """A cause is not in the policy's cause catalog."""
 
     def __init__(self, cause: str, policy_name: str) -> None:
-        super().__init__(f"cause {cause!r} is not in the cause catalog of policy {policy_name!r}")
+        super().__init__(f"cause {_said(cause)} is not in the cause catalog of policy {_said(policy_name)}")
         self.cause = cause
         self.policy_name = policy_name
 
@@ -140,8 +154,8 @@ class UnknownCause(DeskError):
 class NoCase(DeskError):
     """The document has never been in review in this run."""
 
-    def __init__(self, run_id: str, doc_id: str) -> None:
-        super().__init__(f"document {doc_id!r} of run {run_id!r} has no review case")
+    def __init__(self, run_id: str, doc_id: object) -> None:
+        super().__init__(f"document {_said(doc_id)} of run {_said(run_id)} has no review case")
         self.run_id = run_id
         self.doc_id = doc_id
 
@@ -151,7 +165,7 @@ class DeskLockTimeout(DeskError):
     action holds it), or the run's seal lock (``seal_run`` is sealing it). ``lock`` names it."""
 
     def __init__(self, run_id: str, timeout: float, lock: str = "desk") -> None:
-        super().__init__(f"the {lock} lock of run {run_id!r} was not acquired within {timeout:g} s")
+        super().__init__(f"the {lock} lock of run {_said(run_id)} was not acquired within {timeout:g} s")
         self.run_id = run_id
         self.timeout = timeout
         self.lock = lock
@@ -175,7 +189,7 @@ class RecordBusy(DeskError):
 
     def __init__(self, run_id: str, doc_id: str, cause: BaseException) -> None:
         super().__init__(
-            f"document {doc_id!r} of run {run_id!r} is held by another writer ({type(cause).__name__})"
+            f"document {_said(doc_id)} of run {_said(run_id)} is held by another writer ({type(cause).__name__})"
         )
         self.run_id = run_id
         self.doc_id = doc_id
@@ -187,7 +201,7 @@ class RecordDamaged(DeskError):
     header). The desk refuses to act on it; run ``mailroom_record.verify``."""
 
     def __init__(self, run_id: str, cause: BaseException) -> None:
-        super().__init__(f"run {run_id!r} cannot be read safely ({type(cause).__name__}); run verify")
+        super().__init__(f"run {_said(run_id)} cannot be read safely ({type(cause).__name__}); run verify")
         self.run_id = run_id
         self.cause = cause
 
@@ -201,7 +215,7 @@ class RecordWriteFailed(DeskError):
 
     def __init__(self, run_id: str, doc_id: str, cause: BaseException) -> None:
         super().__init__(
-            f"writing the review event of document {doc_id!r} of run {run_id!r} failed "
+            f"writing the review event of document {_said(doc_id)} of run {_said(run_id)} failed "
             f"({type(cause).__name__})"
         )
         self.run_id = run_id
@@ -212,8 +226,8 @@ class RecordWriteFailed(DeskError):
 class UnknownReviewer(DeskError):
     """A strict registry does not list this reviewer id (or no reviewer holds this token)."""
 
-    def __init__(self, reviewer: str) -> None:
-        super().__init__(f"reviewer {reviewer!r} is not in the registry")
+    def __init__(self, reviewer: object) -> None:
+        super().__init__(f"reviewer {_said(reviewer)} is not in the registry")
         self.reviewer = reviewer
 
 
@@ -221,14 +235,14 @@ class TokenRejected(DeskError):
     """An API token was given and does not match the reviewer's registered token hash."""
 
     def __init__(self, reviewer: str) -> None:
-        super().__init__(f"the token given for reviewer {reviewer!r} does not match")
+        super().__init__(f"the token given for reviewer {_said(reviewer)} does not match")
         self.reviewer = reviewer
 
 
 class RoleNotHeld(DeskError):
     """The registry does not give the reviewer the role asked for."""
 
-    def __init__(self, reviewer: str, role: str) -> None:
-        super().__init__(f"reviewer {reviewer!r} does not hold role {role!r}")
+    def __init__(self, reviewer: object, role: object) -> None:
+        super().__init__(f"reviewer {_said(reviewer)} does not hold role {_said(role)}")
         self.reviewer = reviewer
         self.role = role

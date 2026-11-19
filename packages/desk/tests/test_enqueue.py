@@ -167,6 +167,35 @@ def test_unknown_run_is_refused(env: SimpleNamespace) -> None:
     assert not (env.root / "desk" / "r2.lock").exists()
 
 
+class _BadRepr:
+    def __repr__(self) -> str:
+        raise RuntimeError("repr refused")
+
+
+HUGE = 10**5000  # repr() raises ValueError (the int-to-str digit limit)
+
+
+def test_unknown_run_message_never_formats_hostile_input(env: SimpleNamespace) -> None:
+    """A non-string run id is named by its type, never by a repr that can raise: a caller
+    catching ``UnknownRun`` (or ``NoCase``) gets exactly that, and keeps the original."""
+    for bad in (HUGE, _BadRepr(), 7, b"r1"):
+        for call in (env.desk.run, env.desk.queue, lambda r: env.desk.case(r, "d1")):
+            with pytest.raises(UnknownRun) as info:
+                call(bad)
+            assert info.value.run_id is bad
+            assert type(bad).__name__ in str(info.value)
+    with pytest.raises(UnknownRun) as info:
+        env.desk.run("r2")
+    assert str(info.value) == "no run 'r2' in the record"  # an ordinary id is still named
+    with pytest.raises(NoCase) as no_case:
+        env.desk.case("r1", HUGE)  # type: ignore[arg-type]
+    assert no_case.value.doc_id is HUGE and "int" in str(no_case.value)
+    index = Index(env.root / "index.sqlite")
+    index.reindex(env.log)
+    lines = Desk(env.root, index=index, clock=env.clock).index_drift(HUGE)  # type: ignore[arg-type]
+    assert len(lines) == 1 and lines[0].endswith(": unknown run") and "int" in lines[0]
+
+
 def test_unknown_run_is_refused_even_when_nothing_is_sampled(env: SimpleNamespace) -> None:
     with pytest.raises(UnknownRun):
         env.desk.enqueue(request("d1", run_id="r2"), env.policy)

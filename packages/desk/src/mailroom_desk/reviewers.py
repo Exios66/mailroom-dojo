@@ -102,16 +102,16 @@ class ReviewerRegistry(BaseModel):
         known = self.get(reviewer_id)
         if known is None:
             if self.mode == "strict" or not isinstance(reviewer_id, str) or not _ID_RE.fullmatch(reviewer_id):
-                raise UnknownReviewer(str(reviewer_id))
+                raise UnknownReviewer(reviewer_id)
             if token is not None:
                 raise TokenRejected(reviewer_id)
             use = _OPEN_DEFAULT_ROLE if role is None else role
             if not is_token(use):
-                raise RoleNotHeld(reviewer_id, str(use))
+                raise RoleNotHeld(reviewer_id, use)
             return ReviewerRef(id=reviewer_id, role=use, identity="asserted")
         use = known.roles[0] if role is None else role
         if use not in known.roles:
-            raise RoleNotHeld(reviewer_id, str(use))
+            raise RoleNotHeld(reviewer_id, use)
         if token is None:
             return ReviewerRef(id=known.id, role=use, identity="asserted")
         if known.token_sha256 is None or not hmac.compare_digest(token_sha256(token), known.token_sha256):

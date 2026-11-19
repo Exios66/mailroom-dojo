@@ -96,6 +96,7 @@ from mailroom_desk.errors import (
     UnknownCause,
     UnknownRun,
 )
+from mailroom_desk._yaml import show
 from mailroom_desk.fold import fold_case
 from mailroom_desk.lock import DEFAULT_LOCK_TIMEOUT, check_timeout, desk_lock, seal_guard
 from mailroom_desk.models import NODE, RUN_CHAIN, CaseState, EnqueuePayload, ReviewRequest, format_ts
@@ -479,8 +480,9 @@ def _unforked(run_id: str, doc_id: str, events: list[Event]) -> list[Event]:
 
 
 def _show_id(value: object) -> str:
-    """A run id for a problem line: the id itself, or its type and a short repr."""
+    """A run id for a problem line: the id itself, or a short bounded repr (``show``: never
+    raises, so a huge integer or a hostile ``__repr__`` is named by its type)."""
     if isinstance(value, str) and _RUN_ID_RE.fullmatch(value):
         return value
-    text = repr(value)
+    text = repr(value) if isinstance(value, str) else show(value)
     return text if len(text) <= 40 else text[:37] + "..."
