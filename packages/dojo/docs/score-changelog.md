@@ -220,3 +220,8 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   degenerate embedding was clipped to a valid similarity and no fallback was recorded. The backend now returns
   NaN, and `EmbeddingRescue` keeps the string score and records `not_a_number`. The backend is new (the old Dojo
   had a remote matcher), and no parity case uses it.
+- **An inventory alias that targets the unknown token folds only whole.** A prefix alias (`misc: other`) or an
+  alias found inside a value (`miscellaneous: other`) folded `misc note` and `note miscellaneous` onto `other`,
+  though the module promises the prefix and substring steps never reach the unknown token. They now skip such
+  aliases; the whole alias still folds. No mailroom score moves: no mailroom alias targets `other`, and neither
+  did the old Dojo's intent aliases (its one prefix rule was `amend` to `amend_merger`).

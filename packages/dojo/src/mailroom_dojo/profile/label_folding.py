@@ -14,7 +14,9 @@ only), and folds with one of five methods:
     alias of eight or more characters found inside the value; then the longest
     token the value starts with; then the longest token of four or more characters
     (three when it starts with a digit) found inside the value. The unknown token is
-    never reached by the prefix and substring steps. The result must be a token.
+    never reached by the prefix and substring steps, neither as a token nor as an
+    alias target (only a whole alias or the token itself folds onto it). The result
+    must be a token.
 ``catalog``
     ``exact``; then a catalog lookup: a catalog key equal to the value's compact
     form, then an alias, then a catalog entry whose compact label equals the value
@@ -149,7 +151,7 @@ class LabelVocabulary:
         """Fold through prefix aliases and the inventory search; the result must be a token."""
         key = compact_label(value)
         for prefix, target in self.prefix_aliases.items():
-            if key.startswith(compact_label(prefix)):
+            if target != self.unknown_token and key.startswith(compact_label(prefix)):
                 return target
         token = self._search_inventory(key)
         return token if token in self.tokens else ""
@@ -167,7 +169,11 @@ class LabelVocabulary:
         ranked_aliases = sorted(self.aliases.items(), key=lambda item: -len(compact_label(item[0])))
         for alias, target in ranked_aliases:
             alias_key = compact_label(alias)
-            if len(alias_key) >= _INVENTORY_MINIMUM_ALIAS_LENGTH and alias_key in key:
+            if (
+                target != self.unknown_token
+                and len(alias_key) >= _INVENTORY_MINIMUM_ALIAS_LENGTH
+                and alias_key in key
+            ):
                 return target
         ranked_tokens = sorted(self.tokens, key=lambda token: -len(compact_label(token)))
         searchable = [

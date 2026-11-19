@@ -241,3 +241,19 @@ def test_vocabularies_with_aliases_in_another_order_differ_when_the_order_decide
         tokens=tokens, fold_method="inventory", prefix_aliases={"a-b": "alpha", "ab": "beta"}
     )
     assert first == same and hash(first) == hash(same)
+
+
+def test_inventory_prefix_and_substring_aliases_never_reach_the_unknown_token():
+    """An alias that targets the residual token matches only whole; prefix and substring steps skip it."""
+    vocabulary = LabelVocabulary(
+        tokens=("notice", "other"),
+        fold_method="inventory",
+        aliases={"miscellaneous": "other", "general notice": "notice"},
+        prefix_aliases={"misc": "other", "fyi": "notice"},
+    )
+    assert vocabulary.fold("misc note") == ""  # prefix alias to the residual token is skipped
+    assert vocabulary.fold("note miscellaneous") == ""  # substring alias to the residual token is skipped
+    assert vocabulary.fold("miscellaneous") == "other"  # the whole alias still folds
+    assert vocabulary.fold("other") == "other"
+    assert vocabulary.fold("fyi update") == "notice"  # prefix aliases to other tokens still work
+    assert vocabulary.fold("a general notice letter") == "notice"
