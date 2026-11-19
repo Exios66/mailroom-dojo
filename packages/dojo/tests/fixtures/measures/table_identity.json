@@ -1,5 +1,5 @@
 {
  "description": "The metric table's identity, frozen for review: the version and the content hash of measures/metrics.yaml. Any content change moves the hash, so it must come with a version bump in metrics.yaml and a refresh of this file in the same commit (and a score-changelog entry when a meaning changes).",
- "version": 2,
- "content_hash": "f14939b7badd6f2971fd0208c448d969f4db39d0fe625b8dee5551ffbfffa1dd"
+ "version": 3,
+ "content_hash": "316eec8718a4fe4d1ec46a9751ce0ef1bf9c924bde4415355207cd8f695f04e4"
 }

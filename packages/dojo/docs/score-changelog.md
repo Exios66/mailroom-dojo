@@ -358,6 +358,17 @@ Changing any of these would change a score, so each waits for a deliberate score
   vocabulary check element-wise (`numpy.array(["none"])`) or raised a bare `ValueError`; it is
   now a `MeasureError`, and a `str` subclass is stored as a plain `str`. The old Dojo had no
   `Measure`, so no old behaviour changes.
+- **The table is `version: 3` (review of PR #8).** Two rows changed:
+  - `confidence_calibration_error` states `ground_truth: required`; the old registry said
+    `none`, but the number is `|confidence - correctness|`, and the old suite passed
+    `overall_score` as the correctness (`scoring/suites.py`, line 588), which is graded against
+    the expected fields. With `none`, `MetricTable.check` accepted a measure of it with
+    `label_status="none"`, claiming no labels were used: `Measure(value=0.2, n=4,
+    label_status="none", method="confidence_calibration_error", ...)` passed before and is
+    refused now ("needs labels"). The value and its producer are unchanged; only the label
+    rule a measure of it must keep.
+  - `slot_cap_use` (a design row) has unit `ratio`, not `float[0,1]`: 11 overrides on a cap of
+    10 is a use of 1.1, which `check()` refused before. A negative use is still refused.
 - **27 planned design rows** (`origin: design`, ids `dojo:<id>`) add numbers the old Dojo never
   had; none changes an old number. Eight of them are the `_vs_gold` rows above.
 

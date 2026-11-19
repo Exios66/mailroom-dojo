@@ -18,7 +18,9 @@
 #                 read as unknown (it may need labels: check() refuses label_status none
 #                 for it). The nine kept numeric rows it left unset or never listed state it
 #                 here (tests/test_metric_table_parity.py, GROUND_TRUTH_STATED); null stays
-#                 on structure rows and dropped rows.
+#                 on structure rows and dropped rows. One stated value is corrected:
+#                 confidence_calibration_error is required, not none (its correctness is
+#                 graded against labels; GROUND_TRUTH_CORRECTED).
 #                 Units are a closed vocabulary (table.UNITS), the old ones normalised:
 #                 usd is USD, int is count, and the three structure rows
 #                 (confusion_matrix, per_class_stats, bootstrap_ci) are structure, not
@@ -151,7 +153,7 @@
 #   old_source    default null; the old function, relative to llm_dojo_scoring
 
 table_format: 1
-version: 2
+version: 3
 source:
   old_dojo_commit: "23f8234c3c548bdc203033388bb316e52e588a2c"
   old_dojo_version: "0.30.1"
@@ -2934,7 +2936,7 @@ metrics:
     direction: "lower"
     aggregation: "mean"
     agents: ["ALL"]
-    ground_truth: "none"
+    ground_truth: "required"
     headline: false
     metric_id: "registry:confidence_calibration_error"
     layer: "field_scoring"
@@ -3775,7 +3777,7 @@ metrics:
     inclusion: "Per slot, over the slot's recorded decisions; none for a slot that never ran."
   - id: "slot_cap_use"
     description: "Per decision slot: overrides used over the slot's cap"
-    unit: "float[0,1]"
+    unit: "ratio"
     direction: "none"
     aggregation: "none"
     agents: ["ALL"]

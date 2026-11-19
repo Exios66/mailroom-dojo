@@ -116,7 +116,8 @@ truth, the gaps a future gold-generation step fills, intake's class accuracy, an
 a new rule, while the old ids keep the old one). Each old row keeps the old
 description, aggregation, agents, ground truth, inclusion and citation, and its unit
 (normalised to one spelling per unit); the nine kept numeric rows whose ground truth the old
-registry left unset (or never listed) now state it; tiers are replaced by `headline` (exactly the old
+registry left unset (or never listed) now state it, and `confidence_calibration_error`, which
+the old registry called label-free, needs labels (its correctness is graded against them); tiers are replaced by `headline` (exactly the old
 tier-0 ids), a `layer`, a `status` and the `readers` (gate, report or projection) that use
 it. A row is `implemented` or `planned` only when a named reader uses it; every other id
 stays as a `not_ported` row with its reason, so it can be revived without changing its
@@ -135,7 +136,7 @@ the owner's decisions, the rest are proposals.
 words. `noise_floor` is unset (D7 measures it). The header of the file documents every
 column, reader and rule. `MetricTable.content_hash` is the sha256 of the table's canonical
 JSON form, so a run can record which table it was scored against; it is frozen with the
-table's `version` (2) in `tests/fixtures/measures/table_identity.json`, so a content change
+table's `version` (3) in `tests/fixtures/measures/table_identity.json`, so a content change
 without a version bump fails a test.
 
 `tests/test_metric_table_parity.py` checks the table against

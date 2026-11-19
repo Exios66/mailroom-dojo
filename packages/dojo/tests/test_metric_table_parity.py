@@ -235,6 +235,21 @@ GROUND_TRUTH_STATED: Mapping[str, str] = MappingProxyType(
 )
 
 
+#: Old rows whose stated ground truth was wrong: (old value, value here). The old registry said
+#: ``none`` for the calibration gap, but the old suite fed it ``overall_score``, graded against
+#: the expected fields (suites.py line 588), so it needs labels.
+GROUND_TRUTH_CORRECTED: Mapping[str, tuple[str, str]] = MappingProxyType(
+    {"confidence_calibration_error": ("none", "required")}
+)
+
+
+def test_each_corrected_ground_truth_was_stated_otherwise_in_the_old_registry(table: MetricTable) -> None:
+    for metric, (old, new) in GROUND_TRUTH_CORRECTED.items():
+        assert OLD["metrics"][metric]["ground_truth"] == old, metric
+        assert table.get(metric).ground_truth == new, metric
+    assert not set(GROUND_TRUTH_CORRECTED) & set(GROUND_TRUTH_STATED)
+
+
 def test_every_stated_ground_truth_was_unset_in_the_old_registry(table: MetricTable) -> None:
     for metric, ground_truth in GROUND_TRUTH_STATED.items():
         if metric in OLD["metrics"]:
@@ -256,7 +271,10 @@ def test_each_old_metric_keeps_its_meaning(table: MetricTable, metric: str) -> N
     row: MetricRow = table.get(metric)
     assert row.aggregation == old["aggregation"]
     assert list(row.expanded_agents) == old["applicable_agents"]
-    assert row.ground_truth == GROUND_TRUTH_STATED.get(metric, old["ground_truth"] or None)
+    if metric in GROUND_TRUTH_CORRECTED:
+        assert row.ground_truth == GROUND_TRUTH_CORRECTED[metric][1]
+    else:
+        assert row.ground_truth == GROUND_TRUTH_STATED.get(metric, old["ground_truth"] or None)
     assert row.description == old["description"]
     assert row.unit == UNIT_NORMALISED.get((metric, old["units"]), old["units"])
     assert row.citation == old["citation"]

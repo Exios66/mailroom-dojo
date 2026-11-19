@@ -933,6 +933,22 @@ def test_check_refuses_a_measure_about_an_agent_the_row_does_not_target() -> Non
     assert table.check(_measure("f1_macro", subject=Subject(agent="boss"))).id == "f1_macro"
 
 
+def test_a_slot_over_its_cap_reports_its_use_above_one() -> None:
+    """11 overrides on a cap of 10 is a use of 1.1: the breach count says it was breached."""
+    table = load_metric_table()
+    assert table.check(_measure("slot_cap_use", value=1.1, label_status="none")).unit == "ratio"
+    with pytest.raises(MeasureError, match="slot_cap_use: value -0.1 is negative"):
+        table.check(_measure("slot_cap_use", value=-0.1, label_status="none"))
+
+
+def test_calibration_error_needs_the_labels_its_correctness_comes_from() -> None:
+    """|confidence - correctness| grades correctness against labels (the old suite passed overall_score)."""
+    table = load_metric_table()
+    with pytest.raises(MeasureError, match="confidence_calibration_error: needs labels"):
+        table.check(_measure("confidence_calibration_error", value=0.2, label_status="none"))
+    assert table.check(_measure("confidence_calibration_error", value=0.2)).ground_truth == "required"
+
+
 def test_agent_queries_do_not_depend_on_roster_order() -> None:
     """The hash ignores the roster's order, so the queries do too: agents come back sorted."""
     raw = _raw()
