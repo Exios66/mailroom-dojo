@@ -281,7 +281,7 @@ def test_scoring_opens_no_socket(monkeypatch, mailroom_profile):
 
     load_scoring_profile(MAILROOM_PROFILE_PATH)
     _, cases = scalar_corpus()
-    for case in cases[::7]:
+    for case in cases:
         try:
             ADAPTERS[case["function"]](decode(case["args"]), mailroom_profile)
         except AssertionError:
