@@ -136,6 +136,21 @@ def test_cutoff_searches_read_a_generator_once():
     assert cross_fit_cutoffs((row for row in rows), target=0.9) == expected
 
 
+def test_cross_fit_accepts_a_confidence_just_below_one():
+    """The largest float below 1 is a valid confidence; the old Dojo raised StatisticsError for it.
+
+    ``0.5 + confidence / 2`` rounds to 1.0 there, and the normal quantile of 1.0 is infinite.
+    """
+    rows = [(0.95, True)] * 10 + [(0.8, True)] * 10 + [(0.8, False)] + [(0.5, False)] * 5 + [(0.3, True)] * 4
+    confidence = math.nextafter(1.0, 0.0)
+    result = cross_fit_cutoffs(rows, target=0.9, confidence=confidence)
+    interval = result.holdout_accuracy_ci
+    assert (result.cutoff, result.holdout_documents, result.holdout_accepted) == (0.8, 30, 21)
+    assert interval is not None and 8.0 < interval.z < 8.5
+    assert interval.lo <= result.holdout_accuracy <= interval.hi
+    assert result.meets_target is False
+
+
 def test_calibration_drops_unusable_confidences_and_ranking_drops_nan():
     """ECE and Brier leave out confidences that are not finite numbers in [0, 1]; ranking drops NaN."""
     noisy = [

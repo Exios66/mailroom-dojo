@@ -245,6 +245,20 @@ def _wilson_lower(p: float, n: int, z: float) -> float:
     return max(0.0, centre - margin)
 
 
+def _two_sided_z(confidence: float) -> float:
+    """The normal quantile ``z`` of a two-sided interval at ``confidence`` in ``(0, 1)``.
+
+    The old Dojo's ``inv_cdf(0.5 + confidence / 2)``, kept wherever it is defined. For a
+    confidence within a rounding step of 1 that sum rounds to 1.0, whose quantile is
+    infinite (the old Dojo raised ``StatisticsError``); the lower tail's quantile, negated,
+    is the same ``z`` without the rounding.
+    """
+    upper = 0.5 + confidence / 2.0
+    if upper < 1.0:
+        return NormalDist().inv_cdf(upper)
+    return -NormalDist().inv_cdf((1.0 - confidence) / 2.0)
+
+
 def cross_fit_cutoffs(
     rows: Sequence[Pair],
     *,
@@ -287,7 +301,7 @@ def cross_fit_cutoffs(
         fold_right, fold_kept = _accepted(held, fold_cutoff)
         right += fold_right
         kept += fold_kept
-    z = NormalDist().inv_cdf(0.5 + validate_confidence(confidence) / 2.0)
+    z = _two_sided_z(validate_confidence(confidence))
     interval = wilson_ci(right / kept, kept, z=z) if kept else None
     return CrossFitResult(
         cutoff=cutoff,

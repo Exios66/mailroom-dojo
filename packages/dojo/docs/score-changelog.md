@@ -473,6 +473,12 @@ the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
   corpus holds no NaN, infinite or Decimal support, so the ledger has no entry for them;
   `tests/test_statistics_faults.py` pins these behaviours.
 - **An infinite `z` is refused** (it gave the interval `[0, 1]`).
+- **`cross_fit_cutoffs` answers for a confidence just below 1 (review of PR #8).** For the
+  largest float below 1, `0.5 + confidence / 2` rounds to 1.0, and the old Dojo raised
+  `StatisticsError` from `inv_cdf(1.0)`. The new code takes `z` from the lower tail there
+  (`-inv_cdf((1 - confidence) / 2)`, about 8.2) and returns the result; every confidence
+  where the old sum stays below 1 keeps the old `z`. The corpus holds no such call, so the
+  ledger has no entry; `tests/test_statistics_faults.py` pins it.
 - **Results are frozen dataclasses** (`BootstrapInterval`, `DeltaInterval`,
   `WilsonInterval`, `CrossFitResult`, `ReliabilityBin`, `PrecisionCutoff`); `to_dict()` is
   the old dictionary, key for key. Not a score change.
