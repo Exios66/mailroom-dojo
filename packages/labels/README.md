@@ -179,9 +179,11 @@ python packages/labels/scripts/derive_review_snapshot.py --source <dir>/gold-rev
     --known-warnings config/clients/mailroom-dataset/known-warnings.yaml --check
 ```
 
-Drop `--check` to rewrite a snapshot in place, then run `mailroom-labels verify` on the set and
-`labels_report.py` to refresh the reports; the golden counts in
-`tests/test_real_snapshots.py` change only for an intended data change.
+A committed snapshot is never rewritten in place: `--check` must report it identical. An intended
+data change is written as a new snapshot (a new `--out labels/<new-id>` and a new id), after which
+the profile, known warnings and reports are pointed at the new snapshot, `mailroom-labels verify`
+runs on the set and `labels_report.py` refreshes the reports; the golden counts in
+`tests/test_real_snapshots.py` change only for that intended data change.
 
 ## Boundaries
 

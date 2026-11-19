@@ -154,12 +154,13 @@ class LabelSet:
 def load_label_set(
     directories: Iterable[Path | str], profile: ClientProfile, *, strict: bool = True
 ) -> LabelSet:
-    """Load, check and resolve snapshot directories; raise ``QualityGateFailed`` on any error
-    (a snapshot that fails to load, or whose files change between the gate and resolving,
-    is an error too: the ``ManifestMismatch`` is the cause). With ``strict`` (the default,
-    what ``mailroom-labels verify --strict`` checks) a warning that the snapshot raising it
-    does not list in its ``known_warnings`` fails the gate too; ``strict=False`` is for
-    inspection, never for scoring."""
+    """Load, check and resolve snapshot directories; raise ``QualityGateFailed`` on any error.
+    A snapshot that fails to load when the gate runs is a finding in ``exc.report`` (the
+    exception has no chained cause); one whose files change between the gate and resolving
+    raises ``QualityGateFailed`` with the ``ManifestMismatch`` as its ``__cause__``. With
+    ``strict`` (the default, what ``mailroom-labels verify --strict`` checks) a warning that
+    the snapshot raising it does not list in its ``known_warnings`` fails the gate too;
+    ``strict=False`` is for inspection, never for scoring."""
     report, loaded = check_dirs(list(directories), profile)
     if verify(report, strict=strict) != 0:
         raise QualityGateFailed(report, strict=strict)

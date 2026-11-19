@@ -293,7 +293,9 @@ def build_manifest(
     manifest["manifest_hash"] = manifest_hash_of(manifest)
     model = SnapshotManifest.model_validate_json(json.dumps(manifest))
     text = json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-    (directory / MANIFEST_NAME).write_text(text, encoding="utf-8")
+    target = directory / MANIFEST_NAME
+    _check_inside(directory, target)  # a manifest.json link must not redirect the write
+    target.write_text(text, encoding="utf-8")
     return model
 
 

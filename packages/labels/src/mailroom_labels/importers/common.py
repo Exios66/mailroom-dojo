@@ -186,6 +186,11 @@ def parse_jsonl_lenient(data: bytes, name: str) -> tuple[list[SourceLine], list[
             except RecursionError:
                 rejected.append({"file": name, "line": number, "reason": "not JSON: nested too deeply"})
                 continue
+            except ValueError as exc:  # e.g. an integer with more digits than the interpreter converts
+                rejected.append(
+                    {"file": name, "line": number, "reason": f"not JSON: {exc.__class__.__name__}"}
+                )
+                continue
             if not isinstance(obj, dict):
                 rejected.append(
                     {"file": name, "line": number, "reason": f"not a JSON object ({type(obj).__name__})"}

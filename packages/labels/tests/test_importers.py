@@ -1404,6 +1404,30 @@ def test_cli_import_hub_with_missing_pins_exits_2(tmp_path: Path) -> None:
     assert "usage error: --pins" in result.output
 
 
+def test_cli_import_hub_with_pins_that_are_not_utf8_exits_2(tmp_path: Path) -> None:
+    data = write_dataset(tmp_path / "data")
+    pins = tmp_path / "pins.yaml"
+    pins.write_bytes(b"\xff\xfe not utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "import-hub",
+            "--out",
+            str(tmp_path / "hub-x"),
+            "--profile",
+            str(PROFILE_PATH),
+            "--dataset-dir",
+            str(data),
+            "--revision",
+            "0" * 40,
+            "--pins",
+            str(pins),
+        ],
+    )
+    assert result.exit_code == 2 and isinstance(result.exception, SystemExit)
+    assert "usage error: --pins" in result.output and "Traceback" not in result.output
+
+
 def test_fetch_hub_refuses_a_stream_cut_off_mid_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import http.client
 
@@ -1868,7 +1892,7 @@ def test_hub_row_without_a_document_id_is_refused_per_row(
     assert sorted(hub_rows(tmp_path / "hub-x")) == ["D1", "D2", "D3", "F1"]
 
 
-@pytest.mark.parametrize("doc_id", [5, ["D1"], {"id": "D1"}, True])
+@pytest.mark.parametrize("doc_id", [5, ["D1"], {"id": "D1"}, True, float("nan"), float("inf"), 10**400])
 def test_hub_row_with_a_non_string_document_id_is_refused(doc_id: Any) -> None:
     from mailroom_labels.importers import hub
 
@@ -1876,6 +1900,9 @@ def test_hub_row_with_a_non_string_document_id_is_refused(doc_id: Any) -> None:
     raw = gt_row("X1", "letter", "email", "train", {"sender": "a"}, {"sender": "populated"})
     assert hub._fields({**raw, "document_id": doc_id}, profile(), tally) is None
     assert [e["reason"] for e in tally.bad_gt_fields] == ["document_id must be a non-empty string"]
+    from mailroom_record.hashing import canonical_json
+
+    canonical_json(tally.bad_gt_fields)  # what is recorded must survive manifest hashing (no NaN)
 
 
 def _nested(depth: int) -> list[Any]:

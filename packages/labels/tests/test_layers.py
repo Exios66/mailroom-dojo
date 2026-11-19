@@ -346,5 +346,6 @@ def test_a_near_gold_label_marked_unlabeled_is_refused(tmp_path: Path) -> None:
     assert [(f.kind, f.severity, f.doc, f.field) for f in out.findings] == [
         ("malformed_record", "error", "D1", "sender")
     ]
-    assert "unknown presence 'unlabeled'" in out.findings[0].detail
+    assert "unknown presence" in out.findings[0].detail
+    assert "unlabeled" not in out.findings[0].detail  # a finding never repeats the supplied value
     assert [(r.document_id, r.field) for r in out.records] == [("D9", "sender")]
