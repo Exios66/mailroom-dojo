@@ -358,14 +358,15 @@ def score_extraction(
             )
             score = 1.0 if states_no_date else 0.0
         else:
-            if field_type in CONTAINMENT_TYPES and profile.compares_by_containment(class_key, key):
+            variant = active.variant if active is not None else None
+            if field_type in CONTAINMENT_TYPES and profile.compares_by_containment(class_key, key, variant):
                 field_type = "containment"
             result = score_field(
                 profile,
                 field_type,
                 predicted_value,
                 expected_value,
-                recall_coverage=profile.scores_coverage_by_recall(class_key, key),
+                recall_coverage=profile.scores_coverage_by_recall(class_key, key, variant),
                 rescue=rescue,
                 registry=registry,
                 unknown_type_as=unknown_type_as,

@@ -225,3 +225,8 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   though the module promises the prefix and substring steps never reach the unknown token. They now skip such
   aliases; the whole alias still folds. No mailroom score moves: no mailroom alias targets `other`, and neither
   did the old Dojo's intent aliases (its one prefix rule was `amend` to `amend_merger`).
+- **A variant-only field is compared and covered by its own spec.** `compare: containment` and
+  `coverage: recall` on a field a row variant adds were ignored (only the class's own fields were searched,
+  then the name defaults), so `Delaware courts` against `Delaware` got token F1 and an extra contact cost
+  precision. The active variant's added field now decides, then the class's first variant-only field of that
+  name, then the name defaults. No mailroom score moves: its one variant adds only `cms_source_table`, a label.

@@ -317,6 +317,37 @@ def test_variant_type_overrides_marker_skip_and_fallback():
     assert guarded.field_scores["vehicles"] == 1.0  # the guard rejects the row, so no override
 
 
+def _variant_rules_profile():
+    """A synthetic client whose variant adds a containment free-text field and a recall-scored list."""
+    mapping = minimal_profile_mapping()
+    mapping["classes"][0]["variants"] = [
+        {
+            "name": "commercial_fleet",
+            "marker": {"field": "fleet_kind", "values": ["fleet"]},
+            "added_fields": {
+                "fleet_kind": {"type": "label", "vocabulary": {"tokens": ["fleet"], "fold": "exact"}},
+                "venue_clause": {"type": "free_text", "compare": "containment"},
+                "contacts": {"type": "entity_list:name", "coverage": "recall"},
+            },
+        }
+    ]
+    return load_scoring_profile(mapping)
+
+
+def test_a_variant_added_field_is_compared_and_covered_by_its_own_spec():
+    """A variant-only field's ``compare: containment`` and ``coverage: recall`` apply (no name default
+    names these fields)."""
+    profile = _variant_rules_profile()
+    expected = {"fleet_kind": "fleet", "venue_clause": "Delaware", "contacts": ["Acme Corporation"]}
+    predicted = {
+        "fleet_kind": "fleet",
+        "venue_clause": "Delaware courts",
+        "contacts": ["Acme Corporation", "Beta LLC"],
+    }
+    scores = score_extraction(profile, FLEET, predicted, expected).field_scores
+    assert scores == {"fleet_kind": 1.0, "venue_clause": 1.0, "contacts": 1.0}
+
+
 def _numeric_marker_profile():
     """A synthetic client whose row variant is marked by the number 0 on a label field ("plan tier 0")."""
     mapping = minimal_profile_mapping()

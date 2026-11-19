@@ -461,18 +461,42 @@ class ScoringProfile:
             return self.unknown_label
         return spec.subclasses.normalize(value)
 
-    def compares_by_containment(self, class_key: str | None, field_name: str) -> bool:
-        """True when a field is scored by expected-within-predicted token containment."""
+    def scoring_field_spec(
+        self, class_key: str | None, field_name: str, variant: RowVariant | None = None
+    ) -> FieldSpec | None:
+        """Return the spec that decides how a field is compared: the class's own field, else the field
+        ``variant`` (the row's active variant) adds, else the first variant-only field of that name."""
         spec = self.class_spec(class_key)
-        field_spec = spec.field(field_name) if spec is not None else None
+        if spec is None:
+            return None
+        own = spec.field(field_name)
+        if own is not None:
+            return own
+        added = variant.added_field(field_name) if variant is not None else None
+        return added if added is not None else spec.variant_added_field(field_name)
+
+    def compares_by_containment(
+        self, class_key: str | None, field_name: str, variant: RowVariant | None = None
+    ) -> bool:
+        """True when a field is scored by expected-within-predicted token containment.
+
+        The field's spec decides (see :meth:`scoring_field_spec`; a variant-only field
+        included); a field with no spec falls back to the name defaults.
+        """
+        field_spec = self.scoring_field_spec(class_key, field_name, variant)
         if field_spec is not None:
             return field_spec.compare == "containment"
         return field_name in self.field_name_defaults.containment
 
-    def scores_coverage_by_recall(self, class_key: str | None, field_name: str) -> bool:
-        """True when an entity-list field is scored by ground-truth coverage (recall) instead of F1."""
-        spec = self.class_spec(class_key)
-        field_spec = spec.field(field_name) if spec is not None else None
+    def scores_coverage_by_recall(
+        self, class_key: str | None, field_name: str, variant: RowVariant | None = None
+    ) -> bool:
+        """True when an entity-list field is scored by ground-truth coverage (recall) instead of F1.
+
+        The field's spec decides (see :meth:`scoring_field_spec`; a variant-only field
+        included); a field with no spec falls back to the name defaults.
+        """
+        field_spec = self.scoring_field_spec(class_key, field_name, variant)
         if field_spec is not None:
             return field_spec.coverage_scoring == "recall"
         return field_name in self.field_name_defaults.recall_coverage
