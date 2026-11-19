@@ -78,6 +78,17 @@ def test_dates_outside_the_near_window_get_no_day_credit():
     assert near > far
 
 
+@pytest.mark.parametrize(
+    ("predicted", "score"),
+    [("2014-10-02", 0.67), ("2014-10-03", 0.33), ("2014-07-04", 0.67), ("2014-07-03", 0.33)],
+    ids=["45-after", "46-after", "45-before", "46-before"],
+)
+def test_the_near_window_ends_at_exactly_45_days(predicted, score):
+    """45 days apart, either way, earns the partial credit; 46 days earns only the same-year credit (the old
+    Dojo's values)."""
+    assert scorers.score_date_field(predicted, "2014-08-18") == score
+
+
 def test_money_tolerance_is_one_cent_in_binary_floating_point():
     """Half a cent matches and two cents do not; exactly one cent depends on float rounding (kept from the old
     Dojo)."""
