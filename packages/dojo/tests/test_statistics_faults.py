@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 from decimal import Decimal
 from fractions import Fraction
 
@@ -134,6 +135,18 @@ def test_cutoff_searches_read_a_generator_once():
     expected = cross_fit_cutoffs(rows, target=0.9)
     assert (expected.cutoff, expected.holdout_documents, expected.holdout_accepted) == (0.8, 30, 21)
     assert cross_fit_cutoffs((row for row in rows), target=0.9) == expected
+
+
+def test_cutoff_for_precision_is_not_quadratic():
+    """20,000 distinct scores, none positive: one sorted pass, not one scan of the rows per cutoff.
+
+    The scan per cutoff made about 200 million comparisons here (tens of seconds).
+    """
+    scores = [index / 20_000 for index in range(20_000)]
+    started = time.perf_counter()
+    result = cutoff_for_precision(scores, [False] * len(scores), 0.9)
+    assert time.perf_counter() - started < 2.0
+    assert result.to_dict() == {"cutoff": None, "precision": None, "accept_rate": 0.0, "recall": 0.0}
 
 
 def test_cross_fit_accepts_a_confidence_just_below_one():

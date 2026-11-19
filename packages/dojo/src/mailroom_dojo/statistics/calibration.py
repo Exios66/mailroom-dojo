@@ -481,16 +481,32 @@ def cutoff_for_precision(scores: Sequence[Any], labels: Sequence[Any], precision
         if not math.isfinite(score):
             raise ValueError(f"scores[{index}] is not a finite number: {score!r}")
     total_positive = sum(1 for _, label in pairs if label)
-    for cutoff in sorted({score for score, _ in pairs}):
-        accepted = [label for score, label in pairs if score >= cutoff]
-        if accepted and sum(accepted) / len(accepted) >= precision:
-            return PrecisionCutoff(
-                cutoff=cutoff,
-                precision=round(sum(accepted) / len(accepted), 6),
-                accept_rate=round(len(accepted) / len(pairs), 6) if pairs else None,
-                recall=round(sum(accepted) / total_positive, 6) if total_positive else None,
-            )
-    return PrecisionCutoff(cutoff=None, precision=None, accept_rate=0.0, recall=0.0)
+    # Rows and positives per distinct score; equal scores share the first one's key (0.0 and
+    # -0.0 too), as the old set of candidate cutoffs did.
+    tally: dict[float, list[int]] = {}
+    for score, label in pairs:
+        counts = tally.setdefault(score, [0, 0])
+        counts[0] += 1
+        counts[1] += label
+    # From the highest score down, the accepted set at a cutoff is every row at or above it;
+    # the last cutoff that keeps the precision is the lowest, the one the old upward scan
+    # returned first. Integer counts give the old ratios exactly.
+    best: tuple[float, int, int] | None = None
+    accepted = positive = 0
+    for cutoff in sorted(tally, reverse=True):
+        accepted += tally[cutoff][0]
+        positive += tally[cutoff][1]
+        if positive / accepted >= precision:
+            best = (cutoff, accepted, positive)
+    if best is None:
+        return PrecisionCutoff(cutoff=None, precision=None, accept_rate=0.0, recall=0.0)
+    cutoff, accepted, positive = best
+    return PrecisionCutoff(
+        cutoff=cutoff,
+        precision=round(positive / accepted, 6),
+        accept_rate=round(accepted / len(pairs), 6),
+        recall=round(positive / total_positive, 6) if total_positive else None,
+    )
 
 
 def _group_confidence(confidence: Any) -> float | None:

@@ -18,6 +18,7 @@ from mailroom_dojo.statistics import (
     clopper_pearson_upper,
     cross_fit_cutoffs,
     cutoff_at_target,
+    cutoff_for_precision,
     delta_significance,
     expected_calibration_error,
     reliability_bins,
@@ -159,3 +160,28 @@ def test_a_seed_fixes_every_result_and_calls_leave_no_state(values, other, seed)
         cross_fit_cutoffs([(value, value > 0.5) for value in values], seed=seed),
     )
     assert first == second
+
+
+@given(
+    rows=st.lists(st.tuples(st.sampled_from([0.0, -0.0, 0.1, 0.5, 0.9, 1.0]) | unit, st.booleans()), max_size=60),
+    precision=st.sampled_from([0.1, 0.5, 0.8, 0.9, 1.0]),
+)
+def test_cutoff_for_precision_is_the_lowest_cutoff_a_brute_force_search_finds(rows, precision):
+    """Every distinct score tried from the lowest up, as the old Dojo did; the first that keeps the precision wins."""
+    scores = [score for score, _ in rows]
+    labels = [label for _, label in rows]
+    found = cutoff_for_precision(scores, labels, precision).to_dict()
+    positives = sum(labels)
+    expected = {"cutoff": None, "precision": None, "accept_rate": 0.0, "recall": 0.0}
+    for cutoff in sorted(set(scores)):
+        accepted = [label for score, label in rows if score >= cutoff]
+        if sum(accepted) / len(accepted) >= precision:
+            expected = {
+                "cutoff": cutoff,
+                "precision": round(sum(accepted) / len(accepted), 6),
+                "accept_rate": round(len(accepted) / len(rows), 6),
+                "recall": round(sum(accepted) / positives, 6) if positives else None,
+            }
+            break
+    assert found == expected
+    assert repr(found["cutoff"]) == repr(expected["cutoff"])  # -0.0 and 0.0 kept apart
