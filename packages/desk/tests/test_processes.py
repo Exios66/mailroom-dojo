@@ -11,11 +11,14 @@ from __future__ import annotations
 import contextlib
 import multiprocessing as mp
 import os
+import queue
 import signal
+import sys
 import time
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -29,6 +32,7 @@ from desk_testkit import (
     policy,
     request,
     review_events,
+    stall_in_child,
 )
 from mailroom_desk import AlreadyInReview, Desk, DeskLockTimeout, RecordDamaged, desk_lock
 from mailroom_record.verify import verify_run
@@ -36,19 +40,27 @@ from mailroom_record.verify import verify_run
 CTX = mp.get_context("spawn")
 
 
-def _run_children(root: Path, plans: list[list[str]], pause: float) -> list[tuple[str, str]]:
+def _run_children(
+    root: Path,
+    plans: list[list[str]],
+    pause: float,
+    *,
+    target: Callable[..., None] = enqueue_in_child,
+    collect_timeout: float = 120,
+) -> list[tuple[str, str]]:
     barrier = CTX.Barrier(len(plans))
     results = CTX.Queue()
     procs = [
-        CTX.Process(target=enqueue_in_child, args=(str(root), "r1", docs, barrier, results, pause))
-        for docs in plans
+        CTX.Process(target=target, args=(str(root), "r1", docs, barrier, results, pause)) for docs in plans
     ]
-    for p in procs:
-        p.start()
-    out = [results.get(timeout=120) for _ in range(sum(len(d) for d in plans))]
-    for p in procs:
-        p.join(60)
-        assert p.exitcode == 0
+    with contextlib.ExitStack() as stack:  # every started child is killed and joined
+        for p in procs:
+            p.start()
+            stack.enter_context(_reaped(p))
+        out = [results.get(timeout=collect_timeout) for _ in range(sum(len(d) for d in plans))]
+        for p in procs:
+            p.join(60)
+            assert p.exitcode == 0
     return out
 
 
@@ -81,6 +93,49 @@ def test_processes_enqueueing_different_documents_all_succeed(tmp_path: Path) ->
     queued = Desk(tmp_path).queue("r1")
     assert sorted(c.doc_id for c in queued) == sorted(d for plan in plans for d in plan)
     _verify_clean(tmp_path)
+
+
+class _RecordingContext:
+    """``CTX`` that remembers every process it makes, so a test can inspect them after."""
+
+    def __init__(self, ctx: Any) -> None:
+        self.ctx = ctx
+        self.procs: list[mp.process.BaseProcess] = []
+
+    def Barrier(self, parties: int) -> Any:  # noqa: N802 - mirrors the context's API
+        return self.ctx.Barrier(parties)
+
+    def Queue(self) -> Any:  # noqa: N802 - mirrors the context's API
+        return self.ctx.Queue()
+
+    def Process(self, **kwargs: Any) -> mp.process.BaseProcess:  # noqa: N802 - mirrors the context's API
+        proc = self.ctx.Process(**kwargs)
+        self.procs.append(proc)
+        return proc
+
+
+def test_run_children_reaps_every_child_when_collection_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Children that never report make the collection time out; every started child is
+    still killed and joined, so a failing run cannot hang the suite at exit. The exit codes
+    show they were alive (killed, not crashed) when the run gave up on them."""
+    make_run(tmp_path)
+    recording = _RecordingContext(CTX)
+    monkeypatch.setattr(sys.modules[__name__], "CTX", recording)
+    try:
+        with pytest.raises(queue.Empty):
+            _run_children(tmp_path, [["d1"], ["d2"]], pause=0, target=stall_in_child, collect_timeout=0.5)
+        assert len(recording.procs) == 2
+        alive = [p for p in recording.procs if p.is_alive()]
+        assert alive == [], f"children left running: {alive}"
+        assert [p.exitcode for p in recording.procs] == [-signal.SIGKILL] * 2
+    finally:
+        for p in recording.procs:
+            if p.pid is not None:  # started
+                if p.is_alive():
+                    p.kill()
+                p.join(30)
 
 
 @contextlib.contextmanager

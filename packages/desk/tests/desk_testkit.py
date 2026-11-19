@@ -209,6 +209,17 @@ def enqueue_in_child(
             results.put((doc_id, f"error {type(exc).__name__}: {exc}"))
 
 
+def stall_in_child(
+    root: str, run_id: str, doc_ids: list[str], barrier: Any, results: Any, pause: float
+) -> None:
+    """``enqueue_in_child``'s signature, but it never reports: it waits at ``barrier`` and
+    hangs, so the parent's result collection times out (the reaping test)."""
+    import time
+
+    barrier.wait()
+    time.sleep(600)
+
+
 class _MarkerClock:
     """A clock that creates ``marker`` and then hangs: the parent kills the process while
     it holds the desk lock (and the seal lock), between the check and the append."""
