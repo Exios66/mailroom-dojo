@@ -96,8 +96,9 @@ mailroom-dojo/
 │       (each package: pyproject.toml, README.md, src/<module>/, tests/, scripts/)
 ├── config/                    everything tuned without code (from project 2 on)
 │   ├── clients/<client>/      a client profile: document classes, schemas, thresholds, label snapshot
-│   │   └── mailroom-dataset/  profile.yaml (from build_profile.py), known-warnings.yaml, hub-revisions.yaml
+│   │   └── mailroom-dataset/  profile.yaml (from build_profile.py), known-warnings.yaml, hub-revisions.yaml, scoring.yaml (the Dojo's scoring profile)
 │   ├── policies/              routing policies (one file each; its hash is stored on every run)
+│   ├── prices/                the price sheet, read by the Dojo's cost layers and the launcher's spend gate; Dojo D5 creates it (project 3)
 │   └── prompts/<prompt_set>/  prompt sets; variants are overlays on the default set
 ├── labels/                    README.md, and one committed label snapshot per <snapshot>/ with its manifest (project 2)
 ├── docs/

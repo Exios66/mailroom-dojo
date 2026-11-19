@@ -1,0 +1,4384 @@
+{
+ "agent_families": {
+  "AUDITORS": [
+   "audit_agent",
+   "contract_auditor",
+   "corporate_records_auditor",
+   "due_diligence_auditor",
+   "correspondence_auditor",
+   "compliance_auditor",
+   "court_opinions_auditor",
+   "insurance_claims_auditor",
+   "arbiter"
+  ],
+  "CLASSIFIERS": [
+   "sorter",
+   "sorter_reviewer",
+   "judge"
+  ],
+  "INTAKE": [
+   "intake"
+  ],
+  "LIVE_SPECIALISTS": [
+   "contracts_specialist",
+   "merger_agreement_specialist",
+   "corporate_records_specialist",
+   "correspondence_specialist",
+   "insurance_claims_specialist"
+  ],
+  "SERVING": [
+   "local_vs_api"
+  ],
+  "SPECIALISTS": [
+   "contracts_specialist",
+   "merger_agreement_specialist",
+   "corporate_records_specialist",
+   "due_diligence_specialist",
+   "correspondence_specialist",
+   "compliance_specialist",
+   "court_opinions_specialist",
+   "insurance_claims_specialist"
+  ],
+  "TRANSCRIBERS": [
+   "pdf_transcriber",
+   "image_extractor"
+  ]
+ },
+ "golden": {
+  "breakdowns": {
+   "chained_summary.extractor": {
+    "leaves": [
+     "field_presence",
+     "overall_extraction_score"
+    ],
+    "places": [
+     "task_kinds/chained"
+    ]
+   },
+   "chained_summary.sorter": {
+    "leaves": [
+     "exact_match",
+     "subtype_accuracy"
+    ],
+    "places": [
+     "task_kinds/chained"
+    ]
+   },
+   "chained_summary.weights": {
+    "leaves": [
+     "extractor",
+     "sorter"
+    ],
+    "places": [
+     "task_kinds/chained"
+    ]
+   },
+   "score.api": {
+    "leaves": [
+     "base_url_host",
+     "completion_tokens",
+     "cost_per_document",
+     "dataset_fingerprint",
+     "dataset_revision",
+     "docs_per_second",
+     "draw_seed",
+     "dtype",
+     "e2e_ci",
+     "e2e_latency_seconds",
+     "e2e_p50",
+     "e2e_p95",
+     "error_rate",
+     "estimated_cost_usd",
+     "experiment_name",
+     "extraction_f1",
+     "gpu",
+     "gpu_count",
+     "gpu_memory_used_gb",
+     "gpu_utilization",
+     "kv_cache_utilization",
+     "max_model_len",
+     "n",
+     "n_docs",
+     "n_requests",
+     "n_runs",
+     "output_tokens_per_second",
+     "profile",
+     "prompt_tokens",
+     "prompt_tokens_per_second",
+     "prompt_version",
+     "quantization",
+     "queue_time_seconds",
+     "requests_per_second",
+     "split",
+     "task",
+     "tensor_parallel",
+     "tokens_per_second",
+     "total_tokens",
+     "tpot_seconds",
+     "ttft_ci",
+     "ttft_p50",
+     "ttft_p95",
+     "ttft_seconds"
+    ],
+    "places": [
+     "suites/local_vs_api"
+    ]
+   },
+   "score.binary": {
+    "leaves": [
+     "accuracy",
+     "f1",
+     "f2",
+     "false_negative_rate",
+     "false_positive_rate",
+     "fn",
+     "fp",
+     "precision",
+     "recall",
+     "tn",
+     "tp"
+    ],
+    "places": [
+     "task_kinds/legalbench"
+    ]
+   },
+   "score.confusion": {
+    "leaves": [],
+    "places": [
+     "suites/judge",
+     "task_kinds/content_topic",
+     "task_kinds/court_opinion",
+     "task_kinds/doc_class",
+     "task_kinds/enron_sentiment",
+     "task_kinds/enron_topic",
+     "task_kinds/legalbench",
+     "task_kinds/maud_question",
+     "task_kinds/multiclass",
+     "task_kinds/sentiment",
+     "task_kinds/subtype"
+    ]
+   },
+   "score.cost": {
+    "leaves": [
+     "api",
+     "completion_tokens",
+     "cost_basis",
+     "cost_per_document",
+     "delta_local_minus_api",
+     "estimated_cost_usd",
+     "formula",
+     "local",
+     "n_docs",
+     "price_per_million_completion",
+     "price_per_million_prompt",
+     "prompt_tokens",
+     "quantization",
+     "total_tokens"
+    ],
+    "places": [
+     "suites/local_vs_api"
+    ]
+   },
+   "score.doc_type_accuracy_ci": {
+    "leaves": [
+     "half",
+     "hi",
+     "lo",
+     "n",
+     "n_boot",
+     "seed"
+    ],
+    "places": [
+     "suites/sorter",
+     "suites/sorter_reviewer",
+     "task_kinds/docclass",
+     "task_kinds/maud_docclass"
+    ]
+   },
+   "score.entity_list_audit": {
+    "leaves": [],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score.entity_list_scores": {
+    "leaves": [
+     "f1",
+     "matched",
+     "n_expected",
+     "n_predicted",
+     "precision",
+     "recall"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score.exact_match_ci": {
+    "leaves": [
+     "half",
+     "hi",
+     "lo",
+     "n",
+     "n_boot",
+     "seed"
+    ],
+    "places": [
+     "suites/judge",
+     "task_kinds/court_opinion",
+     "task_kinds/doc_class",
+     "task_kinds/docclass",
+     "task_kinds/legalbench",
+     "task_kinds/maud_docclass",
+     "task_kinds/maud_question",
+     "task_kinds/multiclass",
+     "task_kinds/subtype"
+    ]
+   },
+   "score.extraction": {
+    "leaves": [
+     "calibration_error",
+     "claim_number",
+     "claimed_amount",
+     "confidence",
+     "coverage_determination",
+     "effective_date",
+     "entity_name",
+     "f1",
+     "filing_number",
+     "finding",
+     "governing_law",
+     "matched",
+     "n_expected",
+     "n_predicted",
+     "n_reasoning_entries",
+     "overall_score",
+     "parties",
+     "precision",
+     "reasoning",
+     "recall",
+     "recipient",
+     "risk",
+     "sender",
+     "severity",
+     "summary"
+    ],
+    "places": [
+     "suites/arbiter",
+     "suites/audit_agent",
+     "suites/contract_auditor",
+     "suites/corporate_records_auditor",
+     "suites/correspondence_auditor",
+     "suites/insurance_claims_auditor"
+    ]
+   },
+   "score.field_scores": {
+    "leaves": [
+     "adjuster",
+     "claim_number",
+     "claim_type",
+     "claimed_amount",
+     "cms_source_table",
+     "contract_value",
+     "coverage_determination",
+     "denial_reasons",
+     "document_name",
+     "effective_date",
+     "effective_time",
+     "entity_name",
+     "parties",
+     "sender",
+     "supporting_documents"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score.local": {
+    "leaves": [
+     "base_url_host",
+     "completion_tokens",
+     "cost_per_document",
+     "dataset_fingerprint",
+     "dataset_revision",
+     "docs_per_second",
+     "draw_seed",
+     "dtype",
+     "e2e_ci",
+     "e2e_latency_seconds",
+     "e2e_p50",
+     "e2e_p95",
+     "error_rate",
+     "estimated_cost_usd",
+     "experiment_name",
+     "extraction_f1",
+     "gpu_count",
+     "gpu_memory_used_gb",
+     "gpu_utilization",
+     "kv_cache_utilization",
+     "max_model_len",
+     "n",
+     "n_docs",
+     "n_requests",
+     "n_runs",
+     "output_tokens_per_second",
+     "profile",
+     "prompt_tokens",
+     "prompt_tokens_per_second",
+     "prompt_version",
+     "queue_time_seconds",
+     "requests_per_second",
+     "split",
+     "task",
+     "tensor_parallel",
+     "tokens_per_second",
+     "total_tokens",
+     "tpot_seconds",
+     "ttft_ci",
+     "ttft_p50",
+     "ttft_p95",
+     "ttft_seconds"
+    ],
+    "places": [
+     "suites/local_vs_api"
+    ]
+   },
+   "score.per_category": {
+    "leaves": [
+     "accuracy",
+     "f1",
+     "f2",
+     "fn",
+     "fp",
+     "jaccard_mean",
+     "n_pairs",
+     "n_positive",
+     "precision",
+     "recall",
+     "tn",
+     "tp"
+    ],
+    "places": [
+     "task_kinds/contracteval"
+    ]
+   },
+   "score.per_class": {
+    "leaves": [
+     "accuracy",
+     "correct",
+     "f1",
+     "f2",
+     "n",
+     "precision",
+     "recall"
+    ],
+    "places": [
+     "suites/judge",
+     "suites/sorter",
+     "suites/sorter_reviewer",
+     "task_kinds/content_topic",
+     "task_kinds/court_opinion",
+     "task_kinds/doc_class",
+     "task_kinds/docclass",
+     "task_kinds/document-pipeline",
+     "task_kinds/enron_sentiment",
+     "task_kinds/enron_topic",
+     "task_kinds/legalbench",
+     "task_kinds/maud_docclass",
+     "task_kinds/maud_question",
+     "task_kinds/multiclass",
+     "task_kinds/pipeline",
+     "task_kinds/sentiment",
+     "task_kinds/subtype"
+    ]
+   },
+   "score.per_question": {
+    "leaves": [
+     "accuracy",
+     "category_accuracy",
+     "n",
+     "presence",
+     "valid_class_rate"
+    ],
+    "places": [
+     "task_kinds/maud_clause",
+     "task_kinds/maud_extraction"
+    ]
+   },
+   "score.per_subclass": {
+    "leaves": [
+     "accuracy",
+     "correct",
+     "f1",
+     "f2",
+     "n",
+     "precision",
+     "recall"
+    ],
+    "places": [
+     "task_kinds/docclass",
+     "task_kinds/document-pipeline",
+     "task_kinds/maud_docclass",
+     "task_kinds/pipeline"
+    ]
+   },
+   "score.prep_invariants": {
+    "leaves": [],
+    "places": [
+     "suites/intake",
+     "task_kinds/intake"
+    ]
+   },
+   "score.quality": {
+    "leaves": [
+     "api",
+     "delta_local_minus_api",
+     "local"
+    ],
+    "places": [
+     "suites/local_vs_api"
+    ]
+   },
+   "score.scorecard": {
+    "leaves": [
+     "api",
+     "base_url_host",
+     "completion_tokens",
+     "cost_basis",
+     "cost_per_document",
+     "dataset_fingerprint",
+     "dataset_revision",
+     "delta_local_minus_api",
+     "draw_seed",
+     "dtype",
+     "estimated_cost_usd",
+     "experiment_name",
+     "formula",
+     "gpu",
+     "gpu_count",
+     "local",
+     "max_model_len",
+     "n",
+     "n_docs",
+     "note",
+     "price_per_million_completion",
+     "price_per_million_prompt",
+     "profile",
+     "prompt_tokens",
+     "prompt_version",
+     "quantization",
+     "ratio_local_over_api",
+     "split",
+     "task",
+     "tensor_parallel",
+     "tier",
+     "total_tokens"
+    ],
+    "places": [
+     "suites/local_vs_api"
+    ]
+   },
+   "score.subclass_accuracy_ci": {
+    "leaves": [
+     "half",
+     "hi",
+     "lo",
+     "n",
+     "n_boot",
+     "seed"
+    ],
+    "places": [
+     "task_kinds/docclass",
+     "task_kinds/maud_docclass"
+    ]
+   },
+   "score.trace": {
+    "leaves": [
+     "calibration_error",
+     "confidence",
+     "n_reasoning_entries",
+     "reasoning"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score_document.detail": {
+    "leaves": [
+     "amount_exactness",
+     "determination_consistency"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score_document.extraction": {
+    "leaves": [
+     "adjuster",
+     "calibration_error",
+     "claim_number",
+     "claim_type",
+     "claimed_amount",
+     "cms_source_table",
+     "confidence",
+     "contract_value",
+     "coverage_determination",
+     "denial_reasons",
+     "document_name",
+     "effective_date",
+     "effective_time",
+     "entity_name",
+     "f1",
+     "matched",
+     "n_expected",
+     "n_predicted",
+     "n_reasoning_entries",
+     "overall_score",
+     "parties",
+     "precision",
+     "reasoning",
+     "recall",
+     "sender",
+     "supporting_documents"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score_document.provenance": {
+    "leaves": [
+     "dataset_revision",
+     "draw_seed",
+     "model_id",
+     "prompt_id",
+     "serving_kind",
+     "split"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score_document.schema": {
+    "leaves": [
+     "subtype"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   },
+   "score_document.schema_promotion_gate": {
+    "leaves": [
+     "schema_valid",
+     "threshold"
+    ],
+    "places": [
+     "suites/contracts_specialist",
+     "suites/corporate_records_specialist",
+     "suites/correspondence_specialist",
+     "suites/insurance_claims_specialist",
+     "suites/merger_agreement_specialist"
+    ]
+   }
+  },
+  "names": {
+   "accuracy": [
+    "suites/boss:metric_names",
+    "suites/image_extractor:score",
+    "suites/intake:score",
+    "suites/judge:score",
+    "suites/pdf_transcriber:score",
+    "suites/reporter:metric_names",
+    "suites/sorter:score",
+    "suites/sorter_reviewer:score",
+    "task_kinds/content_topic:score",
+    "task_kinds/contracteval:score",
+    "task_kinds/court_opinion:score",
+    "task_kinds/doc_class:score",
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/enron_sentiment:score",
+    "task_kinds/enron_topic:score",
+    "task_kinds/intake:score",
+    "task_kinds/legalbench:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/maud_question:score",
+    "task_kinds/multiclass:score",
+    "task_kinds/pipeline:score",
+    "task_kinds/sentiment:score",
+    "task_kinds/subtype:score"
+   ],
+   "aligned_accuracy": [
+    "task_kinds/document-pipeline:score",
+    "task_kinds/pipeline:score"
+   ],
+   "amount_exactness": [
+    "suites/insurance_claims_specialist:score_document"
+   ],
+   "audit_disagreement_rate": [
+    "suites/arbiter:score",
+    "suites/audit_agent:score",
+    "suites/contract_auditor:score",
+    "suites/corporate_records_auditor:score",
+    "suites/correspondence_auditor:score",
+    "suites/insurance_claims_auditor:score"
+   ],
+   "audit_resolution_rate": [
+    "suites/arbiter:score",
+    "suites/audit_agent:score",
+    "suites/contract_auditor:score",
+    "suites/corporate_records_auditor:score",
+    "suites/correspondence_auditor:score",
+    "suites/insurance_claims_auditor:score"
+   ],
+   "cer": [
+    "suites/image_extractor:score",
+    "suites/pdf_transcriber:score",
+    "task_kinds/cer:score",
+    "task_kinds/transcription:score",
+    "task_kinds/wer:score"
+   ],
+   "character_accuracy": [
+    "suites/image_extractor:score",
+    "suites/pdf_transcriber:score",
+    "task_kinds/cer:score",
+    "task_kinds/transcription:score",
+    "task_kinds/wer:score"
+   ],
+   "cleaned_chars": [
+    "suites/intake:score",
+    "task_kinds/intake:score"
+   ],
+   "completion_tokens": [
+    "suites/local_vs_api:score.metrics"
+   ],
+   "composite": [
+    "task_kinds/chained:chained_summary"
+   ],
+   "content_topic_accuracy": [
+    "task_kinds/content_topic:score",
+    "task_kinds/enron_topic:score"
+   ],
+   "content_topic_f1_macro": [
+    "task_kinds/content_topic:score",
+    "task_kinds/enron_topic:score"
+   ],
+   "cost_per_document": [
+    "suites/archivist:metric_names",
+    "suites/boss:metric_names",
+    "suites/reporter:metric_names"
+   ],
+   "determination_consistency": [
+    "suites/insurance_claims_specialist:score_document"
+   ],
+   "doc_type_accuracy": [
+    "suites/sorter:score",
+    "suites/sorter_reviewer:score",
+    "task_kinds/docclass:score",
+    "task_kinds/maud_docclass:score"
+   ],
+   "docs_per_second": [
+    "suites/local_vs_api:score.metrics"
+   ],
+   "e2e_delta": [
+    "suites/local_vs_api:score"
+   ],
+   "e2e_latency_seconds": [
+    "suites/local_vs_api:score.metrics"
+   ],
+   "e2e_p50": [
+    "suites/local_vs_api:score.metrics"
+   ],
+   "e2e_p95": [
+    "suites/local_vs_api:score.metrics"
+   ],
+   "entity_list_f1": [
+    "suites/contracts_specialist:score_document",
+    "suites/corporate_records_specialist:score_document",
+    "suites/correspondence_specialist:score_document",
+    "suites/insurance_claims_specialist:score_document",
+    "suites/merger_agreement_specialist:score_document"
+   ],
+   "error_rate": [
+    "suites/local_vs_api:score.metrics"
+   ],
+   "estimated_cost_usd": [
+    "suites/archivist:metric_names"
+   ],
+   "exact_accuracy": [
+    "task_kinds/document-pipeline:score",
+    "task_kinds/pipeline:score"
+   ],
+   "exact_match": [
+    "suites/judge:score",
+    "task_kinds/content_topic:score",
+    "task_kinds/court_opinion:score",
+    "task_kinds/doc_class:score",
+    "task_kinds/docclass:score",
+    "task_kinds/enron_sentiment:score",
+    "task_kinds/enron_topic:score",
+    "task_kinds/legalbench:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/maud_question:score",
+    "task_kinds/multiclass:score",
+    "task_kinds/sentiment:score",
+    "task_kinds/subtype:score"
+   ],
+   "extraction_f1": [
+    "suites/contracts_specialist:score_document",
+    "suites/corporate_records_specialist:score_document",
+    "suites/correspondence_specialist:score_document",
+    "suites/insurance_claims_specialist:score_document",
+    "suites/merger_agreement_specialist:score_document"
+   ],
+   "extraction_f2": [
+    "suites/contracts_specialist:score_document",
+    "suites/corporate_records_specialist:score_document",
+    "suites/correspondence_specialist:score_document",
+    "suites/insurance_claims_specialist:score_document",
+    "suites/merger_agreement_specialist:score_document"
+   ],
+   "extraction_overall_score": [
+    "suites/boss:metric_names",
+    "suites/reporter:metric_names"
+   ],
+   "extraction_precision": [
+    "suites/contracts_specialist:score_document",
+    "suites/corporate_records_specialist:score_document",
+    "suites/correspondence_specialist:score_document",
+    "suites/insurance_claims_specialist:score_document",
+    "suites/merger_agreement_specialist:score_document"
+   ],
+   "extraction_recall": [
+    "suites/contracts_specialist:score_document",
+    "suites/corporate_records_specialist:score_document",
+    "suites/correspondence_specialist:score_document",
+    "suites/insurance_claims_specialist:score_document",
+    "suites/merger_agreement_specialist:score_document"
+   ],
+   "f1": [
+    "task_kinds/contracteval:score"
+   ],
+   "f1_macro": [
+    "suites/boss:metric_names",
+    "suites/image_extractor:score",
+    "suites/intake:score",
+    "suites/judge:score",
+    "suites/pdf_transcriber:score",
+    "suites/reporter:metric_names",
+    "suites/sorter:score",
+    "suites/sorter_reviewer:score",
+    "task_kinds/content_topic:score",
+    "task_kinds/court_opinion:score",
+    "task_kinds/doc_class:score",
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/enron_sentiment:score",
+    "task_kinds/enron_topic:score",
+    "task_kinds/intake:score",
+    "task_kinds/legalbench:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/maud_question:score",
+    "task_kinds/multiclass:score",
+    "task_kinds/pipeline:score",
+    "task_kinds/sentiment:score",
+    "task_kinds/subtype:score"
+   ],
+   "f2": [
+    "suites/judge:score",
+    "suites/sorter:score",
+    "suites/sorter_reviewer:score",
+    "task_kinds/contracteval:score",
+    "task_kinds/court_opinion:score",
+    "task_kinds/doc_class:score",
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/legalbench:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/maud_question:score",
+    "task_kinds/multiclass:score",
+    "task_kinds/pipeline:score",
+    "task_kinds/subtype:score"
+   ],
+   "f2_macro": [
+    "suites/judge:score",
+    "suites/sorter:score",
+    "suites/sorter_reviewer:score",
+    "task_kinds/court_opinion:score",
+    "task_kinds/doc_class:score",
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/legalbench:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/maud_question:score",
+    "task_kinds/multiclass:score",
+    "task_kinds/pipeline:score",
+    "task_kinds/subtype:score"
+   ],
+   "false_no_related_denominator": [
+    "task_kinds/contracteval:score"
+   ],
+   "false_no_related_rate": [
+    "task_kinds/contracteval:score"
+   ],
+   "false_no_related_rate_paper": [
+    "task_kinds/contracteval:score"
+   ],
+   "fn": [
+    "task_kinds/contracteval:score"
+   ],
+   "fp": [
+    "task_kinds/contracteval:score"
+   ],
+   "gpu_utilization": [
+    "suites/local_vs_api:score.metrics"
+   ],
+   "intake_changed_match": [
+    "suites/intake:score",
+    "task_kinds/intake:score"
+   ],
+   "intake_changed_rate": [
+    "suites/intake:score",
+    "task_kinds/intake:score"
+   ],
+   "intake_chars": [
+    "suites/intake:score",
+    "task_kinds/intake:score"
+   ],
+   "intake_collapsed_blanks": [
+    "suites/intake:score",
+    "task_kinds/intake:score"
+   ],
+   "intake_collapsed_blanks_match": [
+    "suites/intake:score",
+    "task_kinds/intake:score"
+   ],
+   "intake_hyphen_unwraps": [
+    "suites/intake:score",
+    "task_kinds/intake:score"
+   ],
+   "intake_hyphen_unwraps_match": [
+    "suites/intake:score",
+    "task_kinds/intake:score"
+   ],
+   "intake_messy_match": [
+    "suites/intake:score",
+    "task_kinds/intake:score"
+   ],
+   "intake_messy_rate": [
+    "suites/intake:score",
+    "task_kinds/intake:score"
+   ],
+   "intake_method_valid": [
+    "suites/intake:score",
+    "task_kinds/intake:score"
+   ],
+   "intake_prep_completeness": [
+    "suites/intake:score",
+    "task_kinds/intake:score"
+   ],
+   "jaccard_mean": [
+    "task_kinds/contracteval:score"
+   ],
+   "jaccard_median": [
+    "task_kinds/contracteval:score"
+   ],
+   "llm_call_count": [
+    "suites/archivist:metric_names"
+   ],
+   "macro_accuracy": [
+    "suites/judge:score",
+    "task_kinds/court_opinion:score",
+    "task_kinds/doc_class:score",
+    "task_kinds/maud_question:score",
+    "task_kinds/multiclass:score",
+    "task_kinds/subtype:score"
+   ],
+   "maud_category_accuracy": [
+    "task_kinds/maud_clause:score",
+    "task_kinds/maud_extraction:score"
+   ],
+   "maud_clause_presence": [
+    "task_kinds/maud_clause:score",
+    "task_kinds/maud_extraction:score"
+   ],
+   "maud_precision_answered": [
+    "task_kinds/maud_clause:score",
+    "task_kinds/maud_extraction:score"
+   ],
+   "maud_question_accuracy": [
+    "task_kinds/maud_clause:score",
+    "task_kinds/maud_extraction:score"
+   ],
+   "maud_question_macro_accuracy": [
+    "task_kinds/maud_clause:score",
+    "task_kinds/maud_extraction:score"
+   ],
+   "maud_valid_class_rate": [
+    "task_kinds/maud_clause:score",
+    "task_kinds/maud_extraction:score"
+   ],
+   "n": [
+    "suites/image_extractor:score",
+    "suites/intake:score",
+    "suites/judge:score",
+    "suites/pdf_transcriber:score",
+    "suites/sorter:score",
+    "suites/sorter_reviewer:score",
+    "task_kinds/cer:score",
+    "task_kinds/chained:chained_summary",
+    "task_kinds/content_topic:score",
+    "task_kinds/court_opinion:score",
+    "task_kinds/doc_class:score",
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/enron_sentiment:score",
+    "task_kinds/enron_topic:score",
+    "task_kinds/intake:score",
+    "task_kinds/legalbench:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/maud_question:score",
+    "task_kinds/multiclass:score",
+    "task_kinds/pipeline:score",
+    "task_kinds/sentiment:score",
+    "task_kinds/subtype:score",
+    "task_kinds/transcription:score",
+    "task_kinds/wer:score"
+   ],
+   "n_aligned": [
+    "task_kinds/document-pipeline:score",
+    "task_kinds/pipeline:score"
+   ],
+   "n_ambiguous": [
+    "task_kinds/maud_clause:score",
+    "task_kinds/maud_extraction:score"
+   ],
+   "n_documents": [
+    "task_kinds/maud_clause:score",
+    "task_kinds/maud_extraction:score"
+   ],
+   "n_exact": [
+    "task_kinds/document-pipeline:score",
+    "task_kinds/pipeline:score"
+   ],
+   "n_pairs": [
+    "task_kinds/contracteval:score"
+   ],
+   "n_positive": [
+    "task_kinds/contracteval:score"
+   ],
+   "n_pred_conflicts": [
+    "task_kinds/maud_clause:score",
+    "task_kinds/maud_extraction:score"
+   ],
+   "n_present": [
+    "task_kinds/maud_clause:score",
+    "task_kinds/maud_extraction:score"
+   ],
+   "n_questions": [
+    "task_kinds/maud_clause:score",
+    "task_kinds/maud_extraction:score"
+   ],
+   "n_subclass_scored": [
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/pipeline:score"
+   ],
+   "n_subclass_unannotated": [
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/pipeline:score"
+   ],
+   "no_related_rate": [
+    "task_kinds/contracteval:score"
+   ],
+   "output_tokens_per_second": [
+    "suites/local_vs_api:score.metrics"
+   ],
+   "overall_score": [
+    "suites/arbiter:score",
+    "suites/audit_agent:score",
+    "suites/contract_auditor:score",
+    "suites/contracts_specialist:score",
+    "suites/contracts_specialist:score_document",
+    "suites/corporate_records_auditor:score",
+    "suites/corporate_records_specialist:score",
+    "suites/corporate_records_specialist:score_document",
+    "suites/correspondence_auditor:score",
+    "suites/correspondence_specialist:score",
+    "suites/correspondence_specialist:score_document",
+    "suites/insurance_claims_auditor:score",
+    "suites/insurance_claims_specialist:score",
+    "suites/insurance_claims_specialist:score_document",
+    "suites/merger_agreement_specialist:score",
+    "suites/merger_agreement_specialist:score_document"
+   ],
+   "parse_ok": [
+    "suites/contracts_specialist:score_document",
+    "suites/corporate_records_specialist:score_document",
+    "suites/correspondence_specialist:score_document",
+    "suites/insurance_claims_specialist:score_document",
+    "suites/merger_agreement_specialist:score_document"
+   ],
+   "precision": [
+    "suites/judge:score",
+    "suites/sorter:score",
+    "suites/sorter_reviewer:score",
+    "task_kinds/contracteval:score",
+    "task_kinds/court_opinion:score",
+    "task_kinds/doc_class:score",
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/legalbench:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/maud_question:score",
+    "task_kinds/multiclass:score",
+    "task_kinds/pipeline:score",
+    "task_kinds/subtype:score"
+   ],
+   "precision_macro": [
+    "suites/judge:score",
+    "suites/sorter:score",
+    "suites/sorter_reviewer:score",
+    "task_kinds/court_opinion:score",
+    "task_kinds/doc_class:score",
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/legalbench:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/maud_question:score",
+    "task_kinds/multiclass:score",
+    "task_kinds/pipeline:score",
+    "task_kinds/subtype:score"
+   ],
+   "raw_chars": [
+    "suites/intake:score",
+    "task_kinds/intake:score"
+   ],
+   "reason": [
+    "task_kinds/maud_clause:score",
+    "task_kinds/maud_extraction:score"
+   ],
+   "recall": [
+    "suites/judge:score",
+    "suites/sorter:score",
+    "suites/sorter_reviewer:score",
+    "task_kinds/contracteval:score",
+    "task_kinds/court_opinion:score",
+    "task_kinds/doc_class:score",
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/legalbench:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/maud_question:score",
+    "task_kinds/multiclass:score",
+    "task_kinds/pipeline:score",
+    "task_kinds/subtype:score"
+   ],
+   "recall_macro": [
+    "suites/judge:score",
+    "suites/sorter:score",
+    "suites/sorter_reviewer:score",
+    "task_kinds/court_opinion:score",
+    "task_kinds/doc_class:score",
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/legalbench:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/maud_question:score",
+    "task_kinds/multiclass:score",
+    "task_kinds/pipeline:score",
+    "task_kinds/subtype:score"
+   ],
+   "requests_per_second": [
+    "suites/local_vs_api:score.metrics"
+   ],
+   "schema_adherence": [
+    "suites/contracts_specialist:score_document",
+    "suites/corporate_records_specialist:score_document",
+    "suites/correspondence_specialist:score_document",
+    "suites/insurance_claims_specialist:score_document",
+    "suites/merger_agreement_specialist:score_document"
+   ],
+   "schema_valid": [
+    "suites/contracts_specialist:score_document",
+    "suites/corporate_records_specialist:score_document",
+    "suites/correspondence_specialist:score_document",
+    "suites/insurance_claims_specialist:score_document",
+    "suites/merger_agreement_specialist:score_document"
+   ],
+   "sentiment_accuracy": [
+    "task_kinds/enron_sentiment:score",
+    "task_kinds/sentiment:score"
+   ],
+   "sentiment_f1_macro": [
+    "task_kinds/enron_sentiment:score",
+    "task_kinds/sentiment:score"
+   ],
+   "subclass_accuracy": [
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/pipeline:score"
+   ],
+   "subclass_accuracy_equiv": [
+    "task_kinds/docclass:score",
+    "task_kinds/maud_docclass:score"
+   ],
+   "subclass_f1_macro": [
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/pipeline:score"
+   ],
+   "subclass_f2_macro": [
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/pipeline:score"
+   ],
+   "subclass_precision_macro": [
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/pipeline:score"
+   ],
+   "subclass_recall_macro": [
+    "task_kinds/docclass:score",
+    "task_kinds/document-pipeline:score",
+    "task_kinds/maud_docclass:score",
+    "task_kinds/pipeline:score"
+   ],
+   "success_rate": [
+    "suites/boss:metric_names",
+    "suites/reporter:metric_names"
+   ],
+   "tn": [
+    "task_kinds/contracteval:score"
+   ],
+   "tokens_per_second": [
+    "suites/local_vs_api:score.metrics"
+   ],
+   "total_tokens": [
+    "suites/archivist:metric_names",
+    "suites/local_vs_api:score.metrics"
+   ],
+   "tp": [
+    "task_kinds/contracteval:score"
+   ],
+   "tpot_seconds": [
+    "suites/local_vs_api:score.metrics"
+   ],
+   "ttft_delta": [
+    "suites/local_vs_api:score"
+   ],
+   "ttft_p50": [
+    "suites/local_vs_api:score.metrics"
+   ],
+   "ttft_p95": [
+    "suites/local_vs_api:score.metrics"
+   ],
+   "ttft_seconds": [
+    "suites/local_vs_api:score.metrics"
+   ],
+   "wer": [
+    "suites/image_extractor:score",
+    "suites/pdf_transcriber:score",
+    "task_kinds/cer:score",
+    "task_kinds/transcription:score",
+    "task_kinds/wer:score"
+   ],
+   "word_accuracy": [
+    "suites/image_extractor:score",
+    "suites/pdf_transcriber:score",
+    "task_kinds/cer:score",
+    "task_kinds/transcription:score",
+    "task_kinds/wer:score"
+   ]
+  },
+  "scores_path": "tests/fixtures/golden/scores.json",
+  "scores_sha256": "42c7f3c667e526e9e7db39df66470a37ecfdae0eec313c60c98f60ec63ffc480"
+ },
+ "metric_ids": {
+  "code": {
+   "accuracy": "pipeline.classification.accuracy",
+   "arbiter_decision_accuracy": "decision.arbiter.decision_accuracy",
+   "arbiter_retry_usefulness": "decision.arbiter.retry_usefulness",
+   "arbiter_unnecessary_escalation_rate": "decision.arbiter.unnecessary_escalation_rate",
+   "arbiter_wrongful_accept_rate": "decision.arbiter.wrongful_accept_rate",
+   "boss_needless_review_rate": "decision.boss.needless_review_rate",
+   "boss_wrongful_approve_rate": "decision.boss.wrongful_approve_rate",
+   "content_topic_accuracy": "pipeline.enron.topic_accuracy",
+   "content_topic_f1_macro": "pipeline.enron.topic_f1_macro",
+   "extraction_category_presence": "cuad.clause_presence.micro_f1",
+   "extraction_f1": "pipeline.extraction.field_micro_f1",
+   "extraction_f2": "pipeline.extraction.field_micro_f2",
+   "extraction_overall_score": "pipeline.extraction.overall",
+   "extraction_precision": "pipeline.extraction.field_micro_precision",
+   "extraction_recall": "pipeline.extraction.field_micro_recall",
+   "f1_macro": "pipeline.classification.f1_macro",
+   "judge_error_rate": "decision.judge.error_rate",
+   "judge_escalation_recall": "decision.judge.escalation_recall",
+   "judge_false_escalation_rate": "decision.judge.false_escalation_rate",
+   "judge_verdict_accuracy": "decision.judge.verdict_accuracy",
+   "judge_verdict_macro_f1": "decision.judge.macro_f1",
+   "maud_clause_presence": "maud.clause_presence.rate",
+   "maud_question_accuracy": "maud.question.micro_accuracy",
+   "ml_intake_doc_type_accuracy": "ml.intake.doc_type_accuracy",
+   "ml_intake_doc_type_ece": "ml.intake.doc_type_ece",
+   "ml_intake_doc_type_macro_f1": "ml.intake.doc_type_macro_f1",
+   "ml_intake_fast_path_coverage": "ml.intake.fast_path_coverage",
+   "ml_intake_selective_risk": "ml.intake.selective_risk",
+   "ml_intake_selective_risk_upper": "ml.intake.selective_risk_upper",
+   "ml_intake_subclass_accuracy": "ml.intake.subclass_accuracy",
+   "ml_intake_subclass_ece": "ml.intake.subclass_ece",
+   "ml_intake_subclass_macro_f1": "ml.intake.subclass_macro_f1",
+   "overall_score": "pipeline.extraction.overall",
+   "review_tray_correction_rate": "decision.review_tray.correction_rate",
+   "review_tray_reject_rate": "decision.review_tray.reject_rate",
+   "review_tray_wasted_review_rate": "decision.review_tray.wasted_review_rate",
+   "reviewer_accept_rule_violations": "review.lane.accept_rule_violations",
+   "reviewer_accepted_accuracy": "review.lane.accepted_accuracy",
+   "reviewer_class_accuracy": "review.lane.class_accuracy",
+   "reviewer_class_macro_accuracy": "review.lane.macro_accuracy",
+   "reviewer_confidence_brier": "review.lane.confidence_brier",
+   "reviewer_confidence_ece": "review.lane.confidence_ece",
+   "reviewer_cost_per_accepted_usd": "review.lane.cost_per_accepted_usd",
+   "reviewer_routed_to_human_review_rate": "review.lane.human_review_rate",
+   "reviewer_subclass_accuracy": "review.lane.subclass_accuracy",
+   "reviewer_verdict_accuracy": "review.lane.verdict_accuracy",
+   "reviewer_wrong_accept_rate": "review.lane.wrong_accept_rate",
+   "reviewer_wrong_accept_upper_95": "review.lane.wrong_accept_upper_95",
+   "sandbox_cuad_presence_f1": "cuad.sandbox_category_detection.micro_f1",
+   "sandbox_cuad_presence_precision": "cuad.sandbox_category_detection.micro_precision",
+   "sandbox_cuad_presence_recall": "cuad.sandbox_category_detection.micro_recall",
+   "sandbox_maud_accuracy": "maud.sandbox_labeled.micro_accuracy",
+   "sandbox_maud_clean_accuracy": "maud.sandbox_clean_subset.micro_accuracy",
+   "sandbox_maud_precision_answered": "maud.sandbox_answered.precision",
+   "sentiment_accuracy": "pipeline.enron.sentiment_accuracy",
+   "sentiment_f1_macro": "pipeline.enron.sentiment_f1_macro"
+  },
+  "doc": {
+   "accuracy": "pipeline.classification.accuracy",
+   "arbiter_decision_accuracy": "decision.arbiter.decision_accuracy",
+   "arbiter_retry_usefulness": "decision.arbiter.retry_usefulness",
+   "arbiter_unnecessary_escalation_rate": "decision.arbiter.unnecessary_escalation_rate",
+   "arbiter_wrongful_accept_rate": "decision.arbiter.wrongful_accept_rate",
+   "boss_needless_review_rate": "decision.boss.needless_review_rate",
+   "boss_wrongful_approve_rate": "decision.boss.wrongful_approve_rate",
+   "content_topic_accuracy": "pipeline.enron.topic_accuracy",
+   "content_topic_f1_macro": "pipeline.enron.topic_f1_macro",
+   "extraction_category_presence": "cuad.clause_presence.micro_f1",
+   "extraction_f1": "pipeline.extraction.field_micro_f1",
+   "extraction_f2": "pipeline.extraction.field_micro_f2",
+   "extraction_overall_score": "pipeline.extraction.overall",
+   "extraction_precision": "pipeline.extraction.field_micro_precision",
+   "extraction_recall": "pipeline.extraction.field_micro_recall",
+   "f1_macro": "pipeline.classification.f1_macro",
+   "judge_error_rate": "decision.judge.error_rate",
+   "judge_escalation_recall": "decision.judge.escalation_recall",
+   "judge_false_escalation_rate": "decision.judge.false_escalation_rate",
+   "judge_verdict_accuracy": "decision.judge.verdict_accuracy",
+   "judge_verdict_macro_f1": "decision.judge.macro_f1",
+   "maud_clause_presence": "maud.clause_presence.rate",
+   "maud_question_accuracy": "maud.question.micro_accuracy",
+   "ml_intake_doc_type_accuracy": "ml.intake.doc_type_accuracy",
+   "ml_intake_doc_type_ece": "ml.intake.doc_type_ece",
+   "ml_intake_doc_type_macro_f1": "ml.intake.doc_type_macro_f1",
+   "ml_intake_fast_path_coverage": "ml.intake.fast_path_coverage",
+   "ml_intake_selective_risk": "ml.intake.selective_risk",
+   "ml_intake_selective_risk_upper": "ml.intake.selective_risk_upper",
+   "ml_intake_subclass_accuracy": "ml.intake.subclass_accuracy",
+   "ml_intake_subclass_ece": "ml.intake.subclass_ece",
+   "ml_intake_subclass_macro_f1": "ml.intake.subclass_macro_f1",
+   "overall_score": "pipeline.extraction.overall",
+   "review_tray_correction_rate": "decision.review_tray.correction_rate",
+   "review_tray_reject_rate": "decision.review_tray.reject_rate",
+   "review_tray_wasted_review_rate": "decision.review_tray.wasted_review_rate",
+   "reviewer_accept_rule_violations": "review.lane.accept_rule_violations",
+   "reviewer_accepted_accuracy": "review.lane.accepted_accuracy",
+   "reviewer_class_accuracy": "review.lane.class_accuracy",
+   "reviewer_class_macro_accuracy": "review.lane.macro_accuracy",
+   "reviewer_confidence_brier": "review.lane.confidence_brier",
+   "reviewer_confidence_ece": "review.lane.confidence_ece",
+   "reviewer_cost_per_accepted_usd": "review.lane.cost_per_accepted_usd",
+   "reviewer_routed_to_human_review_rate": "review.lane.human_review_rate",
+   "reviewer_subclass_accuracy": "review.lane.subclass_accuracy",
+   "reviewer_verdict_accuracy": "review.lane.verdict_accuracy",
+   "reviewer_wrong_accept_rate": "review.lane.wrong_accept_rate",
+   "reviewer_wrong_accept_upper_95": "review.lane.wrong_accept_upper_95",
+   "sandbox_cuad_presence_f1": "cuad.sandbox_category_detection.micro_f1",
+   "sandbox_cuad_presence_precision": "cuad.sandbox_category_detection.micro_precision",
+   "sandbox_cuad_presence_recall": "cuad.sandbox_category_detection.micro_recall",
+   "sandbox_maud_accuracy": "maud.sandbox_labeled.micro_accuracy",
+   "sandbox_maud_clean_accuracy": "maud.sandbox_clean_subset.micro_accuracy",
+   "sandbox_maud_precision_answered": "maud.sandbox_answered.precision",
+   "sentiment_accuracy": "pipeline.enron.sentiment_accuracy",
+   "sentiment_f1_macro": "pipeline.enron.sentiment_f1_macro"
+  }
+ },
+ "metrics": {
+  "accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "Exact-match accuracy after task-aware normalize_label (classification.accuracy).",
+   "description": "Overall exact-match accuracy",
+   "ground_truth": "required",
+   "inclusion": "Computed when expected and predicted label sequences are non-empty. Empty/null labels dropped.",
+   "notes": "",
+   "source": "classification.accuracy",
+   "tier": 0,
+   "units": "float[0,1]"
+  },
+  "aligned_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter",
+    "sorter_reviewer",
+    "judge"
+   ],
+   "citation": "HF pipeline aligned doc-type accuracy; extract aliases only (mailroom.score_aligned_classification). merger_agreement \u2260 contract.",
+   "description": "HF pipeline aligned doc-type accuracy (extract aliases only; merger_agreement \u2260 contract)",
+   "ground_truth": "required",
+   "inclusion": "Requires paired predicted/expected doc types. Empty sequences skipped.",
+   "notes": "",
+   "source": "mailroom.score_aligned_classification",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "amount_exactness": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "insurance_claims_specialist"
+   ],
+   "citation": "Money-field exact after one-cent normalize (claims_consistency.amount_exactness).",
+   "description": "Claimed-amount exact match after money normalize (complement of money_mae_usd)",
+   "ground_truth": "required",
+   "inclusion": "None if either side is empty or unparseable.",
+   "notes": "",
+   "source": "claims_consistency.amount_exactness",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "arbiter_decision_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "arbiter"
+   ],
+   "citation": "Retry right when the next attempt's dataset score rose by epsilon; accept right when the person approved as is or the final score is at or above the high band; human_review right when the person changed the work or the final score is below the high band.",
+   "description": "Share of arbiter rulings that matched their outcome",
+   "ground_truth": "required",
+   "inclusion": "None when no ruling has gold. Rulings without gold are unscored, never 0.",
+   "notes": "",
+   "source": "decision_lanes.score_arbiter_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "arbiter_retry_usefulness": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "arbiter"
+   ],
+   "citation": "Dataset extraction score of attempt k+1 minus attempt k, at least epsilon (default 0.05), for a retry ruled on after attempt k.",
+   "description": "Share of retry_extraction rulings whose next attempt rose by at least epsilon",
+   "ground_truth": "required",
+   "inclusion": "None when no retry has the dataset score of both attempts.",
+   "notes": "",
+   "source": "decision_lanes.score_arbiter_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "arbiter_unnecessary_escalation_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "arbiter"
+   ],
+   "citation": "Escalation unnecessary when the person approved as is, or, with no resolution, the final dataset score is at or above the high band.",
+   "description": "Share of human_review rulings that were not needed",
+   "ground_truth": "required",
+   "inclusion": "None when no human_review ruling has gold.",
+   "notes": "",
+   "source": "decision_lanes.score_arbiter_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "arbiter_wrongful_accept_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "arbiter"
+   ],
+   "citation": "Accept wrong when the person corrected, reclassified or rejected the work, or, with no resolution, the final dataset score is below the high band.",
+   "description": "Share of accept_with_caveats rulings that were wrong",
+   "ground_truth": "required",
+   "inclusion": "None when no accept ruling has gold.",
+   "notes": "",
+   "source": "decision_lanes.score_arbiter_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "audit_disagreement_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "audit_agent",
+    "contract_auditor",
+    "corporate_records_auditor",
+    "due_diligence_auditor",
+    "correspondence_auditor",
+    "compliance_auditor",
+    "court_opinions_auditor",
+    "insurance_claims_auditor",
+    "arbiter"
+   ],
+   "citation": "Complement of typed extraction overall_score between auditor output and the reference dict (suites.ScoringSuite._score_audit). No new algorithm \u2014 1 \u2212 score_extraction.overall_score.",
+   "description": "Rate where the audit pass disagrees with the specialist output",
+   "ground_truth": "optional",
+   "inclusion": "None when overall_score is None (no scorable fields). Requires two dicts.",
+   "notes": "NEW (KANBAN-061) \u2014 feeds KANBAN-060's contracts_audit_v0 pass; shared by every named auditor + arbiter",
+   "source": "suites.ScoringSuite._score_audit",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "audit_resolution_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "audit_agent",
+    "contract_auditor",
+    "corporate_records_auditor",
+    "due_diligence_auditor",
+    "correspondence_auditor",
+    "compliance_auditor",
+    "court_opinions_auditor",
+    "insurance_claims_auditor",
+    "arbiter"
+   ],
+   "citation": "Typed extraction overall_score of auditor vs reference \u2014 the rate the audit pass agrees with (and would correct toward) the reference (suites.ScoringSuite._score_audit).",
+   "description": "Rate where the specialist adopts the audit pass correction",
+   "ground_truth": "optional",
+   "inclusion": "None when overall_score is None. Requires two dicts.",
+   "notes": "NEW (KANBAN-061); shared by every named auditor + arbiter",
+   "source": "suites.ScoringSuite._score_audit",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "base_url_host": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "",
+   "description": "Hostname of the local or API endpoint",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "serving.normalize_serving_record",
+   "tier": 3,
+   "units": "tag"
+  },
+  "bert_elapsed_ms": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "BERT fast-path classifier wall-clock time (ONNX inference, intake doc)",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "mailroom SCORE_CONFIGS name; measured at intake gate",
+   "source": null,
+   "tier": 0,
+   "units": "milliseconds"
+  },
+  "bert_fail_soft": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "BERT gate failed OPEN (label discarded, sorter authority restored)",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "mailroom SCORE_CONFIGS name; never true with bert_pass true for the same doc",
+   "source": null,
+   "tier": 1,
+   "units": "boolean"
+  },
+  "bert_pass": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "Intake BERT gate verdict (true = gate passed / BERT label forwarded)",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "mailroom SCORE_CONFIGS name; emitted by intake gate (llm-mailroom agents/bert_intake.py)",
+   "source": null,
+   "tier": 1,
+   "units": "boolean"
+  },
+  "bert_sorter_agreement": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "intake",
+    "sorter"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "BERT fast-path label agrees with the sorter/reviewer reference label",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "mailroom SCORE_CONFIGS name; computed off-line for drift tracking",
+   "source": null,
+   "tier": 1,
+   "units": "boolean"
+  },
+  "bootstrap_ci": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "",
+   "description": "Percentile bootstrap CI for the headline metric",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "bootstrap.bootstrap_ci",
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "boss_needless_review_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "boss"
+   ],
+   "citation": "Human outcome only: review, then the person approved as is.",
+   "description": "Share of boss review rulings the person approved as is",
+   "ground_truth": "required",
+   "inclusion": "None when no review row has a human resolution.",
+   "notes": "",
+   "source": "decision_lanes.score_boss_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "boss_wrongful_approve_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "boss"
+   ],
+   "citation": "Human outcome only: approved, then the person corrected, reclassified or rejected the document.",
+   "description": "Share of audited boss approvals the person later changed or refused",
+   "ground_truth": "required",
+   "inclusion": "None when no approved row has a human resolution (row is no_boss_gold otherwise).",
+   "notes": "",
+   "source": "decision_lanes.score_boss_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "cer": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "pdf_transcriber",
+    "image_extractor"
+   ],
+   "citation": "Character error rate: character-level Levenshtein / |reference| (asr.character_error_rate).",
+   "description": "Character error rate (character-level Levenshtein / |reference|); lower is better",
+   "ground_truth": "required",
+   "inclusion": "Requires a non-empty reference transcript.",
+   "notes": "",
+   "source": "asr.character_error_rate",
+   "tier": 1,
+   "units": "error_rate"
+  },
+  "character_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "pdf_transcriber",
+    "image_extractor"
+   ],
+   "citation": "",
+   "description": "max(0, 1 - CER) complementary character-level transcription accuracy",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "asr.character_accuracy",
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "class_correct": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "Per-document class correctness (mailroom pipeline pilot)",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "mailroom SCORE_CONFIGS name; alias of classification_correct",
+   "source": null,
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "classification_attempts": {
+   "aggregation": "sum",
+   "applicable_agents": [
+    "sorter"
+   ],
+   "citation": "",
+   "description": "Retry attempts for the classification stage",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": null,
+   "tier": 3,
+   "units": "count"
+  },
+  "classification_confidence": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter",
+    "sorter_reviewer",
+    "judge"
+   ],
+   "citation": "",
+   "description": "Raw classifier confidence (input to calibration)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "merged into confidence_calibration_error per pruning plan",
+   "source": null,
+   "tier": 3,
+   "units": "float[0,1]"
+  },
+  "classification_correct": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter",
+    "sorter_reviewer",
+    "judge",
+    "boss"
+   ],
+   "citation": "Per-document exact-match after normalize_label (classification.exact_match).",
+   "description": "Per-document classification correctness (strict/equiv)",
+   "ground_truth": "required",
+   "inclusion": "Skipped when either side is empty/null.",
+   "notes": "",
+   "source": "classification.exact_match",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "classification_quality": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter"
+   ],
+   "citation": "",
+   "description": "Legacy numeric quality score (mailroom); superseded by structured metrics",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "mailroom SCORE_CONFIGS name; demoted per pruning plan",
+   "source": null,
+   "tier": 3,
+   "units": "float[0,1]"
+  },
+  "completeness": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "Numeric completeness of the required output shape",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "mailroom completeness_label (CATEGORICAL) folds into this numeric score; not computed in this package",
+   "source": null,
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "completeness_label": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "",
+   "description": "Categorical completeness label (complete/partial/incomplete)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "mailroom SCORE_CONFIGS name; label form of completeness",
+   "source": null,
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "completion_tokens": {
+   "aggregation": "sum",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "Sum of completion/output tokens over observations (OpenAI usage.completion_tokens).",
+   "description": "Completion / output token count for the serving run",
+   "ground_truth": "none",
+   "inclusion": "None when no observation recorded completion tokens.",
+   "notes": "",
+   "source": "serving.score_serving_run",
+   "tier": 1,
+   "units": "count"
+  },
+  "confidence_calibration_error": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "|confidence \u2212 correctness| (trace_knobs.confidence_calibration_error). Raw confidence is a captured experiment knob, never overall_score.",
+   "description": "|confidence - correctness| calibration gap",
+   "ground_truth": "none",
+   "inclusion": "When capture_confidence and compute_calibration_error are on and both values are in [0, 1].",
+   "notes": "absorbs mailroom classification_confidence + extraction_confidence (raw confidences stay at T3 as inputs)",
+   "source": "trace_knobs.confidence_calibration_error",
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "confusion_matrix": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "sorter",
+    "sorter_reviewer",
+    "judge",
+    "boss"
+   ],
+   "citation": "",
+   "description": "Class-confusion matrix",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "classification.confusion_matrix",
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "content_topic_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "correspondence_specialist"
+   ],
+   "citation": "Enron 11-topic exact-match accuracy (content_scoring.score_content_topic).",
+   "description": "Enron correspondence content_topic exact-match accuracy (11 topics)",
+   "ground_truth": "required",
+   "inclusion": "Skipped when content_topic gold is empty/null.",
+   "notes": "",
+   "source": "content_scoring.score_content_topic",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "content_topic_f1_macro": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "correspondence_specialist"
+   ],
+   "citation": "Enron 11-topic catalog; unweighted macro-F1 (content_scoring.score_content_topic).",
+   "description": "Enron correspondence content_topic macro-F1 over expected topics (imbalanced 11-way)",
+   "ground_truth": "required",
+   "inclusion": "Computed when a content_topic gold label is present; skipped when the field is empty/null.",
+   "notes": "Promoted to T0 \u2014 topic imbalance makes macro-F1 the correspondence board number",
+   "source": "content_scoring.score_content_topic",
+   "tier": 0,
+   "units": "float[0,1]"
+  },
+  "contracteval_false_no_related": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "judge"
+   ],
+   "citation": "ContractEval (arXiv 2508.03080) no-related rate: model says no related clause when GT expects content (tasks.contracteval_metrics).",
+   "description": "Rate of 'no related clause' answers when ground truth expects content",
+   "ground_truth": "required",
+   "inclusion": "ContractEval rows only; skipped outside that task.",
+   "notes": "alias: laziness (KANBAN-054); mirrors ContractEval no_related_rate",
+   "source": "tasks.contracteval_metrics",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "cost_per_document": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "Total estimated cost / documents processed (cost.estimate_for_record).",
+   "description": "Total cost / documents processed",
+   "ground_truth": "none",
+   "inclusion": "None when document count is 0.",
+   "notes": "",
+   "source": "cost.estimate_for_record",
+   "tier": 1,
+   "units": "USD"
+  },
+  "date_mae_days": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "Mean absolute error in days after date parse (diagnostics.extraction_diagnostics).",
+   "description": "Mean absolute date error in days (run-level diagnostic)",
+   "ground_truth": "required",
+   "inclusion": "None when neither side parses to a date. Empty GT dates skipped.",
+   "notes": "Existing diagnostics surface; registered so every specialist suite can emit it",
+   "source": "diagnostics.extraction_diagnostics",
+   "tier": 1,
+   "units": "days"
+  },
+  "determination_consistency": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "insurance_claims_specialist"
+   ],
+   "citation": "Structural check on the prediction; ground truth is unused (claims_consistency.determination_consistency).",
+   "description": "Insurance coverage_determination agrees with denial_reasons (approved \u21d2 empty; denied/partial \u21d2 non-empty)",
+   "ground_truth": "structural",
+   "inclusion": "Always defined on a predicted dict; 0.0 when determination is missing. CMS GT homogeneity makes GT-shaped predictions degenerate (always 1.0).",
+   "notes": "",
+   "source": "claims_consistency.determination_consistency",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "docs_per_second": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "n_docs / summed e2e window (documents processed per second).",
+   "description": "n_docs / summed e2e window (documents processed per second)",
+   "ground_truth": "none",
+   "inclusion": "None when no e2e observations or n_docs is 0.",
+   "notes": "",
+   "source": "serving.aggregate_serving",
+   "tier": 1,
+   "units": "docs/s"
+  },
+  "dtype": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "",
+   "description": "Model dtype (fp16, bf16, fp8, \u2026) when recorded",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "serving.normalize_serving_record",
+   "tier": 3,
+   "units": "tag"
+  },
+  "duration_mae_days": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "",
+   "description": "Mean absolute duration-field error in days",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "diagnostics.extraction_diagnostics",
+   "tier": 2,
+   "units": "days"
+  },
+  "e2e_latency_seconds": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "End-to-end wall-clock from request start to last token (or recorded latency).",
+   "description": "End-to-end request wall-clock (start \u2192 last token)",
+   "ground_truth": "none",
+   "inclusion": "None when neither duration nor start/end timestamps are present.",
+   "notes": "",
+   "source": "serving.score_serving_run",
+   "tier": 1,
+   "units": "seconds"
+  },
+  "e2e_p50": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "Median end-to-end latency over per-request observations.",
+   "description": "Median end-to-end latency over requests",
+   "ground_truth": "none",
+   "inclusion": "None when no request has e2e.",
+   "notes": "",
+   "source": "serving.aggregate_serving",
+   "tier": 1,
+   "units": "seconds"
+  },
+  "e2e_p95": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "95th-percentile end-to-end latency over per-request observations.",
+   "description": "95th-percentile end-to-end latency over requests",
+   "ground_truth": "none",
+   "inclusion": "None when no request has e2e.",
+   "notes": "",
+   "source": "serving.aggregate_serving",
+   "tier": 1,
+   "units": "seconds"
+  },
+  "entity_list_f1": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "Optimal bipartite matching (Hungarian / Kuhn\u2013Munkres via scipy linear_sum_assignment) over a pairwise similarity matrix, then P/R/F1 on the matched set. Mean list F1 (extraction_metrics.mean_entity_list_f1); dashboard name for diagnostics.entity_list_raw_f1.",
+   "description": "Mean entity-list bipartite F1 (dashboard name for diagnostics.entity_list_raw_f1)",
+   "ground_truth": "required",
+   "inclusion": "None if the document has no list fields.",
+   "notes": "existing diagnostics.entity_list_raw_f1 registered under this name",
+   "source": "extraction_metrics.mean_entity_list_f1",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "entity_list_precision": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "Optimal bipartite matching (Hungarian / Kuhn\u2013Munkres via scipy linear_sum_assignment) over a pairwise similarity matrix, then P/R/F1 on the matched set. Per-list-field precision from field_scoring.score_entity_list.",
+   "description": "Precision over extracted list items (bipartite match)",
+   "ground_truth": "required",
+   "inclusion": "None if the document has no entity_list fields. Empty GT lists are not FN.",
+   "notes": "",
+   "source": "field_scoring.score_entity_list",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "entity_list_recall": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "Optimal bipartite matching (Hungarian / Kuhn\u2013Munkres via scipy linear_sum_assignment) over a pairwise similarity matrix, then P/R/F1 on the matched set. Per-list-field recall from field_scoring.score_entity_list.",
+   "description": "Recall over extracted list items (bipartite match)",
+   "ground_truth": "required",
+   "inclusion": "None if the document has no entity_list fields.",
+   "notes": "",
+   "source": "field_scoring.score_entity_list",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "error_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "Share of serving requests flagged error/failed.",
+   "description": "Share of serving requests recorded as failed",
+   "ground_truth": "none",
+   "inclusion": "0.0 when n_requests > 0 and none failed. None when there are no requests.",
+   "notes": "",
+   "source": "serving.aggregate_serving",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "estimated_cost_usd": {
+   "aggregation": "sum",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "USD cost from token counts \u00d7 model table (cost.estimate_cost).",
+   "description": "Estimated USD cost of the call/run",
+   "ground_truth": "none",
+   "inclusion": "0 when usage is missing. Not a quality score.",
+   "notes": "",
+   "source": "cost.estimate_cost",
+   "tier": 1,
+   "units": "USD"
+  },
+  "exact_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter",
+    "sorter_reviewer",
+    "judge"
+   ],
+   "citation": "HF pipeline exact doc-type accuracy; merger_agreement \u2260 contract (mailroom.score_aligned_classification).",
+   "description": "HF pipeline exact doc-type accuracy (merger_agreement \u2260 contract)",
+   "ground_truth": "required",
+   "inclusion": "Requires paired predicted/expected doc types. Empty sequences skipped.",
+   "notes": "",
+   "source": "mailroom.score_aligned_classification",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "expected_field_presence": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "Share of expected fields populated",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "mailroom SCORE_CONFIGS name; alias of field_presence",
+   "source": null,
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "extraction_attempts": {
+   "aggregation": "sum",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "",
+   "description": "Retry attempts for the extraction stage",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": null,
+   "tier": 3,
+   "units": "count"
+  },
+  "extraction_category_presence": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist"
+   ],
+   "citation": "",
+   "description": "Category-presence scoring result (verbatim-clause fields)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "mailroom SCORE_CONFIGS name",
+   "source": "field_scoring.score_category_presence",
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "extraction_confidence": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "",
+   "description": "Raw extractor confidence (input to calibration)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "merged into confidence_calibration_error per pruning plan",
+   "source": null,
+   "tier": 3,
+   "units": "float[0,1]"
+  },
+  "extraction_correctness": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "Per-document extraction correctness (mailroom pilot)",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "mailroom SCORE_CONFIGS name",
+   "source": null,
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "extraction_correctness_label": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "",
+   "description": "Categorical correctness label (accurate/partial/inaccurate)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "mailroom SCORE_CONFIGS name; label form of extraction_correctness",
+   "source": null,
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "extraction_f1": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "ACE / CoNLL / SemEval slot filling; TP requires typed score \u2265 1.0. F1 is van Rijsbergen \u03b2=1.",
+   "description": "Field-micro F1 over (field, value) events (ACE / CoNLL / SemEval slot filling)",
+   "ground_truth": "required",
+   "inclusion": "Skipped when expected is empty/null. Empty GT field values are not FN. List F1 is None if no list fields. A schema field the GT does not label is excluded on both sides (a value there is not an FP); with no labelled field the suite reports P/R/F1/F2 as null.",
+   "notes": "",
+   "source": "extraction_metrics.extraction_binary_metrics",
+   "tier": 0,
+   "units": "float[0,1]"
+  },
+  "extraction_f2": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "ACE / CoNLL / SemEval slot filling; F2 is van Rijsbergen F\u03b2 with \u03b2=2 (5PR/(4P+R)).",
+   "description": "Field-micro F2 (\u03b2=2, van Rijsbergen) \u2014 recall-weighted; insurance claims board number",
+   "ground_truth": "required",
+   "inclusion": "Same inclusion as extraction_f1. Partial list matches are not TP.",
+   "notes": "Partial list matches are not TP; they stay in extraction_overall_score",
+   "source": "extraction_metrics.extraction_binary_metrics",
+   "tier": 0,
+   "units": "float[0,1]"
+  },
+  "extraction_field_score": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "",
+   "description": "Per-field score value (mailroom pilot detail)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "mailroom SCORE_CONFIGS name; sibling of per_field_scores",
+   "source": null,
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "extraction_hallucination_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "Share of reported values not grounded in GT or the source doc",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "mailroom SCORE_CONFIGS name; complement of verified precision",
+   "source": null,
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "extraction_needs_judge_review": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "Routing signal: extraction ambiguous enough to escalate to the judge",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "mailroom SCORE_CONFIGS name",
+   "source": null,
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "extraction_overall_score": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist",
+    "reporter",
+    "boss"
+   ],
+   "citation": "Mean of per-field typed scores from field_scoring.score_extraction (soft mean; partial list credit stays here).",
+   "description": "Specialist headline: overall extraction score for the run",
+   "ground_truth": "required",
+   "inclusion": "None when there are no scorable fields. Empty/null expected dict yields no overall score.",
+   "notes": "",
+   "source": "field_scoring.score_extraction",
+   "tier": 0,
+   "units": "float[0,1]"
+  },
+  "extraction_overall_verified_precision": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "Precision restricted to doc-verifiable items",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "mailroom SCORE_CONFIGS name; alias of verified_precision",
+   "source": null,
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "extraction_precision": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "ACE / CoNLL / SemEval slot-filling: (field, value) events. TP requires the typed field score \u2265 1.0; partial list matches are not TP. Source: extraction_metrics.extraction_binary_metrics.",
+   "description": "Field-micro precision over (field, value) extraction events",
+   "ground_truth": "required",
+   "inclusion": "Skipped when expected is empty/null (no events). Empty GT field values are not FN; correctly-empty pairs credit 1.0 on the empty-field contract (#20) and never enter archive overall_score. ERROR_PREFIX predictions are dropped by the suite. entity_list F1 is None when the document has no list fields. A schema field the GT does not label is excluded on both sides (a value there is not an FP); with no labelled field the suite reports field-micro P/R/F1/F2 as null.",
+   "notes": "",
+   "source": "extraction_metrics.extraction_binary_metrics",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "extraction_recall": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "ACE / CoNLL / SemEval slot-filling: (field, value) events. TP requires the typed field score \u2265 1.0; partial list matches are not TP. Source: extraction_metrics.extraction_binary_metrics.",
+   "description": "Field-micro recall over (field, value) extraction events",
+   "ground_truth": "required",
+   "inclusion": "Skipped when expected is empty/null (no events). Empty GT field values are not FN; correctly-empty pairs credit 1.0 on the empty-field contract (#20) and never enter archive overall_score. ERROR_PREFIX predictions are dropped by the suite. entity_list F1 is None when the document has no list fields. A schema field the GT does not label is excluded on both sides (a value there is not an FP); with no labelled field the suite reports field-micro P/R/F1/F2 as null.",
+   "notes": "",
+   "source": "extraction_metrics.extraction_binary_metrics",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "extraction_verified_precision": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "Langfuse wire alias of extraction_overall_verified_precision (35-char config limit)",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "mailroom LANGFUSE_SCORE_NAME_ALIASES transport name",
+   "source": null,
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "f1_macro": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "Unweighted macro-average of one-vs-rest F1 (classification.macro_prf); F1 is van Rijsbergen F\u03b2 with \u03b2=1.",
+   "description": "Macro-averaged F1 across classes \u2014 the universal classifier headline",
+   "ground_truth": "required",
+   "inclusion": "Computed when expected and predicted label sequences are non-empty. Empty/null labels dropped. score_task drops ERROR_PREFIX rows.",
+   "notes": "",
+   "source": "classification.macro_prf",
+   "tier": 0,
+   "units": "float[0,1]"
+  },
+  "f2": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "van Rijsbergen F\u03b2 (Information Retrieval, 1979); F1 is the harmonic mean (\u03b2=1), F2 uses \u03b2=2 so 5PR/(4P+R). classification.binary_metrics / macro_prf.",
+   "description": "F-beta beta=2 \u2014 recall-weighted; flags false negatives early (legal work)",
+   "ground_truth": "required",
+   "inclusion": "Computed when expected and predicted label sequences are non-empty. Empty/null labels are dropped. score_task drops ERROR_PREFIX rows. Returns 0.0 with n=0 rather than inventing a score on an empty run.",
+   "notes": "",
+   "source": "classification.binary_metrics",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "f2_macro": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter",
+    "sorter_reviewer",
+    "judge"
+   ],
+   "citation": "Unweighted macro-average of one-vs-rest P/R/F\u03b2 over the label set (Sokolova & Lapalme 2009-style). Same F\u03b2 as classification.fbeta. van Rijsbergen F\u03b2 (Information Retrieval, 1979); F1 is the harmonic mean (\u03b2=1), F2 uses \u03b2=2 so 5PR/(4P+R).",
+   "description": "Unweighted mean of one-vs-rest F2 (doc_type)",
+   "ground_truth": "required",
+   "inclusion": "Computed when expected and predicted label sequences are non-empty. Empty/null labels are dropped. score_task drops ERROR_PREFIX rows. Returns 0.0 with n=0 rather than inventing a score on an empty run.",
+   "notes": "",
+   "source": "classification.macro_prf",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "failure_mode_breakdown": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "sorter",
+    "sorter_reviewer",
+    "judge"
+   ],
+   "citation": "",
+   "description": "Failure taxonomy counts (family_confusion, function_over_form, ...)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "failure_modes.summarize_failures",
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "false_negative_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "FN/(FN+TP) from classification.binary_metrics.",
+   "description": "FN / (FN + TP)",
+   "ground_truth": "required",
+   "inclusion": "Undefined (None) when FN+TP is 0.",
+   "notes": "",
+   "source": "classification.binary_metrics",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "false_positive_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "FP/(FP+TN) from classification.binary_metrics.",
+   "description": "FP / (FP + TN)",
+   "ground_truth": "required",
+   "inclusion": "Undefined (None) when FP+TN is 0.",
+   "notes": "",
+   "source": "classification.binary_metrics",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "fast_path_est_cost_usd": {
+   "aggregation": "sum",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "Derived estimated cost of the BERT fast path (elapsed_ms x power x power price)",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "mailroom SCORE_CONFIGS name; derived from bert_elapsed_ms, never conflated with estimated_cost_usd (LLM call cost)",
+   "source": null,
+   "tier": 1,
+   "units": "USD"
+  },
+  "field_presence": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "ACE-style expected-field presence. Registry source points at score_extraction, which does not emit this name.",
+   "description": "Share of expected fields populated by the model",
+   "ground_truth": "required",
+   "inclusion": "Not computed in this package as of 0.11.0 \u2014 honesty gap, not a scorer. Do not treat a missing key as 0.0.",
+   "notes": "mailroom alias: expected_field_presence. HONEST GAP: score_extraction does not emit this name as of 0.11.0.",
+   "source": "field_scoring.score_extraction",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "gpu_count": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "",
+   "description": "Local GPU count / tensor-parallel width when recorded",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "serving.normalize_serving_record",
+   "tier": 3,
+   "units": "count"
+  },
+  "gpu_memory_used_gb": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "Local GPU memory used (GiB).",
+   "description": "Local GPU memory used in GiB. None on API-key runs",
+   "ground_truth": "none",
+   "inclusion": "None on API-key providers and when memory was not recorded.",
+   "notes": "",
+   "source": "serving.score_serving_run",
+   "tier": 1,
+   "units": "GB"
+  },
+  "gpu_name": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "",
+   "description": "Local GPU product name when recorded",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "serving.normalize_serving_record",
+   "tier": 3,
+   "units": "tag"
+  },
+  "gpu_utilization": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "Local GPU SM utilization in [0,1] from nvidia-smi / vLLM. Values >1 treated as percent.",
+   "description": "Local GPU SM utilization in [0,1] (nvidia-smi / vLLM). None on API-key runs",
+   "ground_truth": "none",
+   "inclusion": "None on API-key providers and when the local run did not record utilization.",
+   "notes": "",
+   "source": "serving.score_serving_run",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "guardrail_triggered": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "",
+   "description": "Guardrail fired (interesting in aggregate, not per-document)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "demoted from mailroom flat list per pruning plan",
+   "source": null,
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "hallucination_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist",
+    "audit_agent",
+    "contract_auditor",
+    "corporate_records_auditor",
+    "due_diligence_auditor",
+    "correspondence_auditor",
+    "compliance_auditor",
+    "court_opinions_auditor",
+    "insurance_claims_auditor",
+    "arbiter"
+   ],
+   "citation": "",
+   "description": "Rate of doc-unverifiable extracted items",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "mailroom alias: extraction_hallucination_rate",
+   "source": "field_scoring.verify_list_items",
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "intake_changed_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "Share of documents whose intake clerk mutated the transcribed text (intake.score_intake).",
+   "description": "Share of documents whose intake clerk mutated the transcribed text",
+   "ground_truth": "optional",
+   "inclusion": "Requires paired pre/post text; skipped on empty runs.",
+   "notes": "",
+   "source": "intake.score_intake",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "intake_collapsed_blanks": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "",
+   "description": "Collapsed 3+ blank-line runs (paragraph-break normalize)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "intake.deterministic_normalize",
+   "tier": 2,
+   "units": "count"
+  },
+  "intake_hyphen_unwraps": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "",
+   "description": "Hyphen-wrap unwraps performed (line-broken words rejoined)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "intake.deterministic_normalize",
+   "tier": 2,
+   "units": "count"
+  },
+  "intake_messy_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "Share of documents flagged looks_messy after intake (OCR residue / wrap artifacts) (intake.looks_messy).",
+   "description": "Share of documents flagged looks_messy after intake (OCR residue / wrap artifacts)",
+   "ground_truth": "none",
+   "inclusion": "Computed on predicted (post-intake) text.",
+   "notes": "",
+   "source": "intake.looks_messy",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "intake_prep_completeness": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "Share of intake prep-step invariants that hold (NFC, newline unify, NBSP, zero-width, C0, hyphen unwrap, blank-run collapse, horizontal space, trim). Structural check on predicted text vs the clerk contract; not a labeled GT score (intake.intake_prep_completeness).",
+   "description": "Share of intake prep-step invariants that hold before sorter handoff",
+   "ground_truth": "structural",
+   "inclusion": "Computed whenever predicted text is a string. Empty string still scores the invariants (trim/NFC hold; content is empty).",
+   "notes": "NFC, newline unify, NBSP, zero-width, C0, hyphen unwrap, blank-run collapse, horizontal space, trim",
+   "source": "intake.intake_prep_completeness",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "jaccard_similarity": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "court_opinions_specialist",
+    "judge"
+   ],
+   "citation": "Token-set Jaccard over positive spans; ContractEval method (arXiv 2508.03080) via tasks.get_jaccard.",
+   "description": "Token-set Jaccard over positive spans (ContractEval method)",
+   "ground_truth": "required",
+   "inclusion": "Skipped when both sides are empty. ContractEval tasks only.",
+   "notes": "Promoted to T1 per proposal section 3.1 (section 2.2 draft had T2); KANBAN-054 made ContractEval KPIs core.",
+   "source": "tasks.get_jaccard",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "judge_error_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "judge"
+   ],
+   "citation": "judge_error verdicts over every row the judge ran on; needs no gold.",
+   "description": "Share of judge runs that ended in judge_error",
+   "ground_truth": "structural",
+   "inclusion": "None when the judge ran on no row.",
+   "notes": "",
+   "source": "decision_lanes.score_judge_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "judge_escalation_recall": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "judge"
+   ],
+   "citation": "Recall of the judge's escalation (verdict other than complete) over documents whose gold verdict is partial or incomplete.",
+   "description": "Share of not-complete documents the judge did not call complete",
+   "ground_truth": "required",
+   "inclusion": "None when no scored row has a not-complete gold verdict.",
+   "notes": "",
+   "source": "decision_lanes.score_judge_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "judge_false_escalation_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "judge"
+   ],
+   "citation": "Complement of complete-class recall: gold complete, judge partial or incomplete.",
+   "description": "Share of complete documents the judge escalated",
+   "ground_truth": "required",
+   "inclusion": "None when no scored row has a complete gold verdict.",
+   "notes": "",
+   "source": "decision_lanes.score_judge_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "judge_notes": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "judge"
+   ],
+   "citation": "",
+   "description": "Free-text adjudication notes \u2014 belongs in logs, not scored metrics",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "demoted from mailroom flat list per pruning plan",
+   "source": null,
+   "tier": 3,
+   "units": "text"
+  },
+  "judge_verdict_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "judge"
+   ],
+   "citation": "Exact match of the judge verdict with the gold verdict: human resolution (approve_as_is complete, correct partial, reject/reclassify incomplete), else the dataset extraction score read through the ambiguous band.",
+   "description": "Judge verdict accuracy against human or corpus gold",
+   "ground_truth": "required",
+   "inclusion": "None when no judged row has gold. judge_error rows and rows without gold are unscored, never 0.",
+   "notes": "",
+   "source": "decision_lanes.score_judge_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "judge_verdict_macro_f1": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "judge"
+   ],
+   "citation": "Unweighted one-vs-rest macro F1 over the gold verdict classes (classification.macro_prf); gold as in judge_verdict_accuracy.",
+   "description": "Judge macro F1 over the gold verdict classes",
+   "ground_truth": "required",
+   "inclusion": "None when no judged row has gold.",
+   "notes": "",
+   "source": "decision_lanes.score_judge_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "kv_cache_utilization": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "vLLM KV-cache / prefix-cache occupancy in [0,1].",
+   "description": "vLLM KV-cache / prefix-cache occupancy in [0,1]. None on API-key runs",
+   "ground_truth": "none",
+   "inclusion": "None on API-key providers and when the local engine did not expose cache stats.",
+   "notes": "",
+   "source": "serving.score_serving_run",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "laziness_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "judge"
+   ],
+   "citation": "Record-level alias of contracteval_false_no_related (tasks.said_no_related): empty/bail responses when content is expected.",
+   "description": "Laziness detector \u2014 empty/bail responses when content is expected",
+   "ground_truth": "required",
+   "inclusion": "ContractEval / contracts specialist rows; skipped when GT expects empty.",
+   "notes": "alias of contracteval_false_no_related at record level",
+   "source": "tasks.said_no_related",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "legalbench_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "court_opinions_specialist"
+   ],
+   "citation": "LegalBench binary accuracy (tasks.legalbench_score).",
+   "description": "LegalBench binary accuracy",
+   "ground_truth": "required",
+   "inclusion": "Court-opinion / LegalBench rows only; skipped when no questions.",
+   "notes": "part of the legalbench_* cluster \u2014 one bundle entry, sub-fields",
+   "source": "tasks.legalbench_score",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "legalbench_calibration_error": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "court_opinions_specialist"
+   ],
+   "citation": "",
+   "description": "LegalBench confidence calibration error",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "legalbench_* cluster",
+   "source": "tasks.legalbench_score",
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "legalbench_macro_f1": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "court_opinions_specialist"
+   ],
+   "citation": "LegalBench macro-F1. Unweighted macro-average of one-vs-rest P/R/F\u03b2 over the label set (Sokolova & Lapalme 2009-style). Same F\u03b2 as classification.fbeta.",
+   "description": "LegalBench macro F1",
+   "ground_truth": "required",
+   "inclusion": "Court-opinion / LegalBench rows only; skipped when no questions.",
+   "notes": "legalbench_* cluster",
+   "source": "tasks.legalbench_score",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "legalbench_n_questions": {
+   "aggregation": "sum",
+   "applicable_agents": [
+    "court_opinions_specialist"
+   ],
+   "citation": "",
+   "description": "LegalBench question count for the run",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "legalbench_* cluster",
+   "source": null,
+   "tier": 3,
+   "units": "count"
+  },
+  "legalbench_task": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "court_opinions_specialist"
+   ],
+   "citation": "",
+   "description": "LegalBench task identifier",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "legalbench_* cluster",
+   "source": null,
+   "tier": 3,
+   "units": "tag"
+  },
+  "llm_call_count": {
+   "aggregation": "sum",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "",
+   "description": "LLM calls made (cost-calc input, not performance)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "demoted per pruning plan",
+   "source": null,
+   "tier": 3,
+   "units": "count"
+  },
+  "mailroom-pipeline-judge": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "judge"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "The-Mailroom LLM-as-judge verdict (CORRECT / PARTIAL / MISS)",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "The-Mailroom JUDGE_VERDICT_SCORES; CATEGORICAL",
+   "source": null,
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "mailroom-pipeline-quality": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "judge"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "The-Mailroom LLM-as-judge quality (0..1)",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "The-Mailroom JUDGE_QUALITY_SCORES; NUMERIC",
+   "source": null,
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "maud_category_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist"
+   ],
+   "citation": "",
+   "description": "MAUD clause-category exact match when both sides have a category",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "content_scoring.score_maud_extraction",
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "maud_clause_presence": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist"
+   ],
+   "citation": "Share of expected MAUD questions present in the prediction.",
+   "description": "Share of expected MAUD questions present in the prediction",
+   "ground_truth": "required",
+   "inclusion": "None when the expected MAUD map is empty.",
+   "notes": "",
+   "source": "content_scoring.score_maud_extraction",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "maud_question_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist"
+   ],
+   "citation": "MAUD per-question micro exact-answer accuracy over clean keys (content_scoring.score_maud_extraction). Collapsed multi-answer GT is gt_ambiguous / unscorable and excluded from the micro average.",
+   "description": "MAUD per-question micro exact-answer accuracy over the 22 Hub keys",
+   "ground_truth": "required",
+   "inclusion": "None when no scorable MAUD questions remain (empty map or all keys gt_ambiguous). n_ambiguous is always surfaced.",
+   "notes": "",
+   "source": "content_scoring.score_maud_extraction",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "maud_question_macro_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist"
+   ],
+   "citation": "MAUD per-question macro accuracy (unweighted mean over questions) (content_scoring.score_maud_extraction).",
+   "description": "MAUD per-question macro accuracy (unweighted mean over questions)",
+   "ground_truth": "required",
+   "inclusion": "None when no MAUD questions are present on the row.",
+   "notes": "",
+   "source": "content_scoring.score_maud_extraction",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "maud_valid_class_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist"
+   ],
+   "citation": "Share of predicted MAUD answers in the question's known class set.",
+   "description": "Share of predicted MAUD answers in the question's known class set",
+   "ground_truth": "optional",
+   "inclusion": "None when there are no predicted MAUD answers.",
+   "notes": "",
+   "source": "content_scoring.score_maud_extraction",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "max_model_len": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "",
+   "description": "Context window / max_model_len of the served model",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "serving.normalize_serving_record",
+   "tier": 3,
+   "units": "count"
+  },
+  "ml_intake_doc_type_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "Exact match of the predicted class with the dataset class.",
+   "description": "Intake classifier document-class accuracy",
+   "ground_truth": "required",
+   "inclusion": "None when no record has a gold class.",
+   "notes": "",
+   "source": "ml.score_intake_model",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "ml_intake_doc_type_ece": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "Equal-width 10-bin ECE of doc_type_confidence against class correctness (analysis.calibration).",
+   "description": "Calibration error of the class head",
+   "ground_truth": "required",
+   "inclusion": "None when no scored record carries a confidence in [0, 1].",
+   "notes": "",
+   "source": "ml.score_intake_model",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "ml_intake_doc_type_macro_f1": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "Unweighted one-vs-rest macro F1 over the gold classes (classification.macro_prf).",
+   "description": "Intake classifier document-class macro F1",
+   "ground_truth": "required",
+   "inclusion": "None when no record has a gold class.",
+   "notes": "",
+   "source": "ml.score_intake_model",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "ml_intake_fast_path_coverage": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "fast_path records over scored records.",
+   "description": "Share of documents the model answered without the LLM sorter",
+   "ground_truth": "structural",
+   "inclusion": "None when no record has a gold class.",
+   "notes": "",
+   "source": "ml.score_intake_model",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "ml_intake_selective_risk": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "Fast-path records whose class, or gold-labelled subclass, is wrong, over fast-path records.",
+   "description": "Error rate of fast-path answers",
+   "ground_truth": "required",
+   "inclusion": "None when no record took the fast path.",
+   "notes": "",
+   "source": "ml.score_intake_model",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "ml_intake_selective_risk_upper": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "Upper end of the Wilson score interval (z = 1.96 by default) of selective_risk; the value a release gate holds under its error budget.",
+   "description": "Wilson upper bound of the fast-path error rate",
+   "ground_truth": "required",
+   "inclusion": "None when no record took the fast path.",
+   "notes": "",
+   "source": "ml.score_intake_model",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "ml_intake_subclass_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "Subclass right only when the class is right and the predicted subclass normalizes (normalize_corpus_subclass, gold class) to the gold one.",
+   "description": "Intake classifier subclass accuracy",
+   "ground_truth": "required",
+   "inclusion": "None when no scored record has a gold subclass.",
+   "notes": "",
+   "source": "ml.score_intake_model",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "ml_intake_subclass_ece": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "Equal-width 10-bin ECE of subclass_confidence against subclass correctness.",
+   "description": "Calibration error of the subclass head",
+   "ground_truth": "required",
+   "inclusion": "None when no subclass-scored record carries a confidence in [0, 1].",
+   "notes": "",
+   "source": "ml.score_intake_model",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "ml_intake_subclass_macro_f1": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "intake"
+   ],
+   "citation": "Macro F1 over gold class/subclass pairs, after the same normalization.",
+   "description": "Intake classifier subclass macro F1",
+   "ground_truth": "required",
+   "inclusion": "None when no scored record has a gold subclass.",
+   "notes": "",
+   "source": "ml.score_intake_model",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "model": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "",
+   "description": "Served model slug (Ollama tag or OpenRouter id)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "serving.normalize_serving_record",
+   "tier": 3,
+   "units": "tag"
+  },
+  "model_slug": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "",
+   "description": "Model slug used",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": null,
+   "tier": 3,
+   "units": "tag"
+  },
+  "money_mae_usd": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "Mean absolute money-field error in USD after one-cent normalize (diagnostics.extraction_diagnostics / field_scoring.parse_money).",
+   "description": "Mean absolute money-field error in USD (run-level diagnostic)",
+   "ground_truth": "required",
+   "inclusion": "None when either side is unparseable. Empty GT amounts skipped.",
+   "notes": "Existing diagnostics surface; registered so money-bearing specialist suites can emit it",
+   "source": "diagnostics.extraction_diagnostics",
+   "tier": 1,
+   "units": "USD"
+  },
+  "n_docs": {
+   "aggregation": "sum",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "",
+   "description": "Document count for the serving run (identity.n, else n_requests)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "serving.aggregate_serving",
+   "tier": 3,
+   "units": "count"
+  },
+  "n_requests": {
+   "aggregation": "sum",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "",
+   "description": "Number of per-request serving observations in the run",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "serving.aggregate_serving",
+   "tier": 3,
+   "units": "count"
+  },
+  "output_tokens_per_second": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "Decode-only throughput: completion_tokens / (e2e \u2212 ttft).",
+   "description": "completion_tokens / (e2e \u2212 ttft) \u2014 decode-only throughput",
+   "ground_truth": "none",
+   "inclusion": "None when TTFT missing or e2e \u2264 ttft.",
+   "notes": "",
+   "source": "serving.score_serving_run",
+   "tier": 1,
+   "units": "tokens/s"
+  },
+  "parse_error": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "Output failed to parse (quick health check \u2014 promoted per pruning plan)",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "mailroom SCORE_CONFIGS name preserved; not computed in this package",
+   "source": null,
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "parse_ok": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "v0.18 format vs extraction split \u2014 parse success without field match.",
+   "description": "Prediction parsed as JSON / structured output without prose wrapper",
+   "ground_truth": "structural",
+   "inclusion": "Emitted alongside schema_valid on every extraction scorecard.",
+   "notes": "",
+   "source": "scorecard_honesty.score_format_layer",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "per_class_stats": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "sorter",
+    "sorter_reviewer",
+    "judge"
+   ],
+   "citation": "",
+   "description": "Per-class precision/recall/support",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "classification.per_class_stats",
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "per_field_scores": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist"
+   ],
+   "citation": "",
+   "description": "Type-aware per-field scores (date MAE, money error, name fuzzy match)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "field_scoring.score_field",
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "precision": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "One-vs-rest / binary precision TP/(TP+FP). van Rijsbergen F\u03b2 (Information Retrieval, 1979); F1 is the harmonic mean (\u03b2=1), F2 uses \u03b2=2 so 5PR/(4P+R). score_task fills this from classification.macro_prf for multiclass.",
+   "description": "Precision (TP / (TP + FP))",
+   "ground_truth": "required",
+   "inclusion": "Computed when expected and predicted label sequences are non-empty. Empty/null labels are dropped. score_task drops ERROR_PREFIX rows. Returns 0.0 with n=0 rather than inventing a score on an empty run.",
+   "notes": "",
+   "source": "classification.binary_metrics",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "precision_macro": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter",
+    "sorter_reviewer",
+    "judge"
+   ],
+   "citation": "Unweighted macro-average of one-vs-rest P/R/F\u03b2 over the label set (Sokolova & Lapalme 2009-style). Same F\u03b2 as classification.fbeta.",
+   "description": "Unweighted mean of one-vs-rest precision (doc_type)",
+   "ground_truth": "required",
+   "inclusion": "Computed when expected and predicted label sequences are non-empty. Empty/null labels are dropped. score_task drops ERROR_PREFIX rows. Returns 0.0 with n=0 rather than inventing a score on an empty run.",
+   "notes": "",
+   "source": "classification.macro_prf",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "prompt_tokens": {
+   "aggregation": "sum",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "Sum of prompt/input tokens over observations (OpenAI usage.prompt_tokens).",
+   "description": "Prompt / input token count for the serving run",
+   "ground_truth": "none",
+   "inclusion": "None when no observation recorded prompt tokens.",
+   "notes": "",
+   "source": "serving.score_serving_run",
+   "tier": 1,
+   "units": "count"
+  },
+  "prompt_tokens_per_second": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "Prefill throughput: prompt_tokens / ttft.",
+   "description": "prompt_tokens / ttft \u2014 prefill throughput when TTFT is recorded",
+   "ground_truth": "none",
+   "inclusion": "None when TTFT missing or prompt_tokens missing.",
+   "notes": "",
+   "source": "serving.score_serving_run",
+   "tier": 1,
+   "units": "tokens/s"
+  },
+  "prompt_version": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "",
+   "description": "Prompt version used (permanent metadata tag)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": null,
+   "tier": 3,
+   "units": "tag"
+  },
+  "provider": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "",
+   "description": "Serving provider family (ollama, vllm, openrouter, \u2026)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "serving.normalize_serving_record",
+   "tier": 3,
+   "units": "tag"
+  },
+  "quantization": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "",
+   "description": "Quantization tag (awq, gptq, fp16, q4_k_m, \u2026) registered with the run",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "serving.normalize_serving_record",
+   "tier": 3,
+   "units": "tag"
+  },
+  "queue_time_seconds": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "Scheduler wait before generation (vLLM waiting_time / queue_time).",
+   "description": "Scheduler wait before generation starts (vLLM waiting_time / queue_time)",
+   "ground_truth": "none",
+   "inclusion": "None when the engine did not record queue wait.",
+   "notes": "",
+   "source": "serving.score_serving_run",
+   "tier": 1,
+   "units": "seconds"
+  },
+  "raw_prediction": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "",
+   "description": "Per-document raw prediction (30-day retention window)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": null,
+   "tier": 3,
+   "units": "text"
+  },
+  "recall": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "One-vs-rest / binary recall TP/(TP+FN). van Rijsbergen F\u03b2 (Information Retrieval, 1979); F1 is the harmonic mean (\u03b2=1), F2 uses \u03b2=2 so 5PR/(4P+R).",
+   "description": "Recall (TP / (TP + FN))",
+   "ground_truth": "required",
+   "inclusion": "Computed when expected and predicted label sequences are non-empty. Empty/null labels are dropped. score_task drops ERROR_PREFIX rows. Returns 0.0 with n=0 rather than inventing a score on an empty run.",
+   "notes": "",
+   "source": "classification.binary_metrics",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "recall_macro": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter",
+    "sorter_reviewer",
+    "judge"
+   ],
+   "citation": "Unweighted macro-average of one-vs-rest P/R/F\u03b2 over the label set (Sokolova & Lapalme 2009-style). Same F\u03b2 as classification.fbeta.",
+   "description": "Unweighted mean of one-vs-rest recall (doc_type)",
+   "ground_truth": "required",
+   "inclusion": "Computed when expected and predicted label sequences are non-empty. Empty/null labels are dropped. score_task drops ERROR_PREFIX rows. Returns 0.0 with n=0 rather than inventing a score on an empty run.",
+   "notes": "",
+   "source": "classification.macro_prf",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "requests_per_second": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "n_requests / summed e2e window (sequential serving throughput).",
+   "description": "n_requests / summed e2e window (sequential throughput)",
+   "ground_truth": "none",
+   "inclusion": "None when no e2e observations.",
+   "notes": "",
+   "source": "serving.aggregate_serving",
+   "tier": 1,
+   "units": "req/s"
+  },
+  "review_tray_correction_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "human_review"
+   ],
+   "citation": "Resolution correct over resolved reviews.",
+   "description": "Share of resolved reviews that corrected fields",
+   "ground_truth": "structural",
+   "inclusion": "None when no parked document is resolved.",
+   "notes": "",
+   "source": "decision_lanes.score_review_tray",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "review_tray_reject_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "human_review"
+   ],
+   "citation": "Resolution reject over resolved reviews.",
+   "description": "Share of resolved reviews that rejected the document",
+   "ground_truth": "structural",
+   "inclusion": "None when no parked document is resolved.",
+   "notes": "",
+   "source": "decision_lanes.score_review_tray",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "review_tray_wasted_review_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "human_review"
+   ],
+   "citation": "A review that changed nothing: resolution approve_as_is and empty field_corrections.",
+   "description": "Share of resolved reviews approved as is with no field corrections",
+   "ground_truth": "structural",
+   "inclusion": "None when no parked document is resolved.",
+   "notes": "",
+   "source": "decision_lanes.score_review_tray",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "reviewer_accept_rule_violations": {
+   "aggregation": "sum",
+   "applicable_agents": [
+    "sorter_reviewer"
+   ],
+   "citation": "Every accept must have text, an eligible reviewer label, no causes, a cutoff, and agreement unless the sorter was below its low band.",
+   "description": "Accepted documents that violate the reviewer accept rule",
+   "ground_truth": "structural",
+   "inclusion": "Always defined; 0 means every accepted row passed the rule.",
+   "notes": "",
+   "source": "reviewer.score_review_lane",
+   "tier": 0,
+   "units": "int"
+  },
+  "reviewer_accepted_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter_reviewer"
+   ],
+   "citation": "Correct accepted labels divided by accepted documents with truth.",
+   "description": "Class accuracy among documents the reviewer accepted",
+   "ground_truth": "required",
+   "inclusion": "None when no accepted document has truth.",
+   "notes": "",
+   "source": "reviewer.score_review_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "reviewer_class_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter_reviewer"
+   ],
+   "citation": "Exact class match over reviewer-answered rows with a verified target.",
+   "description": "Reviewer class accuracy against verified targets",
+   "ground_truth": "required",
+   "inclusion": "None when no row has both a target and a reviewer label.",
+   "notes": "",
+   "source": "reviewer.score_review_lane",
+   "tier": 0,
+   "units": "float[0,1]"
+  },
+  "reviewer_class_macro_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter_reviewer"
+   ],
+   "citation": "Macro accuracy over expected classes with at least one reviewer answer.",
+   "description": "Unweighted mean of per-class reviewer accuracy",
+   "ground_truth": "required",
+   "inclusion": "None when no class has a scored answer.",
+   "notes": "",
+   "source": "reviewer.score_review_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "reviewer_confidence_brier": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "sorter_reviewer"
+   ],
+   "citation": "Mean squared difference between reviewer confidence and class correctness.",
+   "description": "Brier score of reviewer confidence",
+   "ground_truth": "required",
+   "inclusion": "None when no answered row carries a valid confidence and target.",
+   "notes": "",
+   "source": "reviewer.score_review_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "reviewer_confidence_ece": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "sorter_reviewer"
+   ],
+   "citation": "Equal-width 10-bin ECE over answered rows with a verified target.",
+   "description": "Expected calibration error of reviewer confidence",
+   "ground_truth": "required",
+   "inclusion": "None when no answered row carries a valid confidence and target.",
+   "notes": "",
+   "source": "reviewer.score_review_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "reviewer_cost_per_accepted_usd": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "sorter_reviewer"
+   ],
+   "citation": "Measured reviewer cost divided by accepted documents; None unless every row is priced.",
+   "description": "Reviewer cost per accepted document",
+   "ground_truth": "structural",
+   "inclusion": "None when any row is unpriced or no document was accepted.",
+   "notes": "",
+   "source": "reviewer.score_review_lane",
+   "tier": 1,
+   "units": "usd"
+  },
+  "reviewer_routed_to_human_review_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter_reviewer"
+   ],
+   "citation": "Pipeline reviewer routing basis: a human verdict, no usable answer, or a confidence below the class cutoff.",
+   "description": "Share of reviewer-reached documents parked for a person",
+   "ground_truth": "structural",
+   "inclusion": "None when no document reached the reviewer lane.",
+   "notes": "",
+   "source": "reviewer.score_review_lane",
+   "tier": 0,
+   "units": "float[0,1]"
+  },
+  "reviewer_subclass_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter_reviewer"
+   ],
+   "citation": "Exact subclass match over class-correct rows with a scorable target subclass; contract keys use normalize_subtype.",
+   "description": "Subclass accuracy where the reviewer got the class right",
+   "ground_truth": "required",
+   "inclusion": "Merger 'other' and blank targets are unscorable and excluded.",
+   "notes": "",
+   "source": "reviewer.score_review_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "reviewer_verdict_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter_reviewer"
+   ],
+   "citation": "Expected verdict from the sorter handoff and target: reclassify, correct subclass, or continue.",
+   "description": "Reviewer verdict accuracy against the derivable expected verdict",
+   "ground_truth": "required",
+   "inclusion": "None when no row has both a derivable expected verdict and a model verdict.",
+   "notes": "",
+   "source": "reviewer.score_review_lane",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "reviewer_wrong_accept_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter_reviewer"
+   ],
+   "citation": "Accepted = the pipeline routed the document to extraction; wrong = accepted label differs from the verified target.",
+   "description": "Wrong auto-accepts divided by accepted documents with truth",
+   "ground_truth": "required",
+   "inclusion": "None when no accepted document has truth.",
+   "notes": "",
+   "source": "reviewer.score_review_lane",
+   "tier": 0,
+   "units": "float[0,1]"
+  },
+  "reviewer_wrong_accept_upper_95": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "sorter_reviewer"
+   ],
+   "citation": "Clopper-Pearson exact upper bound (analysis.calibration.clopper_pearson_upper).",
+   "description": "Exact 95% one-sided upper bound on the wrong-accept rate",
+   "ground_truth": "required",
+   "inclusion": "None when no accepted document has truth.",
+   "notes": "",
+   "source": "reviewer.score_review_lane",
+   "tier": 0,
+   "units": "float[0,1]"
+  },
+  "run_aborted": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "",
+   "description": "Legacy abort flag",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "consolidated into success_rate",
+   "source": null,
+   "tier": 3,
+   "units": "float[0,1]"
+  },
+  "run_duration_seconds": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "",
+   "description": "Wall-clock run duration",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": null,
+   "tier": 3,
+   "units": "seconds"
+  },
+  "sandbox_cuad_presence_f1": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "contracts_specialist"
+   ],
+   "citation": "sandbox_scoring benchmark rubric adopted from sandbox 872b081.",
+   "description": "Category detection within the row-labeled universe; empty universe is unscorable.",
+   "ground_truth": "required",
+   "inclusion": "Category detection within the row-labeled universe; empty universe is unscorable.",
+   "notes": "",
+   "source": "sandbox_scoring.sandbox_metric_scores",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "sandbox_cuad_presence_precision": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "contracts_specialist"
+   ],
+   "citation": "sandbox_scoring benchmark rubric adopted from sandbox 872b081.",
+   "description": "TP/(TP+FP) within row-labeled categories; zero when no detected categories on a labeled row.",
+   "ground_truth": "required",
+   "inclusion": "TP/(TP+FP) within row-labeled categories; zero when no detected categories on a labeled row.",
+   "notes": "",
+   "source": "sandbox_scoring.sandbox_metric_scores",
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "sandbox_cuad_presence_recall": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "contracts_specialist"
+   ],
+   "citation": "sandbox_scoring benchmark rubric adopted from sandbox 872b081.",
+   "description": "TP/(TP+FN) within row-labeled categories; zero when no positive categories on a labeled row.",
+   "ground_truth": "required",
+   "inclusion": "TP/(TP+FN) within row-labeled categories; zero when no positive categories on a labeled row.",
+   "notes": "",
+   "source": "sandbox_scoring.sandbox_metric_scores",
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "sandbox_maud_accuracy": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "merger_agreement_specialist"
+   ],
+   "citation": "sandbox_scoring benchmark rubric adopted from sandbox 872b081.",
+   "description": "All labeled sandbox MAUD questions; missing answers and conflicts miss; None with no labels.",
+   "ground_truth": "required",
+   "inclusion": "All labeled sandbox MAUD questions; missing answers and conflicts miss; None with no labels.",
+   "notes": "",
+   "source": "sandbox_scoring.sandbox_metric_scores",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "sandbox_maud_clean_accuracy": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "merger_agreement_specialist"
+   ],
+   "citation": "sandbox_scoring benchmark rubric adopted from sandbox 872b081.",
+   "description": "Frozen sandbox CLEAN_QUESTIONS subset; None with no supported questions.",
+   "ground_truth": "required",
+   "inclusion": "Frozen sandbox CLEAN_QUESTIONS subset; None with no supported questions.",
+   "notes": "",
+   "source": "sandbox_scoring.sandbox_metric_scores",
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "sandbox_maud_precision_answered": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "merger_agreement_specialist"
+   ],
+   "citation": "sandbox_scoring benchmark rubric adopted from sandbox 872b081.",
+   "description": "Sandbox real answers only; placeholders excluded except catalog classes; conflicts count answered and wrong.",
+   "ground_truth": "required",
+   "inclusion": "Sandbox real answers only; placeholders excluded except catalog classes; conflicts count answered and wrong.",
+   "notes": "",
+   "source": "sandbox_scoring.sandbox_metric_scores",
+   "tier": 2,
+   "units": "float[0,1]"
+  },
+  "schema_adherence": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "Required-key coverage after parse (scorecard_honesty.score_format_layer).",
+   "description": "Required schema keys present after parse (alias of schema_valid when keys match)",
+   "ground_truth": "structural",
+   "inclusion": "T1 diagnostic when schema_valid < 1.0.",
+   "notes": "",
+   "source": "scorecard_honesty.score_format_layer",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "schema_valid": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "v0.18 fail-closed format layer \u2014 JSON/schema parse before field scoring.",
+   "description": "Output parsed to the expected schema (T1 headline gate \u2014 v0.18)",
+   "ground_truth": "structural",
+   "inclusion": "Every specialist score() with structured output; headline dashboards.",
+   "notes": "",
+   "source": "scorecard_honesty.score_format_layer",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "sentiment_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "correspondence_specialist"
+   ],
+   "citation": "Enron sentiment_label exact-match (negative/neutral/positive) (content_scoring.score_sentiment).",
+   "description": "Enron correspondence sentiment_label accuracy (negative/neutral/positive)",
+   "ground_truth": "required",
+   "inclusion": "Skipped when sentiment gold is empty/null.",
+   "notes": "",
+   "source": "content_scoring.score_sentiment",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "sentiment_f1_macro": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "correspondence_specialist"
+   ],
+   "citation": "Enron sentiment_label macro-F1 (content_scoring.score_sentiment).",
+   "description": "Enron correspondence sentiment_label macro-F1",
+   "ground_truth": "required",
+   "inclusion": "Skipped when sentiment gold is empty/null.",
+   "notes": "",
+   "source": "content_scoring.score_sentiment",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "serving_kind": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "",
+   "description": "local | api | unknown \u2014 serving family of the run",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "serving.classify_serving_kind",
+   "tier": 3,
+   "units": "tag"
+  },
+  "serving_profile": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "",
+   "description": "Sandbox profile name (ollama, vllm-local, openrouter, \u2026)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "serving.normalize_serving_record",
+   "tier": 3,
+   "units": "tag"
+  },
+  "stage_completed": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "",
+   "description": "Legacy per-stage completion flag",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "consolidated into success_rate",
+   "source": null,
+   "tier": 3,
+   "units": "float[0,1]"
+  },
+  "stage_correct": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "Per-stage correctness (mailroom pipeline pilot)",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "mailroom SCORE_CONFIGS name",
+   "source": null,
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "subclass_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter",
+    "sorter_reviewer",
+    "judge"
+   ],
+   "citation": "Exact-match accuracy over the document subclass catalog (CUAD family / CMS table / Enron form / record type).",
+   "description": "HF pipeline subclass accuracy (CUAD family / CMS table / Enron form / \u2026)",
+   "ground_truth": "required",
+   "inclusion": "Attached by score_task only when subclass kwargs (or per-row subclass labels) are present; otherwise the subclass_* keys are omitted / None.",
+   "notes": "",
+   "source": "tasks.score_task",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "subclass_f1_macro": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter",
+    "sorter_reviewer",
+    "judge"
+   ],
+   "citation": "Macro-F1 over document subclasses. Unweighted macro-average of one-vs-rest P/R/F\u03b2 over the label set (Sokolova & Lapalme 2009-style). Same F\u03b2 as classification.fbeta.",
+   "description": "Macro-F1 over doc subclasses (CUAD family / CMS table / Enron form / \u2026)",
+   "ground_truth": "required",
+   "inclusion": "Attached by score_task only when subclass kwargs (or per-row subclass labels) are present; otherwise the subclass_* keys are omitted / None.",
+   "notes": "",
+   "source": "tasks.score_task",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "subclass_f2_macro": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter",
+    "sorter_reviewer",
+    "judge"
+   ],
+   "citation": "Macro F2 over document subclasses. Unweighted macro-average of one-vs-rest P/R/F\u03b2 over the label set (Sokolova & Lapalme 2009-style). Same F\u03b2 as classification.fbeta. van Rijsbergen F\u03b2 (Information Retrieval, 1979); F1 is the harmonic mean (\u03b2=1), F2 uses \u03b2=2 so 5PR/(4P+R).",
+   "description": "Macro F2 over doc subclasses",
+   "ground_truth": "required",
+   "inclusion": "Attached by score_task only when subclass kwargs (or per-row subclass labels) are present; otherwise the subclass_* keys are omitted / None.",
+   "notes": "",
+   "source": "tasks.score_task",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "subclass_precision_macro": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter",
+    "sorter_reviewer",
+    "judge"
+   ],
+   "citation": "Macro precision over document subclasses. Unweighted macro-average of one-vs-rest P/R/F\u03b2 over the label set (Sokolova & Lapalme 2009-style). Same F\u03b2 as classification.fbeta.",
+   "description": "Macro precision over doc subclasses",
+   "ground_truth": "required",
+   "inclusion": "Attached by score_task only when subclass kwargs (or per-row subclass labels) are present; otherwise the subclass_* keys are omitted / None.",
+   "notes": "",
+   "source": "tasks.score_task",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "subclass_recall_macro": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "sorter",
+    "sorter_reviewer",
+    "judge"
+   ],
+   "citation": "Macro recall over document subclasses. Unweighted macro-average of one-vs-rest P/R/F\u03b2 over the label set (Sokolova & Lapalme 2009-style). Same F\u03b2 as classification.fbeta.",
+   "description": "Macro recall over doc subclasses",
+   "ground_truth": "required",
+   "inclusion": "Attached by score_task only when subclass kwargs (or per-row subclass labels) are present; otherwise the subclass_* keys are omitted / None.",
+   "notes": "",
+   "source": "tasks.score_task",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "success_rate": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "Not computed in llm-dojo-scoring. Mailroom SCORE_CONFIGS / Langfuse transport alias preserved so consolidation is lossless.",
+   "description": "Runs completing without abort/stage failure",
+   "ground_truth": "none",
+   "inclusion": "Never produced by this package's scorers; value is whatever the pipeline emits. Skip when the emitter omits the key.",
+   "notes": "consolidates mailroom stage_completed + run_aborted; not computed in this package",
+   "source": null,
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "tensor_parallel": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "",
+   "description": "vLLM tensor_parallel_size when recorded",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "serving.normalize_serving_record",
+   "tier": 3,
+   "units": "count"
+  },
+  "tokens_per_second": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "Decode throughput: completion_tokens / e2e_latency (vLLM tokens/s convention).",
+   "description": "Decode throughput: completion_tokens / e2e latency",
+   "ground_truth": "none",
+   "inclusion": "None when e2e \u2264 0 or completion_tokens missing.",
+   "notes": "",
+   "source": "serving.score_serving_run",
+   "tier": 0,
+   "units": "tokens/s"
+  },
+  "total_tokens": {
+   "aggregation": "sum",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "",
+   "description": "Total tokens in+out",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": "cost.tokens_summary",
+   "tier": 3,
+   "units": "count"
+  },
+  "tpot_seconds": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "Time per output token after the first: (e2e \u2212 ttft) / (completion_tokens \u2212 1) (NVIDIA NIM TPOT / inter-token latency).",
+   "description": "Time per output token after first token ((e2e \u2212 ttft) / (completion_tokens \u2212 1))",
+   "ground_truth": "none",
+   "inclusion": "None when TTFT missing, completion_tokens \u2264 1, or e2e < ttft.",
+   "notes": "",
+   "source": "serving.score_serving_run",
+   "tier": 1,
+   "units": "seconds"
+  },
+  "trace_id": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "ALL"
+   ],
+   "citation": "",
+   "description": "Observability trace id (permanent, linked to source docs)",
+   "ground_truth": "",
+   "inclusion": "",
+   "notes": "",
+   "source": null,
+   "tier": 3,
+   "units": "tag"
+  },
+  "ttft_p50": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "Median TTFT over per-request observations (linear interpolation percentile).",
+   "description": "Median time to first token over requests",
+   "ground_truth": "none",
+   "inclusion": "None when no request has TTFT.",
+   "notes": "",
+   "source": "serving.aggregate_serving",
+   "tier": 1,
+   "units": "seconds"
+  },
+  "ttft_p95": {
+   "aggregation": "none",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "95th-percentile TTFT over per-request observations.",
+   "description": "95th-percentile time to first token over requests",
+   "ground_truth": "none",
+   "inclusion": "None when no request has TTFT.",
+   "notes": "",
+   "source": "serving.aggregate_serving",
+   "tier": 1,
+   "units": "seconds"
+  },
+  "ttft_seconds": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "local_vs_api"
+   ],
+   "citation": "Time to first token: t_first_token \u2212 t_request_start (vLLM / NVIDIA NIM / OpenAI streaming). serving.score_serving_run.",
+   "description": "Time to first token (streaming first-token timestamp \u2212 request start)",
+   "ground_truth": "none",
+   "inclusion": "None unless first-token timestamp or explicit ttft_seconds is recorded. Never inferred from e2e / n_tokens.",
+   "notes": "",
+   "source": "serving.score_serving_run",
+   "tier": 0,
+   "units": "seconds"
+  },
+  "verified_precision": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "contracts_specialist",
+    "merger_agreement_specialist",
+    "corporate_records_specialist",
+    "due_diligence_specialist",
+    "correspondence_specialist",
+    "compliance_specialist",
+    "court_opinions_specialist",
+    "insurance_claims_specialist",
+    "audit_agent",
+    "contract_auditor",
+    "corporate_records_auditor",
+    "due_diligence_auditor",
+    "correspondence_auditor",
+    "compliance_auditor",
+    "court_opinions_auditor",
+    "insurance_claims_auditor",
+    "arbiter"
+   ],
+   "citation": "Precision restricted to doc-verifiable list items (field_scoring.audit_list_field token-coverage check).",
+   "description": "Precision restricted to doc-verifiable items",
+   "ground_truth": "optional",
+   "inclusion": "None when verification is disabled or the row has no audited list fields.",
+   "notes": "mailroom alias: extraction_overall_verified_precision",
+   "source": "field_scoring.audit_list_field",
+   "tier": 1,
+   "units": "float[0,1]"
+  },
+  "wer": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "pdf_transcriber",
+    "image_extractor"
+   ],
+   "citation": "Word error rate: word-level Levenshtein / |reference| (NIST ASR; asr.word_error_rate). May exceed 1.0 when the hypothesis is longer.",
+   "description": "Word error rate (word-level Levenshtein / |reference|); lower is better",
+   "ground_truth": "required",
+   "inclusion": "Requires a non-empty reference transcript. Empty hypothesis is WER=1.0 when reference is non-empty.",
+   "notes": "WER may exceed 1.0 when the hypothesis is longer than the reference",
+   "source": "asr.word_error_rate",
+   "tier": 1,
+   "units": "error_rate"
+  },
+  "word_accuracy": {
+   "aggregation": "mean",
+   "applicable_agents": [
+    "pdf_transcriber",
+    "image_extractor"
+   ],
+   "citation": "max(0, 1 \u2212 WER) complementary transcription headline (asr.word_accuracy).",
+   "description": "max(0, 1 - WER) complementary transcription headline",
+   "ground_truth": "required",
+   "inclusion": "Same inclusion as wer.",
+   "notes": "",
+   "source": "asr.word_accuracy",
+   "tier": 1,
+   "units": "float[0,1]"
+  }
+ },
+ "old_commit": "23f8234c3c548bdc203033388bb316e52e588a2c",
+ "old_version": "0.30.1",
+ "order": [
+  "f1_macro",
+  "accuracy",
+  "extraction_overall_score",
+  "extraction_f1",
+  "extraction_f2",
+  "reviewer_class_accuracy",
+  "reviewer_wrong_accept_rate",
+  "reviewer_wrong_accept_upper_95",
+  "reviewer_routed_to_human_review_rate",
+  "reviewer_accept_rule_violations",
+  "ml_intake_doc_type_accuracy",
+  "ml_intake_doc_type_macro_f1",
+  "ml_intake_doc_type_ece",
+  "ml_intake_subclass_accuracy",
+  "ml_intake_subclass_macro_f1",
+  "ml_intake_subclass_ece",
+  "ml_intake_fast_path_coverage",
+  "ml_intake_selective_risk",
+  "ml_intake_selective_risk_upper",
+  "judge_verdict_accuracy",
+  "judge_verdict_macro_f1",
+  "judge_escalation_recall",
+  "judge_false_escalation_rate",
+  "judge_error_rate",
+  "arbiter_decision_accuracy",
+  "arbiter_retry_usefulness",
+  "arbiter_wrongful_accept_rate",
+  "arbiter_unnecessary_escalation_rate",
+  "boss_wrongful_approve_rate",
+  "boss_needless_review_rate",
+  "review_tray_wasted_review_rate",
+  "review_tray_correction_rate",
+  "review_tray_reject_rate",
+  "precision",
+  "recall",
+  "f2",
+  "false_positive_rate",
+  "false_negative_rate",
+  "jaccard_similarity",
+  "contracteval_false_no_related",
+  "laziness_rate",
+  "field_presence",
+  "entity_list_precision",
+  "entity_list_recall",
+  "entity_list_f1",
+  "extraction_precision",
+  "extraction_recall",
+  "determination_consistency",
+  "amount_exactness",
+  "reviewer_accepted_accuracy",
+  "reviewer_class_macro_accuracy",
+  "reviewer_subclass_accuracy",
+  "reviewer_verdict_accuracy",
+  "reviewer_confidence_ece",
+  "reviewer_confidence_brier",
+  "reviewer_cost_per_accepted_usd",
+  "precision_macro",
+  "recall_macro",
+  "f2_macro",
+  "subclass_f1_macro",
+  "subclass_precision_macro",
+  "subclass_recall_macro",
+  "subclass_f2_macro",
+  "verified_precision",
+  "schema_valid",
+  "parse_ok",
+  "schema_adherence",
+  "parse_error",
+  "success_rate",
+  "completeness",
+  "classification_correct",
+  "class_correct",
+  "stage_correct",
+  "extraction_correctness",
+  "extraction_needs_judge_review",
+  "expected_field_presence",
+  "extraction_overall_verified_precision",
+  "extraction_verified_precision",
+  "mailroom-pipeline-judge",
+  "mailroom-pipeline-quality",
+  "exact_accuracy",
+  "aligned_accuracy",
+  "subclass_accuracy",
+  "extraction_hallucination_rate",
+  "completeness_label",
+  "extraction_correctness_label",
+  "estimated_cost_usd",
+  "cost_per_document",
+  "audit_disagreement_rate",
+  "audit_resolution_rate",
+  "legalbench_accuracy",
+  "legalbench_macro_f1",
+  "date_mae_days",
+  "money_mae_usd",
+  "duration_mae_days",
+  "content_topic_accuracy",
+  "content_topic_f1_macro",
+  "sentiment_accuracy",
+  "sentiment_f1_macro",
+  "maud_question_accuracy",
+  "maud_question_macro_accuracy",
+  "maud_clause_presence",
+  "maud_valid_class_rate",
+  "maud_category_accuracy",
+  "wer",
+  "cer",
+  "word_accuracy",
+  "character_accuracy",
+  "intake_prep_completeness",
+  "intake_changed_rate",
+  "intake_messy_rate",
+  "intake_hyphen_unwraps",
+  "intake_collapsed_blanks",
+  "ttft_seconds",
+  "tokens_per_second",
+  "tpot_seconds",
+  "e2e_latency_seconds",
+  "ttft_p50",
+  "ttft_p95",
+  "e2e_p50",
+  "e2e_p95",
+  "output_tokens_per_second",
+  "prompt_tokens_per_second",
+  "requests_per_second",
+  "docs_per_second",
+  "gpu_utilization",
+  "kv_cache_utilization",
+  "gpu_memory_used_gb",
+  "queue_time_seconds",
+  "error_rate",
+  "prompt_tokens",
+  "completion_tokens",
+  "serving_kind",
+  "quantization",
+  "gpu_name",
+  "max_model_len",
+  "model",
+  "provider",
+  "dtype",
+  "gpu_count",
+  "tensor_parallel",
+  "serving_profile",
+  "base_url_host",
+  "n_requests",
+  "n_docs",
+  "confusion_matrix",
+  "per_class_stats",
+  "failure_mode_breakdown",
+  "bootstrap_ci",
+  "confidence_calibration_error",
+  "hallucination_rate",
+  "per_field_scores",
+  "extraction_field_score",
+  "extraction_category_presence",
+  "classification_quality",
+  "guardrail_triggered",
+  "legalbench_calibration_error",
+  "sandbox_maud_accuracy",
+  "sandbox_maud_clean_accuracy",
+  "sandbox_maud_precision_answered",
+  "sandbox_cuad_presence_f1",
+  "sandbox_cuad_presence_precision",
+  "sandbox_cuad_presence_recall",
+  "classification_confidence",
+  "extraction_confidence",
+  "judge_notes",
+  "stage_completed",
+  "run_aborted",
+  "llm_call_count",
+  "total_tokens",
+  "run_duration_seconds",
+  "bert_pass",
+  "bert_sorter_agreement",
+  "bert_fail_soft",
+  "bert_elapsed_ms",
+  "fast_path_est_cost_usd",
+  "classification_attempts",
+  "extraction_attempts",
+  "prompt_version",
+  "model_slug",
+  "trace_id",
+  "raw_prediction",
+  "legalbench_n_questions",
+  "legalbench_task"
+ ],
+ "source": "llm_dojo_scoring/metrics/registry.py DEFAULT_METRICS_YAML via Registry.from_dict"
+}

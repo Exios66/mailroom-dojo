@@ -55,8 +55,8 @@ This workspace replaces three older repositories with packages around one run re
 - CircleCI is the only CI (`test` and `no-session-links`). GitHub Actions are not used.
   Until the wiring follow-up lands, those jobs do not run the guard script or the
   governance tests; the local runs above are the evidence.
-  No linter or type checker is configured yet: say "not configured" rather than claiming
-  one passed.
+  Lint, type and spelling gates: `make lint`, `make typecheck` (mypy strict over the packages
+  in `[tool.mypy] files`) and `make spell`; quote what each printed, and claim no more.
 - **Interim:** until `.circleci/config.yml` is on `main`, no CircleCI job reports. Then
   "both jobs green" is replaced by the local runs of the governance suite and the guard
   script on the verified head, with exit codes quoted in the PR, and the owner's go-ahead

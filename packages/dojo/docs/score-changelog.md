@@ -196,3 +196,255 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   Python's digit limit (`10**5000`) made the fallback detail itself raise `ValueError` in both places; the detail
   now reads `<int too large to show>`. The old Dojo raised on both (`float(similarity)`); in every case the
   string or containment score is kept, so no score moves and no fixture changes.
+
+## D2: `Measure` and the metric table
+
+### Intended differences (D2)
+
+- **A measure over nothing has no value.** A `Measure` with `n == 0` carries `value=None` and a
+  reason; it is never `0.0`. Some old scorers returned `0.0` for an empty input (an empty
+  document set or a field set with nothing scorable), which reads as "everything wrong". D2
+  defines the rule; no scorer is ported in D2, so no score changes yet. D3b applies it when it
+  ports the suites, and lists each scorer it changes here.
+- **`contracteval_false_no_related` is an alias** of `false_no_related_rate` (same unit,
+  direction and aggregation). The table resolves the alias; a `Measure` filed under it is
+  refused.
+- **`composite`** (the chained summary's weighted score) is a table row; the old registry had
+  no id for it, though the golden baseline emits it.
+
+- **Gold for the decision agents is derived, not human-only, in new rows.** By the owner's
+  decision (2026-11-18) gold no longer waits for human resolutions: it is derived from the
+  class and field labels of `hub`, `interim`, `near_gold` and `review`, with the bands from
+  the scoring profile. That is a new rule, and every kept id keeps its old meaning (port
+  design, section 10, decision 4), so it lives in eight new design rows,
+  `reviewer_class_accuracy_vs_gold`, `reviewer_wrong_accept_upper_95_vs_gold`,
+  `judge_verdict_accuracy_vs_gold`, `judge_escalation_recall_vs_gold`,
+  `arbiter_decision_accuracy_vs_gold`, `arbiter_wrongful_accept_rate_vs_gold`,
+  `boss_wrongful_approve_rate_vs_gold` and `boss_needless_review_rate_vs_gold`, and the views
+  of the sorter reviewer, judge, arbiter and boss show them. No scorer is ported in D2; D6
+  applies the rule.
+- **Correction (review round 3).** Until this round the derived rule sat in the
+  `status_reason` of the eight old ids themselves (`boss_wrongful_approve_rate` "replaces the
+  old 'human outcome only' rule"), so one id carried two rules. The old rows are restored to
+  their old meaning (no derived-gold text; the judge rows' pairing and the arbiter and boss
+  rows' pairing notes, added only for the views, are gone with it), the rule moved to the
+  `_vs_gold` rows, and two tests keep it there: no row carried from the old registry or golden
+  baseline states a derived-gold rule, and a view on `derived_gold` shows design rows only
+  (also a loader rule).
+- **Six golden values are intended D3b golden-parity differences (review round 3).** The old
+  golden baseline emits them, but their rows are `not_ported`, so the D3b parity gate reports
+  them as intended differences, not as failures:
+  - `gpu_memory_used_gb`, `kv_cache_utilization`, `queue_time_seconds` and
+    `prompt_tokens_per_second` under `suites.local_vs_api.score.api` and `.local`: serving
+    telemetry of the old serving scorecard (vLLM and nvidia-smi readings) that the new engine
+    does not emit and nothing reads;
+  - `false_negative_rate` and `false_positive_rate` under
+    `task_kinds.legalbench.score.binary`: LegalBench's binary error rates, which no gate,
+    report or projection reads.
+
+  `tests/test_metric_table_parity.py` checks that every row a per-side or binary block names
+  is kept, one of these six, or a run setting or sample size (a Measure's provenance or `n`).
+  The earlier note that the per-side blocks hold only "figures that are rows already" was
+  wrong for these four.
+- **The intake clerk diagnostics are dropped** (owner decision): `intake_prep_completeness`,
+  `intake_changed_rate`, `intake_messy_rate`, `intake_hyphen_unwraps` and
+  `intake_collapsed_blanks` are `not_ported`. The old golden intake suite emits them, so D3b
+  lists them as intended differences of the parity gate.
+- **Intake is judged on its own row, `intake_class_accuracy`; `accuracy` keeps its meaning.**
+  By the owner's decision intake is judged only by its triage class against the gold class,
+  with no guard. In the old intake suite `accuracy` is the exact match of the cleaned text
+  against the clerk's gold and `f1_macro` the token F1 (`pipeline/intake.py` `_score_one`;
+  golden `suites.intake.score.accuracy = 1.0`), so the class accuracy is a new planned row
+  (`dojo:intake_class_accuracy`, direction higher, unit proportion, gold from the class
+  layers) and intake's default view. The old suite numbers stay as they are.
+- **The headline `bert_elapsed_ms` is dropped with the BERT fast path.** It was an old tier-0
+  (headline) metric of intake; the port design drops llm-mailroom's BERT intake gate (section
+  7), so the row is `not_ported`. The dashboard queries (`headline_rows`, `rows_for_agent`,
+  `headlines_by_agent`) leave `not_ported` rows out unless called with
+  `include_not_ported=True`, so intake shows no headline from the old tier 0.
+- **An unstated ground truth is unknown, not "no labels".** The old registry left
+  `ground_truth` unset on some rows. The table writes that as `null` and reads it as unknown:
+  a default view whose metric has a `null` ground truth may name label layers, and
+  `MetricTable.check` refuses `label_status="none"` for it. The nine kept numeric rows with
+  no stated ground truth (unset in the old registry, or a golden-baseline row it never
+  listed: `no_related_rate`) now state it: `maud_category_accuracy`, `character_accuracy`,
+  `per_field_scores` and `extraction_category_presence` are `required` (scores against
+  gold); `llm_call_count`, `total_tokens`, `classification_attempts`,
+  `extraction_attempts` and `no_related_rate` are `none` (counts and a behaviour rate over
+  every pair). No value changes; only the label rule a measure of them must keep.
+- **Units have one spelling.** `usd` is written `USD` and `int` `count`; `confusion_matrix`,
+  `per_class_stats` and `bootstrap_ci` are `structure`, not `float[0,1]`. The meaning is
+  unchanged; a `structure` row is never reported as one number.
+- **Duplicates name their canonical row** (`same_as`, `alias_of`). The old note on
+  `contracteval_false_no_related`, "mirrors ContractEval no_related_rate", is wrong: it is
+  `false_no_related_rate` (positive pairs), not `no_related_rate` (all pairs). The note keeps
+  its old text; the row's `status_reason` corrects it.
+- **A denominator the run sets is not paired (review round 3).** A `denominator` column
+  (`gold` or `run`) says whether the evaluation set or the run's own decisions set a row's
+  denominator. The loader refuses a pairing on a `run` row and needs `gold` on every
+  `paired_percentile_bootstrap` row. `wrong_archive_rate` (over the run's scorable archives),
+  the judge's `_vs_gold` verdict accuracy and escalation recall, and the sorter reviewer's
+  class accuracy, wrong-accept and routed-to-review rates (the old ids and the `_vs_gold` row)
+  were paired; they now carry a `pairing_note`, and D7 builds the resample. No value
+  changes; only how two runs' values may be compared.
+- **The table is `version: 2`.** Its content changed after version 1 (the `_vs_gold` rows,
+  the restored decision rows, the `denominator` column and the pairing notes above), so the
+  version moved with it. The version and content hash are frozen in
+  `tests/fixtures/measures/table_identity.json`; a test fails when the hash moves, and says
+  so when the version did not.
+- **27 planned design rows** (`origin: design`, ids `dojo:<id>`) add numbers the old Dojo never
+  had; none changes an old number. Eight of them are the `_vs_gold` rows above.
+
+### Correction
+
+Commit `56a5a5e` said "No score-changelog entry: no metric's meaning changed", and `ab609ff`
+listed the `n == 0` rule as ported. Both are wrong: the `n == 0` rule is new (above), and the
+alias and the composite row are table changes. The commits are not amended; this entry is the
+correction.
+
+### The old `scorecard_honesty.py`
+
+Old module: `llm_dojo_scoring/metrics/scorecard_honesty.py` at `23f8234c` (1,176 lines). "D2"
+means ported in this chunk (`mailroom_dojo.measures`); D3b, D4, D5, D6 and D7 are the owning
+build chunks of the port design (section 6); "dropped" gives the reason.
+
+| Old public name (line) | Disposition |
+|:---|:---|
+| `SCORER_VERSION` (56) | D2 shape: `Provenance.scorer_version`; D5 stamps the value from the run record |
+| `PROVENANCE_KEYS` (58) | D2: `PROVENANCE_KEYS` (less `metric_id`, which is `Measure.method`) and the `Provenance` fields |
+| `COST_BASIS_TOKEN_PRICE`, `COST_BASIS_VALUES` (74, 76) | D2: `COST_BASES` (the three values plus `none`) |
+| `ERROR_CLASS_LENGTH_FINISH`, `ERROR_CLASS_CONTEXT_OVERFLOW` (81, 82) | D5: completion error classes of the run layer |
+| `DEFAULT_SCHEMA_GATE`, `DEFAULT_INSURANCE_SCHEMA_GATE`, `SCHEMA_PROMOTION_GATES` (207-213) | D5, with the thresholds moved to `config/` (tuning is configuration) |
+| `MAUD_HEADLINE_FIELDS` (428) | D3b: MAUD suite headline scope |
+| `IncomparableMetricsError` (231) | D2: replaced by `IncomparableMeasuresError` (`method_mismatch`) |
+| `UnknownMetricNameError` (235) | D2: replaced by `UnknownMetricError` |
+| `ProvenanceExportError` (243) | D2: replaced by `IncomparableMeasuresError` (`provenance_missing`, `provenance_mismatch`, `cost_basis_mismatch`) |
+| `GtAssessment` (248) | D2 shape: `Measure.label_status` and `reason`; D4 computes the assessment |
+| `metric_id_for` (260) | D2: `MetricTable.get(id).metric_id` (an unknown id raises, as before) |
+| `metric_ids_for_class`, `metric_id_allowed` (288, 293) | D7: which metric ids a class's comparison may use belongs to run comparison |
+| `assert_comparable_metric_ids` (301) | D2: `assert_comparable` (`method_mismatch`) |
+| `assess_extraction_gt` (362) | D4: scorable-field rules over the label set (fail closed) |
+| `unscorable_extraction_result` (405) | D3b: suite output, built from `Measure.missing` |
+| `headline_scope` (515) | D3b: which live fields a class headline covers |
+| `intent_split` (612) | D3b: intent reported apart from the other fields |
+| `aggregate_quality_honest` (674) | D2 rule (unscorable rows carry no value; nothing scored gives no value); D3b aggregates |
+| `export_quality_verdict` (747) | Dropped: "unproven" is a `Measure` with `value=None` and a reason; "scored" is one with a value |
+| `score_format_layer` (767) | D5: rows `parse_ok`, `schema_valid`, `schema_adherence` (layer D5) |
+| `check_schema_promotion_gate` (814) | D5, threshold from `config/` |
+| `classify_extraction_failure` (843) | D6: cause codes (format against capability) |
+| `score_empty_field_contract` (859) | D3b: with `extraction_binary_metrics` (rows `extraction_f1`, `extraction_f2`) |
+| `detect_maud_gt_ambiguity` (927) | D3b: MAUD question scoring |
+| `canonical_error_class` (965) | D5: run-layer completion |
+| `summarize_run_completion` (988) | D5: run-layer completion (rows `success_rate`, `error_rate`) |
+| `aggregate_quality_itt` (1023) | D5: intention-to-treat quality over attempted documents |
+| `stamp_provenance` (1055) | D2 shape (`Provenance`); D5 stamps it from the sealed record |
+| `validate_comparison_provenance` (1103) | D2: `comparability_problems(..., vary=...)`: every key on both sides and equal, `vary` keys present but free, `draw_seed` absent on both allowed, cost basis equal |
+| `normalize_serving_kind_token` (1165) | D5: serving by backend (`Provenance.serving_kind` is compared as given until then) |
+
+The old tests, `tests/test_v018_scorecard_honesty.py` (13 test functions):
+
+| Old test (line) | Disposition |
+|:---|:---|
+| `test_unscorable_triage_only_contracts_gt_not_zero` (29) | D4 (assessment) and D3b (suite output); the "no silent zero" half is D2: `test_unverified_labels_never_carry_a_value`, `test_a_missing_value_needs_a_reason` |
+| `test_metric_id_mismatch_incomparable` (55) | D2: `test_measures_that_differ_in_identity_are_not_compared[method_mismatch]`; the `compare_serving` half is D5 |
+| `test_schema_valid_gate_insurance` (68) | D5 |
+| `test_maud_collapsed_gt_ambiguous` (80) | D3b |
+| `test_maud_distinct_subquestion_keys_score_normally` (111) | D3b |
+| `test_format_vs_extraction_and_empty_fields` (151) | D3b (empty fields) and D6 (failure class) |
+| `test_prose_wrapped_json_is_parse_fail_not_zero_extraction` (169) | D5 (format layer) and D3b (extraction P/R/F) |
+| `test_correctly_empty_fields_score_one` (188) | D3b; the `score_extraction` half already passes in chunk 1 (`field_scoring`) |
+| `test_normal_finish_reasons_count_as_completed` (221) | D5 |
+| `test_normal_finish_reasons_preserve_error_signals` (242) | D5 |
+| `test_error_finish_reasons_count_as_errors` (261) | D5 |
+| `test_completion_and_cost_basis` (269) | D5 (completion, ITT, cost basis per record); "never mix cost bases" is D2: `cost_basis_mismatch` |
+| `test_modal_serving_kind_not_local` (308) | D5 |
+
+## Intended differences (D1, statistics)
+
+`mailroom_dojo.statistics` gives the old `analysis/bootstrap.py` and
+`analysis/calibration.py` numbers on every valid input of the statistics corpus (2,000
+cases, among them every encodable call of the old golden run and of eleven old test
+files; the four old-test calls with NumPy arguments, `auroc` with a float32 and with an
+int64 argument, `clopper_pearson_upper` with an int64 and `required_samples` with an
+int32, are counted in the corpus header's `captured_test_skipped` and not replayed). The
+195 cases that differ are all invalid inputs; each is listed with its new outcome in
+`tests/fixtures/differential/statistics_intended_differences.json`. No golden score moves:
+the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
+
+- **A NaN or infinite score is refused.** `bootstrap_ci` and `delta_significance` raise
+  `ValueError` naming the position (`values[1] is not a finite number: nan`); the old Dojo
+  returned a NaN or infinite interval, a `significant` flag decided by where NaN sorted, or
+  `None` when the other side was short. The text `"nan"` is read as NaN, so it is refused too.
+- **A NaN or infinite confidence or score in a cutoff search is refused**
+  (`cutoff_at_target`, `cross_fit_cutoffs`, `cutoff_for_precision`); the old Dojo sorted it
+  to an arbitrary place and returned a cutoff that depended on where it landed. ECE, Brier,
+  reliability bins, AUROC and Spearman still drop such values, as before.
+- **Resampling parameters are checked.** `n_boot` must be an integer of at least 1
+  (`n_boot=0` raised `IndexError` inside the old resampler), `alpha` must be in `(0, 1)`
+  (`alpha=1.5` gave an interval with `lo` above `hi`), and `seed` must be an integer (the
+  old Dojo seeded `random.Random` with text such as `"abc"` and returned an interval). As in
+  the old Dojo, fewer than two usable values give `None` first, so `bootstrap_ci([0.5],
+  n_boot=0)` and `delta_significance([0.5], [0.1, 0.2], alpha=nan)` are still `None`; with
+  enough values a bad parameter raises. A `decimal.Decimal` or `Fraction` `alpha` inside
+  `(0, 1)` gives the old interval, as before. A NumPy integer `seed` or `n_boot` is read as a
+  plain int: the old Dojo raised `TypeError` from `random.Random` for a NumPy seed and
+  reported a NumPy `n_boot` as given, which `json.dumps` refuses; the numbers are those
+  of the same plain int. The corpus holds no NumPy parameter, so the ledger has no entry.
+- **A Wilson rate must be a rate.** `wilson_ci` and `wilson_bounds` refuse a `p` outside
+  `[0, 1]`, NaN or infinite (`ValueError`), a bool `p` and a text `p` such as `"0.5"`
+  (`TypeError`). The old Dojo answered `[0, 1]` for NaN, gave bounds for `p = 1.1`, raised
+  `TypeError` comparing a complex number for `p = 3.0`, and read `"0.5"` with `float()`.
+  A `decimal.Decimal` rate is read by `wilson_ci` as before; `wilson_bounds` still refuses
+  it with a `TypeError` (the old one raised from `Decimal + float`), with another message.
+- **A Wilson support must be a whole number.** With a rate, `n = 2.5` or `True` is a
+  `TypeError` (the old Dojo computed with 2.5 trials and reported `n = 2`, and read `True`
+  as one trial). An integer-valued float (`10.0`, NumPy's `float64(10.0)`, as workbook
+  rows arrive) is ten trials, as before. `wilson_bounds(p, 0)` is a `ValueError` (it was
+  `ZeroDivisionError`). Unchanged from the old Dojo, `wilson_ci` returns `None` before any
+  check for any real `n < 1` (`0.5`, `-2.5`, `-inf`, `False`) and, when `p` is `None`, for
+  any real `n` (`2.5`, `True`, NaN, `inf`). A NaN or infinite `n` with a rate is a
+  `TypeError` (`n must be an integer; got nan`); the old Dojo raised too, a `ValueError`
+  or `OverflowError` from `int()`. A `decimal.Decimal` support takes part in the `None`
+  checks as before (`wilson_ci(None, Decimal(5))`, `wilson_ci(0.5, Decimal(0))` and
+  `wilson_ci(0.5, Decimal("-Infinity"))` are `None`); past them it is a `TypeError` naming
+  the Decimal, where the old Dojo raised `TypeError` from `float / Decimal` (from
+  `Decimal(1)` up, integral or not) or `decimal.InvalidOperation` for a NaN Decimal. The
+  corpus holds no NaN, infinite or Decimal support, so the ledger has no entry for them;
+  `tests/test_statistics_faults.py` pins these behaviours.
+- **An infinite `z` is refused** (it gave the interval `[0, 1]`).
+- **Results are frozen dataclasses** (`BootstrapInterval`, `DeltaInterval`,
+  `WilsonInterval`, `CrossFitResult`, `ReliabilityBin`, `PrecisionCutoff`); `to_dict()` is
+  the old dictionary, key for key. Not a score change.
+
+## Found, not changed (D1, statistics)
+
+- **Scores are coerced as before.** `bootstrap_ci` and `delta_significance` drop `None` and
+  anything `float()` cannot read (`"abc"`, `{}`), read booleans as 1.0 and 0.0 and numeric
+  text (`" 0.5 "`) as numbers; `n` counts what was kept. An integer too large for a float
+  raises `OverflowError`. The new paired functions are strict instead: numbers and booleans
+  only.
+- **`required_samples` names "confidence" for a bad `risk`** (`confidence must be in (0, 1);
+  got 1.0`), because the old code validated both with one helper. The message is kept.
+- **`wilson_ci` keeps `z` as given** (an integer `2` stays `2`) and rounds `p` to 4 places.
+  The interval is computed with that `z`; `to_dict()` alone gives a NumPy or `Fraction` `z`
+  as a plain `int` (an integer) or `float`, so the dictionary is JSON (the old one held the
+  NumPy value). A NumPy `float32` or `float16` `z` still makes `lo`, `hi` and `half` NumPy
+  values of that type, as in the old Dojo, so that dictionary is still not JSON.
+- **The cross-fit shuffle and the bootstrap resampler are `random.Random(seed)`**, as in the
+  old Dojo, so the same seed gives the same numbers across Python 3.12 and 3.13 (the corpus
+  was captured with 3.12 and is replayed with 3.13).
+
+## New (D1, statistics)
+
+Not in the old Dojo, so not a difference: `paired_bootstrap_delta` (paired percentile
+bootstrap of per-document score differences, B minus A), `outcome_flip_test` (exact
+two-sided McNemar test on outcome flips; significant when `p < alpha`) and `calibration_by_group` (ECE, Brier and AUROC
+per agent, class or both). These are the design's "Comparing runs" and "Confidence" needs.
+The paired functions take `{document id: value}` mappings and pair by id, in sorted id
+order; a document missing or `None` in one run is a `ValueError` naming it, unless the
+caller passes `allow_unpaired=True`, which leaves it out and returns it in `unpaired_ids`.
+`calibration_by_group` reads correctness strictly (a bool, NumPy's included, or `None`,
+which is dropped and counted; text such as `"no"` or a number is a `TypeError` naming the
+row) and reads NumPy confidences (`float32`, integers) as numbers. The ported ECE, Brier
+and reliability functions keep the old lenient reading (`bool(correct)`, and only `int` or
+`float` confidences), for parity.

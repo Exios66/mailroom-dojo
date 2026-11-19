@@ -34,6 +34,7 @@ import argparse
 import contextlib
 import copy
 import datetime
+import decimal
 import hashlib
 import importlib.metadata
 import json
@@ -130,7 +131,7 @@ class Unencodable(Exception):
 
 
 def encode(value: Any) -> Any:
-    """Encode a value as tagged JSON (non-finite floats, tuples, sets, dates, date parts)."""
+    """Encode a value as tagged JSON (non-finite floats, decimals, tuples, sets, dates, date parts)."""
     if value is None or isinstance(value, (bool, str)):
         return value
     if isinstance(value, int):
@@ -141,6 +142,8 @@ def encode(value: Any) -> Any:
         if math.isinf(value):
             return {"$float": "inf" if value > 0 else "-inf"}
         return value
+    if isinstance(value, decimal.Decimal):
+        return {"$decimal": str(value)}
     if type(value).__name__ in ("_DateParts", "DateParts"):
         return {"$date_parts": [encode(part) for part in value]}
     if isinstance(value, tuple):
@@ -171,6 +174,8 @@ def decode(value: Any) -> Any:
     if isinstance(value, dict):
         if "$float" in value:
             return float(value["$float"])
+        if "$decimal" in value:
+            return decimal.Decimal(value["$decimal"])
         if "$tuple" in value:
             return tuple(decode(item) for item in value["$tuple"])
         if "$set" in value:

@@ -26,3 +26,7 @@ dev = ["pytest", "pytest-xdist", "hypothesis"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+# The metric table ships inside the package: load_metric_table() reads it as package data.
+"mailroom_dojo.measures" = ["metrics.yaml"]
