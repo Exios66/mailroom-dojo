@@ -73,7 +73,8 @@ class LabelVocabulary:
     """A closed set of label tokens and the method that folds written labels onto them.
 
     ``aliases``, ``prefix_aliases``, ``catalog`` and ``tokens`` are ordered: when two
-    entries of equal length both match, the earlier one wins. ``unknown_token`` is the
+    entries of equal length both match, the earlier one wins, so two vocabularies
+    whose tables differ only in order are not equal. ``unknown_token`` is the
     residual label (``other``): an inventory fold never reaches it through a prefix
     or substring, a catalog or allowed-set fold never returns it from its catalog
     step, and :meth:`normalize` returns it when nothing folds.
@@ -85,6 +86,9 @@ class LabelVocabulary:
     prefix_aliases: FrozenMapping[str, str] = field(default_factory=FrozenMapping)
     catalog: tuple[CatalogEntry, ...] = ()
     unknown_token: str = "other"
+    _alias_order: tuple[tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]] = field(
+        init=False, repr=False
+    )
     _tokens_by_compact: FrozenMapping[str, str] = field(init=False, repr=False, compare=False, hash=False)
     _aliases_by_compact: FrozenMapping[str, str] = field(init=False, repr=False, compare=False, hash=False)
 
@@ -94,6 +98,11 @@ class LabelVocabulary:
         object.__setattr__(self, "aliases", FrozenMapping(self.aliases))
         object.__setattr__(self, "prefix_aliases", FrozenMapping(self.prefix_aliases))
         object.__setattr__(self, "catalog", tuple(self.catalog))
+        # The alias tables compare order-blind as mappings, but their order breaks ties
+        # when folding, so equality and the hash also see it.
+        object.__setattr__(
+            self, "_alias_order", (tuple(self.aliases.items()), tuple(self.prefix_aliases.items()))
+        )
         object.__setattr__(
             self,
             "_tokens_by_compact",
