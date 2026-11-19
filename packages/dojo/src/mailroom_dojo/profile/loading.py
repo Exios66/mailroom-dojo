@@ -130,7 +130,8 @@ def _shown(value: Any) -> str:
 
 
 def _join(path: str, key: str) -> str:
-    """Return the YAML path of ``key`` inside ``path``."""
+    """Return the YAML path of ``key`` inside ``path`` (a lone surrogate in the key is shown escaped)."""
+    key = key.encode("utf-8", "backslashreplace").decode("utf-8")
     return f"{path}.{key}" if path else key
 
 
@@ -173,9 +174,15 @@ class _Section:
 
 
 def _text(value: Any, path: str) -> str:
-    """A non-empty string with no surrounding whitespace."""
+    """A non-empty string with no surrounding whitespace, encodable as UTF-8 (no lone surrogate)."""
     if not isinstance(value, str):
         raise ProfileError(path, f"must be a string, got {type(value).__name__}")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise ProfileError(
+            path, f"must be valid Unicode text: lone surrogate {value[error.start]!r} at {error.start}"
+        ) from None
     if not value.strip():
         raise ProfileError(path, "must not be blank")
     if value != value.strip():

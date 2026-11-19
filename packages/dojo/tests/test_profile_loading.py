@@ -1056,3 +1056,51 @@ def test_a_frozen_mapping_cannot_be_initialized_twice():
         frozen.__init__({"b": 2})  # type: ignore[misc]
     assert dict(frozen) == {"a": 1} and table[FrozenMapping({"a": 1})] == "kept"
     assert dict(FrozenMapping()) == {}
+
+
+_SURROGATE = chr(0xD800)
+
+
+def _with_surrogate(place: str) -> dict:
+    """The minimal profile with a lone surrogate written at one place."""
+    mapping = minimal_profile_mapping()
+    spec = mapping["classes"][0]
+    vocabulary = spec["fields"]["coverage_tier"]["vocabulary"]
+    if place == "client":
+        mapping["client"] = _SURROGATE
+    elif place == "version":
+        mapping["version"] = "1" + _SURROGATE
+    elif place == "sorter_label":
+        spec["sorter_label"] = "Auto " + _SURROGATE
+    elif place == "synonym":
+        spec["synonyms"] = ["auto" + _SURROGATE]
+    elif place == "token":
+        vocabulary["tokens"] = ["basic", "p" + _SURROGATE]
+    elif place == "alias_key":
+        vocabulary.update(fold="aliases", aliases={"x" + _SURROGATE: "basic"})
+    elif place == "unknown_key":
+        mapping["x" + _SURROGATE] = 1
+    return mapping
+
+
+@pytest.mark.parametrize(
+    ("place", "path"),
+    [
+        ("client", "client"),
+        ("version", "version"),
+        ("sorter_label", "classes[0].sorter_label"),
+        ("synonym", "classes[0].synonyms[0]"),
+        ("token", "classes[0].fields.coverage_tier.vocabulary.tokens[1]"),
+        ("alias_key", "classes[0].fields.coverage_tier.vocabulary.aliases.x\\ud800"),
+        ("unknown_key", None),
+    ],
+)
+def test_a_lone_surrogate_is_a_profile_error_at_its_key(place, path):
+    """A parsed mapping can hold text no UTF-8 encoder accepts; the loader names where instead of raising
+    UnicodeEncodeError from the content hash, and the error itself prints."""
+    with pytest.raises(ProfileError) as caught:
+        load_scoring_profile(_with_surrogate(place))
+    if path is not None:
+        assert caught.value.path == path and "lone surrogate" in caught.value.problem
+    str(caught.value).encode("utf-8")  # the message itself is valid text
+    assert isinstance(load_scoring_profile(minimal_profile_mapping(client="Société")), ScoringProfile)
