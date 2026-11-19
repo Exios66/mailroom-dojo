@@ -48,12 +48,14 @@ class ActiveVariant:
 
 
 def _token(value: object) -> str:
-    """A field value as a stripped, lowercased token.
+    """A field value as a stripped, lowercased token; ``""`` for an empty value.
 
-    None and an empty list, dict, tuple or set are blank. A number or a boolean keeps
-    its text (``0`` is ``"0"``), so a profile marker ``"0"`` matches a JSON number 0.
+    Empty is :func:`is_empty_value`: None, a blank string, a null token (``"null"``,
+    ``"nan"``, ...), a float NaN and an empty container, so a missing field never reads
+    as the marker ``"nan"``. A number or a boolean keeps its text (``0`` is ``"0"``), so a
+    profile marker ``"0"`` matches a JSON number 0. A blank token marks no variant.
     """
-    if value is None or (isinstance(value, (list, dict, tuple, set)) and not value):
+    if is_empty_value(value):
         return ""
     return str(value).strip().lower()
 
@@ -70,7 +72,7 @@ def active_row_variant(class_spec: ClassSpec | None, expected: object) -> Active
     for variant in class_spec.variants:
         marker = variant.marker
         token = _token(parse_json_container(expected.get(marker.field)))
-        if token not in marker.values:
+        if not token or token not in marker.values:
             continue
         guard = variant.guard
         if guard is not None:
@@ -88,7 +90,7 @@ def _fallback_marker_token(variant: RowVariant, predicted: Mapping[str, Any]) ->
     """The first marker value a predicted fallback field holds, or None."""
     for field_name in variant.marker.fallback_fields:
         token = _token(predicted.get(field_name))
-        if token in variant.marker.values:
+        if token and token in variant.marker.values:
             return token
     return None
 
