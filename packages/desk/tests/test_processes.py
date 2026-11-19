@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from desk_testkit import (
+    engine_writes_across_a_handoff,
     enqueue_in_child,
     enqueue_then_hang,
     hold_desk_lock,
@@ -29,7 +30,7 @@ from desk_testkit import (
     request,
     review_events,
 )
-from mailroom_desk import AlreadyInReview, Desk, DeskLockTimeout, desk_lock
+from mailroom_desk import AlreadyInReview, Desk, DeskLockTimeout, RecordDamaged, desk_lock
 from mailroom_record.verify import verify_run
 
 CTX = mp.get_context("spawn")
@@ -200,3 +201,40 @@ def test_a_spawned_child_does_not_inherit_the_lock(tmp_path: Path) -> None:
     finally:
         child.kill()
         child.join(30)
+
+
+def test_a_writer_in_another_process_breaking_the_one_owner_rule_is_caught_as_a_fork(
+    tmp_path: Path,
+) -> None:
+    """The desk lock serializes desk actions only. Across processes the record leaves
+    document ownership to its callers (``mailroom_record.log``, "One owner per document"):
+    the engine closes its writer for a document before handing it to the desk and never
+    writes it while it is in review. This test breaks that rule on purpose and pins what
+    follows: the chain forks, and every desk read and action refuses it as damage."""
+    make_run(tmp_path)
+    marker, go = tmp_path / "buffered", tmp_path / "go"
+    child = CTX.Process(
+        target=engine_writes_across_a_handoff, args=(str(tmp_path), "r1", "d1", str(marker), str(go))
+    )
+    child.start()
+    with _reaped(child):
+        _wait_for(marker, child)
+        # The engine holds an unflushed seq 0 of d1; the desk sees no events and appends its own.
+        pol = policy(sample={"rate": 0.0, "seed": ""})
+        desk = Desk(tmp_path, lock_timeout=5)
+        assert desk.enqueue(request("d1", "flag_low"), pol).event.seq == 0
+        go.write_text("go", encoding="utf-8")
+        child.join(60)
+        assert child.exitcode == 0
+    log = log_of(tmp_path)
+    assert sorted(e.seq for e in log.iter_events("r1", "d1")) == [0, 0]  # forked
+    assert "forked_chain" in {p.kind for p in verify_run(log, log.blobs, "r1").problems}
+    for act in (
+        lambda: desk.case("r1", "d1"),
+        lambda: desk.queue("r1"),
+        lambda: desk.queue(),
+        lambda: desk.enqueue(request("d1", "flag_high"), pol),
+    ):
+        with pytest.raises(RecordDamaged) as info:
+            act()
+        assert type(info.value.cause).__name__ == "ForkedChain"

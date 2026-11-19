@@ -240,3 +240,19 @@ def hold_desk_lock(root: str, run_id: str, marker: str) -> None:
     with desk_lock(Path(root), run_id, timeout=10):
         Path(marker).write_text("held", encoding="utf-8")
         time.sleep(600)
+
+
+def engine_writes_across_a_handoff(root: str, run_id: str, doc_id: str, marker: str, go: str) -> None:
+    """A writer in another process that breaks the one-owner rule: it appends to ``doc_id``
+    (buffered, after reading the head), creates ``marker``, waits for ``go`` to exist, then
+    flushes and closes. If the desk wrote the document meanwhile, the chain forks."""
+    import time
+
+    with log_of(Path(root)).open_writer(run_id, "engine") as w:
+        w.append(doc_id=doc_id, node="step", kind="decision")
+        Path(marker).write_text("buffered", encoding="utf-8")
+        deadline = time.monotonic() + 60
+        while not Path(go).exists():
+            if time.monotonic() > deadline:
+                raise TimeoutError("the parent never said go")
+            time.sleep(0.01)

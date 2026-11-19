@@ -53,6 +53,14 @@ desk.index_drift()                        # with an index: problem lines, [] whe
 - Every desk append happens under the run's desk lock, with the writer id `desk`, opened,
   flushed and closed per action. For an experiment run the desk also holds the record's
   seal lock, so a seal cannot land between the "is this run closed?" check and the append.
+- The desk lock serializes desk actions only; it does not lock out other record writers.
+  The record leaves document ownership across processes to its callers (`mailroom_record.log`,
+  "One owner per document"), so the contract is: the engine flushes and closes its writer
+  for a document before it hands the document to the desk, and never writes to a document
+  in review (plan follow-up 1). In one process a live writer holding the document makes
+  `enqueue` raise `RecordBusy`. Across processes a broken contract forks the chain, and the
+  fork is caught, not prevented: `verify_run` reports `forked_chain`, and `enqueue`, `case`
+  and `queue` raise `RecordDamaged` (a process test breaks the rule on purpose).
 - Never fork a process while it holds a desk lock: a `flock` belongs to the open file
   description, which `fork` shares, so a child forked without `exec` keeps the lock held
   after the parent releases it, until the child exits. Start workers with

@@ -43,6 +43,13 @@ the apply does not undo the durable event (the result's ``index_error`` says why
 ``reindex`` repairs the index), and the case is folded from events already validated, with
 an SLA due time past 9999-12-31 saturated, not overflowing.
 
+The desk lock serializes desk actions, not other record writers. The record does not
+enforce one owner per document across processes (``mailroom_record.log``, "One owner per
+document"); the engine flushes and closes its writer for a document before handing it to
+the desk and never writes to a document in review. In this process a live writer holding
+the document gives ``RecordBusy``; across processes a broken contract forks the chain,
+which every later ``enqueue``, ``case`` and ``queue`` refuses as ``RecordDamaged``.
+
 The closed-run rule and the seal lock are read from the record's documented layout
 (``runs/<run_id>/seals/<n>.json`` and ``seals/.lock``): the record has no public "is this
 run closed" call or closing lock yet (plan follow-up 2). A test pins both.
