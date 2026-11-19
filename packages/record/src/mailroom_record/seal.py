@@ -31,6 +31,10 @@ each seal's own hash (``seal_mismatch``).
 
 Rules
 -----
+- ``seal_run`` holds the store's maintenance lock shared for its whole run, as a writer
+  does, and refuses a pruned run (``RunPruned``, from ``log.refuse_if_pruned``) under it:
+  a prune deleted the run's seals, so sealing would start a new chain at seal 0 over an
+  empty log, which a later unpack would conflict with. A prune waits for a live seal.
 - ``seal_run`` holds an exclusive ``flock`` on ``seals/.lock`` for its whole run, so
   concurrent calls (threads or processes) produce seals ``0, 1, 2, ...`` each chained to
   the one before. The seal file is written write-once (fsynced temp file hard-linked into
@@ -41,11 +45,32 @@ Rules
   (the latest, after a crash between the two writes; any other, after a deletion) or
   damaged has it rebuilt from the log by the next ``seal_run`` (temp file and rename, so
   the damaged file is replaced whole), from the rows between that seal's heads and the
-  previous seal's, checked like new rows (below). The latest seal's file must read back
-  as exactly those rows; an older seal's file must open with ``EVENT_SCHEMA`` and the row
-  count its seal implies (a cheap footer check, so sealing cost does not grow with the
-  number of seals). Damage that keeps an older file readable with the right count is
-  verify's to find (``columns_mismatch``).
+  previous seal's, checked like new rows (below). Every seal's file, the latest included,
+  is checked cheaply: it must open with ``EVENT_SCHEMA`` and hold the row count its seal
+  implies (the Parquet footer only), so a seal with nothing new costs the same whatever
+  the size of the last export. A missing, truncated or unreadable file is rebuilt; damage
+  that keeps a file readable with the right count is verify's to find
+  (``columns_mismatch``). The column directory is fsynced on every call, so an export
+  whose rename is visible but was never synced (its call crashed first) is made durable
+  before a seal builds on it.
+- Visible is not durable. Under the lock, the seals directory is fsynced before the stored
+  seals are trusted, and every segment holding a line about to be sealed is fsynced
+  before the seal file is written. That covers a line a live writer has written but not
+  yet fsynced: a seal never commits a line that is in the page cache only because nobody
+  synced it yet. It does not cover a write whose fsync already failed. On Linux a
+  writeback error is reported once, the failed pages can be dropped or marked clean, and
+  a later fsync on a fresh descriptor (this one) can return success although those bytes
+  never reached the disk; the same holds for a directory whose fsync failed. A writer
+  whose fsync fails refuses further use (``log.py``), but its lines stay visible and
+  ``seal_run`` cannot tell them from durable ones. After an fsync failure in the store
+  (an I/O error, a full disk), do not seal until the machine has rebooted (or the file
+  system was remounted), so that only what is on disk is visible, and ``verify_run`` has
+  run: a lost line that a later line chained onto shows as a
+  ``seq_gap``; a lost tail of a chain leaves no trace, and sealing after the restart
+  commits only what survived.
+- Every line about to be sealed must name this run (``run_id``); a line of another run (a
+  segment restored into the wrong run) raises ``SealRefused`` naming its segment and byte
+  offset, and nothing is written.
 - Because the seal file always comes first, a column file ``events-<m>.parquet`` with no
   ``seals/<m>.json`` (``m`` above the latest seal) is never a crash state: the seal file was
   deleted. ``seal_run`` refuses (``SealRefused``) instead of sealing ``m`` again with a new
@@ -118,8 +143,16 @@ import pyarrow.parquet as pq
 
 from mailroom_record.blobs import _fsync_dir, _makedirs_durable, _open_fd_for_write, write_exclusive
 from mailroom_record.hashing import canonical_json
-from mailroom_record.log import CorruptLine, EventLog, StoredLine, _Heads
-from mailroom_record.models import GENESIS, Event, Seal, event_hash, seal_hash, utc_now
+from mailroom_record.log import (
+    CorruptLine,
+    EventLog,
+    StoredLine,
+    _Heads,
+    _safe_detail,
+    _shared_maintenance_lock,
+    refuse_if_pruned,
+)
+from mailroom_record.models import GENESIS, Event, Seal, event_hash, seal_hash, utc_now, validation_detail
 
 __all__ = ["EVENT_COLUMNS", "SealCorrupt", "SealRefused", "list_seals", "seal_run"]
 
@@ -201,8 +234,8 @@ def _load_seals(log: EventLog, run_id: str) -> list[tuple[Seal, dict[str, Any]]]
         try:
             raw = json.loads(p.read_bytes())
             seal = Seal.from_stored(raw)
-        except (ValueError, TypeError) as exc:  # bad JSON, failed validation, unknown version
-            raise SealCorrupt(f"{p.name}: {exc}") from None
+        except (ValueError, TypeError, RecursionError) as exc:  # bad JSON, failed validation, unknown version, deep nesting
+            raise SealCorrupt(f"{p.name}: {_safe_detail(exc)}") from None
         if seal.n != int(m[1]) or seal.run_id != run_id:
             raise SealCorrupt(f"{p.name}: holds seal {seal.n} of run {seal.run_id!r}")
         seals.append((seal, raw))
@@ -324,6 +357,8 @@ def _check_links(
             ok = False
         if not ok:
             raise SealRefused(f"{where} does not hash to its stored hash; run verify before sealing")
+        if raw.get("run_id") != run_id:
+            raise SealRefused(f"{where}: the line belongs to another run; run verify before sealing")
         if seq == 0:
             if raw.get("prev_hash") != GENESIS:
                 raise SealRefused(f"{where}: prev_hash is not GENESIS; run verify before sealing")
@@ -348,11 +383,13 @@ def _seal_lock(seals_dir: Path) -> Iterator[None]:
 
 def _invalid(s: StoredLine, exc: Exception) -> CorruptLine:
     # Name the fields and error types only: input values may hold document text.
-    errors = getattr(exc, "errors", None)
-    if callable(errors):
-        what = "; ".join(".".join(map(str, e["loc"])) + ": " + e["type"] for e in errors())
-    else:
-        what = f"{type(exc).__name__}: {exc}"
+    detail = validation_detail(exc)  # stored keys become <key>, values never appear
+    if detail is not None:
+        what = detail
+    elif type(exc).__name__ == "UnknownSchemaVersion":
+        what = "schema_version: UnknownSchemaVersion"
+    else:  # the type only: Arrow and upgrade messages can quote the stored value
+        what = type(exc).__name__
     return CorruptLine(f"{s.segment} at byte {s.byte_offset}: not a valid event ({what})")
 
 
@@ -384,9 +421,9 @@ def _table(lines: Sequence[StoredLine]) -> pa.Table:
         raise whole
 
 
-def _write_columns(path: Path, table: pa.Table) -> None:
+def _write_columns(path: Path, table: pa.Table, root: Path) -> None:
     directory = path.parent
-    _makedirs_durable(directory)
+    _makedirs_durable(directory, root)
     fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f".{path.name}.", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
@@ -411,17 +448,20 @@ def _columns_look_whole(path: Path, n_rows: int) -> bool:
         return False
 
 
-def _columns_hold(path: Path, lines: Sequence[StoredLine]) -> bool:
-    """Whether the latest seal's column file reads back as exactly the rows of ``lines``."""
-    try:
-        stored = pq.read_table(path)
-    except (OSError, pa.ArrowException, ValueError):
-        return False
-    try:
-        want = _table(lines)
-    except CorruptLine:
-        return False  # rebuilding raises it with its segment and offset
-    return stored.schema.equals(EVENT_SCHEMA) and stored.equals(want)
+def _fsync_segments(log: EventLog, run_id: str, names: set[str]) -> None:
+    """fsync each named segment, so lines nobody has synced yet are on disk before a seal commits them.
+
+    A read-only descriptor is enough: fsync writes back the file's dirty pages whoever wrote
+    them. It cannot vouch for pages whose earlier writeback failed (see "Visible is not
+    durable" in the module doc).
+    """
+    seg_dir = log.segment_dir(run_id)
+    for name in sorted(names):
+        fd = os.open(seg_dir / name, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
 
 
 def _between(lines: Sequence[StoredLine], after: dict[str, int], upto: dict[str, int] | None) -> list[StoredLine]:
@@ -454,15 +494,24 @@ def seal_run(log: EventLog, run_id: str, *, sealed_at: str | None = None) -> Sea
     chain, ``SealRefused`` when the log or the seal chain disagrees with the stored seals,
     a document's chain has a gap on disk, a line to be sealed does not hash to its stored
     hash or does not link to its predecessor, or a column file outlives its seal file;
+    ``RunPruned`` for a pruned run (``log.refuse_if_pruned``);
     ``CorruptLine`` for a stored line that is not a valid event, ``SealCorrupt`` for an
     unreadable seal file, and ``ValueError`` for a bad ``sealed_at``.
     """
     sealed_at = utc_now() if sealed_at is None else sealed_at
     if not (log.run_dir(run_id) / "run.json").is_file():
         raise FileNotFoundError(f"no run {run_id!r} under {log.root}")
+    with contextlib.closing(_shared_maintenance_lock(log.root)):  # a prune waits for us, and we for it
+        refuse_if_pruned(log, run_id, "sealed")  # its seals are gone: a seal now would start a new chain
+        return _seal_unlocked(log, run_id, sealed_at)
+
+
+def _seal_unlocked(log: EventLog, run_id: str, sealed_at: str) -> Seal:
+    """``seal_run`` once the caller holds the maintenance lock shared and checked the run is not pruned."""
     seals_dir = _seals_dir(log, run_id)
-    _makedirs_durable(seals_dir)
+    _makedirs_durable(seals_dir, log.root)
     with _seal_lock(seals_dir):
+        _fsync_dir(seals_dir)  # a visible seal file may not be durable yet (its writer's fsync failed)
         loaded = _load_seals(log, run_id)
         _check_seal_chain(loaded)
         seals = [seal for seal, _ in loaded]
@@ -485,23 +534,25 @@ def seal_run(log: EventLog, run_id: str, *, sealed_at: str | None = None) -> Sea
         for s in seals:
             path = _columns_path(log, run_id, s.n)
             added = s.event_count - (seals[s.n - 1].event_count if s.n > 0 else 0)
-            if s is not prev and _columns_look_whole(path, added):
+            if _columns_look_whole(path, added):
                 continue
             upto = prev_seqs if s is prev else _head_seqs(s, where, run_id)
             before = _head_seqs(seals[s.n - 1], where, run_id) if s.n > 0 else {}
             part = _between(lines, before, upto)
-            if s is prev and _columns_hold(path, part):
-                continue
             _check_links(part, by_key, run_id)
             rebuilt.append((s, _table(part)))
         for s, table in rebuilt:
-            _write_columns(_columns_path(log, run_id, s.n), table)
+            _write_columns(_columns_path(log, run_id, s.n), table, log.root)
+        columns_dir = log.run_dir(run_id) / "columns"
+        if columns_dir.is_dir():
+            _fsync_dir(columns_dir)  # an existing export's rename may not be durable yet
 
         new = lines if prev is None else _between(lines, prev_seqs, None)
         if prev is not None and not new:
             return prev
         _check_links(new, by_key, run_id)
         table = _table(new)  # validates every new row before anything is written
+        _fsync_segments(log, run_id, {s.segment for s in new})
 
         doc_heads = {d: h for d, (_, h) in sorted(heads.heads.items())}
         seal = Seal.build(
@@ -513,7 +564,7 @@ def seal_run(log: EventLog, run_id: str, *, sealed_at: str | None = None) -> Sea
             event_count=(0 if prev is None else prev.event_count) + len(new),
             prev_seal_hash=GENESIS if prev is None else prev.hash,
         )
-        if not write_exclusive(seals_dir / f"{seal.n}.json", canonical_json(seal.model_dump(mode="json"))):
+        if not write_exclusive(seals_dir / f"{seal.n}.json", canonical_json(seal.model_dump(mode="json")), log.root):
             raise SealRefused(f"run {run_id!r}: seal {seal.n} already exists; it is never replaced")
-        _write_columns(_columns_path(log, run_id, seal.n), table)
+        _write_columns(_columns_path(log, run_id, seal.n), table, log.root)
         return seal

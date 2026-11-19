@@ -10,6 +10,7 @@ sees it beside the labels that did import.
 
 from __future__ import annotations
 
+import io
 import json
 import shutil
 import tempfile
@@ -21,6 +22,7 @@ from typing import Any
 
 from mailroom_labels.errors import LabelsError
 from mailroom_labels.models import SnapshotManifest
+from mailroom_labels.snapshot import json_problem
 
 __all__ = [
     "BUILDER_VERSION",
@@ -31,30 +33,60 @@ __all__ = [
     "check_snapshot",
     "file_sha256",
     "known_warnings_for",
-    "read_jsonl_lenient",
+    "loads_source",
+    "parse_jsonl_lenient",
+    "read_source",
+    "refuse_dropped",
 ]
 
+# Names the snapshot format and the builder that wrote it. It is not bumped for a change in
+# import rules: `--check` compares a fresh build with the committed snapshot byte for byte, so
+# a rule change that alters a committed snapshot shows up there, not in this string.
 BUILDER_VERSION = "0.1.0"
 
 
 def known_warnings_for(path: Path | str | None, snapshot_id: str) -> list[dict[str, str | None]]:
     """The accepted warnings of one snapshot from a known-warnings YAML file
-    (``{<snapshot_id>: [{kind, doc, field, reason}, ...]}``); every entry needs a reason."""
+    (``{<snapshot_id>: [{kind, doc, field, reason, file?}, ...]}``); every entry needs a
+    reason, ``doc`` and ``field`` are each a string or null, and ``file`` (when given) a
+    string. A malformed entry raises ``ImportRefused`` before anything is built. An entry
+    accepts only warnings this snapshot raises (and, with ``file``, only those located in
+    that data file of it). A key repeated in the file (a second block for one snapshot) is
+    refused, never merged or dropped."""
     if path is None:
         return []
     import yaml
 
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    from mailroom_labels.profile import load_unique_yaml
+
+    try:
+        raw = load_unique_yaml(Path(path).read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise ImportRefused(f"{path}: not valid YAML: {exc}") from exc
     entries = raw.get(snapshot_id, []) if isinstance(raw, dict) else None
     if not isinstance(entries, list):
         raise ImportRefused(f"{path}: {snapshot_id} must map to a list of warnings")
     out = []
     for entry in entries:
-        if not (isinstance(entry, dict) and set(entry) == {"kind", "doc", "field", "reason"}
-                and isinstance(entry["kind"], str) and isinstance(entry["reason"], str) and entry["reason"].strip()):
-            raise ImportRefused(f"{path}: a known warning must be {{kind, doc, field, reason}} with a reason: {entry!r}")
-        out.append({k: entry[k] for k in ("kind", "doc", "field", "reason")})
+        if not (
+            isinstance(entry, dict)
+            and {"kind", "doc", "field", "reason"} <= set(entry) <= _KNOWN_KEYS
+            and isinstance(entry["kind"], str)
+            and isinstance(entry["reason"], str)
+            and entry["reason"].strip()
+            and isinstance(entry["doc"], str | None)
+            and isinstance(entry["field"], str | None)
+            and isinstance(entry.get("file", ""), str)
+        ):
+            raise ImportRefused(
+                f"{path}: a known warning must be {{kind, doc, field, reason, file?}} with a "
+                f"reason, doc and field each a string or null, and file a string: {entry!r}"
+            )
+        out.append({k: entry[k] for k in sorted(_KNOWN_KEYS) if k in entry})
     return out
+
+
+_KNOWN_KEYS = {"kind", "doc", "field", "reason", "file"}
 
 
 def builder_name(command: str) -> str:
@@ -75,6 +107,14 @@ def file_sha256(path: Path | str) -> str:
     return digest.hexdigest()
 
 
+def read_source(path: Path | str) -> tuple[bytes, str]:
+    """A source file's bytes and their lowercase hex sha256, from one read. An importer
+    parses exactly these bytes, so what it records the hash of is what it imported, even if
+    the file changes while it runs. Source files are a few MB at most."""
+    data = Path(path).read_bytes()
+    return data, sha256(data).hexdigest()
+
+
 @dataclass(frozen=True)
 class SourceLine:
     """One JSON object read from a source JSONL file (``line`` counts from 1)."""
@@ -88,25 +128,93 @@ class SourceLine:
         return f"{self.file}:{self.line}"
 
 
-def read_jsonl_lenient(path: Path, name: str) -> tuple[list[SourceLine], list[dict[str, Any]]]:
-    """Every JSON-object line of ``path`` and a ``rejected`` entry for every other non-blank
-    line (``{file, line, reason}``). ``name`` is how the file is named in the manifest."""
+_BOM = b"\xef\xbb\xbf"
+
+
+class _StrictJsonError(ValueError):
+    pass
+
+
+def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:
+            raise _StrictJsonError(f"duplicate key {key!r}")
+        out[key] = value
+    return out
+
+
+def _no_constant(name: str) -> Any:
+    raise _StrictJsonError(f"non-finite number {name}")
+
+
+def loads_source(text: str) -> Any:
+    """Parse one JSON source document strictly: a repeated key or a non-finite number
+    (``NaN``, ``Infinity``, ``-Infinity``: not JSON, and no snapshot row may hold one) raises
+    ``ValueError`` (a repeated key would otherwise collapse silently, last one winning);
+    nesting too deep to parse raises ``RecursionError``."""
+    return json.loads(text, object_pairs_hook=_unique_keys, parse_constant=_no_constant)
+
+
+def parse_jsonl_lenient(data: bytes, name: str) -> tuple[list[SourceLine], list[dict[str, Any]]]:
+    """Every JSON-object line of ``data`` (split as a binary file read splits it) and a
+    ``rejected`` entry for every other non-blank line (``{file, line, reason}``). ``name``
+    is how the file is named in the manifest. A
+    UTF-8 byte-order mark at the start of the file is not data and is skipped (anywhere else
+    it is, and the line is rejected). A line with a repeated key, a non-finite number or
+    nesting too deep to parse is rejected, and so is an object the snapshot reader would
+    refuse as a row (``snapshot.json_problem``: nested deeper than ``MAX_JSON_DEPTH``, or a
+    string holding a lone surrogate)."""
     rows: list[SourceLine] = []
     rejected: list[dict[str, Any]] = []
-    with Path(path).open("rb") as fh:
+    with io.BytesIO(data) as fh:
         for number, raw in enumerate(fh, start=1):
+            if number == 1 and raw.startswith(_BOM):
+                raw = raw[len(_BOM) :]
             if not raw.strip():
                 continue
             try:
-                obj = json.loads(raw.decode("utf-8"))
+                obj = loads_source(raw.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                rejected.append({"file": name, "line": number, "reason": f"not JSON: {exc.__class__.__name__}"})
+                rejected.append(
+                    {"file": name, "line": number, "reason": f"not JSON: {exc.__class__.__name__}"}
+                )
+                continue
+            except _StrictJsonError as exc:
+                rejected.append({"file": name, "line": number, "reason": f"not JSON: {exc}"})
+                continue
+            except RecursionError:
+                rejected.append({"file": name, "line": number, "reason": "not JSON: nested too deeply"})
+                continue
+            except ValueError as exc:  # e.g. an integer with more digits than the interpreter converts
+                rejected.append(
+                    {"file": name, "line": number, "reason": f"not JSON: {exc.__class__.__name__}"}
+                )
                 continue
             if not isinstance(obj, dict):
-                rejected.append({"file": name, "line": number, "reason": f"not a JSON object ({type(obj).__name__})"})
+                rejected.append(
+                    {"file": name, "line": number, "reason": f"not a JSON object ({type(obj).__name__})"}
+                )
+                continue
+            problem = json_problem(obj)
+            if problem is not None:
+                rejected.append({"file": name, "line": number, "reason": f"not a snapshot row: {problem}"})
                 continue
             rows.append(SourceLine(name, number, obj))
     return rows, rejected
+
+
+def refuse_dropped(dropped: dict[str, list[Any]], *, allow: bool) -> None:
+    """Refuse an import that left source data out (``{manifest source key: entries}``),
+    unless ``allow`` (the ``--allow-rejected`` flag). When allowed, the entries are still
+    written to the manifest's ``source`` under the same keys, and the quality gate reports
+    each non-empty one as a ``dropped_source_data`` error, so the snapshot never verifies."""
+    counts = {key: len(entries) for key, entries in sorted(dropped.items()) if entries}
+    if counts and not allow:
+        detail = ", ".join(f"{key} {n}" for key, n in counts.items())
+        raise ImportRefused(
+            f"source data left out ({detail}); see --allow-rejected to write it for inspection"
+        )
 
 
 @dataclass
@@ -117,11 +225,14 @@ class CheckResult:
     differences: list[str] = field(default_factory=list)
 
 
-def _tree(directory: Path) -> dict[str, bytes]:
+def _tree(directory: Path) -> dict[str, bytes | None]:
+    """Every file (its bytes) and every directory (``None``, keyed ``<path>/``) below
+    ``directory``, so an extra file or subdirectory at any depth is a difference."""
     return {
-        p.relative_to(directory).as_posix(): p.read_bytes()
+        p.relative_to(directory).as_posix() + ("/" if p.is_dir() else ""): None
+        if p.is_dir()
+        else p.read_bytes()
         for p in sorted(directory.rglob("*"))
-        if p.is_file()
     }
 
 

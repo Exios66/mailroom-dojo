@@ -1,11 +1,11 @@
 {
-  "builder": "mailroom-labels import-review 0.1.0",
+  "builder": "packages/labels/scripts/derive_review_snapshot.py 0.1.0",
   "files": [
     {
-      "bytes": 423710,
+      "bytes": 431958,
       "path": "decisions.jsonl",
       "rows": 1050,
-      "sha256": "72489b5aa69ec904e178330489e9d96e1410146ed1e0de909622651ea8472247"
+      "sha256": "0a6f536598fc93752dba94a1903c192d58c06426ed327195647dcebd44b01bdb"
     }
   ],
   "kind": "review",
@@ -54,9 +54,9 @@
     }
   ],
   "layer_schema": "mailroom-labels/review/v1",
-  "manifest_hash": "cf19afd1b077056bc64d2d666bafb23f2bfe301d1c3f19b64121f7e50895c6bf",
+  "manifest_hash": "4e8266d64f0d95259bfe42d4134937bbdb90e510331474657ff7ccdfd8be52f2",
   "manifest_schema": "mailroom-labels/manifest/v1",
-  "snapshot_id": "gold-review-2026-11-18",
+  "snapshot_id": "gold-review-2026-11-18-r2",
   "source": {
     "builder": {
       "name": "mailroom_labels.importers.review",
@@ -69,6 +69,19 @@
     "decisions_by_reviewer": {
       "claude-opus:audit": 1042,
       "human:review_desk": 8
+    },
+    "derived_from": {
+      "change": "note only: a leading 'top-reply rule (<initials> <date>)' now reads 'top-reply rule (review desk <date>)'; every other key and value of every row is unchanged",
+      "files": [
+        {
+          "path": "decisions.jsonl",
+          "rows": 1050,
+          "sha256": "72489b5aa69ec904e178330489e9d96e1410146ed1e0de909622651ea8472247"
+        }
+      ],
+      "manifest_hash": "cf19afd1b077056bc64d2d666bafb23f2bfe301d1c3f19b64121f7e50895c6bf",
+      "notes_changed": 1031,
+      "snapshot_id": "gold-review-2026-11-18"
     },
     "desk": {
       "commit": "93f298c2c03c58d36c5ef15874736c6ea211d9ab",

@@ -26,6 +26,7 @@ import zstandard
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from record_testkit import (
+    DEEP_UNPARSABLE,
     SENTINEL,
     Faults,
     append_in_child,
@@ -38,7 +39,9 @@ from record_testkit import (
     find_line,
     flip_byte,
     forge_event,
+    deep_payload_line,
     hand_line,
+    join_all,
     kinds,
     last_seq,
     remove_blob_file,
@@ -419,11 +422,12 @@ def test_parallel_writer_processes_verify(store: SimpleNamespace) -> None:
         ctx.Process(target=append_in_child, args=(str(store.root), "r1", f"p{k}", [f"p{k}-d{j}" for j in range(3)], 20))
         for k in range(3)
     ]
-    for p in procs:
-        p.start()
-    for p in procs:
-        p.join(timeout=120)
-        assert p.exitcode == 0
+    try:
+        for p in procs:
+            p.start()
+    finally:
+        codes = join_all(procs, timeout=120)  # a worker that overruns is killed and reaped
+    assert codes == [0] * len(procs)
     seal_run(store.log, "r1")
     r = verify_run(store.log, store.blobs, "r1")
     assert r.ok and r.problems == []
@@ -593,11 +597,62 @@ def test_seal_refuses_to_commit_over_damage_and_verify_reports_it(sealed_store: 
 
 
 def test_unsealed_events_after_the_last_seal_are_fine(sealed_store: SimpleNamespace) -> None:
-    with sealed_store.log.open_writer("r1", "w7") as w:
+    # A closed run gets no later seal: events past its last seal are committed by none,
+    # so verify notes each such document and how many (never failing the run).
+    s = sealed_store
+    with s.log.open_writer("r1", "w7") as w:
         w.append(doc_id="d5", node="n", kind="decision")
         w.append(doc_id="d1", node="n", kind="decision")
-    r = verify(sealed_store)
-    assert r.ok and r.problems == [] and r.events_checked == TOTAL_EVENTS + 2
+        w.append(doc_id="d1", node="n", kind="decision")
+    r = verify(s)
+    assert r.ok and r.closed and r.events_checked == TOTAL_EVENTS + 3
+    assert [(p.kind, p.doc_id, p.seq, p.seal, p.fails) for p in r.problems] == [
+        ("unsealed_events", "d1", 5, 2, False),
+        ("unsealed_events", "d5", 0, 2, False),
+    ]
+    assert r.problems[0].detail.startswith("2 events from seq 5 after seal 2")
+    assert r.problems[1].detail.startswith("1 event from seq 0 after seal 2")
+    # Losing them leaves nothing to detect, which is why the note exists: cut d1's last
+    # event and only the count changes.
+    seg = s.log.segment_paths("r1")
+    w7 = next(p for p in seg if p.name == "w7.jsonl")
+    data = w7.read_bytes()
+    w7.write_bytes(data[: data.rstrip(b"\n").rfind(b"\n") + 1])
+    r = verify(s)
+    assert r.ok and [(p.kind, p.doc_id, p.detail.split(" after")[0]) for p in r.problems] == [
+        ("unsealed_events", "d1", "1 event from seq 5"),
+        ("unsealed_events", "d5", "1 event from seq 0"),
+    ]
+    seal_run(s.log, "r1")  # sealing again commits them: nothing left to note
+    assert verify(s).problems == []
+
+
+def test_unsealed_events_are_not_noted_on_a_run_that_is_not_closed(tmp_path: Path) -> None:
+    # A service_period run is sealed on a timer and never closed: a later seal commits them.
+    s = build_sealed_store(tmp_path / "svc", kind="service_period")
+    with s.log.open_writer("r1", "w7") as w:
+        w.append(doc_id="d1", node="n", kind="decision")
+    r = verify(s)
+    assert r.ok and not r.closed and r.problems == []
+
+
+def test_unsealed_events_are_judged_against_the_highest_head_any_seal_commits(sealed_store: SimpleNamespace) -> None:
+    # Seal 2 drops d4 and takes d1 back to an earlier head: both fail as seal_mismatch, and
+    # neither document gets a note, since seal 1 committed their events.
+    s = sealed_store
+    raw = json.loads(seal_path(s, 2).read_bytes())
+    heads = dict(raw["doc_heads"])
+    heads.pop("d4")
+    heads["d1"] = json.loads(find_line(s, "d1", 2)[2])["hash"]
+    edit_seal(s, 2, rehash=True, doc_heads=heads, document_ids=sorted(heads), event_count=9)
+    r = verify(s)
+    assert "unsealed_events" not in kinds(r)
+    # With the last seal unreadable, what it committed is unknown: no note either.
+    with s.log.open_writer("r1", "w7") as w:
+        w.append(doc_id="d1", node="n", kind="decision")
+    seal_path(s, 2).write_bytes(b"{")
+    r = verify(s)
+    assert "seal_corrupt" in kinds(r) and "unsealed_events" not in kinds(r)
 
 
 # --- column files ----------------------------------------------------------------------
@@ -744,6 +799,14 @@ def test_every_problem_kind_is_produced_by_some_test() -> None:
         assert f'"{kind}"' in source, kind
 
 
+def test_the_readme_lists_every_problem_kind() -> None:
+    import re
+
+    text = (Path(__file__).parents[1] / "README.md").read_text()
+    block = text[text.index("Problem kinds:") : text.index("The module", text.index("Problem kinds:"))]
+    assert set(re.findall(r"`([a-z_]+)`", block)) == set(PROBLEM_KINDS)
+
+
 # --- large runs ------------------------------------------------------------------------
 
 
@@ -793,9 +856,17 @@ def test_clean_histories_verify_and_any_flipped_byte_is_caught(
 ) -> None:
     s = play(tmp_path_factory.mktemp("prop"), steps)
     r = verify(s)
-    assert r.ok and [p for p in r.problems if p.kind != "torn_tail"] == []
+    assert r.ok and [p for p in r.problems if p.kind not in ("torn_tail", "unsealed_events")] == []
     n_events = sum(step[2] for step in steps if step is not None)
     assert r.events_checked == n_events
+    # A sealed experiment run is closed: exactly the events after the last seal are noted.
+    unsealed: dict[str, int] = {}
+    if None in steps:
+        last = max(i for i, step in enumerate(steps) if step is None)
+        for _, d_i, n in (step for step in steps[last + 1 :] if step is not None):
+            unsealed[f"d{d_i}"] = unsealed.get(f"d{d_i}", 0) + n
+    noted = {p.doc_id: int(p.detail.split(" ")[0]) for p in r.problems if p.kind == "unsealed_events"}
+    assert noted == unsealed and all(not p.fails for p in r.problems)
 
     files = sorted(s.log.segment_paths("r1")) + sorted((s.root / "runs/r1/seals").glob("*.json"))
     files = [f for f in files if f.stat().st_size > 0]
@@ -855,18 +926,13 @@ def test_verify_never_raises_on_any_damage(tmp_path_factory: pytest.TempPathFact
 
 # --- fix pass: verify never raises on deep nesting (Task 7 review, BLOCKING 1) ----------
 
-DEEP = b"[" * 200_000 + b"]" * 200_000  # deeper than the JSON parser allows
+DEEP = DEEP_UNPARSABLE  # deeper than the JSON parser allows
 
 
 def _deep_payload_line(store: SimpleNamespace, doc_id: str, seq: int, prev: str) -> bytes:
-    # Parses, hashes and is canonical, but nests deeper than validation can recurse.
-    nested: Any = []
-    for _ in range(5000):
-        nested = [nested]
-    raw = hand_line("r1", doc_id, seq, prev)
-    raw["payload"] = {"x": nested}
-    raw["hash"] = event_hash(raw)
-    return canonical_json(raw) + b"\n"
+    # Parses, hashes and is canonical on every supported Python, but nests deeper than
+    # validation can recurse.
+    return deep_payload_line("r1", doc_id, seq, prev)
 
 
 @pytest.mark.parametrize("where", ["segment", "segment_payload", "seal", "run_header", "tombstone"])
@@ -963,7 +1029,8 @@ def test_handoff_during_the_scan_is_not_a_seq_gap(sealed_store: SimpleNamespace,
     done = _after_segment(monkeypatch, "w0.jsonl", handoff)
     r = verify(s)
     assert done
-    assert r.ok and r.problems == [], failing(r)
+    # The run is closed (sealed), so the two late events are noted, never a gap.
+    assert r.ok and [(p.kind, p.doc_id, p.seq) for p in r.problems] == [("unsealed_events", "d1", 5)], failing(r)
     # The rescan keeps seqs up to the head the first scan saw (the event in w2), and the
     # one in w0 below it was on disk by then: both are checked.
     assert r.events_checked == TOTAL_EVENTS + 2
@@ -993,7 +1060,7 @@ def test_seal_without_its_column_file_yet_is_recoverable(sealed_store: SimpleNam
         w.append(doc_id="d1", node="n", kind="decision")
     from mailroom_record import seal as seal_mod
 
-    def crash(path: Path, table: Any) -> None:
+    def crash(path: Path, table: Any, *args: Any) -> None:
         raise KeyboardInterrupt
 
     monkeypatch.setattr(seal_mod, "_write_columns", crash)
@@ -1004,11 +1071,25 @@ def test_seal_without_its_column_file_yet_is_recoverable(sealed_store: SimpleNam
     assert r.ok, failing(r)
     assert [(p.kind, p.seal, p.fails) for p in r.problems] == [("columns_missing", 3, False)]
     assert "seal_run rebuilds it" in r.problems[0].detail
+    # The run is closed: no later seal will come, so the detail asks for one more seal_run.
+    assert "closing seal of a closed run" in r.problems[0].detail
+    assert "run seal_run once more" in r.problems[0].detail
     seal_run(s.log, "r1")  # the recovery the detail names
     assert verify(s).problems == []
     # An older seal's lost column file still fails: no crash leaves that state.
     columns_path(s, 1).unlink()
     assert failing(verify(s)) == [("columns_missing", None, None)]
+
+
+def test_latest_column_file_missing_on_an_open_run_waits_for_the_next_seal(tmp_path: Path) -> None:
+    # On a service_period run (never closed) the next timed seal rebuilds it: no extra advice.
+    s = build_sealed_store(tmp_path / "svc", kind="service_period")
+    columns_path(s, 2).unlink()
+    r = verify(s)
+    assert r.ok and not r.closed
+    assert [(p.kind, p.seal, p.fails) for p in r.problems] == [("columns_missing", 2, False)]
+    assert "(the latest seal: a crash or a seal in progress, recoverable)" in r.problems[0].detail
+    assert "closed run" not in r.problems[0].detail
 
 
 def test_verify_a_busy_run_while_another_process_seals(store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1029,7 +1110,15 @@ def test_verify_a_busy_run_while_another_process_seals(store: SimpleNamespace, m
 
     monkeypatch.setattr(verify_module, "iter_raw_segment", slow)
     reports = []
+    first_seal = store.root / "runs" / "r1" / "seals" / "0.json"
     try:
+        # Readiness: the sealer has committed its first seal (seal files are written whole
+        # and atomically), so every report below has a seal to check.
+        ready_by = time.monotonic() + 60
+        while not first_seal.exists():
+            assert time.monotonic() < ready_by, "the sealer process never wrote its first seal"
+            assert sealer.is_alive() or first_seal.exists(), "the sealer process exited before its first seal"
+            time.sleep(0.01)
         deadline = time.monotonic() + 4
         while time.monotonic() < deadline and len(reports) < 6:
             reports.append(verify_run(store.log, store.blobs, "r1"))
@@ -1144,7 +1233,7 @@ def test_integer_parquet_cannot_hold_is_invalid_event(sealed_store: SimpleNamesp
     forge_event(s, "d4", last_seq(s, "d4") + 1, head, tokens_in=2**70)
     r = verify(s)
     assert failing(r) == [("invalid_event", "d4", 3)]
-    assert "int64" in r.problems[0].detail
+    assert "tokens_in" in r.problems[0].detail  # the model bounds every count to int64
     with pytest.raises(CorruptLine):  # seal_run refuses the same line
         seal_run(s.log, "r1")
 
@@ -1225,3 +1314,122 @@ def test_unlistable_directories_are_reported(
     want = {"segments": "corrupt_line", "seals": "seal_corrupt", "columns": "columns_missing"}[which]
     assert (want, None, None) in failing(r)
     assert any(f"{which}/ cannot be listed" in p.detail for p in r.problems)
+
+
+# --- PR #2 re-review: probes that fail, races, forks after the last seal (items 12-17) ---
+
+
+def _stat_fails_for(monkeypatch: pytest.MonkeyPatch, target: Path) -> None:
+    original = Path.stat
+
+    def stat(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self == target:
+            raise PermissionError(13, "injected")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat)
+
+
+@pytest.mark.parametrize("which", ["content", "tombstone"])
+def test_a_blob_probe_that_raises_is_reported_for_that_blob(
+    sealed_store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, which: str
+) -> None:
+    s = sealed_store
+    sha = s.originals["d3"]
+    path = s.blobs.content_path(sha) if which == "content" else s.blobs.tombstone_path(sha)
+    _stat_fails_for(monkeypatch, path)
+    r = verify(s)
+    monkeypatch.undo()
+    assert failing(r) == [("corrupt_blob", "d3", 0)]
+    assert "cannot be checked (PermissionError, errno 13)" in r.problems[0].detail
+
+
+def test_a_column_file_that_cannot_be_checked_is_reported_for_that_seal(
+    sealed_store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    s = sealed_store
+    _stat_fails_for(monkeypatch, columns_path(s, 1))
+    r = verify(s)
+    monkeypatch.undo()
+    assert [(p.kind, p.seal, p.fails) for p in r.problems] == [("columns_mismatch", 1, True)]
+    assert "cannot be checked (PermissionError, errno 13)" in r.problems[0].detail
+
+
+@pytest.mark.parametrize("n", [1, 2])
+def test_a_directory_at_a_column_file_path_fails(sealed_store: SimpleNamespace, n: int) -> None:
+    # The latest seal's missing file is a recoverable note; a directory there is not
+    # (seal_run cannot write the file over it).
+    s = sealed_store
+    columns_path(s, n).unlink()
+    columns_path(s, n).mkdir()
+    r = verify(s)
+    assert [(p.kind, p.seal, p.fails) for p in r.problems] == [("columns_mismatch", n, True)]
+    assert "is not a regular file" in r.problems[0].detail
+
+
+@pytest.mark.parametrize("tombstoned", [True, False])
+def test_content_deleted_while_it_is_read(
+    sealed_store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tombstoned: bool
+) -> None:
+    # The content probe saw the blob; the deletion completes before verify opens it.
+    s = sealed_store
+    sha = s.originals["d3"]
+    content = s.blobs.content_path(sha)
+    original = Path.open
+    fired: list[bool] = []
+
+    def open_(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self == content and not fired:
+            fired.append(True)
+            if tombstoned:
+                s.blobs.tombstone(sha, "erasure request")
+            else:
+                content.unlink()
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", open_)
+    r = verify(s)
+    monkeypatch.undo()
+    assert fired
+    if tombstoned:
+        assert r.ok and r.problems == [] and r.tombstoned_blobs == 1
+    else:
+        assert failing(r) == [("missing_blob", "d3", 0)]
+
+
+def test_a_fork_after_the_last_seal_keeps_the_sealed_rows_compared(sealed_store: SimpleNamespace) -> None:
+    s = sealed_store
+    _tamper_column_row(columns_path(s, 0), "d1", 1, node="EDITED")
+    head, seq = s.log.doc_heads("r1")["d1"], last_seq(s, "d1") + 1
+    forge_event(s, "d1", seq, head, node="one")
+    forge_event(s, "d1", seq, head, segment="w8.jsonl", node="two")
+    r = verify(s)
+    assert ("forked_chain", "d1", seq) in failing(r)
+    assert ("columns_mismatch", "d1", 1) in failing(r), failing(r)
+
+
+def test_one_event_naming_a_blob_twice_counts_once(store: SimpleNamespace) -> None:
+    ref = store.blobs.put(blob_bytes("seen twice"), "original")
+    with store.log.open_writer("r1", "w0") as w:
+        w.append(doc_id="d1", node="n", kind="output", inputs=[ref], outputs=[ref.model_copy(update={"role": "extraction"})])
+    remove_blob_file(store, ref.sha256)
+    r = verify(store)
+    assert failing(r) == [("missing_blob", "d1", 0)]
+    assert "(named by 1 event)" in r.problems[0].detail
+
+
+def test_a_fifo_at_the_tombstone_path_is_reported_not_blocked_on(sealed_store: SimpleNamespace) -> None:
+    s = sealed_store
+    sha = s.outputs[1][2]
+    s.blobs.tombstone(sha, "deletion request")
+    tomb = s.blobs.tombstone_path(sha)
+    tomb.unlink()
+    os.mkfifo(tomb)
+    signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(TimeoutError("verify blocked on a FIFO")))
+    signal.alarm(20)
+    try:
+        r = verify(s)
+    finally:
+        signal.alarm(0)
+    assert [p.kind for p in r.problems] == ["corrupt_tombstone"]
+    assert "not a regular file" in r.problems[0].detail

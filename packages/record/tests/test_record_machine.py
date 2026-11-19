@@ -67,6 +67,7 @@ class RecordMachine(RuleBasedStateMachine):
         self.torn: list[TornTail] = []
         self.refs: list[BlobRef] = []
         self.tombstoned: set[str] = set()
+        self.contents: dict[str, bytes] = {}  # sha256 -> the bytes put under it
         self.seal_heads: list[dict[str, int]] = []  # per seal: doc -> head seq
         self.lost_columns: set[int] = set()  # seals whose Parquet file was deleted or cut
 
@@ -125,6 +126,7 @@ class RecordMachine(RuleBasedStateMachine):
                 self.blobs.put(content, "transcript")
             return
         self.refs.append(self.blobs.put(content, "transcript"))
+        self.contents[sha] = content
 
     @rule(data=st.data())
     def tombstone_blob(self, data: st.DataObject) -> None:
@@ -141,18 +143,20 @@ class RecordMachine(RuleBasedStateMachine):
             self.open_writer(wid, data.draw(st.sampled_from([1, 2, 3, 50])))
         w = self.writers[wid]
         refs = [data.draw(st.sampled_from(self.refs))] if with_blob and self.refs else []
+        # A blob is named as an input or as an output; both must be present and intact.
+        where = {"outputs" if data.draw(st.booleans(), label="as_output") else "inputs": refs}
         holder = self.owner.get(doc)
         if holder is not None and holder != wid:
             with pytest.raises(DocumentInUse):
-                w.append(doc_id=doc, node="n", kind="output", inputs=refs)
+                w.append(doc_id=doc, node="n", kind="output", **where)
             return
         if any(r.sha256 in self.tombstoned for r in refs):
             with pytest.raises(BlobNotStored):
-                w.append(doc_id=doc, node="n", kind="output", inputs=refs)
+                w.append(doc_id=doc, node="n", kind="output", **where)
             self.owner[doc] = wid  # the writer took the document before the blob check
             return
         seq, prev = self._next(wid, doc)
-        ev = w.append(doc_id=doc, node="n", kind="output", inputs=refs, payload={"seq": seq})
+        ev = w.append(doc_id=doc, node="n", kind="output", payload={"seq": seq}, **where)
         assert (ev.seq, ev.prev_hash) == (seq, prev), "writer and model disagree on the chain"
         self.owner[doc] = wid
         self.pending[wid].append(((doc, seq), ev.hash))
@@ -207,8 +211,9 @@ class RecordMachine(RuleBasedStateMachine):
             with w.segment.open("ab") as f:
                 f.write(buffered[:cut])
             prefix = buffered[:cut]
-            self._make_durable(wid, prefix.count(b"\n"))
-            event(f"crash wrote {prefix.count(b'\n')} whole lines")
+            lines_written = prefix.count(b"\n")
+            self._make_durable(wid, lines_written)
+            event(f"crash wrote {lines_written} whole lines")
             if not prefix.endswith(b"\n"):
                 event("crash left a torn tail")
                 self.torn.append(TornTail(w.segment.name, size + prefix.rfind(b"\n") + 1))
@@ -406,9 +411,12 @@ class RecordMachine(RuleBasedStateMachine):
             raw = json.loads(line)
             assert event_hash(raw) == raw["hash"], "a whole line does not hash to itself"
             by_doc.setdefault(raw["doc_id"], []).append(raw)
-            for ref in raw["inputs"]:
-                if ref["sha256"] not in self.tombstoned:
-                    assert self.blobs.exists(ref["sha256"]) == "present"
+            for ref in (*raw["inputs"], *raw["outputs"]):
+                sha = ref["sha256"]
+                if sha in self.tombstoned:
+                    assert self.blobs.exists(sha) == "tombstoned"
+                else:  # present, and its bytes read back whole (get checks the digest too)
+                    assert self.blobs.get(sha) == self.contents[sha], f"blob {sha[:12]} changed"
         on_disk: dict[tuple[str, int], str] = {}
         for doc, events in by_doc.items():
             events.sort(key=lambda r: r["seq"])

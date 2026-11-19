@@ -1,7 +1,9 @@
 """mailroom_labels: versioned, hash-checked label snapshots, their precedence and quality gate.
 
-The public surface (plan decision 8) is re-exported here; the Dojo codes against these
-names only.
+The public surface is re-exported here; the Dojo codes against these names only. Its
+entry point is ``load_label_set(directories, profile)``, which returns a ``LabelSet``
+(``documents()``, ``snapshot_refs()``, ``label_snapshot_ids()``); a single
+``LabelSnapshot`` streams raw rows (``rows()``) and resolves nothing.
 """
 
 from __future__ import annotations

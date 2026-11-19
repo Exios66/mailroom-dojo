@@ -3,7 +3,17 @@
 ``load_label_set(directories, profile)`` is what the Dojo codes against. It loads every
 snapshot (manifest verification first), runs the quality gate, refuses the set when the
 gate finds an error (``QualityGateFailed``, which carries the report), and resolves every
-document once. The result is immutable:
+document once. What holds against change, and no more: the ``LabelSet`` dataclass is
+frozen, each document's ``fields`` and ``untrusted`` are read-only views, and every list or
+dict label value that ``documents()`` and ``document()`` hand out is a fresh copy, so a
+caller that changes a value it was given never changes the labels. The frozen models are
+not defended against a deliberate write through ``__dict__`` or ``object.__setattr__`` (a
+document with no list or dict value is handed out as the stored object itself), and
+``profile`` is a plain object, not deep-frozen. Each snapshot manifest stores ``source``
+and ``known_warnings`` deep read-only (``stored_source``, ``stored_known_warnings``) and
+hands out fresh copies of them. A ``DocumentLabels`` copies (``copy.copy``, ``copy.deepcopy``)
+and pickles; the ``LabelSet`` itself neither pickles nor deep-copies (its id index is a
+read-only view). Its surface:
 
 - ``snapshot_id``: the member snapshot ids, sorted and joined with ``+`` (deterministic,
   readable, and different for any other membership);
@@ -14,19 +24,27 @@ document once. The result is immutable:
 - ``label_snapshot_ids()``: the same as the strings ``mailroom_record.models.Run`` stores in
   ``label_snapshot_ids`` (``<snapshot_id>@<manifest_hash>``);
 - ``report``: the quality report (warnings stay visible; known ones are marked).
+
+``load_label_set`` is strict by default: it also refuses a set with a warning that the
+snapshot raising it does not accept, the same rule as ``mailroom-labels verify --strict``,
+so a scorer never runs on an unreviewed warning (a Hub import without the text check only
+warns ``text_unchecked``). ``strict=False`` loads such a set for inspection only.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
+from typing import Any
 
-from mailroom_labels.errors import LabelsError
+from mailroom_labels.errors import LabelsError, ManifestMismatch
+from mailroom_labels.findings import finding
 from mailroom_labels.layers import corpus_index, read_layers
-from mailroom_labels.models import DocumentLabels
+from mailroom_labels.models import DocumentLabels, FieldLabel, LayerFact
 from mailroom_labels.profile import ClientProfile
-from mailroom_labels.quality import QualityReport, check_dirs
+from mailroom_labels.quality import QualityReport, check_dirs, verify
 from mailroom_labels.resolve import resolve
 from mailroom_labels.snapshot import LabelSnapshot, label_snapshot_ids, snapshot_refs
 from mailroom_record.hashing import hash_obj
@@ -35,12 +53,57 @@ __all__ = ["LabelSet", "QualityGateFailed", "load_label_set"]
 
 
 class QualityGateFailed(LabelsError):
-    """The quality gate found at least one error; ``report`` holds every finding."""
+    """The quality gate failed: at least one error, or (strict) a warning its snapshot does
+    not accept. ``report`` holds every finding."""
 
-    def __init__(self, report: QualityReport) -> None:
+    def __init__(self, report: QualityReport, *, strict: bool = False) -> None:
         self.report = report
-        kinds = sorted({f.kind for f in report.errors})
-        super().__init__(f"{len(report.errors)} quality error(s): {', '.join(kinds)}")
+        failing = (*report.errors, *(report.unknown_warnings if strict else ()))
+        kinds = sorted({f.kind for f in failing})
+        super().__init__(
+            f"{len(report.errors)} quality error(s)"
+            + (f", {len(report.unknown_warnings)} unknown warning(s)" if strict else "")
+            + f": {', '.join(kinds)}"
+        )
+
+
+def _thawed(value: Any) -> Any:
+    """A deep copy of a JSON value's lists and dicts (scalars are immutable and shared)."""
+    if isinstance(value, list):
+        return [_thawed(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _thawed(v) for k, v in value.items()}
+    return value
+
+
+def _fact_copy(fact: LayerFact) -> LayerFact:
+    if not isinstance(fact.value, (list, dict)):
+        return fact
+    return fact.model_copy(update={"value": _thawed(fact.value)})
+
+
+def _label_copy(label: FieldLabel) -> FieldLabel:
+    seen = tuple(_fact_copy(f) for f in label.layers_seen)
+    if not isinstance(label.value, (list, dict)) and all(
+        a is b for a, b in zip(seen, label.layers_seen, strict=True)
+    ):
+        return label
+    return label.model_copy(update={"value": _thawed(label.value), "layers_seen": seen})
+
+
+def _detached(doc: DocumentLabels) -> DocumentLabels:
+    """``doc`` with every list or dict value copied, so the caller cannot reach the stored
+    one. Frozen models and scalars are shared; only what could be mutated is copied."""
+    fields = {name: _label_copy(label) for name, label in doc.fields.items()}
+    untrusted = {name: tuple(_fact_copy(f) for f in facts) for name, facts in doc.untrusted.items()}
+    if all(fields[n] is doc.fields[n] for n in fields) and all(
+        a is b for n, facts in untrusted.items() for a, b in zip(facts, doc.untrusted[n], strict=True)
+    ):
+        return doc
+    # model_copy does not re-run validators: keep the read-only views ourselves.
+    return doc.model_copy(
+        update={"fields": MappingProxyType(fields), "untrusted": MappingProxyType(untrusted)}
+    )
 
 
 @dataclass(frozen=True)
@@ -51,6 +114,15 @@ class LabelSet:
     profile: ClientProfile
     report: QualityReport
     _documents: tuple[DocumentLabels, ...]
+    _by_id: Mapping[str, DocumentLabels] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        # Built once: ``document()`` is a lookup, not a scan. The first document with an id
+        # wins, as the scan it replaces did.
+        index: dict[str, DocumentLabels] = {}
+        for doc in self._documents:
+            index.setdefault(doc.document_id, doc)
+        object.__setattr__(self, "_by_id", MappingProxyType(index))
 
     @property
     def snapshot_id(self) -> str:
@@ -61,12 +133,14 @@ class LabelSet:
         return hash_obj([[s.snapshot_id, s.manifest_hash] for s in self.snapshots])
 
     def documents(self) -> Iterator[DocumentLabels]:
-        """Every resolved document, sorted by document id."""
-        return iter(self._documents)
+        """Every resolved document, sorted by document id (list and dict values are copies)."""
+        return (_detached(d) for d in self._documents)
 
     def document(self, document_id: str) -> DocumentLabels | None:
-        """One resolved document, or None when no snapshot names it."""
-        return next((d for d in self._documents if d.document_id == document_id), None)
+        """One resolved document, or None when no snapshot names it (list and dict values
+        are copies)."""
+        found = self._by_id.get(document_id)
+        return None if found is None else _detached(found)
 
     def snapshot_refs(self) -> tuple[dict[str, str], ...]:
         """What a run records about the labels it was scored against."""
@@ -77,12 +151,25 @@ class LabelSet:
         return label_snapshot_ids(self.snapshots)
 
 
-def load_label_set(directories: Iterable[Path | str], profile: ClientProfile) -> LabelSet:
-    """Load, check and resolve snapshot directories; raise ``QualityGateFailed`` on any error
-    (a snapshot that fails to load is an error too)."""
+def load_label_set(
+    directories: Iterable[Path | str], profile: ClientProfile, *, strict: bool = True
+) -> LabelSet:
+    """Load, check and resolve snapshot directories; raise ``QualityGateFailed`` on any error.
+    A snapshot that fails to load when the gate runs is a finding in ``exc.report`` (the
+    exception has no chained cause); one whose files change between the gate and resolving
+    raises ``QualityGateFailed`` with the ``ManifestMismatch`` as its ``__cause__``. With
+    ``strict`` (the default, what ``mailroom-labels verify --strict`` checks) a warning that
+    the snapshot raising it does not list in its ``known_warnings`` fails the gate too;
+    ``strict=False`` is for inspection, never for scoring."""
     report, loaded = check_dirs(list(directories), profile)
-    if not report.ok:
-        raise QualityGateFailed(report)
-    read = read_layers(loaded)
+    if verify(report, strict=strict) != 0:
+        raise QualityGateFailed(report, strict=strict)
+    try:
+        read = read_layers(loaded)
+        for snap in loaded:  # the manifest too: the set must not name one the directory lost
+            snap.check_manifest()
+    except ManifestMismatch as exc:  # a file or manifest changed after the gate read it
+        changed = finding("manifest_mismatch", location=str(exc.path), detail=f"{exc.kind}: {exc.detail}")
+        raise QualityGateFailed(QualityReport((changed, *report.findings))) from exc
     docs = resolve(read.records, profile, corpus_index(read.corpus))
     return LabelSet(snapshots=tuple(loaded), profile=profile, report=report, _documents=docs)

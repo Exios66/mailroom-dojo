@@ -5,9 +5,9 @@ Serves requirements R4, R6, R8 and R9 of `docs/specs/2026-11-18-lean-rewrite-des
 labels). Package: `packages/labels/` (`mailroom_labels`). Committed data: `labels/<snapshot>/`
 and `config/clients/<client>/profile.yaml`.
 
-JJB, 2026-11-18: "ALL SCORING NEEDS TO STILL BE BUILT FROM THE MAILROOM DATASET, AND THE INTERIM
-GOLD CLAUDE LABELS THAT SHOULD BE SAVED TO THE NEW REPO AS WELL PLEASE, ENSURING THE HIGHEST DATA
-QUALITY FOR EXPERIMENTAL RUNS AND TESTING + calibration".
+The owner's request (2026-11-18), in summary: every score is still built from the Mailroom
+dataset and the interim gold labels, which move into this repository too, at the highest data
+quality, for experimental runs, testing and calibration.
 
 ## Goal
 
@@ -42,11 +42,16 @@ exact dataset documents they describe.
    `review:near_gold`, `interim:gap_fill`, `interim:derived`, `hub:absent`, `near_gold`; on the real
    data this moves 171 labels (filing_number 136, signatories 21, jurisdiction 14) from a Hub
    absence to the interim fill, matching the sandbox merge.
+   *Approval status of the audit rank:* placing `review:near_gold` above `interim:gap_fill` was set
+   by the orchestrating thread's brief for this chunk, not by the owner, and the sandbox pipeline keeps
+   `gap_fill` ahead. It changes 47 scored values (of 69 audit decisions that disagree with
+   `gap_fill`). It is profile data (`precedence` in the client profile), so the owner can reverse it by
+   moving one line and rebuilding nothing; until the owner confirms, treat these 47 values as provisional.
 2. **Status words.** `hub`, `interim`, `near_gold`, `gold`. A review decision by a human desk owner is
-   `gold`; the Claude Opus audit decisions (1,039 corrections under JJB's top-reply rule) are
+   `gold`; the Claude Opus audit decisions (1,039 corrections under the owner's top-reply rule) are
    `near_gold` with source `review:claude-opus-audit`. No reviewer initials are invented: the reviewer
    field holds what the decision file states (a role), and the manifest says initials are not recorded.
-   Open question for JJB: should the human desk decisions carry initials before they count as `gold`?
+   Open question for the owner: should the human desk decisions carry initials before they count as `gold`?
 3. **A snapshot is a directory with `manifest.json`.** The manifest lists every file with sha256 and row
    count, the source (repository, revision or commit, path), the schema version, and the builder's name.
    `manifest_hash` is the canonical hash (from `mailroom_record.hashing`) of the manifest without that
@@ -56,6 +61,14 @@ exact dataset documents they describe.
    index, or whose recorded content hash differs from the Hub's `content_sha256`, makes that document
    `verified = False`. Unverified documents are reported and never silently scored; they do not block
    the others (project memory: corpus hash mismatch must not block scoring).
+   *Amended in Task 2:* a layer whose class or subclass disagrees with the index makes the
+   document unverified too (the label is stale, as for a hash mismatch). Trade-off: on the
+   real data six corporate_record documents that the Hub re-filed under another subclass
+   between revisions bc9eab28 and ccd040f6 lose 53 scorable fields, 24 of them current Hub
+   values, which the sandbox still scores. The alternative is to drop only the stale interim
+   labels and keep scoring the Hub values; it was not taken because the document's subclass
+   choice is itself in doubt until the interim overlay is rebuilt on ccd040f6 (open question
+   for the owner).
 5. **Data quality is a gate.** `quality.check(snapshot set)` returns typed findings (error or warning)
    for: unknown document, class or subclass disagreeing with the Hub index, stale content hash,
    duplicate (document, field) within a layer, field not in the client profile, value not matching its
@@ -70,8 +83,10 @@ exact dataset documents they describe.
    Field types use the Dojo vocabulary: `name`, `label`, `date`, `money`, `id`, `free_text`, `containment`,
    `entity_list[:name|free_text|id]`, `cms_doc_ref`. Classes are open strings: a new class is a profile
    entry, never a code change (R4).
-8. **Public surface** (what the Dojo thread codes against): `LabelSnapshot` (`snapshot_id`,
-   `manifest_hash`, `documents()`), `DocumentLabels` (`document_id`, `doc_class`, `subclass`,
+8. **Public surface** (what the Dojo thread codes against): `load_label_set(directories, profile)`,
+   which returns a `LabelSet` (`snapshot_id`, `manifest_hash`, `documents()`, `document(id)`,
+   `snapshot_refs()`, `label_snapshot_ids()`); `LabelSnapshot` (`snapshot_id`, `manifest_hash`,
+   `rows()`; it resolves nothing), `DocumentLabels` (`document_id`, `doc_class`, `subclass`,
    `content_sha256`, `verified`, `fields`, `scorable_fields`), `FieldLabel` (`value`, `status`, `source`,
    `reviewer`, `layers_seen`), `load_snapshot`, `load_snapshot_set`, `resolve`, `ClientProfile`,
    `snapshot_refs` (what a run records: id and manifest hash of each snapshot).
@@ -88,36 +103,11 @@ coverage report, the boundary test, CI wiring. All against small synthetic snaps
 ### Task 2: the real data (one Opus implementer, then an independent Opus review)
 The importers and committed snapshots, the profile generator, quality run over the real data, coverage
 report, CLI (`mailroom-labels verify|coverage|resolve|import-*`), golden tests that pin counts on the
-committed snapshots, README and layout-map updates, the handoff.
+committed snapshots, README and layout-map updates, the handoff (`docs/handoff/2026-11-18-labels.md`).
 
 ## Test strategy (R8): real behavior and failure states
 
-- **Tamper matrix.** For every snapshot file and the manifest: flip one byte, truncate, append a line,
-  delete, add an unlisted file, swap two rows, edit the manifest count. Each must raise the exact typed
-  error. Positive control: the untouched snapshot loads.
-- **Determinism.** Building a snapshot twice from the same source gives byte-identical files and the same
-  `manifest_hash`; a one-label change changes exactly one file hash and the `manifest_hash`.
-- **Precedence is tested against an oracle.** A tiny, independent, table-driven reference resolver in the
-  tests; `hypothesis` generates random layer sets and asserts the real resolver equals the oracle, that
-  every resolved status and value comes from some layer, that Hub is never replaced by `gap_fill`,
-  `derived` or `near_gold`, that a gold decision always wins, that results do not depend on input order,
-  and that resolving twice gives the same result.
-- **Failure states are reported, not swallowed.** Malformed JSON line (reported with file and line),
-  duplicate (document, field), unknown status, unknown field, wrong type, vocabulary violation,
-  document missing from the Hub index, content-hash mismatch, decision aimed at nothing, conflicting
-  decisions: each has a test asserting the finding kind and that valid neighbours still load.
-- **Real data golden checks** (no network, committed snapshots only): document and label counts per layer
-  and class; zero quality errors; the coverage table; the known facts from the review (1,038 of the 1,039
-  correspondence audit decisions equal the near-gold catalog value, one differs: DOC-672cec2c85c83c39
-  action_items); the 8 human desk decisions resolve to `gold`.
-- **Parity with today's behavior.** A test restates the sandbox rules (Hub wins over `gap_fill`, `derived`
-  and `near_gold`; `correction` replaces; document hash mismatch leaves the document untouched) and runs
-  them on fixtures.
-- **Boundary.** `mailroom_labels` imports only `mailroom_record` among workspace packages; `record`
-  still imports none.
-- **Mutation check.** The reviewer applies at least five source mutations (skip the hash check, swap two
-  precedence ranks, drop the duplicate check, treat `disputed` as truth, ignore vocabulary) and every
-  one must fail a test.
+Moved to `docs/test-strategy-labels.md` (one test strategy per package, `AGENTS.md`).
 
 ## Not verified by this chunk
 

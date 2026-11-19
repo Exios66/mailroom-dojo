@@ -260,3 +260,137 @@ def test_scan_gaps_walk_stored_seqs_not_range_to_the_largest(store: SimpleNamesp
     write_lines(store.root, "w0.jsonl", [*events, huge])
     scan = store.log.scan("r1", strict=False)
     assert scan.gaps() == {"d1": 3}
+
+
+# --- fix pass 2: pass two's recheck, gaps over forks, and the one-document bound ---------
+
+
+def test_a_line_swapped_between_the_two_passes_is_caught_not_yielded(store: SimpleNamespace) -> None:
+    # Two lines of equal length. After pass one has located them, they swap places (a
+    # rewrite in place, as a restore or a hostile edit could do). Pass two must notice that
+    # the line at d1's offset is no longer d1's, instead of yielding d2's event as d1's.
+    a, b = make_event(run_id="r1", doc_id="d1", seq=0, node="n"), make_event(run_id="r1", doc_id="d2", seq=0, node="n")
+    seg = write_lines(store.root, "w0.jsonl", [a, b])
+    la, lb = seg.read_bytes().splitlines(keepends=True)
+    assert len(la) == len(lb)
+    for strict in (True, False):
+        seg.write_bytes(la + lb)
+        scan = store.log.scan("r1", "d1", strict=strict)
+        seg.write_bytes(lb + la)  # same size, same offsets, other owners
+        if strict:
+            with pytest.raises(CorruptLine, match="w0.jsonl at byte 0: line changed while reading"):
+                list(scan.events())
+        else:
+            assert list(scan.events()) == []
+            assert [(x.byte_offset, x.kind) for x in scan.bad] == [(0, "corrupt_line")]
+
+
+def test_gaps_count_a_forked_seq_once(store: SimpleNamespace) -> None:
+    c = chain("d1", 2)
+    fork = make_event(run_id="r1", doc_id="d1", seq=0, prev_hash=c[0].prev_hash, node="other")
+    late = make_event(run_id="r1", doc_id="d1", seq=3, prev_hash=c[1].hash, node="n")
+    write_lines(store.root, "w0.jsonl", [c[0], fork, c[1], late])
+    assert store.log.scan("r1", strict=False).gaps() == {"d1": 2}
+    assert store.log.scan("r1", "d1", strict=False).seqs("d1") == [0, 0, 1, 3]
+
+
+@pytest.mark.parametrize("handovers", [0, 3])
+def test_one_large_document_costs_a_few_words_per_event(store: SimpleNamespace, handovers: int) -> None:
+    # Task 8 review MINOR 5: pass two used to copy every row into a sorted list of tuples
+    # (~200 bytes per event) and gaps() a list plus a set. One document of 60k events, in
+    # one segment or handed between four, must cost the packed rows only (32 bytes each).
+    from mailroom_record.hashing import canonical_json
+
+    n = 60_000
+    base = v1_event_dict(doc_id="d1", seq=0)
+    per_segment = n // (handovers + 1)
+    segs = [_seg(store, f"w{k}.jsonl") for k in range(handovers + 1)]
+    segs[0].parent.mkdir(parents=True, exist_ok=True)
+    files = [p.open("wb") for p in segs]
+    try:
+        for i in range(n):
+            base["seq"] = i  # hashes not linked: only the reading cost matters here
+            files[min(i // per_segment, handovers)].write(canonical_json(base) + b"\n")
+    finally:
+        for f in files:
+            f.close()
+
+    def first_event() -> None:
+        it = store.log.iter_events("r1")
+        next(it)  # pass one done, pass two started
+        it.close()
+
+    per_event = peak_bytes(first_event) / n
+    assert per_event < 48, per_event
+    scan = store.log.scan("r1")
+    assert peak_bytes(scan.gaps) < 64 * 1024
+    assert scan.gaps() == {}
+
+
+# --- open handles and unreadable segments (PR #2 re-review, items 9 and 10) ----------
+
+_LOW_FD_CHILD = """
+import resource, sys
+from pathlib import Path
+from mailroom_record.blobs import BlobStore
+from mailroom_record.log import EventLog
+
+root = Path(sys.argv[1])
+resource.setrlimit(resource.RLIMIT_NOFILE, (int(sys.argv[2]), resource.getrlimit(resource.RLIMIT_NOFILE)[1]))
+log = EventLog(root, BlobStore(root))
+print(sum(1 for _ in log.iter_events("r1")))
+"""
+
+
+def test_pass_two_keeps_a_bounded_number_of_segments_open(store: SimpleNamespace) -> None:
+    # 300 segments, one document each: pass two reads them in doc order. Holding every
+    # segment open would need 300 descriptors; a child with a limit of 128 must still read
+    # every event (EMFILE otherwise).
+    import subprocess
+    import sys
+
+    n = 300
+    for i in range(n):
+        write_lines(store.root, f"w{i:03d}.jsonl", chain(f"d{i:03d}", 1))
+    res = subprocess.run(
+        [sys.executable, "-c", _LOW_FD_CHILD, str(store.root), "128"], capture_output=True, text=True, timeout=120
+    )
+    assert res.returncode == 0, res.stderr[-2000:]
+    assert res.stdout.strip() == str(n)
+
+
+def test_pass_two_reopens_an_evicted_segment(store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    # One document handed back and forth between more segments than the cache holds: each
+    # read must land on the right segment after its handle was evicted and reopened.
+    monkeypatch.setattr(log_module, "_MAX_OPEN_SEGMENTS", 2)
+    events = chain("d1", 12)
+    for i, e in enumerate(events):
+        write_lines(store.root, f"w{i % 4}.jsonl", [e])
+    got = [(x.segment, x.event.seq, x.event.hash) for x in store.log.scan("r1").events()]
+    assert got == [(f"w{i % 4}.jsonl", i, e.hash) for i, e in enumerate(events)]
+
+
+def test_tolerant_scan_keeps_other_segments_when_one_cannot_be_opened(
+    store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_lines(store.root, "a.jsonl", chain("d1", 2))
+    write_lines(store.root, "b.jsonl", chain("d2", 3))
+    write_lines(store.root, "c.jsonl", chain("d3", 1))
+    real_open = Path.open
+
+    def failing_open(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self.name == "b.jsonl":
+            raise PermissionError(13, "injected")
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", failing_open)
+    with pytest.raises(PermissionError):  # strict readers still fail loudly
+        store.log.scan("r1")
+    scan = store.log.scan("r1", strict=False)
+    assert scan.unreadable == [("b.jsonl", "PermissionError")]
+    assert scan.doc_ids() == ["d1", "d3"]
+    got: list[tuple[str, int]] = []
+    with pytest.raises(PermissionError):  # after every readable event: the read was partial
+        for located in scan.events():
+            got.append((located.event.doc_id, located.event.seq))
+    assert got == [("d1", 0), ("d1", 1), ("d3", 0)]

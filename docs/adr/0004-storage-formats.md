@@ -14,11 +14,15 @@ live database.
 
 ## Decision
 
-- **Live events:** one JSONL segment file per writer per run
+- **Live events:** JSONL segment files per writer per run
   (`runs/<run_id>/segments/<writer>.jsonl`), one canonical JSON object per line, appended
   under a per-writer lock and fsynced every `flush_every` events. Processes never share a
   file, so lines cannot interleave. A crash leaves at most one torn last line, which readers
-  skip and report (`torn_tails`) and the next writer continues the chain past it.
+  skip and report (`torn_tails`). The writer never appends after torn bytes: it continues
+  in a numbered recovery segment `<writer>.<k>.jsonl` (k = 1, 2, ...), and the chain goes
+  on there. Readers discover and read every segment file of every writer (sorted by name);
+  ordered reads sort by `(doc_id, seq)`, so no event in a recovery segment is missed and the
+  order between a writer's segments does not matter.
 - **Sealed events:** `runs/<run_id>/columns/events-<n>.parquet`, the events since the
   previous seal, every field except `payload` (`decision` as a JSON string, blob refs as
   hash lists).

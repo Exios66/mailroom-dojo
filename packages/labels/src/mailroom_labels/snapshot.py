@@ -8,7 +8,8 @@ key, so any edit to the manifest (a file hash, a row count, the source) changes 
 
 Loading (``load_snapshot``) verifies the whole manifest **before** a single row is handed
 out: the manifest's own hash, safe and sorted paths, every listed file present with the
-listed size, sha256 and row count, and no unlisted file. Each failure raises
+listed size, sha256 and row count, no unlisted file or empty directory, and no file (the
+manifest included) that links outside the snapshot directory. Each failure raises
 ``ManifestMismatch`` with its own ``kind``. Rows are then streamed line by line (``rows()``); a line
 that is not one JSON object raises ``CorruptLine`` with the file and line number, and a
 file that changed after verification raises ``ManifestMismatch("changed")`` when its
@@ -18,6 +19,9 @@ stream opens or ends.
 from __future__ import annotations
 
 import json
+import re
+import shutil
+import tempfile
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
@@ -29,19 +33,22 @@ from pydantic import ValidationError
 from mailroom_labels.errors import (
     CorruptLine,
     DuplicateSnapshot,
+    LabelsError,
     ManifestMismatch,
     ManifestMissing,
     UnknownSnapshotSchema,
 )
-from mailroom_labels.models import SnapshotManifest
+from mailroom_labels.models import SNAPSHOT_ID_PATTERN, SnapshotManifest
 from mailroom_record.hashing import canonical_json, hash_obj
 
 __all__ = [
     "MANIFEST_NAME",
     "MANIFEST_SCHEMA",
+    "MAX_JSON_DEPTH",
     "LabelSnapshot",
     "Row",
     "build_manifest",
+    "json_problem",
     "label_snapshot_ids",
     "load_snapshot",
     "load_snapshot_set",
@@ -54,6 +61,10 @@ __all__ = [
 MANIFEST_NAME = "manifest.json"
 MANIFEST_SCHEMA = "mailroom-labels/manifest/v1"
 _KNOWN_MANIFEST_SCHEMAS = (MANIFEST_SCHEMA,)
+#: The deepest a row may nest, counting the row object itself as level 1. The committed
+#: labels nest at most 5 deep; a deeper row is a ``CorruptLine``, so no reader or record
+#: model ever sees it (pydantic refuses JSON a few hundred levels deep with its own error).
+MAX_JSON_DEPTH = 64
 
 
 @dataclass(frozen=True)
@@ -82,23 +93,73 @@ def _no_constant(name: str) -> Any:
     raise _BadJson(f"non-finite number {name}")
 
 
+def _finite_float(text: str) -> float:
+    value = float(text)
+    if value in (float("inf"), float("-inf")):
+        raise _BadJson(f"number {text[:40]} is too large for a float")
+    return value
+
+
+def _loads(text: str) -> Any:
+    """``json.loads`` that refuses repeated keys, ``NaN``/``Infinity``, a float that
+    overflows to infinity (``1e400``) and an integer over Python's digit limit, each as a
+    ``ValueError``."""
+    return json.loads(
+        text, object_pairs_hook=_unique_keys, parse_constant=_no_constant, parse_float=_finite_float
+    )
+
+
+def _too_deep(obj: Any, limit: int) -> bool:
+    """True when ``obj`` nests more than ``limit`` lists and objects deep (iterative, so
+    it never recurses on the value it measures)."""
+    stack = [(obj, 1)]
+    while stack:
+        item, depth = stack.pop()
+        if isinstance(item, (dict, list)):
+            if depth > limit:
+                return True
+            stack.extend((v, depth + 1) for v in (item.values() if isinstance(item, dict) else item))
+    return False
+
+
+def json_problem(obj: Any) -> str | None:
+    """Why ``obj`` may not be a snapshot row, or None when it may: it nests deeper than
+    ``MAX_JSON_DEPTH``, or ``canonical_json`` cannot encode it (a string holding a lone
+    surrogate, which a ``\\ud800`` escape parses to). Importers use it to refuse a source
+    row before writing it."""
+    if _too_deep(obj, MAX_JSON_DEPTH):
+        return f"JSON nested too deeply (more than {MAX_JSON_DEPTH} levels)"
+    try:
+        canonical_json(obj)
+    except UnicodeEncodeError:
+        return "a string holds a lone surrogate (not encodable as UTF-8)"
+    except (ValueError, TypeError, RecursionError) as exc:
+        return f"not encodable as canonical JSON ({type(exc).__name__})"
+    return None
+
+
 def _parse_line(raw: bytes, path: Path, line_no: int) -> dict[str, Any]:
     """One JSONL line as a dict. Refuses (``CorruptLine``) a missing newline, a blank line,
-    invalid UTF-8 or JSON, a repeated key, ``NaN`` / ``Infinity``, nesting too deep to
-    parse, and anything but an object."""
+    invalid UTF-8 or JSON, a repeated key, ``NaN`` / ``Infinity``, a number that overflows a
+    float or exceeds the integer digit limit, nesting deeper than ``MAX_JSON_DEPTH`` (or too
+    deep to parse at all), a value ``canonical_json`` cannot encode, and anything but an
+    object."""
     if not raw.endswith(b"\n"):
         raise CorruptLine(path, line_no, "last line has no newline (truncated write?)")
     body = raw[:-1]
     if not body.strip():
         raise CorruptLine(path, line_no, "blank line")
     try:
-        obj = json.loads(body.decode("utf-8"), object_pairs_hook=_unique_keys, parse_constant=_no_constant)
-    except (UnicodeDecodeError, json.JSONDecodeError, _BadJson) as exc:
+        obj = _loads(body.decode("utf-8"))
+    except ValueError as exc:  # invalid UTF-8 or JSON, a repeated key, a number Python cannot hold
         raise CorruptLine(path, line_no, f"not JSON: {exc}") from exc
     except RecursionError as exc:
         raise CorruptLine(path, line_no, "JSON nested too deeply") from exc
     if not isinstance(obj, dict):
         raise CorruptLine(path, line_no, f"a row must be a JSON object, got {type(obj).__name__}")
+    problem = json_problem(obj)
+    if problem is not None:
+        raise CorruptLine(path, line_no, problem)
     return obj
 
 
@@ -115,6 +176,13 @@ def _file_facts(path: Path, *, parse: bool) -> tuple[str, int, int]:
             if parse:
                 _parse_line(raw, path, rows)
     return digest.hexdigest(), rows, size
+
+
+def _jsonl_lines(data: bytes) -> list[bytes]:
+    """The lines of a JSONL file as reading it in binary mode gives them (split on ``\\n``
+    only, each keeping its newline; a last line without one is kept as it is)."""
+    parts = data.split(b"\n")
+    return [part + b"\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
 
 
 def manifest_hash_of(manifest: Mapping[str, Any]) -> str:
@@ -137,12 +205,44 @@ def _safe_path(rel: str) -> bool:
     pure = PurePosixPath(rel)
     return (
         rel != ""
+        and pure.as_posix() == rel  # normalised: no "./", "//" or trailing "/"
         and not pure.is_absolute()
         and ".." not in pure.parts
         and "\\" not in rel
         and pure.suffix == ".jsonl"
         and rel != MANIFEST_NAME
     )
+
+
+def _inside(directory: Path, path: Path) -> bool:
+    """True when ``path`` (following any symlink) stays inside ``directory``."""
+    try:
+        path.resolve().relative_to(directory.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _check_inside(directory: Path, path: Path) -> None:
+    """Refuse (``ManifestMismatch("unsafe_path")``) a snapshot file that links outside the
+    snapshot: the manifest pins bytes, and the snapshot must hold them itself."""
+    if not _inside(directory, path):
+        raise ManifestMismatch("unsafe_path", path, "links outside the snapshot directory")
+
+
+def _stray_dirs(directory: Path, listed: Iterable[str]) -> list[str]:
+    """Directories under ``directory`` that hold no listed file, as sorted relative paths."""
+    needed = {parent.as_posix() for rel in listed for parent in PurePosixPath(rel).parents} - {"."}
+    return sorted(
+        rel
+        for p in directory.rglob("*")
+        if p.is_dir() and not p.is_symlink() and (rel := p.relative_to(directory).as_posix()) not in needed
+    )
+
+
+def _check_snapshot_id(snapshot_id: Any) -> None:
+    if not (isinstance(snapshot_id, str) and re.fullmatch(SNAPSHOT_ID_PATTERN, snapshot_id)):
+        raise ValueError(f"snapshot id {snapshot_id!r} must match {SNAPSHOT_ID_PATTERN}")
 
 
 def build_manifest(
@@ -157,14 +257,23 @@ def build_manifest(
 ) -> SnapshotManifest:
     """Hash every data file in ``directory`` and write ``manifest.json``; return the manifest.
 
-    Every data file must be a ``.jsonl`` file whose rows are JSON objects (``CorruptLine``
-    otherwise), so a snapshot can never be committed with a line it cannot load.
+    Every data file must be a ``.jsonl`` file inside ``directory`` whose rows are JSON
+    objects (``CorruptLine`` otherwise), and no directory may hold no data file
+    (``ManifestMismatch("extra")``): a snapshot can never be committed in a state
+    ``load_snapshot`` refuses.
     """
     directory = Path(directory)
-    files = []
-    for rel in _data_files(directory):
+    _check_snapshot_id(snapshot_id)
+    data_files = _data_files(directory)
+    for rel in data_files:
         if not _safe_path(rel):
             raise ManifestMismatch("unsafe_path", directory / rel, "data files must be .jsonl")
+        _check_inside(directory, directory / rel)
+    stray = _stray_dirs(directory, data_files)
+    if stray:
+        raise ManifestMismatch("extra", directory / stray[0], f"{len(stray)} empty directory(ies)")
+    files = []
+    for rel in data_files:
         digest, rows, size = _file_facts(directory / rel, parse=True)
         files.append({"path": rel, "sha256": digest, "rows": rows, "bytes": size})
     warnings = sorted(
@@ -184,7 +293,9 @@ def build_manifest(
     manifest["manifest_hash"] = manifest_hash_of(manifest)
     model = SnapshotManifest.model_validate_json(json.dumps(manifest))
     text = json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-    (directory / MANIFEST_NAME).write_text(text, encoding="utf-8")
+    target = directory / MANIFEST_NAME
+    _check_inside(directory, target)  # a manifest.json link must not redirect the write
+    target.write_text(text, encoding="utf-8")
     return model
 
 
@@ -195,6 +306,38 @@ def write_jsonl(path: Path | str, rows: Iterable[Mapping[str, Any]]) -> None:
             fh.write(canonical_json(row) + b"\n")
 
 
+def _check_replaceable(directory: Path, snapshot_id: str, kind: Any) -> None:
+    """Refuse (``FileExistsError``, touching nothing) a ``directory`` that is not safe to
+    replace. It may be missing or empty, or hold exactly an earlier build of the same
+    snapshot id and kind: a valid manifest, the files it lists and the directories holding
+    them, nothing else."""
+    if not directory.exists() or not any(directory.iterdir()):
+        return
+    try:
+        old = _read_manifest(directory)
+    except LabelsError as exc:
+        raise FileExistsError(
+            f"{directory} is not empty and holds no valid snapshot manifest ({exc})"
+        ) from exc
+    if old.snapshot_id != snapshot_id:
+        raise FileExistsError(f"{directory} holds snapshot {old.snapshot_id!r}, not {snapshot_id!r}")
+    if old.kind != kind:
+        raise FileExistsError(f"{directory} holds a {old.kind!r} snapshot, not the kind {kind!r}")
+    listed = {f.path for f in old.files}
+    if not all(_safe_path(rel) for rel in listed):
+        raise FileExistsError(f"{directory}: its manifest lists an unsafe path")
+    unknown = sorted(
+        rel
+        for p in directory.rglob("*")
+        if (rel := p.relative_to(directory).as_posix()) not in listed | {MANIFEST_NAME}
+        and not (p.is_dir() and not p.is_symlink())
+    )
+    if unknown:
+        raise FileExistsError(
+            f"{directory} holds {len(unknown)} file(s) its manifest does not list: {unknown[0]}"
+        )
+
+
 def write_snapshot(
     directory: Path | str,
     files: Mapping[str, Iterable[Mapping[str, Any]]],
@@ -202,16 +345,64 @@ def write_snapshot(
     sort_key: Callable[[Mapping[str, Any]], Any] | None = None,
     **manifest_args: Any,
 ) -> SnapshotManifest:
-    """Write each file's rows (sorted by ``sort_key``, default their canonical JSON) and the
-    manifest. Input order never changes the bytes written."""
+    """Write each file's rows (sorted by ``sort_key`` then their canonical JSON, or by their
+    canonical JSON alone) and the manifest. Input order never changes the bytes written.
+    Every key of ``files`` must be a normalised relative ``.jsonl`` path (``ValueError``
+    otherwise, before anything is touched). ``directory`` must be missing,
+    empty, or an earlier build of the same snapshot id and kind (``FileExistsError`` otherwise,
+    nothing touched), which is replaced whole, so no file of an older build is ever listed
+    as current.
+
+    The new build is written into a temporary directory beside ``directory`` and swapped in
+    only once every row is serialised and the manifest validates. An error before or during
+    the swap leaves the earlier build as it was and removes the temporary directory. A crash
+    (the process killed) between the swap's two renames is not covered: it can leave the
+    earlier build only in the hidden ``.<name>.build-*/old`` directory beside ``directory``;
+    recover it by hand by renaming that ``old`` directory to ``directory`` (or rebuild)."""
     directory = Path(directory)
-    directory.mkdir(parents=True, exist_ok=True)
-    key = sort_key or canonical_json
-    for rel, rows in files.items():
-        target = directory / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        write_jsonl(target, sorted(rows, key=key))
-    return build_manifest(directory, **manifest_args)
+    snapshot_id = manifest_args.get("snapshot_id")
+    _check_snapshot_id(snapshot_id)
+    for rel in files:
+        if not (isinstance(rel, str) and _safe_path(rel)):
+            raise ValueError(
+                f"output path {rel!r} must be a normalised relative .jsonl path inside the snapshot"
+            )
+    _check_replaceable(directory, snapshot_id, manifest_args.get("kind"))
+    directory.parent.mkdir(parents=True, exist_ok=True)
+    scratch = Path(tempfile.mkdtemp(prefix=f".{directory.name}.build-", dir=directory.parent))
+    try:
+        build = scratch / "new"
+        build.mkdir()  # a plain mkdir, so the snapshot gets the usual permissions
+
+        def key(row: Mapping[str, Any]) -> Any:
+            # canonical JSON breaks ties of a custom key, so input order never shows
+            return canonical_json(row) if sort_key is None else (sort_key(row), canonical_json(row))
+
+        for rel, rows in files.items():
+            target = build / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            write_jsonl(target, sorted(rows, key=key))
+        model = build_manifest(build, **manifest_args)
+        _swap_in(build, directory, scratch / "old")
+        return model
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _swap_in(build: Path, directory: Path, aside: Path) -> None:
+    """Move ``build`` to ``directory``; an existing ``directory`` is moved to ``aside`` first
+    (and moved back if the second rename raises). Both renames stay in one parent directory.
+    A crash between the two renames leaves the earlier build only at ``aside`` (inside the
+    hidden ``.<name>.build-*`` directory); see ``write_snapshot``."""
+    if not directory.exists() and not directory.is_symlink():
+        build.rename(directory)
+        return
+    directory.rename(aside)
+    try:
+        build.rename(directory)
+    except BaseException:
+        aside.rename(directory)
+        raise
 
 
 @dataclass(frozen=True)
@@ -233,6 +424,19 @@ class LabelSnapshot:
     def kind(self) -> str:
         return self.manifest.kind
 
+    def check_manifest(self) -> None:
+        """Raise ``ManifestMismatch("manifest_hash")`` when ``manifest.json`` no longer holds
+        the manifest this snapshot was verified against (replaced, edited or removed)."""
+        path = self.directory / MANIFEST_NAME
+        try:
+            current = _read_manifest(self.directory)
+        except ManifestMismatch:
+            raise
+        except LabelsError as exc:
+            raise ManifestMismatch("manifest_hash", path, f"manifest no longer verifies: {exc}") from exc
+        if current.manifest_hash != self.manifest_hash:
+            raise ManifestMismatch("manifest_hash", path, "manifest changed after it was verified")
+
     def rows(self, on_corrupt: Callable[[CorruptLine], None] | None = None) -> Iterator[Row]:
         """Stream every row of every file, in manifest order, re-hashing as it reads.
 
@@ -241,41 +445,42 @@ class LabelSnapshot:
         """
         for entry in self.manifest.files:
             path = self.directory / entry.path
-            # Verified again when the stream opens, so a consumer that stops early still
-            # never reads a file that changed after load_snapshot; the end-of-file check
-            # below catches a change while the file is being read.
+            _check_inside(self.directory, path)
+            # Read once, verify those bytes, then parse the same bytes: what is yielded is
+            # exactly what was hashed, so a change after load_snapshot (or during the read)
+            # is caught before any row of the file is yielded. Files are a few MB at most.
             try:
-                opened = _file_facts(path, parse=False)
+                data = path.read_bytes()
             except OSError as exc:
                 raise ManifestMismatch("missing", path, f"cannot read: {exc}") from exc
-            if opened[0] != entry.sha256 or opened[1] != entry.rows:
+            lines = _jsonl_lines(data)
+            if sha256(data).hexdigest() != entry.sha256 or len(lines) != entry.rows:
                 raise ManifestMismatch("changed", path, "file changed after it was verified")
-            digest = sha256()
-            line_no = 0
-            with path.open("rb") as fh:
-                for raw in fh:
-                    line_no += 1
-                    digest.update(raw)
-                    try:
-                        data = _parse_line(raw, path, line_no)
-                    except CorruptLine as exc:
-                        if on_corrupt is None:
-                            raise
-                        on_corrupt(exc)
-                        continue
-                    yield Row(entry.path, line_no, data)
-            if digest.hexdigest() != entry.sha256 or line_no != entry.rows:
-                raise ManifestMismatch("changed", path, "file changed after it was verified")
+            for line_no, raw in enumerate(lines, start=1):
+                try:
+                    row = _parse_line(raw, path, line_no)
+                except CorruptLine as exc:
+                    if on_corrupt is None:
+                        raise
+                    on_corrupt(exc)
+                    continue
+                yield Row(entry.path, line_no, row)
 
 
 def _read_manifest(directory: Path) -> SnapshotManifest:
     path = directory / MANIFEST_NAME
     if not path.is_file():
         raise ManifestMissing(directory)
+    _check_inside(directory, path)
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_keys,
-                         parse_constant=_no_constant)
-    except (UnicodeDecodeError, json.JSONDecodeError, _BadJson, RecursionError) as exc:
+        text = path.read_bytes().decode("utf-8")
+    except OSError as exc:
+        raise ManifestMismatch("manifest_invalid", path, f"cannot read: {exc.__class__.__name__}") from exc
+    except UnicodeDecodeError as exc:
+        raise ManifestMismatch("manifest_invalid", path, f"not JSON: {exc}") from exc
+    try:
+        raw = _loads(text)
+    except (ValueError, RecursionError) as exc:  # bad JSON, a repeated key, a number too large
         raise ManifestMismatch("manifest_invalid", path, f"not JSON: {exc}") from exc
     if not isinstance(raw, dict):
         raise ManifestMismatch("manifest_invalid", path, "not a JSON object")
@@ -307,14 +512,24 @@ def load_snapshot(directory: Path | str) -> LabelSnapshot:
     extra = [rel for rel in on_disk if rel not in set(listed)]
     if extra:
         raise ManifestMismatch("extra", directory / extra[0], f"{len(extra)} unlisted file(s)")
+    stray = _stray_dirs(directory, listed)
+    if stray:
+        raise ManifestMismatch("extra", directory / stray[0], f"{len(stray)} unlisted directory(ies)")
     for entry in manifest.files:
         path = directory / entry.path
-        size = path.stat().st_size
+        try:
+            size = path.stat().st_size  # follows a symlink: a dangling one is a missing file
+        except OSError as exc:
+            raise ManifestMismatch("missing", path, f"cannot read: {exc.__class__.__name__}") from exc
         if size < entry.bytes:
             raise ManifestMismatch("truncated", path, f"{size} bytes, manifest says {entry.bytes}")
         if size > entry.bytes:
             raise ManifestMismatch("grown", path, f"{size} bytes, manifest says {entry.bytes}")
-        digest, rows, _ = _file_facts(path, parse=False)
+        _check_inside(directory, path)
+        try:
+            digest, rows, _ = _file_facts(path, parse=False)
+        except OSError as exc:
+            raise ManifestMismatch("missing", path, f"cannot read: {exc.__class__.__name__}") from exc
         if digest != entry.sha256:
             raise ManifestMismatch("changed", path, "sha256 differs from the manifest")
         if rows != entry.rows:

@@ -32,12 +32,14 @@ outer shape; every label has ``basis`` ``near_gold:<how>`` and a ``presence``. I
 "verdict", "reviewer": {"model", "role"}, "note"?, "entry": {"value", "evidence"?,
 "absent"?, "basis"?}, "origin"?, "reviewed_at"?}``. ``origin`` (a list of
 ``<source file>:<line>`` strings) and ``reviewed_at`` (a timestamp string or null) are
-provenance only and never change how a decision resolves. ``verdict`` is ``correct`` or ``accept``. A decision whose
+provenance only and never change how a decision resolves. ``verdict`` is ``correct`` or
+``accept``. A decision whose
 ``reviewer.model`` is ``human`` is ``gold`` (rank ``review:gold``); any other reviewer's is
 ``near_gold`` (rank ``review:near_gold``) with source ``review:<model>-<role>``. An
 ``absent`` reason makes the presence ``schema_documented_absence``.
 
-A row that does not have its shape is a ``malformed_record`` finding and yields nothing; a
+A row that does not have its shape, or holds a value a record model refuses, is a
+``malformed_record`` finding and yields nothing; a
 label with a status its layer does not allow is a ``status_not_allowed`` finding. Readers
 never raise on bad rows. A new native version is an entry in ``UPGRADES`` (a function from
 the old row to the new one, applied at read time; ADR-0005), never a rewrite of the files.
@@ -50,6 +52,8 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import ValidationError
+
 from mailroom_labels.errors import CorruptLine, UnknownSnapshotSchema
 from mailroom_labels.findings import finding
 from mailroom_labels.models import PRESENCES, CorpusEntry, Finding, LayerRecord
@@ -57,6 +61,8 @@ from mailroom_labels.snapshot import MANIFEST_NAME, LabelSnapshot, Row
 
 __all__ = [
     "CURRENT_LAYER_SCHEMA",
+    "HUB_PRESENCES",
+    "HUB_UNLABELED",
     "UPGRADES",
     "LayerRead",
     "corpus_index",
@@ -76,12 +82,17 @@ CURRENT_LAYER_SCHEMA: dict[str, str] = {
 #: ``(kind, old_schema) -> (new_schema, upgrade_row)``. Applied until the current schema.
 UPGRADES: dict[tuple[str, str], tuple[str, Callable[[dict[str, Any]], dict[str, Any]]]] = {}
 
+#: The Hub presence that means "not labelled yet": the reader skips the field (no label).
+HUB_UNLABELED = "unlabeled"
+#: Every presence the Hub reader accepts; the Hub importer writes no other. A tuple, not a
+#: set: ``in`` must answer False for an unhashable value (a list code), never raise.
+HUB_PRESENCES: tuple[str, ...] = (*PRESENCES, HUB_UNLABELED)
 INTERIM_TRUTH = ("gap_fill", "derived", "correction")
 #: The rank of an interim label whose ``use_as_truth`` contradicts its status: recorded, never truth.
 FLAG_MISMATCH_RANK = "interim:flag_mismatch"
 INTERIM_STATUSES = (*INTERIM_TRUTH, "disputed")
 REVIEW_VERDICTS = ("correct", "accept")
-_HASH = re.compile(r"^[0-9a-f]{16,64}$")
+_HASH = re.compile(r"^[0-9a-f]{16,64}\Z")  # \Z: "$" would also match before a final newline
 
 
 @dataclass
@@ -142,6 +153,11 @@ class _Ctx:
         )
 
 
+#: A label that says ``populated`` must carry a value. A null one is refused, never ranked
+#: as a populated label (where the Hub's would outrank an interim gap fill) or skipped.
+_POPULATED_NULL = "presence populated with a null value"
+
+
 def _absence(value: Any) -> str:
     return "schema_documented_absence" if value is None else "populated"
 
@@ -183,10 +199,13 @@ def _read_hub(snap: LabelSnapshot, row: Row, out: LayerRead, unverified: frozens
             out.findings.append(ctx.bad("a field must be {value, presence}", doc, fname))
             continue
         presence = lab["presence"]
-        if presence == "unlabeled":
+        if presence not in HUB_PRESENCES:
+            out.findings.append(ctx.bad("unknown presence code", doc, fname))
             continue
-        if presence not in PRESENCES:
-            out.findings.append(ctx.bad(f"unknown presence {presence!r}", doc, fname))
+        if presence == HUB_UNLABELED:
+            continue
+        if presence == "populated" and lab["value"] is None:
+            out.findings.append(ctx.bad(_POPULATED_NULL, doc, fname))
             continue
         out.records.append(
             ctx.record(
@@ -238,8 +257,11 @@ def _read_interim(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
         if status not in INTERIM_STATUSES:
             out.findings.append(
                 finding(
-                    "status_not_allowed", doc=doc, field=fname, layer="interim",
-                    detail=f"interim status {status!r} (allowed: {', '.join(INTERIM_STATUSES)})",
+                    "status_not_allowed",
+                    doc=doc,
+                    field=fname,
+                    layer="interim",
+                    detail=f"interim status is not allowed (allowed: {', '.join(INTERIM_STATUSES)})",
                     location=ctx.location,
                 )
             )
@@ -248,8 +270,11 @@ def _read_interim(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
         if lab.get("use_as_truth") is not (status in INTERIM_TRUTH):
             out.findings.append(
                 finding(
-                    "inconsistent_truth_flag", doc=doc, field=fname, layer="interim",
-                    detail=f"status {status!r} with use_as_truth={lab.get('use_as_truth')!r}",
+                    "inconsistent_truth_flag",
+                    doc=doc,
+                    field=fname,
+                    layer="interim",
+                    detail="status does not match use_as_truth",
                     location=ctx.location,
                 )
             )
@@ -287,20 +312,31 @@ def _read_near_gold(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
         if not (isinstance(basis, str) and basis.startswith("near_gold:") and len(basis) > 10):
             out.findings.append(
                 finding(
-                    "status_not_allowed", doc=doc, field=fname, layer="near_gold",
-                    detail=f"basis {basis!r} is not near_gold:<how>", location=ctx.location,
+                    "status_not_allowed",
+                    doc=doc,
+                    field=fname,
+                    layer="near_gold",
+                    detail="basis must be near_gold:<how> with a method after the prefix",
+                    location=ctx.location,
                 )
             )
             continue
         presence = lab.get("presence")
         if presence not in PRESENCES:
-            out.findings.append(ctx.bad(f"unknown presence {presence!r}", doc, fname))
+            out.findings.append(ctx.bad("unknown presence code", doc, fname))
+            continue
+        if presence == "populated" and lab["value"] is None:
+            out.findings.append(ctx.bad(_POPULATED_NULL, doc, fname))
             continue
         if lab.get("use_as_truth"):
             out.findings.append(
                 finding(
-                    "inconsistent_truth_flag", doc=doc, field=fname, layer="near_gold",
-                    detail="a near_gold label claims use_as_truth", location=ctx.location,
+                    "inconsistent_truth_flag",
+                    doc=doc,
+                    field=fname,
+                    layer="near_gold",
+                    detail="a near_gold label claims use_as_truth",
+                    location=ctx.location,
                 )
             )
         out.records.append(
@@ -337,12 +373,20 @@ def _read_review(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
     if not _is_name(fname):
         problems.append("field must be a name")
     reviewer = d.get("reviewer")
-    if not (isinstance(reviewer, dict) and set(reviewer) == {"model", "role"}
-            and _is_name(reviewer["model"]) and _is_name(reviewer["role"])):
+    if not (
+        isinstance(reviewer, dict)
+        and set(reviewer) == {"model", "role"}
+        and _is_name(reviewer["model"])
+        and _is_name(reviewer["role"])
+    ):
         problems.append("reviewer must be {model, role} with both named")
     entry = d.get("entry")
-    if not (isinstance(entry, dict) and "value" in entry
-            and set(entry) <= {"value", "evidence", "absent", "basis"}):
+    if not (
+        isinstance(entry, dict)
+        and "value" in entry
+        and set(entry) <= {"value", "evidence", "absent", "basis"}
+        and isinstance(entry.get("absent"), (str, type(None)))
+    ):
         problems.append("entry must be {value, evidence?, absent?, basis?}")
     if "note" in d and not isinstance(d["note"], (str, type(None))):
         problems.append("note must be a string or null")
@@ -352,8 +396,11 @@ def _read_review(snap: LabelSnapshot, row: Row, out: LayerRead) -> None:
     if d.get("verdict") not in REVIEW_VERDICTS:
         out.findings.append(
             finding(
-                "status_not_allowed", doc=doc, field=fname, layer="review",
-                detail=f"verdict {d.get('verdict')!r} (allowed: {', '.join(REVIEW_VERDICTS)})",
+                "status_not_allowed",
+                doc=doc,
+                field=fname,
+                layer="review",
+                detail=f"verdict is not allowed (allowed: {', '.join(REVIEW_VERDICTS)})",
                 location=ctx.location,
             )
         )
@@ -408,7 +455,9 @@ def read_layer(snapshot: LabelSnapshot) -> LayerRead:
     def on_corrupt(exc: CorruptLine) -> None:
         out.findings.append(
             finding(
-                "corrupt_line", layer=kind, detail=exc.detail,
+                "corrupt_line",
+                layer=kind,
+                detail=exc.detail,
                 location=f"{snapshot.snapshot_id}/{exc.path.relative_to(snapshot.directory).as_posix()}:{exc.line}",
             )
         )
@@ -416,7 +465,9 @@ def read_layer(snapshot: LabelSnapshot) -> LayerRead:
     unverified = frozenset()
     if kind == "hub":
         listed = snapshot.manifest.source.get("text_unverified_documents", [])
-        unverified = frozenset(x for x in listed if isinstance(x, str)) if isinstance(listed, list) else frozenset()
+        unverified = (
+            frozenset(x for x in listed if isinstance(x, str)) if isinstance(listed, list) else frozenset()
+        )
     for row in snapshot.rows(on_corrupt=on_corrupt):
         if steps:
             data = row.data
@@ -427,14 +478,24 @@ def read_layer(snapshot: LabelSnapshot) -> LayerRead:
                 out.findings.append(_Ctx(snapshot, row).bad(f"cannot upgrade {schema}: {exc!r}"))
                 continue
             row = Row(row.file, row.line, data)
-        if kind == "hub":
-            _read_hub(snapshot, row, out, unverified)
-        elif kind == "interim":
-            _read_interim(snapshot, row, out)
-        elif kind == "near_gold":
-            _read_near_gold(snapshot, row, out)
-        else:
-            _read_review(snapshot, row, out)
+        marks = (len(out.records), len(out.corpus), len(out.findings))
+        try:
+            if kind == "hub":
+                _read_hub(snapshot, row, out, unverified)
+            elif kind == "interim":
+                _read_interim(snapshot, row, out)
+            elif kind == "near_gold":
+                _read_near_gold(snapshot, row, out)
+            else:
+                _read_review(snapshot, row, out)
+        except ValidationError as exc:
+            # Defence in depth (the snapshot depth cap should stop it first): a value a
+            # record model refuses makes the whole row malformed, so it yields nothing,
+            # not even what its earlier fields already added.
+            del out.records[marks[0] :], out.corpus[marks[1] :], out.findings[marks[2] :]
+            doc = row.data.get("document_id", row.data.get("doc_id"))
+            detail = f"a value the {exc.title} model refuses ({exc.error_count()} error(s))"
+            out.findings.append(_Ctx(snapshot, row).bad(detail, doc))
     return out
 
 

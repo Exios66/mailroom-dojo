@@ -78,12 +78,19 @@ def coverage(
     }
 
 
+def _cell(text: str) -> str:
+    """Text safe inside a Markdown table cell: a ``|`` would start a new column."""
+    return str(text).replace("\\", "\\\\").replace("|", "\\|")
+
+
 def render_markdown(report: Mapping[str, Any]) -> str:
     """A Markdown rendering of ``coverage(...)``: totals, then one table per class."""
     lines = [f"# Label coverage: {report['client']}", ""]
     if report["snapshots"]:
         lines += ["| Snapshot | Kind | Manifest hash |", "| --- | --- | --- |"]
-        lines += [f"| {s['snapshot_id']} | {s['kind']} | `{s['manifest_hash']}` |" for s in report["snapshots"]]
+        lines += [
+            f"| {s['snapshot_id']} | {s['kind']} | `{s['manifest_hash']}` |" for s in report["snapshots"]
+        ]
         lines.append("")
     t = report["totals"]
     lines += [
@@ -99,11 +106,17 @@ def render_markdown(report: Mapping[str, Any]) -> str:
             f"Documents: {c['documents']}; verified: {c['verified_documents']}; "
             f"with a scorable field: {c['scorable_documents']}.",
             "",
-            "| Field | Scorable | " + " | ".join(STATUS_WORDS) + " | " + " | ".join(RANKS) + " |",
+            "| Field | Scorable | "
+            + " | ".join(f"status {s}" for s in STATUS_WORDS)
+            + " | "
+            + " | ".join(f"rank {r}" for r in RANKS)
+            + " |",
             "| --- | ---: | " + " | ".join("---:" for _ in (*STATUS_WORDS, *RANKS)) + " |",
         ]
         for fname, cell in c["fields"].items():
-            nums = [str(cell["by_status"][s]) for s in STATUS_WORDS] + [str(cell["by_rank"][r]) for r in RANKS]
-            lines.append(f"| {fname} | {cell['scorable']} | " + " | ".join(nums) + " |")
+            nums = [str(cell["by_status"][s]) for s in STATUS_WORDS] + [
+                str(cell["by_rank"][r]) for r in RANKS
+            ]
+            lines.append(f"| {_cell(fname)} | {cell['scorable']} | " + " | ".join(nums) + " |")
         lines.append("")
     return "\n".join(lines)

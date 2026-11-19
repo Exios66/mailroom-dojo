@@ -281,6 +281,11 @@ class Faults:
         import tempfile
         from collections import Counter
 
+        import pytest
+
+        if not os.path.isdir("/proc/self/fd"):  # descriptors are told apart through procfs
+            pytest.skip("Faults needs Linux procfs (/proc/self/fd)")
+
         self.root = os.path.realpath(root)
         self.calls: Counter[str] = Counter()
         self.plan: dict[tuple[str, int], str] = {}
@@ -415,12 +420,12 @@ def blob_bytes(name: str) -> bytes:
 
 
 def build_sealed_store(root: Any, kind: str = "specialist_only", run_id: str = "r1") -> Any:
-    """A real on-disk store with four documents, three writers (four segments) and three seals.
+    """A real on-disk store with four documents, three writers (three segments) and three seals.
 
     Every event names an ``original`` input blob of its document; the last event of each
     document in each period names an ``extraction`` output blob of its own. History:
 
-    - period 0, writer w0: d1 x3, d2 x2 (interleaved); writer w1: d3 x2.   seal 0
+    - period 0, writer w0: d1 x3 then d2 x2; writer w1: d3 x2.            seal 0
     - period 1, writer w2: d1 x2, d4 x3.                                     seal 1
     - period 2, writer w0 again: d2 x1; writer w1 again: d3 x1.             seal 2
 
@@ -576,11 +581,14 @@ def forge_event(store: Any, doc_id: str, seq: int, prev_hash: str, segment: str 
         tokens_in=None, tokens_out=None, tokens_cached=None, price_basis=None, latency_ms=None,
         decision=None, cause=None, inputs=[], outputs=[], payload={}, prev_hash=prev_hash,
     )
-    event = Event.build(**(base | fields))
+    # Build a valid event, then set ``fields`` on the stored dict and re-hash it, so a test
+    # can forge values the model itself rejects (an out-of-range count, a bad kind).
+    raw = Event.build(**base).model_dump(mode="json") | fields
+    raw["hash"] = event_hash(raw)
     path = store.root / "runs" / getattr(store, "run_id", "r1") / "segments" / segment
     with path.open("ab") as f:
-        f.write(canonical_json(event.model_dump(mode="json")) + b"\n")
-    return event
+        f.write(canonical_json(raw) + b"\n")
+    return raw
 
 
 # --- fix pass: busy logs, slowed readers, hand-made lines -----------------------------
@@ -646,31 +654,42 @@ def hand_line(run_id: str, doc_id: str, seq: int, prev_hash: str, **fields: Any)
     return Event.build(**(base | fields)).model_dump(mode="json")
 
 
-def start_handoff_workers(root: Any, n: int, run_id: str = "r1") -> tuple[Any, list[Any]]:
+def start_handoff_workers(root: Any, n: int, run_id: str = "r1", ready_timeout: float = 60.0) -> tuple[Any, list[Any]]:
     """Start ``n`` processes (spawn), each owning ``h<j>`` and handing it between writers.
 
     Even-numbered documents rotate a -> m -> z (each event lands in a segment a reader
     reaches after the one holding the event before: the order that shows a reader a false
     gap), odd ones z -> m -> a. Waits until each has written three events. Returns the
-    stop event and the processes; pass them to ``stop_workers``.
+    stop event and the processes; pass them to ``stop_workers``. If starting fails (a
+    worker that does not start, or is not ready within ``ready_timeout`` seconds), every
+    worker already started is stopped, joined and, if it overruns, killed before the error
+    is raised, so no process outlives the test.
     """
     import multiprocessing
 
     ctx = multiprocessing.get_context("spawn")
     stop = ctx.Event()
-    procs, started = [], []
-    for j in range(n):
-        ids = [f"a{j}", f"m{j}", f"z{j}"]
-        ready = ctx.Event()
-        p = ctx.Process(
-            target=handoff_until_stopped,
-            args=(str(root), run_id, f"h{j}", ids if j % 2 == 0 else ids[::-1], stop, ready),
-        )
-        p.start()
-        procs.append(p)
-        started.append(ready)
-    for ready in started:
-        assert ready.wait(60), "a hand-off worker never started"
+    procs: list[Any] = []
+    started = []
+    try:
+        for j in range(n):
+            ids = [f"a{j}", f"m{j}", f"z{j}"]
+            ready = ctx.Event()
+            p = ctx.Process(
+                target=handoff_until_stopped,
+                args=(str(root), run_id, f"h{j}", ids if j % 2 == 0 else ids[::-1], stop, ready),
+            )
+            procs.append(p)
+            p.start()
+            started.append(ready)
+        for ready in started:
+            if not ready.wait(ready_timeout):
+                raise AssertionError("a hand-off worker never started")
+    except BaseException:
+        # One cleanup path: stop every worker started so far, join it, kill what overruns.
+        stop.set()
+        join_all(procs, timeout=30)
+        raise
     return stop, procs
 
 
@@ -776,18 +795,19 @@ def reindex_in_child(root: str, index_path: str, marker: str, after: int) -> Non
 
     from mailroom_record.blobs import BlobStore
     from mailroom_record.index import Index
-    from mailroom_record.log import EventLog
 
     log = slow_log(Path(root), BlobStore(Path(root)), marker=marker, after=after, pause=3600.0)
     Index(Path(index_path)).reindex(log)
     time.sleep(3600)  # never reached when the parent kills the child mid-build
 
 
-def read_index_until(index_path: str, stop: str, out: str) -> None:
+def read_index_until(index_path: str, stop: str, out: str, marker: str | None = None) -> None:
     """Process target: dump the index in a loop until ``stop`` exists; write what was seen to ``out``.
 
     Each observation is the dump's digest, or ``unavailable:<status>``, plus whether the
-    parent's mid-build marker (``stop + ".building"``) existed just before the read began.
+    rebuild was mid-transaction just before the read began: the parent's marker
+    (``stop + ".building"``, removed once the rebuild returned) existed and, with
+    ``marker``, so did the marker the rebuild writes inside its transaction.
     """
     import hashlib
     import json
@@ -799,7 +819,7 @@ def read_index_until(index_path: str, stop: str, out: str) -> None:
     idx = Index(Path(index_path))
     seen: list[list[Any]] = []
     while not os.path.exists(stop):
-        building = os.path.exists(stop + ".building")
+        building = os.path.exists(stop + ".building") and (marker is None or os.path.exists(marker))
         try:
             digest = hashlib.sha256(json.dumps(idx.dump(), sort_keys=True).encode()).hexdigest()
         except IndexUnavailable as exc:
@@ -848,3 +868,419 @@ def _make_slow_log() -> type:
 def slow_log(root: Any, blobs: Any, *, marker: str, after: int, pause: float) -> Any:
     """An EventLog whose ordered reads touch ``marker`` after ``after`` events, then sleep ``pause``."""
     return _make_slow_log()(root, blobs, marker=marker, after=after, pause=pause)
+
+
+# --- fix pass 2: hostile stored records, on every supported Python --------------------
+
+# Nesting that every supported Python (3.11 to 3.13) can parse and encode, but that is
+# deeper than copying or validating can recurse: a stored line like this hashes and is
+# canonical, so only the readers' recursion handling stands between it and a crash.
+# (3.11's C JSON encoder and decoder count against the recursion limit, so the deep
+# 5000-level form used before cannot even be written there.)
+DEEP_BUT_PARSABLE = 700
+
+# Deeper than any JSON parser allows: unparsable on every version.
+DEEP_UNPARSABLE = b"[" * 200_000 + b"]" * 200_000
+
+
+def deep_payload_line(run_id: str, doc_id: str, seq: int, prev_hash: str, depth: int = DEEP_BUT_PARSABLE) -> bytes:
+    """A canonical stored line with a correct hash whose payload nests ``depth`` lists deep."""
+    from mailroom_record.hashing import canonical_json
+
+    nested: Any = []
+    for _ in range(depth):
+        nested = [nested]
+    raw = hand_line(run_id, doc_id, seq, prev_hash)
+    raw["payload"] = {"x": nested}
+    raw["hash"] = event_hash(raw)
+    return canonical_json(raw) + b"\n"
+
+
+# --- version chain, trace and the CLI (Task 9) ------------------------------------------
+
+
+def build_review_store(root: Any, run_id: str = "r1") -> Any:
+    """A real store whose ``d1`` goes original -> transcript -> extraction (two attempts) ->
+    archived_record -> review -> human_correction; ``d2`` is left in review; ``d3`` is one step.
+
+    Blob content, payloads, one decision value and one cause carry ``SENTINEL`` (the leak
+    tests' needle). Returns a namespace with ``root``, ``blobs``, ``log``, ``run_id`` and
+    ``shas`` (role -> sha256 for d1; ``extraction`` is a list of the two attempts).
+    """
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from mailroom_record.blobs import BlobStore
+    from mailroom_record.log import EventLog
+    from mailroom_record.models import Run
+
+    root = Path(root)
+    blobs = BlobStore(root)
+    log = EventLog(root, blobs)
+    log.create_run(Run(**run_fields(run_id=run_id, kind="full_pipeline", document_ids=["d1", "d2", "d3"])))
+    put = blobs.put
+    original = put(blob_bytes("original d1"), "original")
+    transcript = put(blob_bytes("transcript d1"), "transcript")
+    ext_a = put(blob_bytes("extraction d1 attempt 0"), "extraction")
+    ext_b = put(blob_bytes("extraction d1 attempt 1"), "extraction")
+    archived = put(blob_bytes("archived d1"), "archived_record")
+    correction = put(blob_bytes("correction d1"), "human_correction")
+    original2 = put(blob_bytes("original d2"), "original")
+    secret = {"note": f"{SENTINEL} in a payload"}
+    with log.open_writer(run_id, "w0") as w:
+        w.append(doc_id="d1", node="intake", kind="handoff", outputs=[original], payload=secret)
+        w.append(doc_id="d1", node="transcribe", kind="output", inputs=[original], outputs=[transcript])
+        w.append(
+            doc_id="d1", node="extract", kind="output", attempt=0, agent="extractor",
+            inputs=[transcript], outputs=[ext_a], cause=f"{SENTINEL} quoted in a cause", payload=secret,
+        )
+        w.append(
+            doc_id="d1", node="extract", kind="output", attempt=1, agent="extractor",
+            inputs=[transcript], outputs=[ext_b], decision={"fields": 3, "verdict": f"{SENTINEL} verdict"},
+        )
+        w.append(doc_id="d1", node="archive", kind="output", inputs=[ext_b], outputs=[archived])
+        w.append(doc_id="d1", node="human_review", kind="review", inputs=[archived], decision={"state": "paused"})
+        w.append(doc_id="d1", node="human_review", kind="output", inputs=[archived], outputs=[correction])
+        w.append(doc_id="d2", node="intake", kind="handoff", outputs=[original2])
+        w.append(doc_id="d2", node="classify", kind="decision", inputs=[original2], decision=[{"question": "class", "answer": SENTINEL}])
+        w.append(doc_id="d2", node="human_review", kind="review", inputs=[original2])
+        w.append(doc_id="d3", node="intake", kind="handoff", payload=secret)
+    shas = {
+        "original": original.sha256, "transcript": transcript.sha256, "extraction": [ext_a.sha256, ext_b.sha256],
+        "archived_record": archived.sha256, "human_correction": correction.sha256,
+    }
+    return SimpleNamespace(root=root, blobs=blobs, log=log, run_id=run_id, shas=shas)
+
+
+def built_index(store: Any, tmp_path: Any) -> Any:
+    """A fresh index of ``store``'s log under ``tmp_path``."""
+    from mailroom_record.index import Index
+
+    idx = Index(tmp_path / "built-index.sqlite")
+    idx.reindex(store.log)
+    return idx
+
+
+def run_cli(*args: str, root: Any = None) -> Any:
+    """Invoke the ``mailroom-record`` app in process; ``root`` adds ``--root``.
+
+    Returns the click result (``exit_code``, ``stdout``, ``stderr``).
+    """
+    from typer.testing import CliRunner
+
+    from mailroom_record.cli import app
+
+    argv = list(args) + ([] if root is None else ["--root", str(root)])
+    return CliRunner().invoke(app, argv)
+
+
+def insert_line_after(store: Any, doc_id: str, seq: int, data: bytes) -> tuple[Any, int]:
+    """Insert ``data`` + newline right after the line of ``(doc_id, seq)``; returns its place."""
+    seg, off, line = find_line(store, doc_id, seq)
+    at = off + len(line) + 1
+    replace_bytes(seg, at, 0, data + b"\n")
+    return seg, at
+
+
+def garble_line(store: Any, doc_id: str, seq: int, data: bytes = b"#garbled#") -> tuple[Any, int]:
+    """Replace the line of ``(doc_id, seq)`` with ``data`` (not JSON); returns its place."""
+    seg, off, line = find_line(store, doc_id, seq)
+    replace_bytes(seg, off, len(line), data)
+    return seg, off
+
+
+def append_torn_tail(store: Any, data: bytes = b'{"doc_id": "d1", "seq": 99') -> Any:
+    """Append bytes with no newline to the last segment of the run (a crash mid-write)."""
+    seg = store.log.segment_paths(getattr(store, "run_id", "r1"))[-1]
+    with seg.open("ab") as f:
+        f.write(data)
+    return seg
+
+
+def join_all(procs: Any, timeout: float = 120.0) -> list[int | None]:
+    """Join every process within ``timeout`` seconds in all; kill and reap any still alive.
+
+    Returns the exit codes in order. A process that overran is killed (its code is then
+    ``-SIGKILL``) and one never started reports ``None``, so a test asserting ``0`` fails
+    without leaving a live child behind. Call it from a ``finally`` block.
+    """
+    import time
+
+    deadline = time.monotonic() + timeout
+    for p in procs:
+        if p.pid is not None:
+            p.join(max(0.0, deadline - time.monotonic()))
+    for p in procs:
+        if p.pid is not None and p.is_alive():
+            p.kill()
+            p.join(30)
+    return [p.exitcode if p.pid is not None else None for p in procs]
+
+
+# --- sandbox run folders (Tasks 10 to 12) -------------------------------------------
+
+FIXTURE_RUN_ID = "ar-fixture-r00"
+
+
+def fixture_source() -> Any:
+    """The committed hand-made sandbox run folder (synthetic text, the real file format)."""
+    from pathlib import Path
+
+    return Path(__file__).parent / "fixtures" / "sandbox_run_min"
+
+
+def read_jsonl(path: Any) -> list[dict[str, Any]]:
+    import json
+    from pathlib import Path
+
+    return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def write_jsonl(path: Any, rows: list[dict[str, Any]], tail: bytes = b"") -> None:
+    import json
+    from pathlib import Path
+
+    Path(path).write_bytes(b"".join(json.dumps(r).encode() + b"\n" for r in rows) + tail)
+
+
+def edit_json(path: Any, **changes: Any) -> None:
+    import json
+    from pathlib import Path
+
+    p = Path(path)
+    p.write_text(json.dumps(json.loads(p.read_text(encoding="utf-8")) | changes, indent=2, sort_keys=True))
+
+
+def copy_fixture(dest: Any, run_id: str | None = None) -> Any:
+    """A private copy of the fixture folder under ``dest``; ``run_id`` renames the run."""
+    import shutil
+    from pathlib import Path
+
+    dest = Path(dest)
+    shutil.copytree(fixture_source(), dest)
+    if run_id is not None:
+        edit_json(dest / "spec.lock.json", run_id=run_id)
+        edit_json(dest / "checkpoint.json", run_id=run_id)
+    return dest
+
+
+def crash_fixture(folder: Any) -> Any:
+    """Turn a fixture copy into a run that stopped mid-document: the last document's
+    ``extract`` is in flight (a ``running`` row with no finish), it has no item row, the
+    checkpoint still says ``running`` and ``nodes.jsonl`` ends in a torn line."""
+    from pathlib import Path
+
+    folder = Path(folder)
+    nodes = read_jsonl(folder / "nodes.jsonl")
+    assert nodes[-1]["status"] == "error" and nodes[-1]["node"] == "extract"
+    write_jsonl(folder / "nodes.jsonl", nodes[:-1], tail=b'{"doc": "DOC-00000000000000c3", "node": "ext')
+    items = read_jsonl(folder / "items.jsonl")
+    write_jsonl(folder / "items.jsonl", items[:-1])
+    events = read_jsonl(folder / "events.jsonl")
+    write_jsonl(folder / "events.jsonl", [e for e in events if e["event"] not in ("item_failed", "done")])
+    edit_json(folder / "checkpoint.json", state="running", cursor=2)
+    return folder
+
+
+def source_ids(folder: Any) -> dict[str, str]:
+    """Dataset row id -> content SHA-256 (the record's doc id), in dataset order."""
+    from pathlib import Path
+
+    return {r["id"]: r["content_sha256"] for r in read_jsonl(Path(folder) / "dataset.jsonl")}
+
+
+def named_blobs(log: Any, role: str | None = None) -> set[str]:
+    """Every blob sha (of ``role``, if given) that any event of any run names."""
+    out: set[str] = set()
+    runs = log.root / "runs"
+    for run_dir in sorted(runs.iterdir()) if runs.is_dir() else []:
+        for e in log.iter_events(run_dir.name):
+            out.update(r.sha256 for r in (*e.inputs, *e.outputs) if role is None or r.role == role)
+    return out
+
+
+def count_blobs(store: Any, role: str) -> int:
+    return len(named_blobs(store.log, role))
+
+
+def segment_bytes(root: Any) -> bytes:
+    """Every segment byte of every run under ``root``, concatenated."""
+    from pathlib import Path
+
+    return b"".join(p.read_bytes() for p in sorted(Path(root).glob("runs/*/segments/*.jsonl")))
+
+
+# --- stage 1 gate helpers (Task 12) ---------------------------------------------------
+
+
+def pad_fixture(folder: Any, sentences: int = 400) -> Any:
+    """Lengthen every document text of a fixture copy with synthetic filler (so compression
+    and deduplication have something to show) and update its ``content_sha256``."""
+    import hashlib
+    from pathlib import Path
+
+    folder = Path(folder)
+    rows = read_jsonl(folder / "dataset.jsonl")
+    for row in rows:
+        filler = " ".join(f"Synthetic filler sentence {i} of {row['id']}." for i in range(sentences))
+        row["doc_text"] = f"{row['doc_text']} {filler}"
+        row["content_sha256"] = hashlib.sha256(row["doc_text"].encode("utf-8")).hexdigest()
+    write_jsonl(folder / "dataset.jsonl", rows)
+    return folder
+
+
+def build_runs_dir(dest: Any) -> Any:
+    """A synthetic ``--runs`` folder: two complete runs drawing the same three documents (one
+    of which fails in both), and one crashed run of the same draw."""
+    from pathlib import Path
+
+    dest = Path(dest)
+    pad_fixture(copy_fixture(dest / "ar-gate-r00", run_id="ar-gate-r00"))
+    pad_fixture(copy_fixture(dest / "ar-gate-r01", run_id="ar-gate-r01"))
+    pad_fixture(crash_fixture(copy_fixture(dest / "ar-gate-crashed", run_id="ar-gate-crashed")))
+    return dest
+
+
+def load_repo_script(relative: str, name: str) -> Any:
+    """A script of this package (``scripts/<file>``) loaded by path as module ``name``."""
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    if name in sys.modules:
+        return sys.modules[name]
+    path = Path(__file__).resolve().parents[1] / relative
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+# --- packs: two runs sharing a blob, store snapshots, archive surgery ----------------------
+
+
+def build_two_run_sealed_store(root: Any) -> Any:
+    """Runs r1 and r2 under one root, both sealed. Both name the ``shared`` original blob;
+    each also names blobs of its own (``only`` maps run -> its own shas)."""
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from mailroom_record.blobs import BlobStore
+    from mailroom_record.log import EventLog
+    from mailroom_record.models import Run
+    from mailroom_record.seal import seal_run
+
+    root = Path(root)
+    blobs = BlobStore(root)
+    log = EventLog(root, blobs)
+    shared = blobs.put(blob_bytes("shared original"), "original")
+    only: dict[str, list[str]] = {}
+    for run_id in ("r1", "r2"):
+        log.create_run(Run(**run_fields(run_id=run_id, document_ids=["d1", "d2"])))
+        own = [blobs.put(blob_bytes(f"{run_id} {i}"), "extraction") for i in range(2)]
+        only[run_id] = [r.sha256 for r in own]
+        with log.open_writer(run_id, "w0") as w:
+            w.append(doc_id="d1", node="intake", kind="handoff", outputs=[shared])
+            w.append(doc_id="d1", node="extract", kind="output", inputs=[shared], outputs=[own[0]])
+            w.append(doc_id="d2", node="extract", kind="output", outputs=[own[1]])
+        seal_run(log, run_id)
+    return SimpleNamespace(root=root, log=log, blobs=blobs, parts=(log, blobs), shared=shared.sha256, only=only)
+
+
+def store_tree(root: Any) -> dict[str, bytes]:
+    """Every file under ``root`` (lock files and staging leftovers aside), by relative path."""
+    from pathlib import Path
+
+    root = Path(root)
+    return {
+        str(p.relative_to(root)): p.read_bytes()
+        for p in sorted(root.rglob("*"))
+        if p.is_file() and not p.name.endswith(".lock") and not str(p.relative_to(root)).startswith(".unpack-")
+    }
+
+
+def archive_members(archive: Any) -> list[tuple[str, bytes]]:
+    """``(name, bytes)`` of every member of a ``.tar.zst`` archive, in order."""
+    import tarfile
+
+    import zstandard
+
+    out: list[tuple[str, bytes]] = []
+    with open(archive, "rb") as f, zstandard.ZstdDecompressor().stream_reader(f) as z, tarfile.open(
+        fileobj=z, mode="r|"
+    ) as tar:
+        for m in tar:
+            member = tar.extractfile(m)
+            out.append((m.name, member.read() if member is not None else b""))
+    return out
+
+
+def forge_archive(path: Any, members: list[tuple[str, bytes]], *, manifest_extra: bool = True) -> Any:
+    """Write ``members`` as a ``.tar.zst`` the way a hostile packer would. When the last
+    member is ``manifest.json`` and ``manifest_extra`` is set, the manifest's ``members``
+    are recomputed to list every other member, so only the checks past it can refuse."""
+    import hashlib
+    import io
+    import json
+    import tarfile
+    from pathlib import Path
+
+    import zstandard
+
+    from mailroom_record.hashing import canonical_json
+
+    members = list(members)
+    if manifest_extra and members and members[-1][0] == "manifest.json":
+        manifest = json.loads(members[-1][1])
+        manifest["members"] = {
+            n: {"sha256": hashlib.sha256(d).hexdigest(), "size": len(d)} for n, d in members[:-1]
+        }
+        members[-1] = ("manifest.json", canonical_json(manifest))
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w", format=tarfile.PAX_FORMAT) as tar:
+        for name, data in members:
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            info.mode = 0o600
+            tar.addfile(info, io.BytesIO(data))
+    path = Path(path)
+    path.write_bytes(zstandard.ZstdCompressor(write_checksum=True).compress(buf.getvalue()))
+    return path
+
+
+def blob_member(sha: str, ext: str = "zst") -> str:
+    """The archive member name of a blob file."""
+    return f"blobs/{sha[:2]}/{sha[2:4]}/{sha}.{ext}"
+
+
+def zero_bomb(path: Any, name: str, size: int) -> Any:
+    """A ``.tar.zst`` of a few KiB whose one member ``name`` is ``size`` zero bytes: a
+    decompression bomb, streamed so the test never holds ``size`` bytes itself."""
+    import io
+    import tarfile
+    from pathlib import Path
+
+    import zstandard
+
+    class _Zeros(io.RawIOBase):
+        left = size
+
+        def readable(self) -> bool:
+            return True
+
+        def readinto(self, b: Any) -> int:
+            n = min(len(b), self.left)
+            b[:n] = bytes(n)
+            self.left -= n
+            return n
+
+    path = Path(path)
+    with path.open("wb") as out:
+        cctx = zstandard.ZstdCompressor(level=19, write_checksum=True)
+        with cctx.stream_writer(out, closefd=False) as zf, tarfile.open(fileobj=zf, mode="w|") as tar:
+            info = tarfile.TarInfo(name)
+            info.size = size
+            tar.addfile(info, io.BufferedReader(_Zeros()))
+    return path

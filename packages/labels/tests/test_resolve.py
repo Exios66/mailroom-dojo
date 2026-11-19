@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
-from labels_testkit import hub_row, interim_row, make_snapshot, near_gold_row, profile, review_row, text_hash
 
+from labels_testkit import hub_row, interim_row, make_snapshot, near_gold_row, profile, review_row, text_hash
 from mailroom_labels.layers import corpus_index, read_layers
 from mailroom_labels.models import PRESENCES, CorpusEntry, LayerRecord
 from mailroom_labels.resolve import resolve
@@ -35,11 +35,19 @@ ORACLE_RANK = {
     "near_gold": 7,
 }
 ORACLE_STATUS = {
-    "review:gold": "gold", "interim:correction": "interim", "hub": "hub", "interim:gap_fill": "interim",
-    "interim:derived": "interim", "review:near_gold": "near_gold", "hub:absent": "hub", "near_gold": "near_gold",
+    "review:gold": "gold",
+    "interim:correction": "interim",
+    "hub": "hub",
+    "interim:gap_fill": "interim",
+    "interim:derived": "interim",
+    "review:near_gold": "near_gold",
+    "hub:absent": "hub",
+    "near_gold": "near_gold",
 }
-ORACLE_FIELDS = {"letter": {"sender", "recipient", "sent_on", "urgency", "action_items", "amount"},
-                 "filing": {"entity", "filing_id", "signers", "kind"}}
+ORACLE_FIELDS = {
+    "letter": {"sender", "recipient", "sent_on", "urgency", "action_items", "amount"},
+    "filing": {"entity", "filing_id", "signers", "kind"},
+}
 
 
 def oracle_stale(r: LayerRecord, entry: CorpusEntry | None) -> bool:
@@ -59,23 +67,42 @@ def oracle(records: list[LayerRecord], index: dict[str, CorpusEntry]) -> dict:
         mine = [r for r in records if r.document_id == doc]
         entry = index.get(doc)
 
-        def stale(r: LayerRecord) -> bool:
+        def stale(r: LayerRecord, entry: CorpusEntry | None = entry) -> bool:
             return oracle_stale(r, entry)
 
         verified = entry is not None and entry.text_verified and not any(stale(r) for r in mine)
-        doc_class = entry.doc_class if entry else next(
-            (r.doc_class for r in sorted(mine, key=lambda r: (r.snapshot_id, r.file, r.line)) if r.doc_class), None)
+        doc_class = (
+            entry.doc_class
+            if entry
+            else next(
+                (
+                    r.doc_class
+                    for r in sorted(mine, key=lambda r: (r.snapshot_id, r.file, r.line))
+                    if r.doc_class
+                ),
+                None,
+            )
+        )
         fields, untrusted = {}, set()
         for fld in sorted({r.field for r in mine}):
             truth = [r for r in mine if r.field == fld and not stale(r) and r.rank in ORACLE_RANK]
             if not truth:
                 untrusted.add(fld)
                 continue
-            win = sorted(truth, key=lambda r: (ORACLE_RANK[r.rank], r.snapshot_id, r.file, r.line,
-                                               json.dumps(r.value, sort_keys=True)))[0]
+            win = sorted(
+                truth,
+                key=lambda r: (
+                    ORACLE_RANK[r.rank],
+                    r.snapshot_id,
+                    r.file,
+                    r.line,
+                    json.dumps(r.value, sort_keys=True),
+                ),
+            )[0]
             fields[fld] = (win.value, ORACLE_STATUS[win.rank], win.rank, win.presence)
         scorable = {
-            f for f, (_, _, _, presence) in fields.items()
+            f
+            for f, (_, _, _, presence) in fields.items()
             if verified and f in ORACLE_FIELDS.get(doc_class, set()) and presence != "not_applicable"
         }
         out[doc] = (verified, fields, untrusted, scorable)
@@ -111,22 +138,24 @@ def layer_sets(draw):
         rank = draw(st.sampled_from(RANK_CHOICES))
         layer = LAYER_OF.get(rank, rank.split(":")[0])
         sha = draw(st.sampled_from([None, "good", "good", "bad"]))
-        records.append(LayerRecord(
-            document_id=doc,
-            field=draw(st.sampled_from(FIELDS)),
-            value=draw(st.sampled_from(["a", "b", None, ["x"]])),
-            presence=draw(st.sampled_from(PRESENCES)),
-            rank=rank,
-            layer=layer,
-            native_status=rank,
-            source=f"src-{rank}",
-            content_sha256=None if sha is None else (text_hash(doc)[:16] if sha == "good" else "0" * 16),
-            doc_class=draw(st.sampled_from([None, "letter", "letter", "filing"])),
-            subclass=draw(st.sampled_from([None, "email"])),
-            snapshot_id=f"s{draw(st.integers(0, 2))}",
-            file="rows.jsonl",
-            line=i + 1,
-        ))
+        records.append(
+            LayerRecord(
+                document_id=doc,
+                field=draw(st.sampled_from(FIELDS)),
+                value=draw(st.sampled_from(["a", "b", None, ["x"]])),
+                presence=draw(st.sampled_from(PRESENCES)),
+                rank=rank,
+                layer=layer,
+                native_status=rank,
+                source=f"src-{rank}",
+                content_sha256=None if sha is None else (text_hash(doc)[:16] if sha == "good" else "0" * 16),
+                doc_class=draw(st.sampled_from([None, "letter", "letter", "filing"])),
+                subclass=draw(st.sampled_from([None, "email"])),
+                snapshot_id=f"s{draw(st.integers(0, 2))}",
+                file="rows.jsonl",
+                line=i + 1,
+            )
+        )
     index = {}
     for doc in DOCS:
         if draw(st.booleans()) or doc == "D1":
@@ -164,11 +193,15 @@ def test_resolver_invariants(data, rnd) -> None:
             sources = [r for r in mine if r.field == name and r.rank == label.rank and r.value == label.value]
             assert sources, "every resolved value comes from some layer"
             assert label.rank != "interim:disputed"
-            fresh = {r.rank for r in mine if r.field == name and not oracle_stale(r, index.get(doc.document_id))}
+            fresh = {
+                r.rank for r in mine if r.field == name and not oracle_stale(r, index.get(doc.document_id))
+            }
             if "review:gold" in fresh:
                 assert label.rank == "review:gold", "a gold decision always wins"
             if "hub" in fresh:
-                assert label.rank in {"hub", "review:gold", "interim:correction"}, "Hub is never replaced by a fill"
+                assert label.rank in {"hub", "review:gold", "interim:correction"}, (
+                    "Hub is never replaced by a fill"
+                )
             if "hub:absent" in fresh:
                 assert label.rank != "near_gold", "a Hub absence is never replaced by a near_gold label"
             assert len(label.layers_seen) == len([r for r in mine if r.field == name])
@@ -203,7 +236,11 @@ def test_standard_set_resolves_as_computed_by_hand(snapshot_dirs) -> None:
     }
     assert d2.fields["action_items"].presence == "schema_documented_absence"
     assert [f.rank for f in d2.untrusted["urgency"]] == ["interim:disputed"]
-    assert {f: lab.value for f, lab in d3.fields.items()} == {"entity": "Acme", "kind": "annual", "signers": ["P. Q."]}
+    assert {f: lab.value for f, lab in d3.fields.items()} == {
+        "entity": "Acme",
+        "kind": "annual",
+        "signers": ["P. Q."],
+    }
     assert d4.fields["sender"].status == "near_gold"
     assert all(d.verified for d in docs.values())
     assert d1.scorable_fields == frozenset({"sender", "recipient", "sent_on", "urgency"})
@@ -218,11 +255,15 @@ def test_scorable_statuses_come_from_the_profile(snapshot_dirs) -> None:
 
 
 def test_precedence_comes_from_the_profile(snapshot_dirs) -> None:
-    near_gold_first = PROFILE.model_copy(update={"precedence": ("near_gold", "hub", "hub:absent", "interim:gap_fill")})
+    near_gold_first = PROFILE.model_copy(
+        update={"precedence": ("near_gold", "hub", "hub:absent", "interim:gap_fill")}
+    )
     read = read_layers(load_snapshot_set(snapshot_dirs))
     docs = {d.document_id: d for d in resolve(read.records, near_gold_first, corpus_index(read.corpus))}
     assert docs["D1"].fields["sender"].value == "Ann C."
-    assert "recipient" in docs["D1"].fields and docs["D1"].fields["recipient"].rank == "hub:absent"  # correction not ranked
+    assert (
+        "recipient" in docs["D1"].fields and docs["D1"].fields["recipient"].rank == "hub:absent"
+    )  # correction not ranked
 
 
 # --- parity with the sandbox (interim_labels.apply_overlay, gold_labels.apply_near_gold) ---
@@ -273,21 +314,41 @@ def test_sandbox_parity(tmp_path: Path, hub, layer, status, expected) -> None:
 
 @pytest.mark.parametrize("layer", ["interim", "near_gold"])
 def test_sandbox_parity_hash_mismatch_leaves_the_document_untouched(tmp_path: Path, layer: str) -> None:
-    dirs = [make_snapshot(tmp_path, "hub", [
-        hub_row("D1", fields={"sender": ("", "unlabeled"), "recipient": "Hub"}),
-        hub_row("D2", fields={"sender": "Other"}),
-    ])]
+    dirs = [
+        make_snapshot(
+            tmp_path,
+            "hub",
+            [
+                hub_row("D1", fields={"sender": ("", "unlabeled"), "recipient": "Hub"}),
+                hub_row("D2", fields={"sender": "Other"}),
+            ],
+        )
+    ]
     wrong = "f" * 16
     if layer == "interim":
-        dirs.append(make_snapshot(tmp_path, "interim", [
-            interim_row("D1", {"sender": ("gap_fill", "Fill"), "recipient": ("correction", "Fix")}, sha=wrong),
-            interim_row("D2", {"recipient": ("gap_fill", "Ok")}),
-        ]))
+        dirs.append(
+            make_snapshot(
+                tmp_path,
+                "interim",
+                [
+                    interim_row(
+                        "D1", {"sender": ("gap_fill", "Fill"), "recipient": ("correction", "Fix")}, sha=wrong
+                    ),
+                    interim_row("D2", {"recipient": ("gap_fill", "Ok")}),
+                ],
+            )
+        )
     else:
-        dirs.append(make_snapshot(tmp_path, "near_gold", [
-            near_gold_row("D1", {"sender": "Fill", "recipient": "Fix"}, sha=wrong),
-            near_gold_row("D2", {"recipient": "Ok"}),
-        ]))
+        dirs.append(
+            make_snapshot(
+                tmp_path,
+                "near_gold",
+                [
+                    near_gold_row("D1", {"sender": "Fill", "recipient": "Fix"}, sha=wrong),
+                    near_gold_row("D2", {"recipient": "Ok"}),
+                ],
+            )
+        )
     docs = resolve_dirs(dirs)
     d1 = docs["D1"]
     assert "sender" not in d1.fields and d1.untrusted["sender"][0].stale
@@ -305,14 +366,20 @@ def test_document_missing_from_the_index_is_resolved_but_not_scorable(tmp_path: 
     ]
     docs = resolve_dirs(dirs)
     ghost = docs["GHOST"]
-    assert (ghost.verified, ghost.unverified_reasons, ghost.doc_class) == (False, ("not_in_corpus_index",), "letter")
+    assert (ghost.verified, ghost.unverified_reasons, ghost.doc_class) == (
+        False,
+        ("not_in_corpus_index",),
+        "letter",
+    )
     assert ghost.fields["sender"].value == "Boo" and ghost.scorable_fields == frozenset()
     assert docs["D1"].scorable_fields == frozenset({"sender"})
 
 
 def test_not_applicable_is_resolved_but_never_scorable(tmp_path: Path) -> None:
     dirs = [
-        make_snapshot(tmp_path, "hub", [hub_row("D1", fields={"amount": (None, "not_applicable"), "sender": "Ann"})]),
+        make_snapshot(
+            tmp_path, "hub", [hub_row("D1", fields={"amount": (None, "not_applicable"), "sender": "Ann"})]
+        ),
         make_snapshot(tmp_path, "near_gold", [near_gold_row("D1", {"amount": "5"})]),
     ]
     d1 = resolve_dirs(dirs)["D1"]
@@ -321,10 +388,19 @@ def test_not_applicable_is_resolved_but_never_scorable(tmp_path: Path) -> None:
 
 
 def test_hub_text_unverified_flags_the_document(tmp_path: Path) -> None:
-    dirs = [make_snapshot(tmp_path, "hub", [hub_row("D1", fields={"sender": "Ann"}), hub_row("D2", fields={"sender": "Bo"})],
-                          source={"text_unverified_documents": ["D1"]})]
+    dirs = [
+        make_snapshot(
+            tmp_path,
+            "hub",
+            [hub_row("D1", fields={"sender": "Ann"}), hub_row("D2", fields={"sender": "Bo"})],
+            source={"text_unverified_documents": ["D1"]},
+        )
+    ]
     docs = resolve_dirs(dirs)
-    assert docs["D1"].unverified_reasons == ("hub_text_unverified",) and docs["D1"].scorable_fields == frozenset()
+    assert (
+        docs["D1"].unverified_reasons == ("hub_text_unverified",)
+        and docs["D1"].scorable_fields == frozenset()
+    )
     assert docs["D2"].verified
 
 
@@ -345,3 +421,36 @@ def test_records_order_shuffled_end_to_end(snapshot_dirs) -> None:
         recs = list(read.records)
         random.Random(seed).shuffle(recs)
         assert resolve(recs, PROFILE, index) == base
+
+
+def test_an_audit_decision_never_beats_a_hub_value_or_a_correction(tmp_path: Path) -> None:
+    # the synthetic positive control for the real-data check in test_real_snapshots.py
+    hub = make_snapshot(
+        tmp_path,
+        "hub",
+        [
+            hub_row("D1", fields={"sender": "Hub Ann", "recipient": (None, "schema_documented_absence")}),
+            hub_row("D2", fields={"sender": (None, "schema_documented_absence")}),
+        ],
+    )
+    interim = make_snapshot(tmp_path, "interim", [interim_row("D2", {"sender": ("correction", "Corrected")})])
+    audit = make_snapshot(
+        tmp_path,
+        "review",
+        [
+            review_row("D1", "sender", "Audit"),
+            review_row("D1", "recipient", "Audit R"),
+            review_row("D2", "sender", "Audit"),
+        ],
+    )
+    docs = resolve_dirs([hub, interim, audit])
+    assert (docs["D1"].fields["sender"].value, docs["D1"].fields["sender"].rank) == ("Hub Ann", "hub")
+    assert (docs["D2"].fields["sender"].value, docs["D2"].fields["sender"].rank) == (
+        "Corrected",
+        "interim:correction",
+    )
+    # over a Hub absence the audit decision does win
+    assert (docs["D1"].fields["recipient"].value, docs["D1"].fields["recipient"].rank) == (
+        "Audit R",
+        "review:near_gold",
+    )

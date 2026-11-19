@@ -10,9 +10,13 @@ Status: task D1 (models, review policy, reviewer registry, `enqueue`, the queue 
 Assign, claim, resolve, export, the `human_review` node, the CLI and the HTTP API are
 tasks D2 to D5.
 
+From the workspace root (`make install` installs every package; this installs only the
+desk and what it needs, editable, because `mailroom-record` and `mailroom-labels` are not
+published on PyPI):
+
 ```bash
-pip install -e packages/record -e packages/labels -e "packages/desk[dev]"
-python -m pytest packages/desk/tests -q
+python3 -m venv .venv && .venv/bin/pip install -e packages/record -e packages/labels -e "packages/desk[dev]"
+.venv/bin/python -m pytest packages/desk/tests -q
 ```
 
 ## Use

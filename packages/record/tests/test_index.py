@@ -29,6 +29,7 @@ from record_testkit import (
     build_two_run_store,
     chain,
     dump_digest,
+    join_all,
     make_event,
     peak_bytes,
     read_index_until,
@@ -45,7 +46,7 @@ from mailroom_record.blobs import BlobStore
 from mailroom_record.index import SCHEMA_VERSION, ApplyRefused, Index, IndexUnavailable
 from mailroom_record.log import EventLog
 from mailroom_record.models import Run, Seal
-from mailroom_record.seal import list_seals, seal_run
+from mailroom_record.seal import seal_run
 
 
 def append(store: SimpleNamespace, writer: str = "w-x", run_id: str = "r1", **fields: Any) -> Any:
@@ -413,13 +414,15 @@ def test_a_rebuild_killed_mid_transaction_leaves_the_old_index_or_none(store_wit
     ctx = multiprocessing.get_context("spawn")
     proc = ctx.Process(target=reindex_in_child, args=(str(store.root), str(p), str(marker), 4))
     proc.start()
-    deadline = time.monotonic() + 60
-    while not marker.exists():
-        assert proc.is_alive() and time.monotonic() < deadline
-        time.sleep(0.02)
-    os.kill(proc.pid, signal.SIGKILL)
-    proc.join(timeout=30)
-    assert proc.exitcode == -signal.SIGKILL
+    try:
+        deadline = time.monotonic() + 60
+        while not marker.exists():
+            assert proc.is_alive() and time.monotonic() < deadline
+            time.sleep(0.02)
+        os.kill(proc.pid, signal.SIGKILL)
+    finally:
+        (code,) = join_all([proc], timeout=30)  # reaped, and killed if the wait failed
+    assert code == -signal.SIGKILL
     idx = Index(p)
     if had_index:
         assert idx.status() == "ready" and idx.dump() == before
@@ -442,23 +445,24 @@ def test_a_reader_process_sees_the_old_index_or_the_new_one_never_a_mix(store_wi
     assert old != new
     stop = str(tmp_path / "stop")
     out = tmp_path / "seen.json"
+    mid = str(tmp_path / "mid")  # written by the rebuild inside its transaction
     ctx = multiprocessing.get_context("spawn")
-    reader = ctx.Process(target=read_index_until, args=(str(p), stop, str(out)))
+    reader = ctx.Process(target=read_index_until, args=(str(p), stop, str(out), mid))
     reader.start()
     try:
         Path(stop + ".building").touch()
-        slow = slow_log(store.root, store.blobs, marker=str(tmp_path / "mid"), after=3, pause=1.5)
+        slow = slow_log(store.root, store.blobs, marker=mid, after=3, pause=1.5)
         time.sleep(0.5)  # let the reader start reading the old index
         Index(p).reindex(slow)
         os.unlink(stop + ".building")
         time.sleep(0.2)
     finally:
         Path(stop).touch()
-        reader.join(timeout=60)
-    assert reader.exitcode == 0
+        (code,) = join_all([reader], timeout=60)  # killed and reaped if it overruns
+    assert code == 0
     seen = json.loads(out.read_text())
     assert {d for _, d in seen} <= {old, new}, {d for _, d in seen} - {old, new}
-    assert any(b and d == old for b, d in seen)  # positive control: it read mid-build
+    assert any(b and d == old for b, d in seen)  # positive control: it read inside the open transaction
     assert seen[-1][1] == new
 
 
@@ -697,3 +701,337 @@ def test_no_table_holds_document_text_payloads_or_causes(store: SimpleNamespace,
         for row in con.execute(f"SELECT * FROM {table}"):
             assert SENTINEL not in json.dumps(row), table
     con.close()
+
+
+# --- fix pass 2: per-document reads are never silent (Task 8 review MAJOR 2, 3) ---------
+
+
+def _both(store: SimpleNamespace, idx: Index, doc: str) -> tuple[Any, Any]:
+    """What the log and the index give for ``doc``: the (seq, hash) list, or the error type."""
+    out = []
+    for read in (lambda: store.log.iter_events("r1", doc), lambda: idx.iter_events(store.log, "r1", doc)):
+        try:
+            out.append([(e.seq, e.hash) for e in read()])
+        except Exception as exc:  # noqa: BLE001 - the error type is the observable
+            out.append(type(exc).__name__)
+    return out[0], out[1]
+
+
+@pytest.mark.parametrize("where", ["first", "last", "middle"])
+def test_an_invalid_line_of_the_document_is_never_dropped_by_the_index(store: SimpleNamespace, tmp_path: Path, where: str) -> None:
+    # d1's line at one end (or in the middle) of its run of lines is valid JSON with doc_id
+    # and seq but an invalid field. The rebuild cannot say whose it is, so it is in no
+    # span; the index read must not quietly return d1 without it.
+    c = chain("d1", 3)
+    bad = c[{"first": 0, "last": 2, "middle": 1}[where]].model_dump(mode="json")
+    bad["kind"] = 12345
+    lines: list[Any] = [*c]
+    lines[{"first": 0, "last": 2, "middle": 1}[where]] = bad
+    write_lines(store.root, "w0.jsonl", chain("d0", 2) + lines + chain("d2", 2))
+    idx = built(store, tmp_path / "i.sqlite")
+    assert "invalid_event" in [p.kind for p in idx.problems()]  # plus a seq_gap when it is not the last
+    log_says, index_says = _both(store, idx, "d1")
+    assert log_says == index_says == "InvalidEvent"
+    # Documents without the bad line still read, and equal the log, through the index.
+    for doc in ("d0", "d2"):
+        assert _both(store, idx, doc)[1] == [(e.seq, e.hash) for e in store.log.iter_events("r1", doc)]
+
+
+@pytest.mark.parametrize(
+    "rewrite",
+    [
+        "reordered_same_size",
+        "moved_earlier_and_grown",
+        "middle_swapped_edges_kept",
+        "replaced_by_other_run_copy",
+        "new_document_inside_indexed_bytes",
+    ],
+)
+def test_a_segment_rewritten_under_the_index_is_read_from_the_log(store: SimpleNamespace, tmp_path: Path, rewrite: str) -> None:
+    pad = {"pad": "p" * 600}  # lines of a few hundred bytes, so 4 KiB edges hold several
+    a, b = chain("d1", 3, payload=pad), chain("d2", 3, payload=pad)
+    filler = chain("f", 12, payload=pad)
+    seg = store.root / "runs/r1/segments/w0.jsonl"
+    if rewrite == "middle_swapped_edges_kept":
+        first = filler[:6]
+        last = filler[6:]
+        write_lines(store.root, "w0.jsonl", first + a + b + last)
+    elif rewrite == "moved_earlier_and_grown":
+        write_lines(store.root, "w0.jsonl", b + a)
+    else:
+        write_lines(store.root, "w0.jsonl", a + b)
+    idx = built(store, tmp_path / "i.sqlite")
+    assert _both(store, idx, "d1")[1] == [(e.seq, e.hash) for e in a]
+    seg.unlink()
+    if rewrite == "reordered_same_size":
+        write_lines(store.root, "w0.jsonl", b + a)  # same bytes, d1 now after d2
+    elif rewrite == "moved_earlier_and_grown":
+        write_lines(store.root, "w0.jsonl", a + b + chain("d3", 1))
+    elif rewrite == "middle_swapped_edges_kept":
+        write_lines(store.root, "w0.jsonl", first + b + a + last)  # first and last 4 KiB unchanged
+    elif rewrite == "replaced_by_other_run_copy":  # same layout, other hashes (another history restored)
+        write_lines(store.root, "w0.jsonl", chain("d1", 3, payload=pad, agent="other") + b)
+    else:  # d5, unknown to the index (no head to check), now has lines inside the indexed bytes
+        write_lines(store.root, "w0.jsonl", chain("d5", 3, payload=pad) + a + b)
+    doc = "d5" if rewrite == "new_document_inside_indexed_bytes" else "d1"
+    log_says, index_says = _both(store, idx, doc)
+    assert index_says == log_says and isinstance(log_says, list) and len(log_says) == 3
+
+
+def test_the_head_check_alone_catches_moved_lines(store: SimpleNamespace, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # With the fingerprint check disabled, a rewrite that keeps the fingerprint is still
+    # caught because the recorded ranges no longer hold d1's indexed chain.
+    from mailroom_record import index as index_module
+
+    a, b = chain("d1", 3), chain("d2", 3)
+    seg = write_lines(store.root, "w0.jsonl", a + b)
+    idx = built(store, tmp_path / "i.sqlite")
+    seg.unlink()
+    write_lines(store.root, "w0.jsonl", b + a)
+    monkeypatch.setattr(index_module, "_fingerprint", lambda path, upto: "same")
+    with sqlite3.connect(tmp_path / "i.sqlite") as con:
+        con.execute("UPDATE segments SET fingerprint = 'same'")
+    log_says, index_says = _both(store, idx, "d1")
+    assert index_says == log_says == [(e.seq, e.hash) for e in a]
+
+
+def test_the_head_check_compares_the_head_hash_not_only_its_seq(store: SimpleNamespace, tmp_path: Path) -> None:
+    # Same-length rewrites in the middle of the segment, edges and size kept: d1's head
+    # line A moves out of the recorded ranges (into another document's line), and a forged
+    # seq-1 line B of the same length takes its place. The ranges still hold seqs 0 and 1,
+    # so only the head hash shows they no longer hold the indexed chain.
+    from mailroom_record.hashing import canonical_json
+
+    def line(e: Any) -> bytes:
+        return canonical_json(e.model_dump(mode="json")) + b"\n"
+
+    def same_length_as(target: bytes, build: Any) -> Any:
+        return next(e for k in range(300) if len(line(e := build("x" * k))) == len(target))
+
+    pad = {"pad": "p" * 1000}
+    d0, a = chain("d1", 2)
+    b = same_length_as(line(a), lambda agent: chain("d1", 1, start=1, prev=d0.hash, agent=agent)[0])
+    y = same_length_as(line(a), lambda agent: chain("y", 1, agent=agent)[0])
+    assert b.hash != a.hash
+    before = [*chain("p", 6, payload=pad), d0, a, *chain("m", 2, payload=pad), y, *chain("q", 6, payload=pad)]
+    seg = write_lines(store.root, "w0.jsonl", before)
+    idx = built(store, tmp_path / "i.sqlite")
+    data = seg.read_bytes()
+    a_at, y_at = data.index(line(a)), data.index(line(y))
+    assert 4096 < a_at and y_at + len(line(y)) < len(data) - 4096  # both away from the fingerprinted edges
+    data = data[:a_at] + line(b) + data[a_at + len(line(a)) : y_at] + line(a) + data[y_at + len(line(y)) :]
+    seg.write_bytes(data)  # same size, same first and last 4096 bytes
+    log_says, index_says = _both(store, idx, "d1")
+    assert log_says == [(0, d0.hash), (1, b.hash), (1, a.hash)]  # a fork: both seq-1 lines
+    assert index_says == log_says
+
+
+# --- fix pass 2: a busy index is a typed, retryable error (Task 8 review MINOR 4) --------
+
+
+def test_apply_locked_out_by_a_long_rebuild_is_index_unavailable_busy(store_with_events: SimpleNamespace, tmp_path: Path) -> None:
+    store = store_with_events
+    path = tmp_path / "i.sqlite"
+    built(store, path)
+    idx = Index(path, busy_timeout=0.2)
+    e = append(store, doc_id="d3", node="n", kind="decision")
+    hold = sqlite3.connect(path, isolation_level=None)
+    hold.execute("BEGIN IMMEDIATE")  # stands in for a rebuild's write transaction
+    try:
+        with pytest.raises(IndexUnavailable) as caught:
+            idx.apply(e)
+        assert caught.value.status == "busy" and "retry" in str(caught.value)
+        assert [d.doc_id for d in idx.documents("r1")] == ["d1", "d2"]  # readers do not wait
+    finally:
+        hold.execute("ROLLBACK")
+        hold.close()
+    idx.apply(e)  # the retry succeeds and nothing was half-applied
+    assert idx.drift(store.log) == []
+
+
+def test_rebuild_locked_out_by_another_writer_is_index_unavailable_busy(store_with_events: SimpleNamespace, tmp_path: Path) -> None:
+    # reindex and ensure take the write lock too: past busy_timeout they raise the same
+    # typed, retryable error as apply, never sqlite3.OperationalError ("database is locked").
+    store = store_with_events
+    path = tmp_path / "i.sqlite"
+    built(store, path)
+    idx = Index(path, busy_timeout=0.2)
+    hold = sqlite3.connect(path, isolation_level=None)
+    hold.execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'")  # ensure must rebuild
+    hold.execute("BEGIN IMMEDIATE")  # another rebuild, or an apply, holding the write lock
+    try:
+        assert idx.status() == "old_version"
+        for rebuild in (idx.reindex, idx.ensure):
+            with pytest.raises(IndexUnavailable) as caught:
+                rebuild(store.log)
+            assert caught.value.status == "busy" and "retry" in str(caught.value), rebuild.__name__
+        assert idx.status() == "old_version"  # nothing half-built
+    finally:
+        hold.execute("ROLLBACK")
+        hold.close()
+    assert idx.ensure(store.log) is not None and idx.status() == "ready"  # the retry succeeds
+    assert idx.drift(store.log) == []
+
+
+# --- fix pass 2: the review rule for a document that opens with a review (MINOR 8) -------
+
+
+def test_a_document_whose_first_event_is_a_review_is_in_the_queue(store: SimpleNamespace, tmp_path: Path) -> None:
+    idx = built(store, tmp_path / "i.sqlite")
+    idx.add_run(store.run)
+    first = append(store, doc_id="d9", node="triage", kind="review")
+    assert first.seq == 0
+    idx.apply(first)
+    assert [(d.doc_id, d.events, d.in_review) for d in idx.review_queue("r1")] == [("d9", 1, True)]
+    rebuilt = built(store, tmp_path / "j.sqlite")
+    assert [d.doc_id for d in rebuilt.review_queue("r1")] == ["d9"]
+    idx.apply(append(store, doc_id="d9", node="triage", kind="decision"))
+    assert idx.review_queue("r1") == [] and idx.drift(store.log) == []
+
+
+# --- fix pass 3: re-review findings (PR #2) -------------------------------------------
+
+
+def test_a_directory_that_is_not_a_run_is_skipped(store_with_events: SimpleNamespace, tmp_path: Path) -> None:
+    # runs/.staging (an import in progress) is no run id; it used to abort the rebuild with
+    # ValueError: bad run id '.staging'.
+    store = store_with_events
+    (store.root / "runs" / ".staging" / "segments").mkdir(parents=True)
+    (store.root / "runs" / "-dash").mkdir()
+    idx = Index(tmp_path / "i.sqlite")
+    stats = idx.reindex(store.log)
+    assert stats.problems == () and [r.run_id for r in idx.runs()] == ["r1"]
+    assert idx.drift(store.log) == []
+
+
+def test_a_line_stored_twice_in_two_segments_is_a_fork(tmp_path: Path) -> None:
+    # The same event (same seq, same hash) in two segments is a forked chain, as verify_run
+    # reports it; it is not an apply replay.
+    from mailroom_record.verify import verify_run
+
+    blobs = BlobStore(tmp_path)
+    log = EventLog(tmp_path, blobs)
+    log.create_run(Run(**run_fields()))
+    d = chain("d", 3, inputs=[])
+    write_lines(tmp_path, "a.jsonl", d)
+    write_lines(tmp_path, "b.jsonl", [d[1]])  # seq 1 again, byte for byte
+    stats = Index(tmp_path / "i.sqlite").reindex(log)
+    assert [(p.doc_id, p.kind, p.segment) for p in stats.problems] == [("d", "forked_chain", "b.jsonl")]
+    assert "forked_chain" in {p.kind for p in verify_run(log, blobs, "r1").problems}  # the same verdict
+
+
+def _racing_handoffs(store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, times: int) -> list[bool]:
+    """After each whole read of a.jsonl, ``a`` writes d1's next seq there and ``b`` the one after.
+
+    Every scan then sees a gap (the event ``a`` wrote after the scan passed a.jsonl), and
+    every re-read sees a new one: repeated hand-offs between segments.
+    """
+    from record_testkit import append_more
+
+    append_more(store, doc_id="d2", n=1, writer_id="b")  # b.jsonl exists before any scan lists it
+    append_more(store, doc_id="d1", n=3, writer_id="a")
+    original = log_module._stream_lines
+    fired: list[bool] = []
+    busy: list[bool] = []  # a writer's own recovery read streams a.jsonl too: no re-entry
+
+    def racing(path: Path, start: int = 0, end: int | None = None) -> Any:
+        yield from original(path, start, end)
+        if path.name == "a.jsonl" and start == 0 and end is None and len(fired) < times and not busy:
+            fired.append(True)
+            busy.append(True)
+            try:
+                append_more(store, doc_id="d1", n=1, writer_id="a")
+                append_more(store, doc_id="d1", n=1, writer_id="b")
+            finally:
+                busy.clear()
+
+    monkeypatch.setattr(log_module, "_stream_lines", racing)
+    return fired
+
+
+def test_repeated_handoffs_during_every_reread_are_not_recorded_as_a_gap(
+    store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fired = _racing_handoffs(store, monkeypatch, times=10)
+    idx = Index(tmp_path / "i.sqlite")
+    stats = idx.reindex(store.log)
+    assert len(fired) >= 3  # every read raced, past the old retry limit
+    assert stats.problems == ()  # no false seq_gap
+    monkeypatch.undo()
+    (d1,) = [d for d in idx.documents("r1") if d.doc_id == "d1"]
+    stats = idx.reindex(store.log)  # quiet now: the whole chain, still no problem
+    assert stats.problems == () and d1.events <= [d for d in idx.documents("r1") if d.doc_id == "d1"][0].events
+
+
+def test_a_real_gap_is_still_recorded_while_writers_hand_off(
+    store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Positive control: a gap below what an earlier read already saw is real damage.
+    g = chain("g", 4, inputs=[])
+    write_lines(store.root, "c.jsonl", [g[0], g[1], g[3]])
+    _racing_handoffs(store, monkeypatch, times=10)
+    stats = Index(tmp_path / "i.sqlite").reindex(store.log)
+    assert [(p.doc_id, p.kind) for p in stats.problems] == [("g", "seq_gap")]
+
+
+def test_a_per_document_read_does_not_report_handoffs_as_a_gap(
+    store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mailroom_record._reading import read_document
+
+    fired = _racing_handoffs(store, monkeypatch, times=10)
+    got = read_document(store.log, None, "r1", "d1")
+    assert len(fired) >= 3
+    assert [d.kind for d in got.damage] == []
+    assert [e.seq for e in got.events] == list(range(len(got.events)))  # contiguous, from 0
+
+
+def test_a_runs_listing_error_does_not_make_trace_report_runs_deleted(
+    store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mailroom_record._reading import list_runs
+
+    assert list_runs(store.log) == (["r1"], None)
+    runs = store.root / "runs"
+    real_iterdir = Path.iterdir
+
+    def iterdir(self: Path) -> Any:
+        if self == runs:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+    ids, damage = list_runs(store.log)
+    assert ids == [] and damage is not None and damage.kind == "unreadable"
+    assert "PermissionError" in damage.detail and str(store.root) not in damage.detail  # no local path
+
+
+def test_a_store_with_no_runs_folder_lists_no_runs_and_no_damage(tmp_path: Path) -> None:
+    from mailroom_record._reading import list_runs
+
+    assert list_runs(EventLog(tmp_path, BlobStore(tmp_path))) == ([], None)
+
+
+def test_a_failed_worker_start_leaves_no_worker_running(store: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The second worker fails to start: the first, already running, must be stopped and reaped.
+    from multiprocessing.context import SpawnProcess
+
+    from record_testkit import start_handoff_workers
+
+    real_start = SpawnProcess.start
+    seen: list[Any] = []
+
+    def start(self: Any) -> None:
+        seen.append(self)
+        if len(seen) == 2:
+            raise RuntimeError("injected: the second worker cannot start")
+        real_start(self)
+
+    monkeypatch.setattr(SpawnProcess, "start", start)
+    try:
+        with pytest.raises(RuntimeError, match="injected"):
+            start_handoff_workers(store.root, 3)
+        assert len(seen) == 2 and seen[0].pid is not None
+        assert not seen[0].is_alive() and seen[0].exitcode is not None  # stopped and reaped
+    finally:
+        join_all(seen, timeout=30)  # never leave a child behind, even when the assert fails

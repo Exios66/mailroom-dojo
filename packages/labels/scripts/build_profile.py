@@ -24,6 +24,8 @@ fields alone.
         --covers labels/interim-2026-11-01 labels/near-gold-2026-11-17 \
         --out config/clients/mailroom-dataset/profile.yaml          # --check: compare only
 
+``manifest.txt`` and the ground_truth shards must carry the sha256 pinned for the dataset
+revision in ``--pins`` (default ``config/clients/mailroom-dataset/hub-revisions.yaml``).
 Exit 0: written (or identical under ``--check``); 1: a source problem or a difference; 2: usage.
 """
 
@@ -31,20 +33,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections import defaultdict
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from mailroom_labels.importers.common import file_sha256
-from mailroom_labels.importers.hub import SPLITS, parse_dataset_manifest, shard_path
-from mailroom_labels.profile import parse_profile
+from mailroom_labels.importers.common import ImportRefused
+from mailroom_labels.importers.hub import SPLITS, load_hub_pins, parse_dataset_manifest, shard_path
+from mailroom_labels.profile import load_unique_yaml, parse_profile
 from mailroom_labels.snapshot import load_snapshot
 
 CLIENT = "mailroom-dataset"
-DATASET = {"repository": "Lucius-Morningstar/mailroom-dataset", "revision": "ccd040f6a1b6b414bdefd161cdc622b68f6dacf8"}
+DATASET = {
+    "repository": "Lucius-Morningstar/mailroom-dataset",
+    "revision": "ccd040f6a1b6b414bdefd161cdc622b68f6dacf8",
+}
 EDA_REPOSITORY = "Exios66/Mailroom-Corpus-EDA"
 FIELDS_YAML = "src/mailroom_eda/labeling/fields.yaml"
 DOJO_SCHEMAS = "src/mailroom_eda/labeling/dojo_snapshot/dojo_schemas.json"
@@ -90,18 +97,30 @@ class BuildError(Exception):
     pass
 
 
-def _hub_rows(hub_dir: Path) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+def _hub_rows(hub_dir: Path, pinned: dict[str, str]) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """The ground_truth rows, after checking manifest.txt and every shard against the hashes
+    pinned for the dataset revision (``hub-revisions.yaml``) and manifest.txt itself: a
+    self-consistent download of another revision is refused."""
+    import pyarrow as pa
     import pyarrow.parquet as pq
 
-    listed = parse_dataset_manifest((hub_dir / "manifest.txt").read_text(encoding="utf-8"))
+    # Each file is read once: the bytes hashed are the bytes parsed.
+    manifest_bytes = (hub_dir / "manifest.txt").read_bytes()
+    manifest_digest = sha256(manifest_bytes).hexdigest()
+    if pinned.get("manifest.txt") != manifest_digest:
+        raise BuildError(
+            f"manifest.txt: sha256 {manifest_digest} is not the one pinned for {DATASET['revision']}"
+        )
+    listed = parse_dataset_manifest(manifest_bytes.decode("utf-8"))
     rows, files = [], []
     for split in SPLITS:
         rel = shard_path("ground_truth", split)
-        digest = file_sha256(hub_dir / rel)
-        if listed.get(rel) != digest:
-            raise BuildError(f"{rel}: sha256 {digest} is not the one manifest.txt lists")
+        shard = (hub_dir / rel).read_bytes()
+        digest = sha256(shard).hexdigest()
+        if listed.get(rel) != digest or pinned.get(rel) != digest:
+            raise BuildError(f"{rel}: sha256 {digest} is not the one manifest.txt lists and the pins record")
         files.append({"path": rel, "sha256": digest})
-        rows += pq.read_table(hub_dir / rel).to_pylist()
+        rows += pq.read_table(pa.BufferReader(shard)).to_pylist()
     return rows, files
 
 
@@ -120,10 +139,15 @@ def _hub_facts(rows: list[dict[str, Any]]) -> tuple[dict[str, set[str]], dict[st
     return subclasses, labelled
 
 
-def build(eda_dir: Path, eda_commit: str, hub_dir: Path, covers: list[Path]) -> str:
-    registry = yaml.safe_load((eda_dir / FIELDS_YAML).read_text(encoding="utf-8"))
-    dojo = json.loads((eda_dir / DOJO_SCHEMAS).read_text(encoding="utf-8"))
-    rows, hub_files = _hub_rows(hub_dir)
+def build(eda_dir: Path, eda_commit: str, hub_dir: Path, covers: list[Path], pinned: dict[str, str]) -> str:
+    fields_bytes = (eda_dir / FIELDS_YAML).read_bytes()  # read once: hashed below as parsed here
+    try:
+        registry = load_unique_yaml(fields_bytes.decode("utf-8"))
+    except yaml.YAMLError as exc:  # a repeated field or class would silently replace the first
+        raise BuildError(f"{FIELDS_YAML}: {exc}") from exc
+    dojo_bytes = (eda_dir / DOJO_SCHEMAS).read_bytes()
+    dojo = json.loads(dojo_bytes.decode("utf-8"))
+    rows, hub_files = _hub_rows(hub_dir, pinned)
     subclasses, hub_labelled = _hub_facts(rows)
     problems: list[str] = []
     comments: list[str] = []
@@ -135,25 +159,33 @@ def build(eda_dir: Path, eda_commit: str, hub_dir: Path, covers: list[Path]) -> 
         fields: dict[str, dict[str, Any]] = {}
         for name, f in spec["fields"].items():
             if default_types.get(name) != f["type"]:
-                problems.append(f"{cls}.{name}: registry type {f['type']!r} != Dojo {default_types.get(name)!r}")
+                problems.append(
+                    f"{cls}.{name}: registry type {f['type']!r} != Dojo {default_types.get(name)!r}"
+                )
             entry: dict[str, Any] = {"type": f["type"]}
             vocab = f.get("vocabulary")
             if vocab and f["type"] == "label":
                 entry["vocabulary"] = vocab
             elif vocab:
-                comments.append(f"{cls}.{name}: registry vocabulary {vocab!r} ({f.get('vocabulary_part')}) "
-                                f"applies to a {f['type']} field and is not enforced here")
+                comments.append(
+                    f"{cls}.{name}: registry vocabulary {vocab!r} ({f.get('vocabulary_part')}) "
+                    f"applies to a {f['type']} field and is not enforced here"
+                )
             fields[name] = entry
         if cls == "corporate_record":
             for sub, sub_spec in sorted(dojo["corporate_subclass_schemas"].items()):
                 for ent in sub_spec.get("entities", []):
                     key, ftype = ent["key"], ent["type"]
                     if key in fields and fields[key]["type"] != ftype:
-                        problems.append(f"{cls}.{key}: subclass {sub} types it {ftype!r}, already {fields[key]['type']!r}")
+                        problems.append(
+                            f"{cls}.{key}: subclass {sub} types it {ftype!r}, already {fields[key]['type']!r}"
+                        )
                     fields.setdefault(key, {"type": ftype})
         for key in sorted(hub_labelled.get(cls, set()) - set(fields)):
             if key not in HUB_NATIVE_TYPES:
-                problems.append(f"{cls}.{key}: the Hub labels it but neither the registry nor HUB_NATIVE_TYPES types it")
+                problems.append(
+                    f"{cls}.{key}: the Hub labels it but neither the registry nor HUB_NATIVE_TYPES types it"
+                )
                 continue
             fields[key] = {"type": HUB_NATIVE_TYPES[key]}
         for key, entry in OVERLAY_FIELDS.get(cls, {}).items():
@@ -176,8 +208,8 @@ def build(eda_dir: Path, eda_commit: str, hub_dir: Path, covers: list[Path]) -> 
                 "repository": EDA_REPOSITORY,
                 "commit": eda_commit,
                 "files": [
-                    {"path": FIELDS_YAML, "sha256": file_sha256(eda_dir / FIELDS_YAML)},
-                    {"path": DOJO_SCHEMAS, "sha256": file_sha256(eda_dir / DOJO_SCHEMAS)},
+                    {"path": FIELDS_YAML, "sha256": sha256(fields_bytes).hexdigest()},
+                    {"path": DOJO_SCHEMAS, "sha256": sha256(dojo_bytes).hexdigest()},
                 ],
                 "dojo_version": dojo.get("dojo_version"),
                 "dojo_commit": dojo.get("dojo_commit"),
@@ -194,7 +226,14 @@ def build(eda_dir: Path, eda_commit: str, hub_dir: Path, covers: list[Path]) -> 
         for raw in snap.rows():
             row = raw.data
             cls = row.get("doc_class")
-            for name in sorted((row.get("labels") or {})):
+            if snap.kind == "review":
+                # A review row names a field but not its class: it must exist in some class.
+                name = row.get("field")
+                if isinstance(name, str) and not any(parsed.field_spec(c, name) for c in parsed.classes):
+                    problems.append(f"{snap.snapshot_id}: {name} is in no class of the profile")
+                continue
+            names = row.get("fields") if snap.kind == "hub" else row.get("labels")
+            for name in sorted(names or {}):
                 if parsed.field_spec(cls, name) is None:
                     problems.append(f"{snap.snapshot_id}: {cls}.{name} is not in the profile")
     if problems:
@@ -217,16 +256,34 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Generate the mailroom-dataset client profile.")
     parser.add_argument("--eda-dir", type=Path, required=True)
     parser.add_argument("--eda-commit", required=True)
-    parser.add_argument("--hub-dir", type=Path, required=True, help="fetch_hub.py output (manifest.txt + parquet)")
-    parser.add_argument("--covers", type=Path, nargs="*", default=[], help="snapshots whose fields must be covered")
+    parser.add_argument(
+        "--hub-dir", type=Path, required=True, help="fetch_hub.py output (manifest.txt + parquet)"
+    )
+    parser.add_argument(
+        "--covers", type=Path, nargs="*", default=[], help="snapshots whose fields must be covered"
+    )
+    parser.add_argument(
+        "--pins",
+        type=Path,
+        default=Path("config/clients/mailroom-dataset/hub-revisions.yaml"),
+        help="hub-revisions.yaml: the file hashes pinned for the dataset revision",
+    )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--check", action="store_true", help="compare with --out instead of writing")
     args = parser.parse_args(argv)
-    if len(args.eda_commit) != 40:
+    if not re.fullmatch(r"[0-9a-f]{40}", args.eda_commit):
         print("--eda-commit must be the full 40-hex commit", file=sys.stderr)
         return 2
     try:
-        text = build(args.eda_dir, args.eda_commit, args.hub_dir, args.covers)
+        pinned = load_hub_pins(args.pins).get(DATASET["revision"])
+    except (ImportRefused, OSError, yaml.YAMLError) as exc:
+        print(f"--pins {args.pins}: {exc}", file=sys.stderr)
+        return 2
+    if not pinned:
+        print(f"--pins {args.pins} has no entry for revision {DATASET['revision']}", file=sys.stderr)
+        return 2
+    try:
+        text = build(args.eda_dir, args.eda_commit, args.hub_dir, args.covers, pinned)
     except BuildError as exc:
         print(f"profile not built: {exc}", file=sys.stderr)
         return 1

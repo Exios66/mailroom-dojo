@@ -58,6 +58,7 @@ failure, not just simple one-off unit tests." So, for every module:
 | Damaged or old index file | Garbage, empty, truncated (half, header), flipped magic and b-tree page byte, older `schema_version`, older layout, unfinished `state` | index | Status names it; every query and `apply` raises `IndexUnavailable`; `ensure` rebuilds an equal index |
 | Crash mid-rebuild | Injected `ENOSPC` from the log read, a real `SQLITE_FULL` (`max_page_count`), a `SIGKILL`ed rebuild process with and without an earlier index | index | The old index unchanged, or none (`missing`); never a half-built one |
 | Damaged log under a rebuild | Corrupt and invalid lines, torn tail, gap, fork, broken link, unreadable seal and run header | index | Rebuild completes; each damage is one `problems` row with its exact kind; the document stops at its last good event |
+| Damaged log under a trace | Tombstoned and missing blobs, a forked chain, a corrupt line between other lines and in place of an event, an invalid event, a torn tail, a deleted line, a broken link, a garbled run header; a valid line nested 600 deep; a segment read failing mid-scan; an index read that yields then raises | trace, versions, CLI | Each shown as its exact `Damage` kind (or blob state) with the rest of the run intact; nothing raised; trace and versions exit 0, verify exits 1 exactly when a problem fails; a half-read document is read again from the log |
 
 ## The pyramid for this package
 
@@ -91,7 +92,7 @@ failure, not just simple one-off unit tests." So, for every module:
 | Hostile stored bytes crash verify | Fault injection, property | JSON nested 200,000 deep in a segment, seal, run header or tombstone, and a valid line whose payload nests 5,000 deep: reported, never raised (seal_run raises `CorruptLine`); the never-raises property also draws deep nesting; a 24 MB line is reported under a lowered limit with a bounded peak | 7 |
 | A broken tombstone passes as a deletion | Fault injection | Empty, directory, not JSON, other hash, no reason: `corrupt_tombstone` | 7 |
 | Verify holds a large run in memory | Integration | 24 MB of payloads: traced peak stays under 6 MB; one line with seq 10^9 and one seal numbered 10^9 are each reported in under 5 s (asserted) | 7 |
-| Whole document deleted between seals | Fault injection | Seal lists documents; deletion gives `document_missing_from_log` | 7 |
+| Whole document deleted between seals | Fault injection | Seal lists documents; deleting a sealed document gives `document_missing_from_log` (a document added and deleted between two seals is not detectable: no seal names it) | 7 |
 | Tombstone confused with loss | Unit | Tombstone passes, missing blob fails and names the event | 7 |
 | Index drifts from the log | Integration, equivalence | Incremental index equals full reindex; deleting the index and rebuilding gives the same dump | 8 |
 | Index drifts under real histories | Property | `test_incremental_equals_reindex_over_random_histories`: two runs sharing documents, three writers each, handoffs, flushes, seals and repeated applies; after every step the index equals a rebuild of the log (`drift == []`) | 8 |
@@ -101,15 +102,22 @@ failure, not just simple one-off unit tests." So, for every module:
 | A per-document read scans the whole run | Integration, property | Reads touch one writer's lines; tails written after the rebuild and new segments are read; a shrunk segment falls back; any layout equals the log's read | 8 |
 | A reader holds a large run in memory | Integration | 26 MB run: every log reader, the rebuild and per-document reads peak under 6 MB (the old readers peaked at 28-54 MB) | 8 |
 | A reader glues a half-written line | Fault injection | A line finished while a reader iterates is never returned as a line of its own | 8 |
+| Version chain misses or repeats a version | Integration | Original, transcript, two extraction attempts, archived record, review, human correction: six versions in order, each blob once at its first use, inputs before outputs, states from the blob store | 9 |
+| Trace hides a run or reads a stale index | Integration | `trace doc` lists every run in `created_at` order; a run and events written after the index was built are found; reads go through `Index.iter_events` (no whole-run scan, nothing of a run without the document); no usable index falls back to the log; a run the index lists but the log lost is reported | 9 |
+| CLI exit codes drift or print a traceback | Integration | Exit 0/1/2 for every command and error class (malformed and unknown run ids, unknown document, root missing or a file, missing option, refused seal, unexpected exception), one line on stderr; the installed console script and `python -m mailroom_record` run as subprocesses | 9 |
+| CLI echoes stored content | Property, leak scan | `test_cli_output_never_holds_stored_content`: random histories with the sentinel in blobs, payload keys and values, decisions, causes, tombstone reasons, corrupt and invalid lines; every command in text and JSON prints no sentinel (positive control: the sentinel is in the segments; a mutation that echoes a cause is caught) | 9 |
+| Reader errors echo stored content | Leak scan | `test_every_strict_read_names_an_invalid_event_without_its_stored_values`: the sentinel in `kind`, `ts`, `tokens_in`, `cause` (a list), an input key, a decision key (with NaN) and an extra top-level key; every strict read (`iter_events`, `scan().events()`, per run and per document, `Index.iter_events` stale and rebuilt) raises `InvalidEvent` with no sentinel in its message, repr or traceback; `read_run` likewise | 4, 5, 8 |
 | Document text leaks into an export | Leak scan | Sentinel string absent from Parquet, SQLite (every table, and the raw file and WAL bytes, with the sentinel in cause, decision, payload and an invalid line), CLI output, pack manifest, gate report | 6, 8, 9, 11, 12 |
 | Payload carries free text | Unit | Parquet has no `payload` column; importer drops decision `options` text | 6, 10 |
+| Importer stores a copied field as given | Leak scan | `test_no_copied_field_is_stored_unless_it_is_a_token`: 18 copied fields (draw ids and labels, node, agent and model names, the run header's strings) set to non-token values; none reaches segments, `run.json`, seals, the index or a decoded Parquet cell; `test_the_audit_names_no_free_text`: the audit and its CLI print none | 10 |
 | Re-import duplicates a run or blobs | Idempotency | Second import is `already_imported`, blob bytes on disk unchanged | 10 |
 | Importer guesses a missing field | Unit | Missing optional files listed in `absent_fields`, value is `None` | 10 |
 | Labels leak into the record | Unit | No `expected_fields` anywhere in imported events | 10 |
 | Sandbox format drifts | Contract | Fixture folders mirror the real file shapes; the stage gate re-proves on real folders | 10, 12 |
 | A pack is corrupt or incomplete | Fault injection | Flipped byte gives `PackCorrupt`; unsealed run refused | 11 |
+| A hostile archive exhausts memory | Fault injection | Member, blob and whole-archive caps; a 64 MiB GNU long-name, long-link or PAX header and a chain of 5000 headers are `PackCorrupt` at the 64 KiB header cap with a few MiB traced (and a bounded process maxrss) | 11 |
 | Prune deletes a shared blob | Integration | Two runs share a document; prune one; the other verifies | 11 |
-| Public surface drifts | Contract | `__all__` equals the 18 names | 12 |
+| Public surface drifts | Contract | `__all__` equals the 19 names | 12 |
 | Boundary creep | Static | AST walk: no import of sibling workspace packages | 1 |
 
 ## Additions beyond the plan's sketches

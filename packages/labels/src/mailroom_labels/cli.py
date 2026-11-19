@@ -1,7 +1,8 @@
 """The ``mailroom-labels`` command line.
 
 ``verify``   load and check snapshots against a client profile; print every finding.
-             Exit 0 with no error, 1 with any error (warnings never fail it).
+             Exit 0 with no error, 1 with any error. Warnings fail it only with
+             ``--strict``, and then only those its snapshot's known_warnings do not accept.
 ``coverage`` verify, then resolve and write the coverage report (JSON and Markdown).
              Exit 1, writing nothing, when verification finds an error.
 
@@ -9,7 +10,12 @@
              build a snapshot from local source files (never the network). With
              ``--check`` they build into a temporary directory and compare it byte for
              byte with the committed snapshot instead of writing: exit 0 identical,
-             1 different. A source that fails an integrity check exits 1.
+             1 different. A source that fails an integrity check exits 1, and so does
+             a source with data the importer has to leave out (rejected lines,
+             unparseable rows, desk decision words it does not know, ``unsure`` marks
+             it cannot order against a decision) unless ``--allow-rejected`` is given;
+             then it is listed in the manifest and ``verify`` reports it as an error.
+             An ``unsure`` desk mark on its own is a normal outcome, never refused.
 
 Usage errors (a missing option, a profile that does not validate) exit 2.
 """
@@ -17,11 +23,13 @@ Usage errors (a missing option, a profile that does not validate) exit 2.
 from __future__ import annotations
 
 import json
-from pathlib import Path
+import re
 from collections.abc import Callable
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+import yaml
 
 from mailroom_labels.coverage import coverage as build_coverage
 from mailroom_labels.coverage import render_markdown
@@ -35,9 +43,12 @@ from mailroom_labels.importers import (
     check_snapshot,
 )
 from mailroom_labels.importers.common import file_sha256, known_warnings_for
+from mailroom_labels.importers.hub import load_hub_pins
 from mailroom_labels.layers import corpus_index, read_layers
+from mailroom_labels.models import SNAPSHOT_ID_PATTERN
 from mailroom_labels.profile import ClientProfile, load_profile
 from mailroom_labels.quality import QualityReport, check_dirs
+from mailroom_labels.quality import verify as quality_verify
 from mailroom_labels.resolve import resolve
 from mailroom_labels.snapshot import snapshot_refs
 
@@ -66,12 +77,25 @@ def _print_report(report: QualityReport) -> None:
 
 
 @app.command()
-def verify(snapshots: SnapshotArgs, profile: ProfileOpt) -> None:
-    """Check snapshots; exit 1 on any error."""
+def verify(
+    snapshots: SnapshotArgs,
+    profile: ProfileOpt,
+    strict: Annotated[
+        bool,
+        typer.Option(
+            "--strict", help="Also exit 1 on a warning that its snapshot's known_warnings does not accept."
+        ),
+    ] = False,
+) -> None:
+    """Check snapshots; exit 1 on any error (and, with --strict, on any unknown warning)."""
     prof = _profile(profile)
     report, _ = check_dirs(snapshots, prof)
     _print_report(report)
-    raise typer.Exit(0 if report.ok else 1)
+    if strict and report.unknown_warnings:
+        typer.echo(
+            f"--strict: {len(report.unknown_warnings)} warning(s) not known for their snapshot", err=True
+        )
+    raise typer.Exit(quality_verify(report, strict=strict))
 
 
 @app.command()
@@ -94,69 +118,154 @@ def coverage(
     json_out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     md_out.write_text(render_markdown(result), encoding="utf-8")
     t = result["totals"]
-    typer.echo(f"{t['documents']} documents, {t['scorable_documents']} with a scorable field, "
-               f"{t['scorable_labels']} scorable labels")
+    typer.echo(
+        f"{t['documents']} documents, {t['scorable_documents']} with a scorable field, "
+        f"{t['scorable_labels']} scorable labels"
+    )
 
 
-OutOpt = Annotated[Path, typer.Option("--out", help="Snapshot directory to write (or to compare with --check).")]
+OutOpt = Annotated[
+    Path, typer.Option("--out", help="Snapshot directory to write (or to compare with --check).")
+]
 CheckOpt = Annotated[bool, typer.Option("--check", help="Compare a fresh build with --out; write nothing.")]
-IdOpt = Annotated[str | None, typer.Option("--snapshot-id", help="Snapshot id (default: the --out directory name).")]
-KnownOpt = Annotated[Path | None, typer.Option(
-    "--known-warnings", help="YAML {snapshot_id: [{kind, doc, field, reason}]}: warnings accepted in the manifest.")]
+IdOpt = Annotated[
+    str | None, typer.Option("--snapshot-id", help="Snapshot id (default: the --out directory name).")
+]
+AllowOpt = Annotated[
+    bool,
+    typer.Option(
+        "--allow-rejected",
+        help=(
+            "Write the snapshot even though source data was left out "
+            "(listed in the manifest; verify then fails)."
+        ),
+    ),
+]
+KnownOpt = Annotated[
+    Path | None,
+    typer.Option(
+        "--known-warnings",
+        help="YAML {snapshot_id: [{kind, doc, field, reason}]}: warnings accepted in the manifest.",
+    ),
+]
 
 
-def _run_import(out: Path, check: bool, build: Callable[[Path], Any]) -> None:
+def _usage_error(message: str) -> typer.Exit:
+    typer.echo(f"usage error: {message}", err=True)
+    return typer.Exit(2)
+
+
+def _run_import(out: Path, check: bool, build: Callable[[Path], Any], sid: str) -> None:
+    """Build (or ``--check``) a snapshot. A refused source exits 1; a bad option (an
+    invalid snapshot id, an unreadable option file, an ``--out`` that holds something else)
+    exits 2 with a one-line message, never a traceback."""
+    if not re.fullmatch(SNAPSHOT_ID_PATTERN, sid):
+        raise _usage_error(
+            f"snapshot id {sid!r} (from --snapshot-id or the --out name) must match {SNAPSHOT_ID_PATTERN}"
+        )
     try:
         if check:
             result = check_snapshot(out, build)
             for line in result.differences:
                 typer.echo(line)
-            typer.echo(f"{out.name}: " + ("identical to a fresh build" if result.identical else "DIFFERS from a fresh build"))
+            typer.echo(
+                f"{out.name}: "
+                + ("identical to a fresh build" if result.identical else "DIFFERS from a fresh build")
+            )
             raise typer.Exit(0 if result.identical else 1)
         manifest = build(out)
     except ImportRefused as exc:
         typer.echo(f"import refused: {exc}", err=True)
         raise typer.Exit(1) from exc
+    except (ValueError, OSError, yaml.YAMLError) as exc:
+        raise _usage_error(f"{exc.__class__.__name__}: {exc}") from exc
     rows = sum(f.rows for f in manifest.files)
-    typer.echo(f"wrote {out} ({len(manifest.files)} file(s), {rows} row(s), manifest_hash {manifest.manifest_hash})")
+    typer.echo(
+        f"wrote {out} ({len(manifest.files)} file(s), {rows} row(s), manifest_hash {manifest.manifest_hash})"
+    )
 
 
 @app.command("import-hub")
 def import_hub(
     out: OutOpt,
     profile: ProfileOpt,
-    dataset_dir: Annotated[Path, typer.Option("--dataset-dir", help="manifest.txt and parquet/ground_truth shards.")],
+    dataset_dir: Annotated[
+        Path, typer.Option("--dataset-dir", help="manifest.txt and parquet/ground_truth shards.")
+    ],
     revision: Annotated[str, typer.Option("--revision", help="Dataset revision (40-hex commit).")],
+    pins: Annotated[
+        Path,
+        typer.Option(
+            "--pins",
+            help="YAML {revision: {path: sha256}}: the files must be exactly those pinned for --revision.",
+        ),
+    ],
     repository: Annotated[str, typer.Option("--repository")] = "Lucius-Morningstar/mailroom-dataset",
-    default_dir: Annotated[Path | None, typer.Option("--default-dir", help="parquet/default shards: run the text check.")] = None,
+    default_dir: Annotated[
+        Path | None, typer.Option("--default-dir", help="parquet/default shards: run the text check.")
+    ] = None,
     snapshot_id: IdOpt = None,
     known_warnings: KnownOpt = None,
+    allow_rejected: AllowOpt = False,
     check: CheckOpt = False,
 ) -> None:
     """Import the Hub ground_truth config (verified against manifest.txt)."""
     prof = _profile(profile)
     sid = snapshot_id or out.name
-    _run_import(out, check, lambda d: build_hub(
-        d, dataset_dir=dataset_dir, profile=prof, profile_sha256=file_sha256(profile), repository=repository,
-        revision=revision, default_dir=default_dir, snapshot_id=sid,
-        known_warnings=known_warnings_for(known_warnings, sid)))
+    try:
+        pinned = load_hub_pins(pins)
+    except (ImportRefused, OSError, UnicodeError, yaml.YAMLError) as exc:
+        raise _usage_error(f"--pins {pins}: {exc.__class__.__name__}: {exc}") from exc
+    _run_import(
+        out,
+        check,
+        lambda d: build_hub(
+            d,
+            dataset_dir=dataset_dir,
+            profile=prof,
+            profile_sha256=file_sha256(profile),
+            repository=repository,
+            revision=revision,
+            default_dir=default_dir,
+            snapshot_id=sid,
+            known_warnings=known_warnings_for(known_warnings, sid),
+            allow_rejected=allow_rejected,
+            pins=pinned,
+        ),
+        sid,
+    )
 
 
 def _overlay_command(name: str, build: Callable[..., Any], what: str) -> None:
     def command(
         out: OutOpt,
-        source_dir: Annotated[Path, typer.Option("--source-dir", help="The overlay directory (MANIFEST.json + .jsonl).")],
+        source_dir: Annotated[
+            Path, typer.Option("--source-dir", help="The overlay directory (MANIFEST.json + .jsonl).")
+        ],
         source_path: Annotated[str, typer.Option("--source-path", help="Its path inside the repository.")],
         repository: Annotated[str, typer.Option("--repository")],
         commit: Annotated[str, typer.Option("--commit", help="The repository commit the files are from.")],
         snapshot_id: IdOpt = None,
         known_warnings: KnownOpt = None,
+        allow_rejected: AllowOpt = False,
         check: CheckOpt = False,
     ) -> None:
         sid = snapshot_id or out.name
-        _run_import(out, check, lambda d: build(
-            d, source_dir=source_dir, source_path=source_path, repository=repository, commit=commit,
-            snapshot_id=sid, known_warnings=known_warnings_for(known_warnings, sid)))
+        _run_import(
+            out,
+            check,
+            lambda d: build(
+                d,
+                source_dir=source_dir,
+                source_path=source_path,
+                repository=repository,
+                commit=commit,
+                snapshot_id=sid,
+                known_warnings=known_warnings_for(known_warnings, sid),
+                allow_rejected=allow_rejected,
+            ),
+            sid,
+        )
 
     command.__doc__ = f"Import the sandbox {what} overlay (hashes checked against its MANIFEST.json)."
     app.command(name)(command)
@@ -177,13 +286,21 @@ def _named(items: list[str], root: Path | None) -> list[tuple[Path, str]]:
 @app.command("import-review")
 def import_review(
     out: OutOpt,
-    decisions: Annotated[list[str], typer.Option("--decisions", help="Decision file (review shape), relative to --decisions-root.")] = [],  # noqa: B006
-    desk: Annotated[list[str], typer.Option("--desk", help="Desk log (human_reviews shape), relative to --desk-root.")] = [],  # noqa: B006
+    decisions: Annotated[
+        list[str],
+        typer.Option("--decisions", help="Decision file (review shape), relative to --decisions-root."),
+    ] = [],  # noqa: B006
+    desk: Annotated[
+        list[str], typer.Option("--desk", help="Desk log (human_reviews shape), relative to --desk-root.")
+    ] = [],  # noqa: B006
     decisions_root: Annotated[Path | None, typer.Option("--decisions-root")] = None,
     desk_root: Annotated[Path | None, typer.Option("--desk-root")] = None,
-    provenance: Annotated[str, typer.Option("--provenance", help="JSON object recorded as the source's origin.")] = "{}",
+    provenance: Annotated[
+        str, typer.Option("--provenance", help="JSON object recorded as the source's origin.")
+    ] = "{}",
     snapshot_id: IdOpt = None,
     known_warnings: KnownOpt = None,
+    allow_rejected: AllowOpt = False,
     check: CheckOpt = False,
 ) -> None:
     """Import review decisions: human desk decisions are gold, Claude audit decisions near_gold."""
@@ -196,9 +313,20 @@ def import_review(
         typer.echo("give --decisions and/or --desk, and --provenance as a JSON object", err=True)
         raise typer.Exit(2)
     sid = snapshot_id or out.name
-    _run_import(out, check, lambda d: build_review(
-        d, decisions=_named(decisions, decisions_root), desk=_named(desk, desk_root), provenance=prov,
-        snapshot_id=sid, known_warnings=known_warnings_for(known_warnings, sid)))
+    _run_import(
+        out,
+        check,
+        lambda d: build_review(
+            d,
+            decisions=_named(decisions, decisions_root),
+            desk=_named(desk, desk_root),
+            provenance=prov,
+            snapshot_id=sid,
+            known_warnings=known_warnings_for(known_warnings, sid),
+            allow_rejected=allow_rejected,
+        ),
+        sid,
+    )
 
 
 def main() -> None:  # pragma: no cover - console entry convenience

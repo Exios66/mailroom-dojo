@@ -1,7 +1,7 @@
 # Warnings accepted in each snapshot's manifest (known_warnings), each with its reason.
 # Every entry comes from `mailroom-labels verify` on the committed set; an importer refuses an
 # entry without a reason. Explained in docs/reports/labels/data-quality-2026-11-18.md.
-gold-review-2026-11-18:
+gold-review-2026-11-18-r2:
 - doc: DOC-6f036492d91cc9c4
   field: additional_recipients
   kind: orphan_decision

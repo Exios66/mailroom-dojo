@@ -1,0 +1,222 @@
+{
+  "sources": {
+    "llm-mailroom": "070663f19f757730a2467a2036b1b761676a1acf",
+    "llm-dojo-scoring": "23f8234c3c548bdc203033388bb316e52e588a2c"
+  },
+  "dictionaries": {
+    "claim_type": {
+      "keys": [
+        "auto",
+        "property",
+        "liability",
+        "health",
+        "life",
+        "workers_comp",
+        "other"
+      ],
+      "ordered": true,
+      "from": "llm-mailroom src/config/taxonomy.yaml insurance_claim label_vocabularies claim_type"
+    },
+    "cms_source_table": {
+      "keys": [
+        "carrier",
+        "inpatient",
+        "outpatient",
+        "pde"
+      ],
+      "ordered": true,
+      "from": "llm-dojo-scoring schemas/scored_enums.py SCORED_ENUM_FIELDS (insurance_claim)"
+    },
+    "communication_type": {
+      "keys": [
+        "email",
+        "letter",
+        "memo",
+        "notice",
+        "demand",
+        "attorney_demand",
+        "press_release",
+        "meeting_request",
+        "other"
+      ],
+      "ordered": true,
+      "from": "llm-mailroom src/config/taxonomy.yaml correspondence label_vocabularies communication_type"
+    },
+    "corporate_record_intent": {
+      "keys": [
+        "governance_rules",
+        "corporate_action_approval",
+        "entity_formation",
+        "authority_delegation",
+        "investor_rights",
+        "other"
+      ],
+      "ordered": true,
+      "from": "llm-mailroom src/config/taxonomy.yaml corporate_record label_vocabularies intent"
+    },
+    "corporate_record_type": {
+      "keys": [
+        "articles_of_incorporation",
+        "bylaws",
+        "powers_of_attorney",
+        "rights_instrument",
+        "other"
+      ],
+      "ordered": true,
+      "from": "llm-dojo-scoring schemas/corporate_record_schema.py RECORD_TYPES"
+    },
+    "correspondence_intent": {
+      "keys": [
+        "payment_demand",
+        "notice",
+        "analysis",
+        "request",
+        "update",
+        "meeting_invite",
+        "press_communication",
+        "other"
+      ],
+      "ordered": true,
+      "from": "llm-mailroom src/config/taxonomy.yaml correspondence label_vocabularies intent"
+    },
+    "coverage_determination": {
+      "keys": [
+        "approved",
+        "denied",
+        "partial",
+        "pending"
+      ],
+      "ordered": true,
+      "from": "llm-mailroom src/config/taxonomy.yaml insurance_claim label_vocabularies coverage_determination"
+    },
+    "cuad_family": {
+      "keys": [
+        "affiliate",
+        "agency",
+        "collaboration",
+        "co_branding",
+        "consulting",
+        "development",
+        "distributor",
+        "endorsement",
+        "franchise",
+        "hosting",
+        "ip",
+        "joint_venture",
+        "license",
+        "maintenance",
+        "manufacturing",
+        "marketing",
+        "non_compete_no_solicit",
+        "outsourcing",
+        "promotion",
+        "reseller",
+        "service",
+        "sponsorship",
+        "strategic_alliance",
+        "supply",
+        "transportation",
+        "other"
+      ],
+      "ordered": true,
+      "from": "llm-mailroom src/config/taxonomy.yaml contract label_vocabularies cuad_family"
+    },
+    "doc_classes": {
+      "keys": [
+        "contract",
+        "merger_agreement",
+        "corporate_record",
+        "correspondence",
+        "insurance_claim"
+      ],
+      "ordered": true,
+      "from": "llm-mailroom src/config/taxonomy.yaml doc_classes"
+    },
+    "insurance_claim_intent": {
+      "keys": [
+        "claim_filing",
+        "coverage_determination",
+        "loss_report",
+        "claim_data_record",
+        "other"
+      ],
+      "ordered": true,
+      "from": "llm-mailroom src/config/taxonomy.yaml insurance_claim label_vocabularies intent"
+    },
+    "merger_agreement_intent": {
+      "keys": [
+        "effect_merger",
+        "amend_merger",
+        "other"
+      ],
+      "ordered": true,
+      "from": "llm-mailroom src/config/taxonomy.yaml merger_agreement label_vocabularies intent"
+    },
+    "merger_consideration": {
+      "keys": [
+        "all_cash",
+        "all_stock",
+        "mixed_cash_stock",
+        "mixed_cash_stock_election",
+        "other"
+      ],
+      "ordered": true,
+      "from": "llm-mailroom src/config/taxonomy.yaml merger_agreement label_vocabularies merger_consideration"
+    },
+    "outcomes": {
+      "keys": [
+        "review",
+        "failed",
+        "archived"
+      ],
+      "ordered": false,
+      "from": "llm-mailroom src/schemas/manifest.py PipelineStage (terminal values)"
+    },
+    "review_causes": {
+      "keys": [
+        "class_miss",
+        "subclass_miss",
+        "extraction_miss",
+        "judge_miss",
+        "judge_partial",
+        "schema_invalid",
+        "guardrail",
+        "parse_error",
+        "reporting_incomplete",
+        "needs_judge_review",
+        "hollow_extraction",
+        "sorter_low_confidence",
+        "reviewer_unavailable",
+        "reviewer_no_text",
+        "reviewer_ineligible_label",
+        "reviewer_disagreement",
+        "reviewer_low_confidence",
+        "transient_exhausted",
+        "boss_conflict",
+        "arbiter_escalated",
+        "classification_arbiter_escalated",
+        "unknown_class",
+        "empty_document",
+        "unsupported_extraction",
+        "low_extraction_confidence",
+        "judge_incomplete",
+        "judge_error",
+        "retries_exhausted",
+        "chunk_failed",
+        "out_of_vocabulary"
+      ],
+      "ordered": true,
+      "from": "llm-mailroom src/pipeline/reconsideration.py CAUSE_LABELS"
+    },
+    "urgency": {
+      "keys": [
+        "routine",
+        "time-sensitive",
+        "urgent",
+        "critical"
+      ],
+      "ordered": true,
+      "from": "llm-mailroom src/config/taxonomy.yaml correspondence label_vocabularies urgency"
+    }
+  }
+}

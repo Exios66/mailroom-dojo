@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 import yaml
-from labels_testkit import PROFILE_PATH, hub_row, make_snapshot, near_gold_row
 
+from labels_testkit import PROFILE_PATH, hub_row, make_snapshot, near_gold_row
 from mailroom_labels.coverage import coverage
 from mailroom_labels.errors import ProfileError
 from mailroom_labels.layers import corpus_index, read_layers
@@ -35,8 +35,18 @@ def test_synthetic_profile_loads() -> None:
 
 def test_dojo_field_type_vocabulary() -> None:
     assert set(FIELD_TYPES) == {
-        "name", "label", "date", "money", "id", "free_text", "containment", "cms_doc_ref",
-        "entity_list", "entity_list:name", "entity_list:free_text", "entity_list:id",
+        "name",
+        "label",
+        "date",
+        "money",
+        "id",
+        "free_text",
+        "containment",
+        "cms_doc_ref",
+        "entity_list",
+        "entity_list:name",
+        "entity_list:free_text",
+        "entity_list:id",
         "entity_list:cms_doc_ref",
     }
 
@@ -75,6 +85,8 @@ def _mutate(path: str, value: object) -> dict:
         ("client", " padded ", "client must be a non-empty name"),
         ("dataset", KeyError, "missing key 'dataset'"),
         ("extra_top", 1, "unknown key 'extra_top'"),
+        ("classes.letter.fields.urgency.vocabulary", ["urgency"], "vocabulary must be a name"),
+        ("classes.letter.fields.urgency.vocabulary", {"a": 1}, "vocabulary must be a name"),
     ],
 )
 def test_invalid_profile_is_refused_with_the_reason(path: str, value: object, expected: str) -> None:
@@ -103,6 +115,17 @@ def test_duplicate_yaml_key_is_refused(tmp_path: Path) -> None:
         load_profile(path)
 
 
+def test_unhashable_yaml_key_is_a_profile_error_not_a_crash(tmp_path: Path) -> None:
+    text = PROFILE_PATH.read_text(encoding="utf-8").replace(
+        "      recipient: {type: name, tier: tier1}\n",
+        "      recipient: {type: name, tier: tier1}\n      ? [a, b]\n      : {type: id}\n",
+    )
+    path = tmp_path / "profile.yaml"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(ProfileError, match="unhashable mapping key"):
+        load_profile(path)
+
+
 def test_unreadable_and_non_yaml_profiles(tmp_path: Path) -> None:
     with pytest.raises(ProfileError, match="cannot read"):
         load_profile(tmp_path / "absent.yaml")
@@ -128,7 +151,9 @@ def test_a_new_document_class_is_a_profile_entry_only(tmp_path: Path) -> None:
     prof = parse_profile(data)
     dirs = [
         make_snapshot(tmp_path, "hub", [hub_row("INV1", "invoice", "utility", {"total": "$5.00"})]),
-        make_snapshot(tmp_path, "near_gold", [near_gold_row("INV1", {"state": "paid"}, "invoice", "utility")]),
+        make_snapshot(
+            tmp_path, "near_gold", [near_gold_row("INV1", {"state": "paid"}, "invoice", "utility")]
+        ),
     ]
     snaps = load_snapshot_set(dirs)
     assert check(snaps, prof).findings == ()
@@ -137,3 +162,37 @@ def test_a_new_document_class_is_a_profile_entry_only(tmp_path: Path) -> None:
     assert doc.scorable_fields == frozenset({"total", "state"})
     report = coverage([doc], prof)
     assert report["classes"]["invoice"]["fields"]["state"]["by_status"]["near_gold"] == 1
+
+
+# --- review follow-ups: odd YAML that must still exit through ProfileError --------------------
+
+
+def test_unknown_keys_of_mixed_types_are_all_reported(tmp_path: Path) -> None:
+    data = raw()
+    data[1] = "an integer key"
+    data["typo"] = "a string key"
+    data["classes"][next(iter(data["classes"]))][2] = "x"
+    data["classes"][next(iter(data["classes"]))]["typo"] = "x"
+    with pytest.raises(ProfileError) as info:
+        parse_profile(data)
+    text = str(info.value)
+    assert "unknown key 1" in text and "unknown key 'typo'" in text
+    assert "has unknown key 2" in text and "has unknown key 'typo'" in text
+
+
+def test_dataset_value_that_is_not_json_is_a_profile_error(tmp_path: Path) -> None:
+    text = PROFILE_PATH.read_text(encoding="utf-8")
+    pinned = 'revision: "0000000000000000000000000000000000000000"'
+    path = tmp_path / "profile.yaml"
+    path.write_text(text.replace(pinned, "revision: 2026-11-18"))
+    with pytest.raises(ProfileError, match="dataset.revision"):
+        load_profile(path)
+    path.write_text(text.replace(pinned, 'revision: "2026-11-18"'))
+    assert load_profile(path).dataset["revision"] == "2026-11-18"
+
+
+def test_invalid_utf8_is_a_profile_error(tmp_path: Path) -> None:
+    path = tmp_path / "profile.yaml"
+    path.write_bytes(PROFILE_PATH.read_bytes() + b"# \xff\xfe\n")
+    with pytest.raises(ProfileError, match="profile.yaml"):
+        load_profile(path)

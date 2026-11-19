@@ -18,6 +18,20 @@ Writing
   they are and stay reported by ``torn_tails``. Every open fsyncs the segment directory
   (not only on create), so a segment whose creator crashed before its directory fsync
   becomes durable on the next open.
+- Every live writer holds the store's maintenance lock (``<root>/.maintenance.lock``,
+  ``MAINTENANCE_LOCK``) shared, from ``open_writer`` until ``close()``. ``prune_run`` takes
+  it exclusive, so no event can name a blob between prune's check of what other runs name
+  and its delete; a writer opened while a prune runs waits for it to finish.
+- A pruned run takes no events. Once ``runs/<run_id>/prune.json`` exists (a prune finished
+  or part way through; anything at that path counts, even a damaged record), ``open_writer`` refuses with ``RunPruned`` after taking the shared
+  maintenance lock and before touching the segments: the segments are gone, so an append
+  would start the chains again at ``seq`` 0 and fork them when the archive is unpacked.
+  ``refuse_if_pruned`` is the store's one check of that state; ``seal_run``, ``pack_run``
+  and the importer call it too. Unpack the archive first (``unpack_run``), then write.
+  Nor does a pruned run give events: ``scan``, ``iter_located`` and ``iter_events`` raise
+  ``RunPruned`` naming the archive, so no reader takes a pruned run for an empty one
+  (``verify_run`` reports it as pruned; the raw readers ``iter_raw`` and ``iter_stored``
+  that verify and pack use still read what is on disk).
 - ``LogWriter.append`` validates the event, sets ``seq``, ``prev_hash`` and ``hash`` itself,
   and serializes the line at once: canonical JSON of the validated model's JSON-mode dump,
   plus ``\\n``. So every stored line satisfies ``event_hash(json.loads(line)) == hash``.
@@ -71,17 +85,49 @@ that has no newline yet, so a writer appending meanwhile can never hand it half 
 (the rest of a line it saw the start of). Memory is bounded by the longest line plus, for
 the ordered readers, a few machine words per event; never by the size of the run.
 
+``LogWriter.append`` refuses an event whose line (newline excluded) is longer than
+``MAX_LINE`` (64 MiB) with ``EventTooLarge``, the same limit ``verify_run`` reads to, so a
+writer never stores a line that verification reports as ``corrupt_line`` (content belongs
+in blobs). The readers here are not capped: ``verify_run`` skips a line over ``MAX_LINE``
+in chunks without holding it, but these readers, ``RunScan`` and ``seal_run`` (through
+``_stream_lines``) hold each line whole, so a hostile multi-gigabyte line in a segment
+costs that much memory before it is rejected. Run ``verify_run`` before sealing or
+reading a run whose segments came from somewhere untrusted.
+
+Pass two of an ordered read keeps at most ``_MAX_OPEN_SEGMENTS`` segment files open (the
+least recently used is closed and reopened when needed), so a run with thousands of
+segments never runs out of file descriptors.
+
+Streaming means a strict reader can fail part way. ``iter_stored`` yields the lines before a
+corrupt one and then raises ``CorruptLine``; ``iter_events`` (pass two) yields the valid
+events before an invalid one and then raises ``InvalidEvent``. A caller that commits
+something derived from what it read (``seal_run``, an export) must therefore read
+everything first (``list(...)``) and act only once the read has finished, never while it is
+still yielding.
+
 Ordering contract. ``iter_stored``, ``iter_raw`` and the head readers go in segment-name
 order, then file order. ``iter_events`` (and ``scan(...).events()``) yield grouped by
 document in ``doc_id`` order, each document by ``seq``; two stored events with one
 ``(doc_id, seq)`` (a fork) both come back, in segment-name then file order. A segment is
 not sorted by document, so this order cannot be a streaming merge: ``scan`` makes two
 passes. Pass one streams every segment and keeps only ``(seq, segment, offset, length)``
-per event, packed in one ``array`` per document; pass two seeks to each line in order and
-parses it. Pass one parses every line, so a corrupt line raises ``CorruptLine`` before the
-first event is yielded; an event that fails validation raises when pass two reaches it.
+per event, packed in one ``array`` per document (32 bytes per event); pass two walks each
+document's rows in order without copying them (they are a few ascending runs, one per
+hand-over, merged lazily; ``RunScan._ordered``), seeks to each line and parses it. Pass one parses every line, so a corrupt line raises ``CorruptLine`` before the
+first event is yielded; an event that fails validation raises ``InvalidEvent`` when pass
+two reaches it (pass one raises it for a line with no usable ``doc_id`` or ``seq``).
+
+Error text never quotes stored content. ``CorruptLine`` and ``InvalidEvent`` (both
+``ValueError``) name the segment, byte offset, field locations and error types; pydantic's
+``ValidationError``, whose text quotes the stored input, never leaves a reader, and neither
+does ``RecursionError`` from a line nested too deep. ``read_run`` likewise raises a
+``ValueError`` naming fields only for an invalid ``run.json``.
 The tolerant mode (``strict=False``, for the index) records such lines as ``BadLine`` and
-skips them instead. ``spans`` limits a scan to byte ranges of named segments (the index's
+skips them instead. It also goes on past a segment it cannot open or read (``OSError``):
+the segment is named in ``RunScan.unreadable`` with the error type, and what was read of
+it and of every other segment is kept. ``events()`` then yields every event it can and
+raises the first such ``OSError`` at the end, so a caller cannot take a partial read for
+the whole run. ``spans`` limits a scan to byte ranges of named segments (the index's
 per-document locations, Task 8), so a per-document read need not read the whole run.
 
 ``iter_raw`` is the tolerant reader for verification (Task 7): it streams every segment one
@@ -95,13 +141,15 @@ from __future__ import annotations
 
 import copy
 import errno
-from array import array
 import fcntl
+import heapq
 import json
 import os
 import re
 import threading
 import weakref
+from array import array
+from collections import OrderedDict
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -109,7 +157,7 @@ from typing import Any, Literal
 
 from mailroom_record.blobs import BlobStore, _fsync_dir, _makedirs_durable, write_exclusive
 from mailroom_record.hashing import canonical_json
-from mailroom_record.models import GENESIS, BlobRef, Event, Run, utc_now
+from mailroom_record.models import _RUN_ID_RE, GENESIS, INT64_MAX, BlobRef, Event, Run, utc_now, validation_detail
 
 __all__ = [
     "BadLine",
@@ -117,17 +165,42 @@ __all__ = [
     "CorruptLine",
     "DocumentInUse",
     "EventLog",
+    "EventTooLarge",
     "ForkedChain",
+    "InvalidEvent",
     "LocatedEvent",
     "LogWriter",
+    "MAINTENANCE_LOCK",
+    "MAX_LINE",
     "OverlongLine",
     "RawLine",
     "RunExists",
+    "RunPruned",
     "RunScan",
     "StoredLine",
     "TornTail",
     "WriterInUse",
+    "pruned_archive",
+    "refuse_if_pruned",
 ]
+
+# Above this many ascending runs in one document's rows (a damaged log), pass two sorts a
+# copy instead of merging the runs lazily (RunScan._ordered).
+_MAX_RUNS = 1024
+
+# Pass two keeps at most this many segment files open (RunScan.events).
+_MAX_OPEN_SEGMENTS = 32
+
+# The store's maintenance lock file, under the root: writers hold it shared, prune exclusive.
+MAINTENANCE_LOCK = ".maintenance.lock"
+
+# What a pack and a prune record in ``runs/<run_id>/`` (written by ``pack.py``). A run with
+# ``prune.json`` is pruned, or part way through a prune: see ``refuse_if_pruned``.
+PACK_RECORD = "pack.json"
+PRUNE_RECORD = "prune.json"
+
+# The longest event line (newline excluded) a writer stores and ``verify_run`` reads.
+MAX_LINE = 64 * 1024 * 1024
 
 # A writer id names a file: letters, digits, "_" and "-" only (no dots: "<id>.<k>.jsonl"
 # names a writer's later segments).
@@ -137,6 +210,11 @@ _SEGMENT_RE = re.compile(r"(?P<writer>[A-Za-z0-9][A-Za-z0-9_-]{0,99})(?:\.(?P<k>
 
 class RunExists(FileExistsError):
     """``run.json`` already exists for this run id."""
+
+
+class RunPruned(RuntimeError):
+    """The run is pruned, or part way through a prune (``prune.json`` is there): its segments
+    and seals may be gone, so nothing may be appended to it or sealed. Unpack its archive first."""
 
 
 class BlobNotStored(LookupError):
@@ -151,8 +229,22 @@ class DocumentInUse(RuntimeError):
     """Another live writer in this process holds this document's chain."""
 
 
+class EventTooLarge(ValueError):
+    """An event whose stored line would exceed ``MAX_LINE``: the writer refuses it."""
+
+
 class CorruptLine(ValueError):
     """A whole segment line is not a JSON object."""
+
+
+class InvalidEvent(ValueError):
+    """A whole segment line is a JSON object but not a valid event (strict readers).
+
+    Raised in place of pydantic's ``ValidationError`` (and the upgrade's errors), whose text
+    quotes the stored input: the message names the segment, the byte offset, field
+    locations and error types only, never a stored value or an unknown stored key (see
+    ``models.validation_detail``). A ``ValueError``, so callers catching that still do.
+    """
 
 
 class ForkedChain(RuntimeError):
@@ -235,6 +327,7 @@ def _stream_lines(path: Path, start: int = 0, end: int | None = None) -> Iterato
     Never reads past ``end`` or the file's size when it was opened, and stops after the
     first line that has no newline within that bound (a torn tail, or a line a writer is
     still writing), so it can never return the rest of a line it saw the start of.
+    Holds each line whole: there is no ``max_line`` here (see "Reading" in the module doc).
     """
     with path.open("rb") as f:
         size = os.fstat(f.fileno()).st_size
@@ -291,6 +384,11 @@ def iter_raw_segment(path: Path, max_line: int | None = None) -> Iterator[RawLin
             offset += length
 
 
+def _plain(value: Any) -> Any:
+    """A Mapping as a dict (left as is when it is not one, for the model to reject)."""
+    return dict(value) if isinstance(value, Mapping) and not isinstance(value, dict) else value
+
+
 def _check_writer_id(writer_id: Any) -> str:
     if not isinstance(writer_id, str) or not _WRITER_ID_RE.fullmatch(writer_id):
         raise ValueError(f"writer_id must match {_WRITER_ID_RE.pattern}, got {writer_id!r}")
@@ -316,20 +414,18 @@ def _iter_segment_stored(path: Path) -> Iterator[StoredLine]:
 
 def _safe_detail(exc: BaseException) -> str:
     """An error description without the input it rejected (no stored content leaks)."""
-    errors = getattr(exc, "errors", None)
-    if callable(errors):  # pydantic ValidationError: field locations and error types only
-        try:
-            parts = [".".join(str(x) for x in e.get("loc", ())) + ": " + str(e.get("type")) for e in errors()]
-            return "invalid event: " + "; ".join(parts)
-        except Exception:  # noqa: BLE001 - fall through to the type name
-            pass
+    detail = validation_detail(exc)  # field names and error types; stored keys become <key>
+    if detail is not None:
+        return "invalid event: " + detail
     if isinstance(exc, CorruptLine):
         return str(exc).split(": ", 1)[-1]
+    # UnknownSchemaVersion names the version's type or number, never a stored value.
     return type(exc).__name__ + (f": {exc}" if type(exc).__name__ == "UnknownSchemaVersion" else "")
 
 
 def _is_seq(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+    """A ``seq`` the readers can hold: a non-bool int in ``0..INT64_MAX`` (``Count``)."""
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= INT64_MAX
 
 
 class RunScan:
@@ -349,79 +445,166 @@ class RunScan:
         self.ends: dict[str, int] = {}  # segment -> end of the last whole line scanned
         self.torn: list[TornTail] = []
         self.bad: list[BadLine] = []
+        # segment -> the error type, for a segment a tolerant scan could not open or read
+        self.unreadable: list[tuple[str, str]] = []
+        self._io_error: OSError | None = None
         self._docs: dict[str, array[int]] = {}
 
     def _bad(self, segment: str, offset: int, kind: Literal["corrupt_line", "invalid_event"], exc: BaseException) -> None:
         if self.strict:
+            if kind == "invalid_event":  # never the validator's own text: it quotes stored input
+                raise InvalidEvent(f"{segment} at byte {offset}: {_safe_detail(exc)}") from None
             raise exc
         self.bad.append(BadLine(segment, offset, kind, _safe_detail(exc)))
 
     def _scan_span(self, seg_idx: int, path: Path, start: int, end: int | None) -> None:
         name = path.name
         reached = start
+        try:
+            reached = self._scan_lines(seg_idx, path, start, end)
+        except OSError as exc:
+            if self.strict:
+                raise
+            # Keep every location read so far, here and in the other segments.
+            if name not in (u[0] for u in self.unreadable):
+                self.unreadable.append((name, type(exc).__name__))
+            if self._io_error is None:
+                self._io_error = exc
+            reached = self._reached
+        self.ends[name] = max(self.ends.get(name, 0), reached)
+
+    def _scan_lines(self, seg_idx: int, path: Path, start: int, end: int | None) -> int:
+        name = path.name
+        reached = self._reached = start
         for offset, data, whole in _stream_lines(path, start, end):
             if not whole:
                 if end is None:
                     self.torn.append(TornTail(name, offset))
                 break
-            reached = offset + len(data) + 1
+            reached = self._reached = offset + len(data) + 1
             try:
                 raw = _parse_line(name, offset, data)
             except CorruptLine as exc:
                 self._bad(name, offset, "corrupt_line", exc)
                 continue
             doc, seq = raw.get("doc_id"), raw.get("seq")
+            if self.doc_id is not None and isinstance(doc, str) and doc != self.doc_id:
+                continue  # another document's line: a per-document read validates only its own
             if not isinstance(doc, str) or not _is_seq(seq):
                 try:
                     Event.from_stored(raw)  # raises the validation error a reader expects
                     exc: BaseException = CorruptLine(f"{name} at byte {offset}: missing doc_id or seq")
-                except (ValueError, TypeError) as err:
+                except (ValueError, TypeError, RecursionError) as err:
                     exc = err
                 self._bad(name, offset, "invalid_event", exc)
-                continue
-            if self.doc_id is not None and doc != self.doc_id:
                 continue
             arr = self._docs.get(doc)
             if arr is None:
                 arr = self._docs[doc] = array("q")
             arr.extend((seq, seg_idx, offset, len(data) + 1))
-        self.ends[name] = max(self.ends.get(name, 0), reached)
+        return reached
 
     def doc_ids(self) -> list[str]:
         return sorted(self._docs)
 
     def seqs(self, doc_id: str) -> list[int]:
         """Every stored ``seq`` of ``doc_id`` in this scan, sorted (a fork repeats one)."""
-        arr = self._docs.get(doc_id, array("q"))
-        return sorted(arr[0::4])
+        return [row[0] for row in self._ordered(doc_id)]
 
     def gaps(self) -> dict[str, int]:
-        """``doc_id -> first missing seq`` for each document whose seqs skip a number."""
+        """``doc_id -> first missing seq`` for each document whose seqs skip a number.
+
+        Walks each document's rows in order (``_ordered``): no list, set or ``range(max)``.
+        """
         out: dict[str, int] = {}
         for doc in self.doc_ids():
             expect = 0
-            for seq in sorted(set(self.seqs(doc))):  # walk the stored seqs, never range(max)
-                if seq != expect:
+            for seq, *_ in self._ordered(doc):
+                if seq > expect:
                     out[doc] = expect
                     break
-                expect += 1
+                expect = max(expect, seq + 1)
+        return out
+
+    def _ordered(self, doc_id: str) -> Iterator[tuple[int, int, int, int]]:
+        """``doc_id``'s rows ``(seq, segment, offset, length)`` in ``(seq, segment, offset)`` order.
+
+        Pass one appends rows in segment then file order, and an owner writes a document's
+        events in ``seq`` order, so the rows are a few ascending runs (one per hand-over
+        between segments). Those runs are merged lazily: memory is one small iterator per
+        run, not a copy of the rows. Only a damaged log (forks, lines out of order) with
+        more than ``_MAX_RUNS`` runs is sorted as a copy (a few hundred bytes per event).
+        """
+        arr = self._docs.get(doc_id)
+        if arr is None:
+            return iter(())
+        n = len(arr) // 4
+        starts = [0]
+        for i in range(1, n):
+            j = 4 * i
+            if (arr[j], arr[j + 1], arr[j + 2]) < (arr[j - 4], arr[j - 3], arr[j - 2]):
+                starts.append(i)
+                if len(starts) > _MAX_RUNS:
+                    return iter(sorted(tuple(arr[k : k + 4]) for k in range(0, len(arr), 4)))  # type: ignore[misc]
+
+        def run(a: int, b: int) -> Iterator[tuple[int, int, int, int]]:
+            for i in range(a, b):
+                j = 4 * i
+                yield arr[j], arr[j + 1], arr[j + 2], arr[j + 3]
+
+        bounds = list(zip(starts, starts[1:] + [n]))
+        if len(bounds) == 1:
+            return run(0, n)
+        return heapq.merge(*(run(a, b) for a, b in bounds))
+
+    def stored_hashes(self, doc_id: str, seq: int) -> list[str | None]:
+        """The stored ``hash`` of each line this scan holds for ``(doc_id, seq)`` (a fork has two).
+
+        Reads only those lines; a line that no longer parses, or no longer names
+        ``(doc_id, seq)``, gives ``None``.
+        """
+        arr = self._docs.get(doc_id)
+        out: list[str | None] = []
+        if arr is None:
+            return out
+        for j in range(0, len(arr), 4):
+            if arr[j] != seq:
+                continue
+            path, offset, length = self.segments[arr[j + 1]], arr[j + 2], arr[j + 3]
+            with path.open("rb") as f:
+                f.seek(offset)
+                data = f.read(length)
+            try:
+                raw = _parse_line(path.name, offset, data[:-1]) if data.endswith(b"\n") else None
+            except CorruptLine:
+                raw = None
+            ok = raw is not None and raw.get("doc_id") == doc_id and raw.get("seq") == seq
+            h = raw.get("hash") if ok and raw is not None else None
+            out.append(h if isinstance(h, str) else None)
         return out
 
     def __len__(self) -> int:
         return sum(len(a) // 4 for a in self._docs.values())
 
     def events(self) -> Iterator[LocatedEvent]:
-        """Pass two: every scanned event, upgraded and validated, in the documented order."""
-        files: dict[int, Any] = {}
+        """Pass two: every scanned event, upgraded and validated, in the documented order.
+
+        Keeps at most ``_MAX_OPEN_SEGMENTS`` segments open, closing the least recently
+        used. After a tolerant scan that could not read a segment (``unreadable``), raises
+        that ``OSError`` once every readable event has been yielded.
+        """
+        files: OrderedDict[int, Any] = OrderedDict()
         try:
             for doc in self.doc_ids():
-                arr = self._docs[doc]
-                rows = sorted(tuple(arr[i : i + 4]) for i in range(0, len(arr), 4))
-                for seq, seg_idx, offset, length in rows:
+                for seq, seg_idx, offset, length in self._ordered(doc):
                     path = self.segments[seg_idx]
                     f = files.get(seg_idx)
                     if f is None:
+                        while len(files) >= max(1, _MAX_OPEN_SEGMENTS):
+                            files.popitem(last=False)[1].close()
                         f = files[seg_idx] = path.open("rb")
+                    else:
+                        files.move_to_end(seg_idx)
                     f.seek(offset)
                     data = f.read(length)
                     try:
@@ -435,13 +618,15 @@ class RunScan:
                         continue
                     try:
                         event = Event.from_stored(raw)
-                    except (ValueError, TypeError) as exc:
+                    except (ValueError, TypeError, RecursionError) as exc:
                         self._bad(path.name, offset, "invalid_event", exc)
                         continue
                     yield LocatedEvent(path.name, offset, length, event)
         finally:
             for f in files.values():
                 f.close()
+        if self._io_error is not None:
+            raise self._io_error
 
 
 # In-process document ownership: (store root, run_id, doc_id) -> the live writer.
@@ -459,8 +644,9 @@ class EventLog:
     # --- paths ----------------------------------------------------------------------
 
     def run_dir(self, run_id: str) -> Path:
-        # Run ids are validated by the Run model on create; reject separators on read too.
-        if not isinstance(run_id, str) or not run_id or "/" in run_id or run_id in {".", ".."}:
+        # The Run model's rule, on every path built from a run id: an id no run could have
+        # is a ValueError here, never a lookup that ends in FileNotFoundError.
+        if not isinstance(run_id, str) or not _RUN_ID_RE.fullmatch(run_id):
             raise ValueError(f"bad run id {run_id!r}")
         return self.root / "runs" / run_id
 
@@ -478,17 +664,28 @@ class EventLog:
     def create_run(self, run: Run) -> None:
         """Write ``run.json`` once. Raises ``RunExists`` if it is already there."""
         run_dir = self.run_dir(run.run_id)
-        _makedirs_durable(run_dir / "segments")
+        _makedirs_durable(run_dir / "segments", self.root)
         body = canonical_json(run.model_dump(mode="json"))
-        if not write_exclusive(run_dir / "run.json", body):
+        if not write_exclusive(run_dir / "run.json", body, self.root):
             raise RunExists(run.run_id)
 
     def read_run(self, run_id: str) -> Run:
+        """The run header. ``FileNotFoundError`` for an unknown run; ``ValueError`` or
+        ``TypeError`` for a damaged ``run.json`` (never ``RecursionError``), naming field
+        locations and error types, never stored values."""
         try:
             raw = json.loads((self.run_dir(run_id) / "run.json").read_bytes())
         except FileNotFoundError:
             raise FileNotFoundError(f"no run {run_id!r} under {self.root}") from None
-        return Run.from_stored(raw)
+        except RecursionError:
+            raise ValueError(f"run.json of run {run_id!r} nests deeper than the JSON parser allows") from None
+        try:
+            return Run.from_stored(raw)
+        except ValueError as exc:
+            detail = validation_detail(exc)  # the validator's own text quotes stored input
+            if detail is None:
+                raise
+            raise ValueError(f"run.json of run {run_id!r} is not a valid run header: {detail}") from None
 
     # --- writers --------------------------------------------------------------------
 
@@ -544,7 +741,12 @@ class EventLog:
         must be a line boundary. Without ``spans`` every segment is read whole. Strict
         (the default) raises ``CorruptLine`` and validation errors like ``iter_events``;
         ``strict=False`` records them in ``RunScan.bad`` and skips the line.
+
+        A pruned run (``prune.json`` there) raises ``RunPruned`` naming its archive, as
+        ``iter_events`` and ``iter_located`` do (both read through here): its events are in
+        the archive, and reading what is left would give an empty or partial run.
         """
+        refuse_if_pruned(self, run_id, "read")
         out = RunScan(self, run_id, doc_id, strict)
         paths = self._segments(run_id)
         if spans is not None:
@@ -570,7 +772,8 @@ class EventLog:
         """Flushed events, upgraded and validated, grouped by ``doc_id`` and ordered by ``seq``.
 
         Streamed in two passes (see "Ordering contract" in the module doc): memory is a few
-        machine words per event plus one line, never the run's payloads.
+        machine words per event plus one line, never the run's payloads. ``RunPruned`` for
+        a pruned run (see ``scan``).
         """
         for located in self.scan(run_id, doc_id).events():
             yield located.event
@@ -606,6 +809,8 @@ class _Heads:
         doc, seq, h = raw.get("doc_id"), raw.get("seq"), raw.get("hash")
         if not isinstance(doc, str) or not isinstance(seq, int) or isinstance(seq, bool) or not isinstance(h, str):
             raise CorruptLine(f"{where.segment} at byte {where.byte_offset}: missing doc_id, seq or hash")
+        if not _is_seq(seq):  # negative, or past int64: no writer stores it, no reader can hold it
+            raise CorruptLine(f"{where.segment} at byte {where.byte_offset}: seq out of range 0..2**63-1")
         seqs = self._seqs.setdefault(doc, set())
         if seq in seqs:
             self.forks[doc] = min(seq, self.forks.get(doc, seq))
@@ -641,6 +846,50 @@ class _DiskHeads:
                 self._offsets[seg.name] = offset + len(data) + 1
 
 
+def _shared_maintenance_lock(root: Path) -> Any:
+    """Open ``<root>/.maintenance.lock`` and take it shared (waits while a prune holds it).
+
+    Returns the open file; closing it (or its garbage collection) releases the lock.
+    """
+    fd = os.open(Path(root) / MAINTENANCE_LOCK, os.O_RDWR | os.O_CREAT, 0o644)
+    f = os.fdopen(fd, "r+b", buffering=0)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_SH)
+    except BaseException:
+        f.close()
+        raise
+    return f
+
+
+def pruned_archive(log: EventLog, run_id: str) -> str | None:
+    """The archive recorded for ``run_id`` when it is pruned or part way through a prune
+    (``prune.json`` is there), else ``None``. Its segments may be gone: unpack it first."""
+    run_dir = log.run_dir(run_id)
+    if not os.path.lexists(run_dir / PRUNE_RECORD):  # anything there, even damaged, means pruned
+        return None
+    try:
+        archive = json.loads((run_dir / PACK_RECORD).read_bytes())["archive"]
+    except (OSError, ValueError, RecursionError, KeyError, TypeError):
+        return "(the recorded archive is unreadable)"
+    return str(archive)
+
+
+def refuse_if_pruned(log: EventLog, run_id: str, action: str) -> None:
+    """Raise ``RunPruned`` if ``run_id`` is pruned or part way through a prune.
+
+    The store's one check of the pruned state. Every path that writes a run's segments or
+    seals calls it after taking its lock (``open_writer`` under the shared maintenance lock,
+    ``seal_run`` under it and the seal lock), so a prune cannot finish in between unseen.
+    ``action`` completes the sentence "the run cannot be ...".
+    """
+    archive = pruned_archive(log, run_id)
+    if archive is not None:
+        raise RunPruned(
+            f"run {run_id!r} is pruned in this store, so it cannot be {action}; "
+            f"unpack {archive} first (mailroom-record unpack)"
+        )
+
+
 class LogWriter:
     """Appends events for one run to one segment. Thread-safe; one live instance per id."""
 
@@ -656,13 +905,19 @@ class LogWriter:
         self._closed = False
         self._failed: BaseException | None = None
         self._root_key = os.path.realpath(log.root)
-        self._file, self.segment = self._open_segment()
+        self._maintenance = _shared_maintenance_lock(log.root)
+        try:
+            refuse_if_pruned(log, run_id, "appended to")  # under the lock: a prune waits for us
+            self._file, self.segment = self._open_segment()
+        except BaseException:
+            self._maintenance.close()  # releases the shared lock
+            raise
 
     # --- segment ownership ----------------------------------------------------------
 
     def _open_segment(self) -> tuple[Any, Path]:
         seg_dir = self.log.segment_dir(self.run_id)
-        _makedirs_durable(seg_dir)
+        _makedirs_durable(seg_dir, self.log.root)
         ks = [0]
         for p in seg_dir.iterdir():
             m = _SEGMENT_RE.fullmatch(p.name)
@@ -749,7 +1004,8 @@ class LogWriter:
         The event is buffered, not yet durable: it reaches disk (and readers) on the next
         flush, which ``flush()``, ``close()`` or every ``flush_every``-th append performs.
         Index or export callers must act on it only after that flush. Raises
-        ``ForkedChain`` if this writer takes ``doc_id`` and its stored chain is forked.
+        ``ForkedChain`` if this writer takes ``doc_id`` and its stored chain is forked, and
+        ``EventTooLarge`` if the stored line would exceed ``MAX_LINE`` (nothing is stored).
         """
         fields: dict[str, Any] = copy.deepcopy(
             {
@@ -768,9 +1024,11 @@ class LogWriter:
                 "latency_ms": latency_ms,
                 "decision": decision,
                 "cause": cause,
-                "inputs": list(inputs),
-                "outputs": list(outputs),
-                "payload": {} if payload is None else payload,
+                # Any Mapping is accepted: copy it to a dict first, since deepcopy cannot
+                # copy some (a MappingProxyType, for one).
+                "inputs": [_plain(r) for r in inputs],
+                "outputs": [_plain(r) for r in outputs],
+                "payload": {} if payload is None else _plain(payload),
             }
         )
         with self._lock:
@@ -785,6 +1043,8 @@ class LogWriter:
                 if self.log.blobs.exists(ref.sha256) != "present":
                     raise BlobNotStored(f"{ref.role} blob {ref.sha256} is not present")
             line = canonical_json(event.model_dump(mode="json")) + b"\n"
+            if len(line) - 1 > MAX_LINE:  # verify_run would report it as corrupt_line
+                raise EventTooLarge(f"an event line of {len(line) - 1} bytes exceeds MAX_LINE ({MAX_LINE} bytes)")
             self._buffer.append(line)
             self._heads[doc_id] = (event.seq, event.hash)
             if len(self._buffer) >= self.flush_every:
@@ -830,7 +1090,10 @@ class LogWriter:
                     self._flush_locked()
             finally:
                 self._closed = True
-                self._file.close()
+                try:
+                    self._file.close()
+                finally:
+                    self._maintenance.close()  # releases the shared maintenance lock
                 for doc_id in list(self._heads):
                     self._release(doc_id)
 

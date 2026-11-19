@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import shutil
 import sys
 from collections import Counter
@@ -16,11 +17,13 @@ from functools import lru_cache
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
 from mailroom_labels import load_label_set, load_profile
+from mailroom_labels.cli import app
 from mailroom_labels.errors import ManifestMismatch
 from mailroom_labels.layers import read_layers
-from mailroom_labels.quality import check_dirs
+from mailroom_labels.quality import check_dirs, verify
 from mailroom_labels.snapshot import MANIFEST_NAME, load_snapshot, load_snapshot_set
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -29,7 +32,7 @@ SNAPSHOTS = {
     "hub-ccd040f6": "hub",
     "interim-2026-11-01": "interim",
     "near-gold-2026-11-17": "near_gold",
-    "gold-review-2026-11-18": "review",
+    "gold-review-2026-11-18-r2": "review",
 }
 DIRS = [ROOT / "labels" / name for name in SNAPSHOTS]
 REPORTS = ROOT / "docs/reports/labels"
@@ -83,13 +86,23 @@ def test_zero_errors_and_every_warning_known_with_a_reason() -> None:
     assert all(f.known for f in report.warnings)
     reasons = [w.get("reason") for s in loaded for w in s.manifest.known_warnings]
     assert len(reasons) == 13 and all(isinstance(r, str) and len(r) > 40 for r in reasons)
+    # each warning is accepted by the snapshot that raised it, and the strict gate passes
+    owners = Counter((f.kind, f.location.split("/")[0]) for f in report.warnings)
+    assert owners == {
+        ("orphan_decision", "gold-review-2026-11-18-r2"): 7,
+        ("subclass_mismatch", "interim-2026-11-01"): 6,
+    }
+    assert verify(report, strict=True) == 0
+    result = CliRunner().invoke(app, ["verify", "--strict", "--profile", str(PROFILE), *map(str, DIRS)])
+    assert result.exit_code == 0, result.output
+    assert result.output.strip().splitlines()[-1] == "0 error(s), 13 warning(s)"
 
 
 # --- pinned counts ----------------------------------------------------------------------
 
 LAYER_COUNTS = {  # (snapshot, class): (documents, labels)
-    ("gold-review-2026-11-18", "corporate_record"): (6, 8),
-    ("gold-review-2026-11-18", "correspondence"): (255, 1042),
+    ("gold-review-2026-11-18-r2", "corporate_record"): (6, 8),
+    ("gold-review-2026-11-18-r2", "correspondence"): (255, 1042),
     ("hub-ccd040f6", "contract"): (509, 509),
     ("hub-ccd040f6", "corporate_record"): (450, 2632),
     ("hub-ccd040f6", "correspondence"): (1000, 5000),
@@ -119,7 +132,12 @@ def test_documents_and_labels_per_layer_and_class() -> None:
             docs[key] += 1
     assert {k: (docs[k], labels[k]) for k in labels} == LAYER_COUNTS
     assert Counter(e.doc_class for e in read.corpus) == {
-        "contract": 600, "corporate_record": 450, "correspondence": 1000, "insurance_claim": 1100, "merger_agreement": 152}
+        "contract": 600,
+        "corporate_record": 450,
+        "correspondence": 1000,
+        "insurance_claim": 1100,
+        "merger_agreement": 152,
+    }
 
 
 SCORABLE = {  # class: (documents, verified, scorable documents, {status: scorable labels})
@@ -139,18 +157,30 @@ def test_resolved_scorable_counts_per_class_and_status() -> None:
         row[1] += d.verified
         row[2] += bool(d.scorable_fields)
         row[3].update(d.fields[f].status for f in d.scorable_fields)
-    assert {c: (a, b, s, {k: st[k] for k in ("gold", "hub", "interim", "near_gold")})
-            for c, (a, b, s, st) in got.items()} == SCORABLE
+    assert {
+        c: (a, b, s, {k: st[k] for k in ("gold", "hub", "interim", "near_gold")})
+        for c, (a, b, s, st) in got.items()
+    } == SCORABLE
 
 
 # --- behaviour on real positive controls --------------------------------------------------
 
 
 def test_every_human_desk_decision_resolves_to_gold() -> None:
-    gold = [(d.document_id, f) for d in label_set().documents() for f, lab in d.fields.items() if lab.status == "gold"]
+    gold = [
+        (d.document_id, f)
+        for d in label_set().documents()
+        for f, lab in d.fields.items()
+        if lab.status == "gold"
+    ]
     assert len(gold) == 8
     assert doc("DOC-b0801e4d4bb58191").fields["signatories"].value == [
-        "Melanie Figueroa", "Anthony C. Pintsopoulos", "Jawahar Tandon", "Vivek Tandon", "David H. Clarke"]
+        "Melanie Figueroa",
+        "Anthony C. Pintsopoulos",
+        "Jawahar Tandon",
+        "Vivek Tandon",
+        "David H. Clarke",
+    ]
     absent = doc("DOC-bda69bc956881bab").fields["jurisdiction"]
     assert (absent.status, absent.value, absent.presence) == ("gold", None, "schema_documented_absence")
 
@@ -160,7 +190,9 @@ def test_audit_decision_that_differs_from_the_catalog_wins_over_near_gold() -> N
     assert (lab.rank, lab.status, lab.source) == ("review:near_gold", "near_gold", "review:claude-opus-audit")
     assert lab.value == ["please continue to spread the word", "Check it out!"]
     assert [(f.rank, f.value) for f in lab.layers_seen] == [
-        ("review:near_gold", ["please continue to spread the word", "Check it out!"]), ("near_gold", [])]
+        ("review:near_gold", ["please continue to spread the word", "Check it out!"]),
+        ("near_gold", []),
+    ]
 
 
 def test_populated_hub_is_never_replaced_by_a_fill_or_near_gold() -> None:
@@ -168,7 +200,12 @@ def test_populated_hub_is_never_replaced_by_a_fill_or_near_gold() -> None:
     for d in label_set().documents():
         for lab in d.fields.values():
             fresh = {f.rank for f in lab.layers_seen if not f.stale}
-            if "hub" in fresh and fresh & {"interim:gap_fill", "interim:derived", "near_gold", "review:near_gold"}:
+            if "hub" in fresh and fresh & {
+                "interim:gap_fill",
+                "interim:derived",
+                "near_gold",
+                "review:near_gold",
+            }:
                 checked += 1
             if "hub" in fresh:
                 assert lab.rank in ("hub", "review:gold", "interim:correction")
@@ -184,34 +221,62 @@ def test_interim_fills_replace_a_hub_absence_like_the_sandbox() -> None:
         for name, lab in d.fields.items():
             if "hub:absent" in {f.rank for f in lab.layers_seen} and lab.rank.startswith("interim:"):
                 fills[(name, lab.rank)] += 1
-    assert fills == {("filing_number", "interim:gap_fill"): 136, ("jurisdiction", "interim:gap_fill"): 14,
-                     ("signatories", "interim:gap_fill"): 21}
+    assert fills == {
+        ("filing_number", "interim:gap_fill"): 136,
+        ("jurisdiction", "interim:gap_fill"): 14,
+        ("signatories", "interim:gap_fill"): 21,
+    }
     lab = doc("DOC-02e5b3d7ea700ab0").fields["filing_number"]
-    assert [f.rank for f in lab.layers_seen] == ["interim:gap_fill", "hub:absent"] and lab.rank == "interim:gap_fill"
+    assert [f.rank for f in lab.layers_seen] == [
+        "interim:gap_fill",
+        "hub:absent",
+    ] and lab.rank == "interim:gap_fill"
 
 
 def test_disputed_interim_labels_are_never_truth() -> None:
-    disputed = [(d.document_id, n) for d in label_set().documents() for n, facts in d.untrusted.items()
-                if any(f.rank == "interim:disputed" for f in facts)]
-    in_fields = [(d.document_id, n) for d in label_set().documents() for n, lab in d.fields.items()
-                 if lab.rank == "interim:disputed"]
+    disputed = [
+        (d.document_id, n)
+        for d in label_set().documents()
+        for n, facts in d.untrusted.items()
+        if any(f.rank == "interim:disputed" for f in facts)
+    ]
+    in_fields = [
+        (d.document_id, n)
+        for d in label_set().documents()
+        for n, lab in d.fields.items()
+        if lab.rank == "interim:disputed"
+    ]
     assert in_fields == []
     assert ("DOC-0a29136832720e65", "merger_consideration") in disputed
 
 
-def test_audit_never_overrides_a_hub_value_or_a_correction() -> None:
+def test_no_audit_decision_meets_a_hub_value_or_a_correction_on_the_real_data() -> None:
+    # On the committed data no Claude audit decision is aimed at a label that a populated
+    # Hub value or an interim correction holds, so the precedence between them is never
+    # exercised here: this pins that fact (0 cases). The rule itself is tested on synthetic
+    # data by test_resolve.py::test_an_audit_decision_never_beats_a_hub_value_or_a_correction.
+    meets = Counter()
     for d in label_set().documents():
         for lab in d.fields.values():
             ranks = {f.rank for f in lab.layers_seen}
-            if "review:near_gold" in ranks and ranks & {"hub", "interim:correction"}:
-                assert lab.rank in ("hub", "interim:correction", "review:gold")
+            if "review:near_gold" in ranks:
+                meets[tuple(sorted(ranks & {"hub", "interim:correction"}))] += 1
+    assert meets == {(): 1042}
 
 
 def test_subclass_stale_documents_are_unverified_and_not_scored() -> None:
     stale = sorted(d.document_id for d in label_set().documents() if not d.verified)
-    assert stale == ["DOC-033adce2fbdff0ec", "DOC-4a8f1db0546e42be", "DOC-5c087a08edcb4a91",
-                     "DOC-691191d21d96b75d", "DOC-e00ef4799dbd6b37", "DOC-ea4b0e70dc4677d1"]
-    assert all(doc(x).scorable_fields == frozenset() and doc(x).unverified_reasons == ("stale_label",) for x in stale)
+    assert stale == [
+        "DOC-033adce2fbdff0ec",
+        "DOC-4a8f1db0546e42be",
+        "DOC-5c087a08edcb4a91",
+        "DOC-691191d21d96b75d",
+        "DOC-e00ef4799dbd6b37",
+        "DOC-ea4b0e70dc4677d1",
+    ]
+    assert all(
+        doc(x).scorable_fields == frozenset() and doc(x).unverified_reasons == ("stale_label",) for x in stale
+    )
 
 
 def test_every_label_document_is_in_the_hub_index() -> None:
@@ -225,32 +290,71 @@ def test_profile_covers_every_field_of_every_snapshot() -> None:
     profile = load_profile(PROFILE)
     read = records()
     classes = {e.document_id: e.doc_class for e in read.corpus}
-    missing = {(classes[r.document_id], r.field) for r in read.records
-               if profile.field_spec(classes[r.document_id], r.field) is None}
+    missing = {
+        (classes[r.document_id], r.field)
+        for r in read.records
+        if profile.field_spec(classes[r.document_id], r.field) is None
+    }
     assert missing == set()
-    assert set(profile.classes) == {"contract", "corporate_record", "correspondence", "insurance_claim", "merger_agreement"}
+    assert set(profile.classes) == {
+        "contract",
+        "corporate_record",
+        "correspondence",
+        "insurance_claim",
+        "merger_agreement",
+    }
     assert all(spec.subclasses for spec in profile.classes.values())
 
 
 def test_label_set_identity_is_stable() -> None:
     ls = label_set()
-    assert ls.snapshot_id == "gold-review-2026-11-18+hub-ccd040f6+interim-2026-11-01+near-gold-2026-11-17"
+    assert ls.snapshot_id == "gold-review-2026-11-18-r2+hub-ccd040f6+interim-2026-11-01+near-gold-2026-11-17"
     assert [r["snapshot_id"] for r in ls.snapshot_refs()] == sorted(SNAPSHOTS)
+
+
+def test_review_snapshot_is_the_import_with_only_the_reviewer_initials_replaced() -> None:
+    # derive_review_snapshot.py wrote it from the imported gold-review-2026-11-18 (not in the
+    # tree); its manifest pins that import, and no note keeps an initials-and-date token.
+    snap = load_snapshot(ROOT / "labels" / "gold-review-2026-11-18-r2")
+    derived = snap.manifest.source["derived_from"]
+    assert isinstance(derived, dict)
+    assert derived["snapshot_id"] == "gold-review-2026-11-18"
+    assert derived["manifest_hash"] == "cf19afd1b077056bc64d2d666bafb23f2bfe301d1c3f19b64121f7e50895c6bf"
+    assert derived["files"] == [
+        {
+            "path": "decisions.jsonl",
+            "rows": 1050,
+            "sha256": "72489b5aa69ec904e178330489e9d96e1410146ed1e0de909622651ea8472247",
+        }
+    ]
+    assert derived["notes_changed"] == 1031
+    assert snap.manifest_hash == "4e8266d64f0d95259bfe42d4134937bbdb90e510331474657ff7ccdfd8be52f2"
+    notes = [r.data.get("note") or "" for r in snap.rows()]
+    assert len(notes) == 1050
+    assert not any(re.search(r"\b[A-Z]{2,4} \d{4}-\d{2}-\d{2}\b", n) for n in notes)
+    assert sum(n.startswith("top-reply rule (review desk 2026-11-17)") for n in notes) == 1031
 
 
 # --- the committed reports are current ------------------------------------------------------
 
 
 def test_committed_reports_match_a_fresh_build(tmp_path: Path) -> None:
-    spec = importlib.util.spec_from_file_location("labels_report_under_test", ROOT / "packages/labels/scripts/labels_report.py")
+    spec = importlib.util.spec_from_file_location(
+        "labels_report_under_test", ROOT / "packages/labels/scripts/labels_report.py"
+    )
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     crosscheck = json.loads((REPORTS / "sandbox-crosscheck-2026-11-18.json").read_text(encoding="utf-8"))
-    quality_md, cov, cov_md = module.build(DIRS, PROFILE, crosscheck, [("DOC-672cec2c85c83c39", "action_items")], "2026-11-18")
+    assert module.scrub_crosscheck(crosscheck) == crosscheck, "commit the cross-check scrubbed"
+    quality_md, cov, cov_md = module.build(
+        DIRS, PROFILE, crosscheck, [("DOC-672cec2c85c83c39", "action_items")], "2026-11-18"
+    )
     assert quality_md == (REPORTS / "data-quality-2026-11-18.md").read_text(encoding="utf-8")
     assert cov_md == (REPORTS / "coverage-2026-11-18.md").read_text(encoding="utf-8")
-    assert json.dumps(cov, indent=2, sort_keys=True) + "\n" == (REPORTS / "coverage-2026-11-18.json").read_text(encoding="utf-8")
+    assert json.dumps(cov, indent=2, sort_keys=True) + "\n" == (
+        REPORTS / "coverage-2026-11-18.json"
+    ).read_text(encoding="utf-8")
 
 
 # --- the layout map names what this package added ---------------------------------------------
@@ -265,4 +369,7 @@ def test_layout_map_names_the_label_folders() -> None:
     assert entries == sorted([*SNAPSHOTS, "README.md"])
     assert all((ROOT / "labels" / name / MANIFEST_NAME).is_file() for name in SNAPSHOTS)
     assert sorted(p.name for p in (ROOT / "config/clients/mailroom-dataset").iterdir()) == [
-        "known-warnings.yaml", "profile.yaml"]
+        "hub-revisions.yaml",
+        "known-warnings.yaml",
+        "profile.yaml",
+    ]

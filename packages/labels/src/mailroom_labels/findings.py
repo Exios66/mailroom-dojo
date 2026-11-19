@@ -22,6 +22,10 @@ SEVERITY: dict[str, str] = {
     "corrupt_line": "error",
     "malformed_record": "error",
     "missing_hub": "error",
+    # the importer left source data out (rejected lines, unparseable rows, desk decision
+    # words it does not know, unsure marks it cannot order against a decision; see
+    # models.DROPPED_SOURCE_KEYS): the snapshot is incomplete, not the whole source
+    "dropped_source_data": "error",
     # against the corpus index
     "unknown_document": "error",
     "duplicate_document": "error",
@@ -31,6 +35,8 @@ SEVERITY: dict[str, str] = {
     "subclass_mismatch": "warning",
     "stale_content_hash": "warning",
     "text_unverified": "warning",
+    # the Hub import did not run the text check, so no document's text was verified
+    "text_unchecked": "warning",
     # within and across layers
     "duplicate_label": "error",
     "status_not_allowed": "error",

@@ -6,15 +6,18 @@
     },
     "different": [
       {
-        "audit": [
-          "please continue to spread the word",
-          "Check it out!"
-        ],
-        "catalog": [],
+        "audit": {
+          "$token": "list of 2, sha256:5d89b1c4f6a3"
+        },
+        "catalog": {
+          "$token": "list of 0, sha256:4f53cda18c2b"
+        },
         "catalog_status": "near_gold",
         "doc": "DOC-672cec2c85c83c39",
         "field": "action_items",
-        "near_gold_overlay": []
+        "near_gold_overlay": {
+          "$token": "list of 0, sha256:4f53cda18c2b"
+        }
       }
     ],
     "equal": 1038,
@@ -35,12 +38,16 @@
         "ours": [
           "hub",
           "populated",
-          null
+          {
+            "$token": "null"
+          }
         ],
         "sandbox": [
           "hub",
           "populated",
-          "governance_rules"
+          {
+            "$token": "string of 16 chars, sha256:0c4ff0e27162"
+          }
         ]
       },
       {
@@ -50,21 +57,16 @@
         "ours": [
           "hub",
           "populated",
-          null
+          {
+            "$token": "null"
+          }
         ],
         "sandbox": [
           "hub",
           "populated",
-          [
-            "Bylaws",
-            "stockholders",
-            "Board of Directors",
-            "officers",
-            "annual meeting",
-            "quorum",
-            "voting",
-            "indemnification"
-          ]
+          {
+            "$token": "list of 8, sha256:d79326e5d582"
+          }
         ]
       },
       {
@@ -74,12 +76,16 @@
         "ours": [
           "hub",
           "populated",
-          null
+          {
+            "$token": "null"
+          }
         ],
         "sandbox": [
           "hub",
           "populated",
-          "bylaws"
+          {
+            "$token": "string of 6 chars, sha256:88da006bd212"
+          }
         ]
       },
       {
@@ -89,12 +95,16 @@
         "ours": [
           "hub",
           "populated",
-          null
+          {
+            "$token": "null"
+          }
         ],
         "sandbox": [
           "hub",
           "populated",
-          "Bylaws of Revenue.com Corporation, a Nevada corporation, governing stockholder meetings, board of directors, officers, indemnification, and amendments."
+          {
+            "$token": "string of 151 chars, sha256:8aedc3778861"
+          }
         ]
       },
       {
@@ -104,12 +114,16 @@
         "ours": [
           "hub",
           "populated",
-          null
+          {
+            "$token": "null"
+          }
         ],
         "sandbox": [
           "hub",
           "populated",
-          "governance_rules"
+          {
+            "$token": "string of 16 chars, sha256:0c4ff0e27162"
+          }
         ]
       }
     ],
@@ -121,12 +135,16 @@
         "ours": [
           null,
           null,
-          null
+          {
+            "$token": "null"
+          }
         ],
         "sandbox": [
           "interim",
           "populated",
-          "2014-03-14"
+          {
+            "$token": "string of 10 chars, sha256:8e2788ed3ea1"
+          }
         ]
       },
       {
@@ -136,12 +154,16 @@
         "ours": [
           null,
           null,
-          null
+          {
+            "$token": "null"
+          }
         ],
         "sandbox": [
           "interim",
           "populated",
-          "Revenue.com Corporation"
+          {
+            "$token": "string of 23 chars, sha256:6e3e07b4367f"
+          }
         ]
       },
       {
@@ -151,12 +173,16 @@
         "ours": [
           "hub:absent",
           "not_applicable",
-          null
+          {
+            "$token": "null"
+          }
         ],
         "sandbox": [
           "interim",
           "schema_documented_absence",
-          null
+          {
+            "$token": "null"
+          }
         ]
       },
       {
@@ -166,12 +192,16 @@
         "ours": [
           null,
           null,
-          null
+          {
+            "$token": "null"
+          }
         ],
         "sandbox": [
           "interim",
           "populated",
-          "Nevada"
+          {
+            "$token": "string of 6 chars, sha256:7a52c4ffc586"
+          }
         ]
       },
       {
@@ -181,14 +211,16 @@
         "ours": [
           null,
           null,
-          null
+          {
+            "$token": "null"
+          }
         ],
         "sandbox": [
           "interim",
           "populated",
-          [
-            "Paul Dillman"
-          ]
+          {
+            "$token": "list of 1, sha256:a1612be07b0e"
+          }
         ]
       }
     ]
