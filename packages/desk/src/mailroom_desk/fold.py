@@ -24,9 +24,10 @@ injectable clock): a lease holds while ``now < lease_expires_at``, a deferral wh
 ``now < until``. A payload the desk cannot read, an ``enqueue`` inside an open episode, or
 an action before any opening event is listed in ``anomalies`` (``seq`` and reason only,
 never content: a validation error is named by schema field names and error types, and a
-key the payload carried that is not a field is masked as ``*``) and the fold carries on: an unreadable case is never dropped from the queue.
-An SLA due time past 9999-12-31 saturates at ``models.END_OF_TIME`` (never breached) and is
-listed as an anomaly too, so one far-future event never raises out of the queue.
+key the payload carried that is not a field is masked as ``*``) and the fold carries on:
+an unreadable case is never dropped from the queue. An SLA due time past 9999-12-31
+saturates at ``models.END_OF_TIME`` (never breached) and is listed as an anomaly too, so
+one far-future event never raises out of the queue.
 """
 
 from __future__ import annotations

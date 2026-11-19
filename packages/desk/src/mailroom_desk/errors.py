@@ -118,7 +118,8 @@ class RunChainNotReviewable(DeskError):
 
     def __init__(self, run_id: str, doc_id: str) -> None:
         super().__init__(
-            f"{_said(doc_id)} of run {_said(run_id)} is the run-level chain, not a document; it is never reviewed"
+            f"{_said(doc_id)} of run {_said(run_id)} is the run-level chain, not a document; "
+            "it is never reviewed"
         )
         self.run_id = run_id
         self.doc_id = doc_id
@@ -128,7 +129,9 @@ class AlreadyInReview(DeskError):
     """The document's head event is a ``review`` event: its case is already open."""
 
     def __init__(self, run_id: str, doc_id: str, seq: int) -> None:
-        super().__init__(f"document {_said(doc_id)} of run {_said(run_id)} is already in review (head seq {seq})")
+        super().__init__(
+            f"document {_said(doc_id)} of run {_said(run_id)} is already in review (head seq {seq})"
+        )
         self.run_id = run_id
         self.doc_id = doc_id
         self.seq = seq
@@ -203,7 +206,8 @@ class RecordBusy(DeskError):
 
     def __init__(self, run_id: str, doc_id: str, cause: BaseException) -> None:
         super().__init__(
-            f"document {_said(doc_id)} of run {_said(run_id)} is held by another writer ({type(cause).__name__})"
+            f"document {_said(doc_id)} of run {_said(run_id)} is held by another writer "
+            f"({type(cause).__name__})"
         )
         self.run_id = run_id
         self.doc_id = doc_id

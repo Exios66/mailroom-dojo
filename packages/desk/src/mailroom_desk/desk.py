@@ -84,6 +84,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from mailroom_desk._yaml import show
 from mailroom_desk.errors import (
     AlreadyInReview,
     BlobNotPresent,
@@ -98,7 +99,6 @@ from mailroom_desk.errors import (
     UnknownCause,
     UnknownRun,
 )
-from mailroom_desk._yaml import show
 from mailroom_desk.fold import fold_case
 from mailroom_desk.lock import DEFAULT_LOCK_TIMEOUT, check_timeout, desk_lock, seal_guard
 from mailroom_desk.models import NODE, RUN_CHAIN, CaseState, EnqueuePayload, ReviewRequest, format_ts
