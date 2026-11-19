@@ -17,7 +17,8 @@ Mapping
   ``spec_hash``, ``source_run_id``, ``engine_model`` and ``profile`` (each when present).
   ``created_at`` is the lock's ``created_at``, else the earliest time in the folder, so the
   header is the same on every import of the same folder.
-- A document's ``doc_id`` is its ``content_sha256``. Its first event (``node="dataset"``,
+- A document's ``doc_id`` is its ``content_sha256`` (a row whose ``doc_text`` hashes to
+  another value is refused as ``SandboxFolderInvalid``). Its first event (``node="dataset"``,
   ``kind="handoff"``) outputs the text as an ``original`` blob and keeps, in ``payload``,
   the dataset row id (``source_id``), ``expected_doc_class`` as ``draw_class``, ``split``
   and ``source_revision``, each scrubbed (below). No other ``expected_*`` field is imported: labels belong to the
@@ -394,10 +395,18 @@ def _documents(dataset: list[tuple[int, dict[str, Any]]], absent: list[str], put
             raise SandboxFolderInvalid(f"dataset.jsonl line {line}: document {shown(source)} is listed twice")
         text = row.get("doc_text")
         sha = row.get("content_sha256")
+        actual = (
+            hashlib.sha256(_utf8(text, f"dataset.jsonl line {line}: doc_text")).hexdigest()
+            if isinstance(text, str)
+            else None
+        )
         if not (isinstance(sha, str) and _SHA_RE.fullmatch(sha)):
-            if not isinstance(text, str):
+            if actual is None:
                 raise SandboxFolderInvalid(f"dataset.jsonl line {line}: neither content_sha256 nor doc_text")
-            sha, derived = hashlib.sha256(_utf8(text, f"dataset.jsonl line {line}: doc_text")).hexdigest(), True
+            sha, derived = actual, True
+        elif actual is not None and actual != sha:
+            # the doc id names the text: never store changed text under another document's id
+            raise SandboxFolderInvalid(f"dataset.jsonl line {line}: content_sha256 is not the SHA-256 of doc_text")
         if sha in seen_doc:
             raise SandboxFolderInvalid(
                 f"dataset.jsonl line {line}: document {shown(source)} has the content of line {seen_doc[sha]}"

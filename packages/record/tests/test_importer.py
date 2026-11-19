@@ -822,3 +822,19 @@ def test_a_node_row_with_an_integer_timestamp_too_large_for_a_float_still_import
     r = import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
     assert r.status == "imported"
     assert verify_run(tmp_store.log, tmp_store.blobs, r.run_id).ok
+
+
+def test_a_content_sha256_that_does_not_hash_doc_text_is_a_folder_error(
+    tmp_store: SimpleNamespace, fixture_folder: Path
+) -> None:
+    """The doc id is the SHA-256 of the document's text: a row whose text hashes to another
+    value would store changed text under the id of the document it claims to be."""
+    rows = read_jsonl(fixture_folder / "dataset.jsonl")
+    rows[0]["doc_text"] += f" {SENTINEL}"
+    write_jsonl(fixture_folder / "dataset.jsonl", rows)
+    with pytest.raises(
+        SandboxFolderInvalid, match=r"^dataset\.jsonl line 1: content_sha256 is not the SHA-256 of doc_text"
+    ) as exc:
+        import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    assert SENTINEL not in str(exc.value)
+    assert not list(tmp_store.root.glob("runs/*/segments/*.jsonl"))
