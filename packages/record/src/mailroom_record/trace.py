@@ -47,8 +47,10 @@ store) every run is scanned from the log, and the ``index`` note says so.
 
 Neither raises on damaged data: corrupt and invalid lines, gaps, forks, broken links, torn
 tails, an unreadable run header or segment each become a ``Damage``, and what can be read
-is still shown. Only ``BadRunId`` (a malformed run id) and ``UnknownRun`` (no such run
-directory) raise from ``trace_run``.
+is still shown. Only ``BadRunId`` (a malformed run id), ``UnknownRun`` (no such run
+directory) and ``RunPruned`` (a pruned run: its events are in the archive it names) raise
+from ``trace_run``. ``trace_doc`` does not read pruned runs; it names them, with their
+archives, in ``DocTrace.pruned_runs``, since any of them may hold the document.
 """
 
 from __future__ import annotations
@@ -75,7 +77,7 @@ from mailroom_record._reading import (
 )
 from mailroom_record.hashing import hash_obj, sha256_hex
 from mailroom_record.index import Index, IndexUnavailable
-from mailroom_record.log import EventLog
+from mailroom_record.log import EventLog, RunPruned, pruned_archive, refuse_if_pruned
 from mailroom_record.models import Event, Run
 from mailroom_record.versions import Version, versions_from_events
 
@@ -230,6 +232,9 @@ class DocTrace:
     # Store-level damage: ``runs/`` could not be listed, so runs the index does not list
     # may be missing from ``runs``.
     damage: tuple[Damage, ...] = ()
+    # Pruned runs, not read (their events are in the archive): run id -> archive. Any may
+    # hold the document; not damage.
+    pruned_runs: dict[str, str] = field(default_factory=dict)
 
     @property
     def damaged(self) -> bool:
@@ -299,6 +304,7 @@ def _summary(doc_id: str, events: tuple[Event, ...], damage: Iterable[Damage]) -
 def trace_run(log: EventLog, index: Index | None, run_id: str) -> RunTrace:
     """Every document of ``run_id`` with its path through the run (see the module doc)."""
     rid = require_run(log, run_id)
+    refuse_if_pruned(log, rid, "traced")  # its events are in the archive: never an empty trace
     run, header_damage = read_header(log, rid)
     damage: list[Damage] = [] if header_damage is None else [header_damage]
     docs: list[DocSummary] = []
@@ -386,8 +392,17 @@ def trace_doc(log: EventLog, index: Index | None, doc_id: str) -> DocTrace:
     if unlisted and not store_damage:
         store_damage.append(Damage("unreadable", None, None, "runs/ was listed without runs the index lists"))
     on_disk = sorted(set(on_disk) | unlisted)
+    pruned: dict[str, str] = {}
     for rid in on_disk:
-        read = read_document(log, usable, rid, doc_id)
+        archive = pruned_archive(log, rid)
+        if archive is not None:  # its events are in the archive: named, never read as empty
+            pruned[rid] = archive
+            continue
+        try:
+            read = read_document(log, usable, rid, doc_id)
+        except RunPruned:  # pruned while we read
+            pruned[rid] = pruned_archive(log, rid) or "(the recorded archive)"
+            continue
         doc_damage = [d for d in read.damage if d.doc_id == doc_id]
         run_damage = [d for d in read.damage if d.doc_id != doc_id]
         if not read.events and not doc_damage:
@@ -414,4 +429,4 @@ def trace_doc(log: EventLog, index: Index | None, doc_id: str) -> DocTrace:
         order = (0, run.created_at, rid) if run is not None else (1, "", rid)
         found.append((order, doc_run))
     found.sort(key=lambda pair: pair[0])
-    return DocTrace(doc_id, tuple(r for _, r in found), note, unread_lines, tuple(store_damage))
+    return DocTrace(doc_id, tuple(r for _, r in found), note, unread_lines, tuple(store_damage), pruned)

@@ -1,0 +1,2182 @@
+{
+  "classes": {
+    "contract": {
+      "documents": 600,
+      "fields": {
+        "agreement_date": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 103,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 103
+          },
+          "scorable": 103
+        },
+        "contract_value": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 108,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 108
+          },
+          "scorable": 108
+        },
+        "cuad_clause_labels": {
+          "by_rank": {
+            "hub": 509,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 509,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 509
+        },
+        "cuad_clauses": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "cuad_family": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "dispute_forum": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 106,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 106
+          },
+          "scorable": 106
+        },
+        "document_name": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "effective_date": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 13,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 13,
+            "near_gold": 0
+          },
+          "scorable": 13
+        },
+        "expiration_date": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 107,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 107
+          },
+          "scorable": 107
+        },
+        "governing_law": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "parties": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 32,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 32,
+            "near_gold": 0
+          },
+          "scorable": 32
+        },
+        "party_roles": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 89,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 89
+          },
+          "scorable": 89
+        },
+        "payment_terms": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 76,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 76
+          },
+          "scorable": 76
+        },
+        "renewal_terms": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "signatories": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 108,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 108
+          },
+          "scorable": 108
+        },
+        "term_length": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "termination_notice_period": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 96,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 96
+          },
+          "scorable": 96
+        },
+        "territory": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 107,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 107
+          },
+          "scorable": 107
+        }
+      },
+      "in_profile": true,
+      "scorable_documents": 539,
+      "verified_documents": 600
+    },
+    "corporate_record": {
+      "documents": 450,
+      "fields": {
+        "acting_body": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "action_approved": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "addressee": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "amended_provisions": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "approval_date": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "attorneys_in_fact": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "authority_scope": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "authorized_capital": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "certified_matter": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "certifying_officer": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "effective_date": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 129,
+            "near_gold": 38,
+            "review:gold": 2,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 2,
+            "hub": 0,
+            "interim": 129,
+            "near_gold": 38
+          },
+          "scorable": 169
+        },
+        "entity_name": {
+          "by_rank": {
+            "hub": 412,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 6,
+            "near_gold": 1,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 412,
+            "interim": 6,
+            "near_gold": 1
+          },
+          "scorable": 419
+        },
+        "exercise_price": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "expiration_date": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "filing_number": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 179,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 179,
+            "near_gold": 0
+          },
+          "scorable": 179
+        },
+        "guarantors": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "holder": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "incorporators": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "instrument_kind": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "intent": {
+          "by_rank": {
+            "hub": 444,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 444,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 444
+        },
+        "jurisdiction": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 147,
+            "near_gold": 18,
+            "review:gold": 1,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 1,
+            "hub": 0,
+            "interim": 147,
+            "near_gold": 18
+          },
+          "scorable": 166
+        },
+        "keywords": {
+          "by_rank": {
+            "hub": 444,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 444,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 444
+        },
+        "last_amended_date": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "maturity_date": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "officer_title": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "organizers": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "principal": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "principal_amount": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "prior_entity_name": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "record_type": {
+          "by_rank": {
+            "hub": 444,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 444,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 444
+        },
+        "registered_agent": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "resolutions": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "rights_agent": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "securities_covered": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "securities_series": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "signatories": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 156,
+            "near_gold": 17,
+            "review:gold": 5,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 5,
+            "hub": 0,
+            "interim": 156,
+            "near_gold": 17
+          },
+          "scorable": 178
+        },
+        "subject_matter": {
+          "by_rank": {
+            "hub": 444,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 444,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 444
+        },
+        "subsidiaries": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "subsidiary_jurisdictions": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "trustee": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        }
+      },
+      "in_profile": true,
+      "scorable_documents": 444,
+      "verified_documents": 444
+    },
+    "correspondence": {
+      "documents": 1000,
+      "fields": {
+        "action_items": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 551,
+            "review:gold": 0,
+            "review:near_gold": 137
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 688
+          },
+          "scorable": 688
+        },
+        "additional_recipients": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 536,
+            "review:gold": 0,
+            "review:near_gold": 142
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 678
+          },
+          "scorable": 678
+        },
+        "communication_date": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 214,
+            "near_gold": 319,
+            "review:gold": 0,
+            "review:near_gold": 237
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 214,
+            "near_gold": 556
+          },
+          "scorable": 770
+        },
+        "communication_type": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 300,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 300,
+            "near_gold": 0
+          },
+          "scorable": 300
+        },
+        "content_topic": {
+          "by_rank": {
+            "hub": 1000,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1000,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1000
+        },
+        "demand_amount": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 634,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 634
+          },
+          "scorable": 634
+        },
+        "intent": {
+          "by_rank": {
+            "hub": 1000,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1000,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1000
+        },
+        "keywords": {
+          "by_rank": {
+            "hub": 1000,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1000,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1000
+        },
+        "recipient": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 204,
+            "near_gold": 316,
+            "review:gold": 0,
+            "review:near_gold": 244
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 204,
+            "near_gold": 560
+          },
+          "scorable": 764
+        },
+        "sender": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 215,
+            "near_gold": 312,
+            "review:gold": 0,
+            "review:near_gold": 242
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 215,
+            "near_gold": 554
+          },
+          "scorable": 769
+        },
+        "sentiment_label": {
+          "by_rank": {
+            "hub": 1000,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1000,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1000
+        },
+        "subject_matter": {
+          "by_rank": {
+            "hub": 1000,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1000,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1000
+        },
+        "urgency": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 618,
+            "review:gold": 0,
+            "review:near_gold": 40
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 658
+          },
+          "scorable": 658
+        }
+      },
+      "in_profile": true,
+      "scorable_documents": 1000,
+      "verified_documents": 1000
+    },
+    "insurance_claim": {
+      "documents": 1100,
+      "fields": {
+        "adjuster": {
+          "by_rank": {
+            "hub": 150,
+            "hub:absent": 950,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        },
+        "claim_checklist": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "claim_number": {
+          "by_rank": {
+            "hub": 1100,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        },
+        "claim_type": {
+          "by_rank": {
+            "hub": 1100,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        },
+        "claimed_amount": {
+          "by_rank": {
+            "hub": 1100,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        },
+        "cms_source_table": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 536,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 536,
+            "near_gold": 0
+          },
+          "scorable": 536
+        },
+        "coverage_determination": {
+          "by_rank": {
+            "hub": 1100,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        },
+        "damages_description": {
+          "by_rank": {
+            "hub": 1100,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        },
+        "date_filed": {
+          "by_rank": {
+            "hub": 1100,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        },
+        "date_of_loss": {
+          "by_rank": {
+            "hub": 1100,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        },
+        "denial_reasons": {
+          "by_rank": {
+            "hub": 36,
+            "hub:absent": 1064,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        },
+        "insured_party": {
+          "by_rank": {
+            "hub": 1100,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        },
+        "insurer": {
+          "by_rank": {
+            "hub": 1100,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        },
+        "intent": {
+          "by_rank": {
+            "hub": 1100,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        },
+        "keywords": {
+          "by_rank": {
+            "hub": 1100,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        },
+        "policy_number": {
+          "by_rank": {
+            "hub": 1100,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        },
+        "subject_matter": {
+          "by_rank": {
+            "hub": 1100,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        },
+        "supporting_documents": {
+          "by_rank": {
+            "hub": 1094,
+            "hub:absent": 6,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 1100,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 1100
+        }
+      },
+      "in_profile": true,
+      "scorable_documents": 1100,
+      "verified_documents": 1100
+    },
+    "merger_agreement": {
+      "documents": 152,
+      "fields": {
+        "acquirer": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "document_name": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 30,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 30,
+            "near_gold": 0
+          },
+          "scorable": 30
+        },
+        "effective_date": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 25,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 25,
+            "near_gold": 0
+          },
+          "scorable": 25
+        },
+        "effective_time": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 9,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 9,
+            "near_gold": 0
+          },
+          "scorable": 9
+        },
+        "exchange_ratio": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "financial_advisors": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "governing_law": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 29,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 29,
+            "near_gold": 0
+          },
+          "scorable": 29
+        },
+        "intent": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "keywords": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "legal_counsel": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "maud_clause_labels": {
+          "by_rank": {
+            "hub": 152,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 152,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 152
+        },
+        "maud_clauses": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "merger_consideration": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "merger_sub": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "outside_date": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "parent_termination_fee": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "parties": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "per_share_cash_amount": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "signatories": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "subject_matter": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "target": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        },
+        "target_termination_fee": {
+          "by_rank": {
+            "hub": 0,
+            "hub:absent": 0,
+            "interim:correction": 0,
+            "interim:derived": 0,
+            "interim:gap_fill": 0,
+            "near_gold": 0,
+            "review:gold": 0,
+            "review:near_gold": 0
+          },
+          "by_status": {
+            "gold": 0,
+            "hub": 0,
+            "interim": 0,
+            "near_gold": 0
+          },
+          "scorable": 0
+        }
+      },
+      "in_profile": true,
+      "scorable_documents": 152,
+      "verified_documents": 152
+    }
+  },
+  "client": "mailroom-dataset",
+  "snapshots": [
+    {
+      "kind": "review",
+      "manifest_hash": "4e8266d64f0d95259bfe42d4134937bbdb90e510331474657ff7ccdfd8be52f2",
+      "snapshot_id": "gold-review-2026-11-18-r2"
+    },
+    {
+      "kind": "hub",
+      "manifest_hash": "9b4eec64675844620d223ea5765b80174364366fffc131df9f8d5d2aa188795e",
+      "snapshot_id": "hub-ccd040f6"
+    },
+    {
+      "kind": "interim",
+      "manifest_hash": "1ddc940d6320eeda66cbbdbf62465e7656cc4488a8e55a92fd0c97048f7457bb",
+      "snapshot_id": "interim-2026-11-01"
+    },
+    {
+      "kind": "near_gold",
+      "manifest_hash": "95441f7dfd7c6af01af7d1b7820f8315e7ba3f258f844ea418ad51cedfe741fc",
+      "snapshot_id": "near-gold-2026-11-17"
+    }
+  ],
+  "totals": {
+    "documents": 3302,
+    "scorable_documents": 3235,
+    "scorable_labels": 32983,
+    "verified_documents": 3296
+  }
+}

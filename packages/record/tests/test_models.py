@@ -359,7 +359,7 @@ def test_blob_ref_is_hashable_and_frozen() -> None:
 
 
 def test_decision_may_be_a_list_of_decisions() -> None:
-    # Task 10 stores a node row's ``decisions`` list as given.
+    # Task 10 stores a node row's ``decisions`` list (scrubbed, minus ``options``).
     decisions = [
         {"question": "extraction_verdict", "type": "choice", "answer": "partial", "p": 0.7},
         {"question": "route", "type": "choice", "answer": ("extract", "review"), "p": None},

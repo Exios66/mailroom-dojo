@@ -1,8 +1,10 @@
 # mailroom-dojo
 
 The workspace for the lean Mailroom rewrite: installable packages built around one
-append-only, hash-chained run record. Every package lives under `packages/`. The first is
-`packages/record/` (`mailroom_record`: the run record and its blob store).
+append-only, hash-chained run record. Every package lives under `packages/`:
+`packages/record/` (`mailroom_record`: the run record and its blob store),
+`packages/labels/` (`mailroom_labels`: label snapshots, precedence, the quality gate and
+coverage), and the shared libraries `packages/common/` and `packages/dictionaries/`.
 
 The engine and launcher write records; the Dojo only reads them and is the one place a
 run is scored. One-way dependencies keep the Dojo installable alone and stop the old
@@ -26,8 +28,8 @@ If `python3` is older than 3.11, name a newer interpreter: `make install PY=pyth
 To work on one package, install only that package. For the record:
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]"
-.venv/bin/python -m pytest packages/record/tests -q
+python3 -m venv .venv && .venv/bin/pip install -e "packages/record[dev,analysis]" -e "packages/labels[dev]"
+.venv/bin/python -m pytest packages/record/tests packages/labels/tests -q
 ```
 
 With an older `python3`, name a newer interpreter here too, for example
@@ -91,9 +93,10 @@ mailroom-dojo/
 │       (each package: pyproject.toml, README.md, src/<module>/, tests/, scripts/)
 ├── config/                    everything tuned without code (from project 2 on)
 │   ├── clients/<client>/      a client profile: document classes, schemas, thresholds, label snapshot
+│   │   └── mailroom-dataset/  profile.yaml (from build_profile.py), known-warnings.yaml, hub-revisions.yaml
 │   ├── policies/              routing policies (one file each; its hash is stored on every run)
 │   └── prompts/<prompt_set>/  prompt sets; variants are overlays on the default set
-├── labels/<snapshot>/         committed, versioned label snapshots with manifests (project 2)
+├── labels/                    README.md, and one committed label snapshot per <snapshot>/ with its manifest (project 2)
 ├── docs/
 │   ├── specs/                 the design (the master plan)
 │   ├── plans/                 one build plan per project, dated
@@ -101,7 +104,8 @@ mailroom-dojo/
 │   ├── test-strategy-*.md     a package's test strategy, where it has one
 │   ├── glossary.md            the glossary, generated from mailroom_dictionaries
 │   ├── handoff/               dated notes handing a chunk of work to the next session
-│   └── reports/               gate reports, written by scripts (created on first use)
+│   └── reports/               gate reports, written by scripts
+│       └── labels/            label data-quality, coverage and sandbox cross-check reports
 ├── scripts/                   workspace checks: dependency boundaries, this layout map, session links, dictionary sources
 ├── tests/                     workspace-level tests (the dependency rule, hashing parity, the checks in scripts/)
 ├── tools/                     governance: the session-link guard and agent-hook tests (`tools/governance/`)
