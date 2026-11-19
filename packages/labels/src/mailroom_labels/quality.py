@@ -271,7 +271,7 @@ def _check_record(r: LayerRecord, index: dict, profile: ClientProfile, have_hub:
                     field=r.field,
                     layer=r.layer,
                     location=_where(r),
-                    detail=f"{r.value!r} is not in vocabulary {fspec.vocabulary!r}",
+                    detail=f"{type(r.value).__name__} value is not in vocabulary {fspec.vocabulary!r}",
                 ),
             )
 
