@@ -1031,3 +1031,13 @@ def test_a_frozen_mapping_offers_no_writable_view_of_its_items():
     with pytest.raises(AttributeError):
         frozen._items = {}  # type: ignore[misc]
     assert dict(frozen) == {"a": 1}
+
+
+def test_a_frozen_mapping_cannot_be_initialized_twice():
+    """Calling ``__init__`` again would replace the items and clear the cached hash of a dict key."""
+    frozen = FrozenMapping({"a": 1})
+    table = {frozen: "kept"}
+    with pytest.raises(TypeError, match="already initialized"):
+        frozen.__init__({"b": 2})  # type: ignore[misc]
+    assert dict(frozen) == {"a": 1} and table[FrozenMapping({"a": 1})] == "kept"
+    assert dict(FrozenMapping()) == {}
