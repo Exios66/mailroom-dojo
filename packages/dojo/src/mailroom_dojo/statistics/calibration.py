@@ -347,7 +347,8 @@ def brier_score(pairs: Iterable[Pair]) -> float | None:
     clean = _clean_pairs(pairs)
     if not clean:
         return None
-    return round(compensated_sum((confidence - float(correct)) ** 2 for confidence, correct in clean) / len(clean), 6)
+    squared_errors = ((confidence - float(correct)) ** 2 for confidence, correct in clean)
+    return round(compensated_sum(squared_errors) / len(clean), 6)
 
 
 def reliability_bins(pairs: Iterable[Pair], *, bins: int = 10) -> list[ReliabilityBin]:
