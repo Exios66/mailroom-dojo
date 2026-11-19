@@ -5,11 +5,9 @@ Date: 2026-11-18. D0 and D1 are done (D1 after two independent reviews); D2 onwa
 ## Where the work is
 
 - Repo: `Exios66/mailroom-dojo`. Branch: `claude/project-thread-rdce6z`.
-- The branch is **not a clean PR yet**. It holds a merge of two unmerged branches so the desk can build on
-  both: `claude/project-thread-26xcn6` (record, PR #3, stacked on #2) and
-  `claude/project-thread-pbvxf9` (labels, no PR seen yet). Everything after the merge commit
-  (`35fae2d`) is desk work. When #2, #3 and the labels PR have merged, rebase or re-open the desk
-  onto `main` so its PR shows only desk commits.
+- **Landing:** D1 lands on `main` through PR #9, merged from `main` and wired in the way `main` wires
+  packages (Makefile order, boundary table, README, pytest path). The notes below on the stacked
+  branches describe the state before that merge.
 - Plan: `docs/plans/2026-11-18-review-desk-plan.md` (inventory of the old review bin, queue, resolve
   API, sandbox Label Review Desk and reloaded TUI; design; tasks D0-D7; follow-ups for other threads).
 - Decision record: `docs/adr/0008-review-desk-is-event-sourced-on-the-record.md`.
@@ -143,7 +141,7 @@ return `None` instead of raising `AlreadyInReview`? D2 to D7 are untouched.
   labels PR (#5) or wait for it to merge.
 - **Recipe to make a clean PR once #5 is on main:** `git fetch origin`; in a worktree at `origin/main`,
   copy `packages/desk`, `config/review`, `docs/test-strategy-desk.md`, `docs/plans/2026-11-18-review-desk-plan.md`,
-  `docs/plans/handoff-review-desk-d0-d1.md`, `docs/adr/0008-*.md` from this branch; hand-apply the small edits
+  `docs/handoff/2026-11-18-review-desk-d0-d1.md`, `docs/adr/0008-*.md` from this branch; hand-apply the small edits
   to `README.md` (layout line for `packages/desk`), `docs/adr/README.md` (row 0008), root `pyproject.toml`
   (desk tests in `testpaths`/`pythonpath`) and `.circleci/config.yml` (install and run desk tests); check
   whether main's shared libs (`packages/common`, `packages/dictionaries`) should replace anything in the
