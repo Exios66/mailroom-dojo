@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 from ..normalization.text import tokenize
 from .entity_lists import as_list
 from .scalar_scorers import score_containment_field
-from .similarity_backend import FallbackReason, SimilarityBackend, SimilarityFallback, shown_value
+from .similarity_backend import FallbackReason, SimilarityBackend, SimilarityFallback, shown_error, shown_value
 
 if TYPE_CHECKING:
     from ..profile.models import ScoringProfile
@@ -108,7 +108,7 @@ class PresenceSimilarity:
         try:
             similarity = self._backend.similarity(span, answer)
         except Exception as error:  # the reported fallback is the contract
-            return self._fall_back("backend_raised", f"{type(error).__name__}: {error}", containment_score)
+            return self._fall_back("backend_raised", shown_error(error), containment_score)
         if similarity is None:
             return False
         if isinstance(similarity, bool) or not isinstance(similarity, numbers.Real):
