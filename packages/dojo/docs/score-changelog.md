@@ -517,7 +517,19 @@ the golden run's 12 calls (`bootstrap_ci`, `delta_significance`) are identical.
   The interval is computed with that `z`; `to_dict()` alone gives a NumPy or `Fraction` `z`
   as a plain `int` (an integer) or `float`, so the dictionary is JSON (the old one held the
   NumPy value). A NumPy `float32` or `float16` `z` still makes `lo`, `hi` and `half` NumPy
-  values of that type, as in the old Dojo, so that dictionary is still not JSON.
+  values of that type, as in the old Dojo, so that dictionary is still not JSON. Example,
+  old and new alike: `wilson_ci(0.9, 100, z=numpy.float32(1.96))` gives `lo`, `hi` and
+  `half` as `float32` `0.8256`, `0.9448` and `0.0596`, so `json.dumps(....to_dict())`
+  raises `TypeError`. Converting them with `float()` would report `0.8256000280380249`,
+  `0.9448000192642212` and `0.05959999933838844` instead: a changed number, so it is left
+  for a decision with the owner (a review finding, kept for parity).
+- **ECE and `reliability_bins` can bin a boundary score differently.**
+  `expected_calibration_error` buckets by `int(confidence * bins)` and `reliability_bins` by
+  `index / bins <= confidence < (index + 1) / bins`, both as in the old code; a score whose
+  product rounds below an integer lands in different buckets. Example, old and new alike:
+  `[(0.58, True), (0.579, False)]` with `bins=100` gives ECE `0.0795` (both rows in bucket
+  57), while `reliability_bins` puts them in buckets 57 and 58, a weighted gap of `0.4995`.
+  Sharing one rule would change the ECE to `0.4995`. Kept for parity (a review finding).
 - **The cross-fit shuffle and the bootstrap resampler are `random.Random(seed)`**, as in the
   old Dojo, so the same seed gives the same numbers across Python 3.12 and 3.13 (the corpus
   was captured with 3.12 and is replayed with 3.13).
