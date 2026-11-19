@@ -118,16 +118,16 @@ Each task: a fresh Opus (medium or higher) implementer, then a separate fresh Op
 orchestrator re-runs the gates. Tests exercise real record directories, real processes and real
 failures (R8); `docs/test-strategy-desk.md` has the matrix.
 
-| Task | Content | This chunk |
+| Task | Content | Status |
 |---|---|---|
-| D0 | This plan, ADR-0008, test strategy, README layout line | yes |
-| D1 | Package skeleton; models; review policy and reviewer registry (load, validate, hash); `enqueue` with rules and sampling; queue fold; agreement with `Index.review_queue()` | yes |
-| D2 | assign, claim, release, lease expiry, escalate, defer, reopen; resolve (4 resolutions) with correction blob, validation against the client profile, optimistic concurrency; multi-process tests | yes |
-| D3 | Case view (version chain by blob role, capped text, no server path; `prefill_ref` resolved by name only, never as a path); `export-labels` through `build_review`; round trip through `mailroom_labels.resolve` shows gold with the reviewer | yes |
-| D4 | `human_review` node, `Disposition`, entry-point registration, a fake engine loop test (park, wait, resume) over a real record; CLI | yes |
-| D5 | HTTP API with old-shape compatibility routes and token identity | yes |
-| D6 | Web desk UI (rebuild of the sandbox desk on case data, evidence quotes, structured edits, identity, audit panel) | next chunk |
-| D7 | Terminal TUI (Textual) and Compose wiring example | next chunk |
+| D0 | This plan, ADR-0008, test strategy, README layout line | done |
+| D1 | Package skeleton; models; review policy and reviewer registry (load, validate, hash); `enqueue` with rules and sampling; queue fold; agreement with `Index.review_queue()` | done |
+| D2 | assign, claim, release, lease expiry, escalate, defer, reopen; resolve (4 resolutions) with correction blob, validation against the client profile, optimistic concurrency; multi-process tests | not started |
+| D3 | Case view (version chain by blob role, capped text, no server path; `prefill_ref` resolved by name only, never as a path); `export-labels` through `build_review`; round trip through `mailroom_labels.resolve` shows gold with the reviewer | not started |
+| D4 | `human_review` node, `Disposition`, entry-point registration, a fake engine loop test (park, wait, resume) over a real record; CLI | not started |
+| D5 | HTTP API with old-shape compatibility routes and token identity | not started |
+| D6 | Web desk UI (rebuild of the sandbox desk on case data, evidence quotes, structured edits, identity, audit panel) | not started (a later chunk) |
+| D7 | Terminal TUI (Textual) and Compose wiring example | not started (a later chunk) |
 
 ## Follow-ups owned by other threads (not edited here)
 
