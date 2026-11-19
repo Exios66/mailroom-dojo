@@ -471,3 +471,30 @@ def test_a_vocabulary_finding_names_the_type_not_the_supplied_text(tmp_path: Pat
     found = [f for f in report.errors if f.kind == "vocabulary_violation"]
     assert [(f.doc, f.field) for f in found] == [("D4", "urgency")]  # positive control
     assert "SECRET" not in found[0].detail
+
+
+@pytest.mark.parametrize("key", ["doc_id", "field"])
+@pytest.mark.parametrize("shape", ["desk", "decisions"])
+def test_a_review_line_whose_label_is_not_a_name_is_rejected_and_never_merged(
+    tmp_path: Path, key: str, shape: str
+) -> None:
+    from test_importers import desk, review
+
+    # A numeric id must not stand for the string id it prints as: the later, numeric line
+    # would otherwise supersede the valid decision and then be refused by the review reader.
+    if shape == "desk":
+        good = desk("7", "7", "Ann", at="2026-01-01T00:00:00Z")
+        bad = desk("7", "7", "Bo", at="2026-02-01T00:00:00Z")
+        decisions, desks = [], [good, bad]
+    else:
+        good = {**review_row("7", "7", "Ann", human=True), "reviewed_at": "2026-01-01T00:00:00Z"}
+        bad = {**review_row("7", "7", "Bo", human=True), "reviewed_at": "2026-02-01T00:00:00Z"}
+        decisions, desks = [good, bad], []
+    bad[key] = 7
+    with pytest.raises(ImportRefused, match="rejected_lines 1"):
+        review(tmp_path, decisions, desks)
+    manifest, rows = review(tmp_path, decisions, desks, allow_rejected=True)
+    assert [(r["doc_id"], r["field"], r["entry"]["value"]) for r in rows] == [("7", "7", "Ann")]
+    assert manifest.source.get("superseded", []) == []
+    assert [r["line"] for r in manifest.source["rejected_lines"]] == [2]
+    assert f"{key} must be a name" in manifest.source["rejected_lines"][0]["reason"]
