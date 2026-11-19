@@ -291,6 +291,38 @@ def test_subject_and_provenance_words_are_non_empty_text(value: object) -> None:
         Provenance(split=value)  # type: ignore[arg-type]
 
 
+class _ReprRaises:
+    """A hostile value whose ``repr`` raises."""
+
+    def __repr__(self) -> str:
+        raise RuntimeError("repr refused")
+
+
+#: Values a refusal message cannot print with ``repr``: an integer over Python's digit limit,
+#: and an object whose ``repr`` raises.
+UNPRINTABLE = [10**5000, -(10**5000), _ReprRaises()]
+UNPRINTABLE_IDS = ["1e5000", "-1e5000", "repr-raises"]
+
+
+@pytest.mark.parametrize("bad", UNPRINTABLE, ids=UNPRINTABLE_IDS)
+def test_a_refusal_of_an_unprintable_value_is_still_a_measure_error(bad: object) -> None:
+    """The message names the value's type instead of escaping as a bare ValueError or RuntimeError."""
+    calls = [
+        lambda: ConfidenceInterval(bad, 1.0, 0.95, "wilson"),  # type: ignore[arg-type]
+        lambda: ConfidenceInterval(0.0, 1.0, bad, "wilson"),  # type: ignore[arg-type]
+        lambda: _measure(value=bad),
+        lambda: _measure(cost_basis=bad),
+        lambda: _measure(label_status=bad),
+        lambda: Subject(field=bad),  # type: ignore[arg-type]
+        lambda: Provenance(split=bad),  # type: ignore[arg-type]
+    ]
+    if not isinstance(bad, int) or bad < 0:
+        calls.append(lambda: _measure(n=bad))
+    for call in calls:
+        with pytest.raises(MeasureError, match=f"<{type(bad).__name__}"):
+            call()
+
+
 def test_ci_must_be_an_interval() -> None:
     with pytest.raises(MeasureError, match="ci must be a ConfidenceInterval"):
         _measure(ci=(0.1, 0.2))

@@ -113,6 +113,19 @@ class IncomparableMeasuresError(ValueError):
         self.problems = problems
 
 
+def _shown(value: Any) -> str:
+    """``repr(value)`` for a refusal message, or its type when ``repr`` fails.
+
+    ``repr`` raises ``ValueError`` for an integer over Python's digit limit (``10**5000``) and
+    whatever a hostile ``__repr__`` raises; either would escape as a bare error instead of
+    the ``MeasureError`` being raised.
+    """
+    try:
+        return repr(value)
+    except Exception:  # the MeasureError being built is the contract
+        return f"<{type(value).__name__} that cannot be shown>"
+
+
 def _as_real(value: Any) -> float | None:
     """``value`` as a finite ``float`` when it is a real number that is not a bool, else ``None``.
 
@@ -135,7 +148,7 @@ def _is_count(value: Any) -> bool:
 
 def _optional_text(owner: str, name: str, value: Any) -> None:
     if value is not None and (not isinstance(value, str) or not value.strip()):
-        raise MeasureError(f"{owner}.{name} must be None or a non-empty string, got {value!r}")
+        raise MeasureError(f"{owner}.{name} must be None or a non-empty string, got {_shown(value)}")
 
 
 @dataclass(frozen=True)
@@ -197,12 +210,12 @@ class ConfidenceInterval:
         for name in ("low", "high", "level"):
             number = _as_real(getattr(self, name))
             if number is None:
-                raise MeasureError(f"ci.{name} must be a finite number, got {getattr(self, name)!r}")
+                raise MeasureError(f"ci.{name} must be a finite number, got {_shown(getattr(self, name))}")
             object.__setattr__(self, name, number)
         if self.low > self.high:
             raise MeasureError(f"ci.low {self.low!r} is above ci.high {self.high!r}")
         if not 0.0 < self.level < 1.0:
-            raise MeasureError(f"ci.level must be strictly between 0 and 1, got {self.level!r}")
+            raise MeasureError(f"ci.level must be strictly between 0 and 1, got {_shown(self.level)}")
         if not isinstance(self.method, str) or not self.method.strip():
             raise MeasureError("ci.method must name how the interval was computed")
 
@@ -233,18 +246,18 @@ class Measure:
 
     def __post_init__(self) -> None:
         if not _is_count(self.n):
-            raise MeasureError(f"n must be a non-negative int, got {self.n!r}")
+            raise MeasureError(f"n must be a non-negative int, got {_shown(self.n)}")
         object.__setattr__(self, "n", int(self.n))
         if self.value is not None:
             number = _as_real(self.value)
             if number is None:
-                raise MeasureError(f"value must be a finite number or None, got {self.value!r}")
+                raise MeasureError(f"value must be a finite number or None, got {_shown(self.value)}")
             object.__setattr__(self, "value", number)
         if self.cost_basis not in COST_BASES:
-            raise MeasureError(f"cost_basis {self.cost_basis!r} is not one of {', '.join(COST_BASES)}")
+            raise MeasureError(f"cost_basis {_shown(self.cost_basis)} is not one of {', '.join(COST_BASES)}")
         if self.label_status not in LABEL_STATUSES:
             raise MeasureError(
-                f"label_status {self.label_status!r} is not one of {', '.join(LABEL_STATUSES)}"
+                f"label_status {_shown(self.label_status)} is not one of {', '.join(LABEL_STATUSES)}"
             )
         if not isinstance(self.method, str) or not self.method.strip():
             raise MeasureError("method must name the metric id or formula behind the value")
