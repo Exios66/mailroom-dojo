@@ -47,8 +47,9 @@ also give a test command.
 | `record` | `mailroom_record` | Run record, blob store, index, verify, replay | [`packages/record/README.md`](packages/record/README.md) |
 | `labels` | `mailroom_labels` | Label snapshots, precedence, the quality gate and coverage | [`packages/labels/README.md`](packages/labels/README.md) |
 | `desk` | `mailroom_desk` | The human review desk: review rules, queue and audit, event-sourced on the record | [`packages/desk/README.md`](packages/desk/README.md) |
+| `dojo` | `mailroom_dojo` | Scoring core: the scoring profile, field-type scorers, classification metrics | [`packages/dojo/README.md`](packages/dojo/README.md) |
 
-Later projects add `dojo`, `engine` and `launcher` (see the layout map below).
+Later projects add `engine` and `launcher` (see the layout map below).
 
 ## Development
 
@@ -98,7 +99,7 @@ mailroom-dojo/
 │       (each package: pyproject.toml, README.md, src/<module>/, tests/, scripts/)
 ├── config/                    everything tuned without code (from project 2 on)
 │   ├── clients/<client>/      a client profile: document classes, schemas, thresholds, label snapshot
-│   │   └── mailroom-dataset/  profile.yaml (from build_profile.py), known-warnings.yaml, hub-revisions.yaml
+│   │   └── mailroom-dataset/  profile.yaml (from build_profile.py), known-warnings.yaml, hub-revisions.yaml, scoring.yaml (the Dojo's scoring profile)
 │   ├── review/                review-desk rules (default.yaml) and the reviewer roster (reviewers.yaml)
 │   ├── policies/              routing policies (one file each; its hash is stored on every run)
 │   └── prompts/<prompt_set>/  prompt sets; variants are overlays on the default set
@@ -121,7 +122,7 @@ mailroom-dojo/
 ```
 
 `scripts/check_layout.py` (`make layout`) checks this map against the real folders.
-Folders of projects not built yet (the `dojo`, `engine` and `launcher` packages,
+Folders of projects not built yet (the `engine` and `launcher` packages,
 `config/policies/` and `config/prompts/`) do not exist yet. The requirements behind this layout
 are R9 in `docs/specs/2026-11-18-lean-rewrite-design.md`.
 

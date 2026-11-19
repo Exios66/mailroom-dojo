@@ -128,7 +128,10 @@ def epoch(value: Any) -> float | None:
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        number = float(value)
+        try:
+            number = float(value)
+        except OverflowError:  # a JSON integer such as 10**400 has no float
+            return None
         if not math.isfinite(number):
             return None
         return number / 1000.0 if number > 100_000_000_000 else number

@@ -42,8 +42,9 @@ Rules, applied per (document, field):
 4. Claude decisions with the same value are merged; different values are all kept (the
    gate reports a duplicate).
 
-Lines that are not JSON objects, or lack a key the mapping needs, are listed under
-``source.rejected_lines``. Output: one ``decisions.jsonl``, sorted by document, field and
+Lines that are not JSON objects, lack a key the mapping needs, or whose ``doc_id`` or
+``field`` is not a name (a number would group with the string it prints as), are listed
+under ``source.rejected_lines``. Output: one ``decisions.jsonl``, sorted by document, field and
 reviewer, each line carrying its ``origin`` (``<file>:<line>`` of every source line merged
 into it) and ``reviewed_at`` (null when the source has none).
 """
@@ -127,11 +128,22 @@ def _is_name(value: object) -> bool:
     return isinstance(value, str) and value != "" and value.strip() == value
 
 
+def _label_problem(d: Mapping[str, Any]) -> str | None:
+    """Why ``doc_id`` or ``field`` cannot name a label (the review reader requires names), or
+    None. Checked before any grouping: a number would otherwise group with the string it
+    prints as (``7`` and ``"7"``) and could supersede a valid decision on that label."""
+    bad = [k for k in ("doc_id", "field") if not _is_name(d[k])]
+    return "; ".join(f"{k} must be a name, not {type(d[k]).__name__}" for k in bad) or None
+
+
 def _from_decision(line: SourceLine, rejected: list) -> dict[str, Any] | None:
     d = line.data
     missing = _missing(d, _DECISION_REQUIRED)
     if missing:
         rejected.append({"file": line.file, "line": line.line, "reason": f"missing key(s) {missing}"})
+        return None
+    if (problem := _label_problem(d)) is not None:
+        rejected.append({"file": line.file, "line": line.line, "reason": problem})
         return None
     reviewer, entry = d["reviewer"], d["entry"]
     # the same reviewer shape the review layer reader requires, so nothing imported here
@@ -164,6 +176,9 @@ def _from_desk(
     missing = _missing(d, _DESK_REQUIRED)
     if missing:
         rejected.append({"file": line.file, "line": line.line, "reason": f"missing key(s) {missing}"})
+        return None
+    if (problem := _label_problem(d)) is not None:
+        rejected.append({"file": line.file, "line": line.line, "reason": problem})
         return None
     try:
         reviewed_instant(d["reviewed_at"])

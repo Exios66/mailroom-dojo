@@ -801,3 +801,55 @@ def test_no_copied_field_is_stored_unless_it_is_a_token(
     digest = hashlib.sha256(_FREE["node"].encode()).hexdigest()
     assert digest.encode() in segment_bytes(tmp_store.root)  # stored as its digest, not dropped
     assert import_sandbox_run(folder, tmp_store.log, tmp_store.blobs).status == "already_imported"
+
+
+@pytest.mark.parametrize("value", [10**400, -(10**400)], ids=["huge", "huge_negative"])
+def test_an_integer_timestamp_too_large_for_a_float_is_absent_not_an_overflow(value: int) -> None:
+    from mailroom_record.importer._folder import epoch
+
+    assert epoch(value) is None
+
+
+def test_a_node_row_with_an_integer_timestamp_too_large_for_a_float_still_imports(
+    tmp_store: SimpleNamespace, fixture_folder: Path
+) -> None:
+    """A valid JSON integer such as 10**400 is an unusable timestamp like any other, so the
+    row imports without one; it never aborts the import with an ``OverflowError``."""
+    path = fixture_folder / "nodes.jsonl"
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    rows[1]["ts"] = 10**400
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    r = import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    assert r.status == "imported"
+    assert verify_run(tmp_store.log, tmp_store.blobs, r.run_id).ok
+
+
+@pytest.mark.parametrize(("name", "key"), [("nodes.jsonl", "ms"), ("items.jsonl", "latency_ms")])
+def test_a_latency_too_large_for_a_float_is_absent_not_an_overflow(
+    tmp_store: SimpleNamespace, fixture_folder: Path, name: str, key: str
+) -> None:
+    """A latency such as 10**400 is unusable like a negative one, so the row imports without
+    it; it never aborts the import with an ``OverflowError``."""
+    rows = read_jsonl(fixture_folder / name)
+    for row in rows:  # start rows carry no latency, so set it on every row
+        row[key] = 10**400
+    write_jsonl(fixture_folder / name, rows)
+    r = import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    assert r.status == "imported"
+    assert verify_run(tmp_store.log, tmp_store.blobs, r.run_id).ok
+
+
+def test_a_content_sha256_that_does_not_hash_doc_text_is_a_folder_error(
+    tmp_store: SimpleNamespace, fixture_folder: Path
+) -> None:
+    """The doc id is the SHA-256 of the document's text: a row whose text hashes to another
+    value would store changed text under the id of the document it claims to be."""
+    rows = read_jsonl(fixture_folder / "dataset.jsonl")
+    rows[0]["doc_text"] += f" {SENTINEL}"
+    write_jsonl(fixture_folder / "dataset.jsonl", rows)
+    with pytest.raises(
+        SandboxFolderInvalid, match=r"^dataset\.jsonl line 1: content_sha256 is not the SHA-256 of doc_text"
+    ) as exc:
+        import_sandbox_run(fixture_folder, tmp_store.log, tmp_store.blobs)
+    assert SENTINEL not in str(exc.value)
+    assert not list(tmp_store.root.glob("runs/*/segments/*.jsonl"))
