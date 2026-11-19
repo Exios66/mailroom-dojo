@@ -63,6 +63,12 @@ Nothing in Python changes for a new document type built from existing field type
 4. Load it: the loader refuses unknown keys, unregistered types, label fields without a
    vocabulary, duplicate classes and out-of-range thresholds, naming the YAML path.
 
+Classes appended after the existing ones in `classification.match_order` keep every
+existing classification, with two exceptions: text that matched no class may now match a
+new one, and a whole output equal to a new class's sorter label (ignoring case) is read as
+that class even if an existing class's pattern matched it, because exact labels are tried
+before patterns. Pick sorter labels no existing class's output takes.
+
 A field type the built-ins do not cover (a VIN, a policy number format) is a **plug-in**:
 write a scorer `(predicted, expected, rescue=None) -> float`, declare its name under
 `scorer_plugins:` in the profile, and pass it in code with
