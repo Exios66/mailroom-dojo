@@ -222,3 +222,38 @@ def test_vocabularies_are_values():
     assert first == LabelVocabulary(tokens=("a", "b"), aliases={"x": "a"})
     assert hash(first) == hash(LabelVocabulary(tokens=("a", "b"), aliases={"x": "a"}))
     assert first != LabelVocabulary(tokens=("b", "a"), aliases={"x": "a"})
+
+
+def test_vocabularies_with_aliases_in_another_order_differ_when_the_order_decides():
+    """Alias order decides ties (here two prefixes compacting to "ab"), so it is part of equality and hash."""
+    tokens = ("alpha", "beta", "other")
+    first = LabelVocabulary(
+        tokens=tokens, fold_method="inventory", prefix_aliases={"a-b": "alpha", "ab": "beta"}
+    )
+    second = LabelVocabulary(
+        tokens=tokens, fold_method="inventory", prefix_aliases={"ab": "beta", "a-b": "alpha"}
+    )
+    assert (first.fold("ab memo"), second.fold("ab memo")) == ("alpha", "beta")
+    assert first != second
+    reordered_aliases = LabelVocabulary(tokens=tokens, aliases={"y": "beta", "x": "alpha"})
+    assert reordered_aliases != LabelVocabulary(tokens=tokens, aliases={"x": "alpha", "y": "beta"})
+    same = LabelVocabulary(
+        tokens=tokens, fold_method="inventory", prefix_aliases={"a-b": "alpha", "ab": "beta"}
+    )
+    assert first == same and hash(first) == hash(same)
+
+
+def test_inventory_prefix_and_substring_aliases_never_reach_the_unknown_token():
+    """An alias that targets the residual token matches only whole; prefix and substring steps skip it."""
+    vocabulary = LabelVocabulary(
+        tokens=("notice", "other"),
+        fold_method="inventory",
+        aliases={"miscellaneous": "other", "general notice": "notice"},
+        prefix_aliases={"misc": "other", "fyi": "notice"},
+    )
+    assert vocabulary.fold("misc note") == ""  # prefix alias to the residual token is skipped
+    assert vocabulary.fold("note miscellaneous") == ""  # substring alias to the residual token is skipped
+    assert vocabulary.fold("miscellaneous") == "other"  # the whole alias still folds
+    assert vocabulary.fold("other") == "other"
+    assert vocabulary.fold("fyi update") == "notice"  # prefix aliases to other tokens still work
+    assert vocabulary.fold("a general notice letter") == "notice"

@@ -318,6 +318,37 @@ def test_variant_type_overrides_marker_skip_and_fallback():
     assert guarded.field_scores["vehicles"] == 1.0  # the guard rejects the row, so no override
 
 
+def _variant_rules_profile():
+    """A synthetic client whose variant adds a containment free-text field and a recall-scored list."""
+    mapping = minimal_profile_mapping()
+    mapping["classes"][0]["variants"] = [
+        {
+            "name": "commercial_fleet",
+            "marker": {"field": "fleet_kind", "values": ["fleet"]},
+            "added_fields": {
+                "fleet_kind": {"type": "label", "vocabulary": {"tokens": ["fleet"], "fold": "exact"}},
+                "venue_clause": {"type": "free_text", "compare": "containment"},
+                "contacts": {"type": "entity_list:name", "coverage": "recall"},
+            },
+        }
+    ]
+    return load_scoring_profile(mapping)
+
+
+def test_a_variant_added_field_is_compared_and_covered_by_its_own_spec():
+    """A variant-only field's ``compare: containment`` and ``coverage: recall`` apply (no name default
+    names these fields)."""
+    profile = _variant_rules_profile()
+    expected = {"fleet_kind": "fleet", "venue_clause": "Delaware", "contacts": ["Acme Corporation"]}
+    predicted = {
+        "fleet_kind": "fleet",
+        "venue_clause": "Delaware courts",
+        "contacts": ["Acme Corporation", "Beta LLC"],
+    }
+    scores = score_extraction(profile, FLEET, predicted, expected).field_scores
+    assert scores == {"fleet_kind": 1.0, "venue_clause": 1.0, "contacts": 1.0}
+
+
 def _numeric_marker_profile():
     """A synthetic client whose row variant is marked by the number 0 on a label field ("plan tier 0")."""
     mapping = minimal_profile_mapping()
@@ -375,6 +406,48 @@ def test_a_numeric_fallback_marker_value_zero_is_read():
     assert marker_from_fallback(spec, "plan_tier", None, {"tier_note": 0}) == (True, "0")
     assert marker_from_fallback(spec, "plan_tier", None, {"tier_note": None}) == (True, None)
     assert marker_from_fallback(spec, "plan_tier", None, {"tier_note": []}) == (True, None)
+
+
+def _two_variant_marker_profile():
+    """A synthetic client with two variants on one marker field, each accepting its own marker value."""
+    mapping = minimal_profile_mapping()
+    fields = mapping["classes"][0]["fields"]
+    fields["filing_kind"] = {
+        "type": "label",
+        "vocabulary": {"tokens": ["amendment", "restatement", "original"], "fold": "exact"},
+    }
+    fields["filing_note"] = "free_text"
+    mapping["classes"][0]["variants"] = [
+        {
+            "name": "amended",
+            "marker": {"field": "filing_kind", "values": ["amendment"], "fallback_fields": ["filing_note"]},
+            "field_type_overrides": {"policy_number": "name"},
+        },
+        {
+            "name": "restated",
+            "marker": {"field": "filing_kind", "values": ["restatement"], "fallback_fields": ["filing_note"]},
+            "field_type_overrides": {"policy_number": "name"},
+        },
+    ]
+    return load_scoring_profile(mapping)
+
+
+def test_a_blank_marker_reads_the_fallback_of_any_variant_sharing_the_marker_field():
+    """When two variants share a marker field, a fallback value accepted only by the second is still read."""
+    profile = _two_variant_marker_profile()
+    spec = profile.require_class(FLEET)
+    assert marker_from_fallback(spec, "filing_kind", None, {"filing_note": "restatement"}) == (
+        True,
+        "restatement",
+    )
+    assert marker_from_fallback(spec, "filing_kind", None, {"filing_note": "amendment"}) == (
+        True,
+        "amendment",
+    )
+    assert marker_from_fallback(spec, "filing_kind", None, {"filing_note": "original"}) == (True, None)
+    expected = {"filing_kind": "restatement"}
+    scored = score_extraction(profile, FLEET, {"filing_note": "Restatement"}, expected)
+    assert scored.field_scores["filing_kind"] == 1.0
 
 
 def test_the_numeric_marker_drives_scoring():

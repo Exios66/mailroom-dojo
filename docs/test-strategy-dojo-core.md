@@ -28,7 +28,7 @@ tasks B and C and chunk D1 (statistics) add their sections.
 
 | Claim | Test |
 |:---|:---|
-| Every scalar layer gives the old output exactly | `test_differential_scalar_parity.py`: 21,009 cases (2,748 calls captured from the old direct tests, the rest seeded generated inputs), 37 functions, compared as canonical JSON |
+| Every scalar layer gives the old output exactly | `test_differential_scalar_parity.py`: 21,549 cases (2,748 calls captured from the old direct tests, the rest seeded generated inputs, 540 of them through fake embedding backends), 37 functions, compared as canonical JSON |
 | The corpus is what it says | same file: header names the old commit and version; counts per function match the lines; both sources present |
 | The mailroom profile equals the old registry | `test_profile_loading.py`: classes and order, live/retired, field maps (corporate_record's 40 fields), name rules, CMS variant, defaults |
 | Every malformed profile is refused at its path | `test_profile_loading.py`: 80 failure cases (unknown keys at every level, unregistered types, label without vocabulary, duplicate class/variant/token/sorter label, variant fields not in class, NaN/inf/bool/text/out-of-range thresholds, reversed bands, bad aliases and catalogs, duplicate YAML keys, YAML 1.1 booleans as keys, invalid YAML) |
@@ -56,10 +56,10 @@ were caught.
 
 ## Task B: entity lists, audits, presence, trace capture, `score_extraction`
 
-- **Parity.** `test_differential_extraction_parity.py` replays 6,414 recorded old-Dojo cases (the old golden
+- **Parity.** `test_differential_extraction_parity.py` replays 6,594 recorded old-Dojo cases (the old golden
   run's `score_extraction` calls, the old direct tests' inputs and seeded generated inputs: role words,
   duplicates, empty lists, partial-GT and containment fields, CMS identifiers, grounded and ungrounded dates
-  with `doc_text`, confidence and reasoning in many shapes) and requires canonical-JSON equality. The golden
+  with `doc_text`, confidence and reasoning in many shapes, 180 cases through fake embedding backends) and requires canonical-JSON equality. The golden
   cases are tied to `scores.json` paths and hashes in the fixture header.
 - **Behaviour under fault.** A scipy import failure reports the greedy matcher and why; any other matcher error
   propagates. A failing, NaN or out-of-range similarity backend inside lists and presence is reported, never
@@ -80,7 +80,7 @@ were caught.
 | Classification gives the old outputs | `test_classification_parity.py`: 7,774 cases from the old direct tests and seeded sorter outputs, 14 functions |
 | The label set comes from the profile | `test_classification.py`: the old class table reproduced, retired classes out, match order, sorter labels and synonyms, conflicting labels refused at their path, exact length-mismatch messages, hostile and deep-JSON outputs, two profiles in eight threads |
 | Metric identities hold for any input | `test_classification_properties.py`: accuracy is trace over total, per-class counts are matrix rows and sum to the kept rows, macro values bounded, binary counts cover every row, row order changes nothing, F-beta bounds and symmetry |
-| Labels are read structurally and never scored silently | `test_labels_interface.py`: the labels package's shapes satisfy the Protocols; only scorable fields kept; unverified refused unless flagged; bad status and unknown class refused; 1,194 Hub-row cases equal the old GT helpers |
+| Labels are read structurally and never scored silently | `test_labels_interface.py`: stand-ins with the labels package's attributes satisfy the Protocols (not yet checked against `mailroom_labels` itself); only scorable fields kept; unverified refused unless flagged; bad status and unknown class refused; 1,194 Hub-row cases equal the old GT helpers |
 | A new type is configuration only (R4) | `test_new_document_type.py`: a YAML class scored with exact numbers, source tree byte-identical and never naming it, broken profiles refused at their path, two new types at once, existing classification and extraction unchanged when classes are appended (and the first-match exception documented) |
 | One-way dependencies (R9) | `test_boundaries.py`: static, relative and dynamic imports, environment, globals, caches and module-level mutables, with a planted positive control; a fresh interpreter importing every module loads no engine, old Dojo or network client |
 

@@ -6,7 +6,8 @@ commit `23f8234c`), and every old behaviour that looks wrong but was kept on pur
 ## Intended differences (task A)
 
 None of these changes a score on the differential corpus or on any old golden case: no
-golden case uses an embedding backend.
+golden case uses an embedding backend, and the corpus's 540 fake-backend cases answer in
+`[0, 1]`, None, NaN or by raising, where the old and new rescue agree.
 
 - **Embedding rescue is injected, never fetched.** The old Dojo built a remote embedding
   matcher itself when none was passed (settings and environment driven). The new Dojo
@@ -48,7 +49,7 @@ old output was deterministic, so changing one is a deliberate, listed score chan
 
 ## Intended differences (task B)
 
-None of these changes a score on the extraction corpus (6,414 cases) or on the 16
+None of these changes a score on the extraction corpus (6,594 cases, 180 through fake embedding backends) or on the 16
 `score_extraction` calls of the old golden run.
 
 - **The list matcher is chosen, not fallen back to.** The old `score_entity_list` fell back
@@ -181,7 +182,8 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   - Recall-coverage lists: an empty predicted item (`[""]`) is not a role phrase, so it "names a party" and
     role-word expectations (`Seller`) get recall credit.
   - `date_grounded_in_document` finds only full dates in the document (numeric, month-day-year, day-of-month),
-    so a prediction "August 2014" is not grounded by a document that says "August 2014".
+    so a prediction "August 2014" is not grounded by a document that says "August 2014", and a year-first ISO
+    date in the document ("2014-08-18") grounds nothing (numeric means day or month first).
   - Trace capture: a reasoning value that is a single mapping with only a `span` key is dropped (a bare entry
     needs `field` or `evidence`), and `missing_confidence` `assume_1` or `assume_0` fills the confidence for the
     gate only, so the calibration error stays None. The `TraceCaptureOptions` docstring, which said the policy
@@ -196,6 +198,59 @@ anything, as `"inf"` does. No recorded or generated parity case contained such a
   Python's digit limit (`10**5000`) made the fallback detail itself raise `ValueError` in both places; the detail
   now reads `<int too large to show>`. The old Dojo raised on both (`float(similarity)`); in every case the
   string or containment score is kept, so no score moves and no fixture changes.
+
+## One float sum on every Python
+
+- **Intended difference, on Python 3.11 and on 3.14 or later.** Every float mean (field audit
+  support, `overall_score`, the entity-list audit mean, macro accuracy and the macro precision,
+  recall, F1 and F2) adds its values with `mailroom_dojo.values.summation.compensated_sum`. On
+  3.12 and 3.13 that is the builtin `sum()`, so nothing changes there. On every other version
+  it is a port of 3.12's compensated loop: 3.11's own `sum()` is naive, and 3.14's also
+  compensates integer addends (`[1e16, 1, 1, 1, 1]` sums to `1.0000000000000004e16` on 3.14
+  and `1e16` on 3.12), where the old Dojo used the running Python's `sum()`. A four-place mean can
+  therefore differ from the old Dojo's in its last digit on 3.11 only (one parity corpus case:
+  0.5669, where 3.11's own `sum()` gave 0.5668). The corpus was recorded on 3.12 or later, so
+  the new Dojo now matches it on every supported Python.
+
+## Review fixes, round 7
+
+- **A blank marker reads the fallback of every variant sharing the marker field.** When two variants of a
+  class share a marker field and accept different marker values, a blank predicted marker was read through the
+  first variant's fallback fields only, so a value only the second accepted scored as missing. Variants are now
+  searched in profile order until one finds a token. No mailroom score moves: its class has one variant, and
+  the old Dojo had one fixed marker field.
+- **The sentence-transformer backend no longer reads a NaN cosine as 0.0.** `max(0.0, nan)` is 0.0, so a
+  degenerate embedding was clipped to a valid similarity and no fallback was recorded. The backend now returns
+  NaN, and `EmbeddingRescue` keeps the string score and records `not_a_number`. The backend is new (the old Dojo
+  had a remote matcher), and no parity case uses it.
+- **An inventory alias that targets the unknown token folds only whole.** A prefix alias (`misc: other`) or an
+  alias found inside a value (`miscellaneous: other`) folded `misc note` and `note miscellaneous` onto `other`,
+  though the module promises the prefix and substring steps never reach the unknown token. They now skip such
+  aliases; the whole alias still folds. No mailroom score moves: no mailroom alias targets `other`, and neither
+  did the old Dojo's intent aliases (its one prefix rule was `amend` to `amend_merger`).
+- **A variant-only field is compared and covered by its own spec.** `compare: containment` and
+  `coverage: recall` on a field a row variant adds were ignored (only the class's own fields were searched,
+  then the name defaults), so `Delaware courts` against `Delaware` got token F1 and an extra contact cost
+  precision. The active variant's added field now decides, then the class's first variant-only field of that
+  name, then the name defaults. No mailroom score moves: its one variant adds only `cms_source_table`, a label.
+
+## Found, not changed (review round 7)
+
+Old behaviour kept for parity, confirmed by calling the old Dojo (23f8234c) and the port on the same input.
+Changing any of these would change a score, so each waits for a deliberate score change.
+
+- **Classification metrics normalize a label twice.** `["__merger agreement__"]` against itself normalizes to
+  `merger agreement`, then again to `merger_agreement`, which the class list no longer holds: the macro metrics
+  report 0 classes for identical inputs (old and new: `n_classes` 0).
+- **A zero label is blank.** `score_label_field(0, 0)` is 0.0 in both: the compaction reads `0` as no value.
+- **The unverified-year cap needs a parsed label.** `nine months after the date hereof (2024)` against
+  `nine months after the date hereof` keeps full credit (1.0 in both): the label parses to no date, so the year
+  check is skipped.
+- **An ordinal date phrase keeps only a four-digit year.** `10th day of January 69` parses to no date in both;
+  `10th day of January 1969` parses to 1969-01-10.
+- **A predicted `"null"` on an entity list is one item.** With role-word coverage, `"null"` against
+  `["buyer", "Acme Corporation"]` scores precision 1.0 and recall 0.5 in both, like the empty item `[""]`
+  listed in round 5.
 
 ## D2: `Measure` and the metric table
 

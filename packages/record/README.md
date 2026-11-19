@@ -133,7 +133,8 @@ The module docstrings of `versions.py`, `trace.py` and `_reading.py` state the r
 turns one sandbox run folder (`dataset.jsonl`, `nodes.jsonl`, `items.jsonl`, `events.jsonl`,
 `spec.lock.json`, `prompt.lock.json`, `checkpoint.json`; only `dataset.jsonl` is required)
 into one sealed run with `origin="imported_sandbox"`. A document's id is its
-`content_sha256` and its text becomes an `original` blob; labels (`expected_*`) are not
+`content_sha256` (a row whose `doc_text` hashes to another value is refused) and its text
+becomes an `original` blob; labels (`expected_*`) are not
 imported, except `expected_doc_class` as `draw_class`. Each finished node row is one event
 (`review`, `error`, `decision` or `handoff`, in that order of rules) carrying its start time,
 step, stage and status for the floor replay; each item row is one `output` (or `error`)

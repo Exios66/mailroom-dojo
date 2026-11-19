@@ -6,6 +6,10 @@ problem raises :class:`ProfileError` naming the YAML path, for example
 ``classes[6].fields.claim_type.type: unregistered field type 'lable'``. Defaults
 equal the scoring engine's defaults; a profile only states what it changes.
 
+Every key is stated once per mapping. YAML merge keys (``<<``) may supply keys, but a
+local key that repeats a merged one is refused as a duplicate, not read as an
+override: the format has no precedence rule.
+
 The content hash is the SHA-256 of the profile's canonical JSON form (sorted keys,
 no whitespace). Mapping key order never changes it; list order does, because list
 order is meaningful (classes, catalog entries, alias tables that break ties by
@@ -65,7 +69,7 @@ _MISSING_CONFIDENCE_POLICIES = ("absent", "assume_1", "assume_0")
 
 
 class _StrictSafeLoader(yaml.SafeLoader):
-    """A safe YAML loader that refuses a mapping with the same key twice."""
+    """A safe YAML loader that refuses a mapping with the same key twice (a merged ``<<`` key included)."""
 
 
 def _construct_unique_mapping(loader: _StrictSafeLoader, node: yaml.MappingNode, deep: bool = False) -> dict:
@@ -127,7 +131,8 @@ def _shown(value: Any) -> str:
 
 
 def _join(path: str, key: str) -> str:
-    """Return the YAML path of ``key`` inside ``path``."""
+    """Return the YAML path of ``key`` inside ``path`` (a lone surrogate in the key is shown escaped)."""
+    key = key.encode("utf-8", "backslashreplace").decode("utf-8")
     return f"{path}.{key}" if path else key
 
 
@@ -170,9 +175,15 @@ class _Section:
 
 
 def _text(value: Any, path: str) -> str:
-    """A non-empty string with no surrounding whitespace."""
+    """A non-empty string with no surrounding whitespace, encodable as UTF-8 (no lone surrogate)."""
     if not isinstance(value, str):
         raise ProfileError(path, f"must be a string, got {type(value).__name__}")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise ProfileError(
+            path, f"must be valid Unicode text: lone surrogate {value[error.start]!r} at {error.start}"
+        ) from None
     if not value.strip():
         raise ProfileError(path, "must not be blank")
     if value != value.strip():
@@ -583,12 +594,18 @@ def _guard(value: Any, path: str, known_field: Callable[[Any, str], str]) -> Var
 
 
 def _synonym(value: Any, path: str) -> str:
-    """A regular expression that compiles."""
+    """A regular expression that compiles (a repetition too large or nesting too deep is refused too)."""
     pattern = _text(value, path)
     try:
         re.compile(pattern)
     except re.error as error:
         raise ProfileError(path, f"is not a valid regular expression: {error}") from None
+    except OverflowError as error:
+        raise ProfileError(path, f"is not a valid regular expression: {error}") from None
+    except RecursionError:
+        raise ProfileError(
+            path, "is not a valid regular expression: nested deeper than the compiler allows"
+        ) from None
     return pattern
 
 
@@ -828,12 +845,14 @@ def load_scoring_profile(source: str | os.PathLike[str] | Mapping[str, Any]) -> 
     root.finish(_TOP_LEVEL_KEYS)
     _check_inventory_alias_targets(classes)
 
+    full_match_order = tuple(match_order) + tuple(key for key in class_keys if key not in match_order)
+    _check_classifier_labels(classes, full_match_order)
+
     parts = dict(
         client=client,
         version=version,
         classes=classes,
-        classification_match_order=tuple(match_order)
-        + tuple(key for key in class_keys if key not in match_order),
+        classification_match_order=full_match_order,
         unknown_label=unknown_label,
         unmapped_fields=unmapped_fields,
         never_scored_fields=frozenset(never_scored),
@@ -848,8 +867,7 @@ def load_scoring_profile(source: str | os.PathLike[str] | Mapping[str, Any]) -> 
         list_matching=list_matching,
         trace_capture=trace_capture,
     )
-    content_hash = hashlib.sha256(_canonical_json(_canonical_parts(parts))).hexdigest()
-    return ScoringProfile(content_hash=content_hash, **parts)
+    return ScoringProfile(**parts)
 
 
 def _check_unique_classes(classes: tuple[ClassSpec, ...]) -> None:
@@ -868,6 +886,33 @@ def _check_unique_classes(classes: tuple[ClassSpec, ...]) -> None:
             )
         keys[spec.key] = index
         labels[spec.sorter_label] = index
+
+
+def _check_classifier_labels(classes: tuple[ClassSpec, ...], match_order: tuple[str, ...]) -> None:
+    """Raise when two live classes would claim the same whole classifier output.
+
+    Mirrors :meth:`mailroom_dojo.classification.ClassLabelSet.from_profile`, which reads
+    an output case-blind as a live class's key or sorter label: a live sorter label
+    that equals another live class's key, or another live sorter label ignoring case,
+    is refused here at load time with the same message. Retired classes are not in
+    that namespace.
+    """
+    index_of = {spec.key: index for index, spec in enumerate(classes)}
+    live = [classes[index_of[key]] for key in match_order if classes[index_of[key]].is_live]
+    exact: dict[str, str] = {}
+    owners: dict[str, str] = {}
+    for spec in live:
+        exact[spec.key] = spec.key
+        owners[spec.key] = f"classes[{index_of[spec.key]}].key"
+    for spec in live:
+        label = spec.sorter_label.strip().lower()
+        label_path = f"classes[{index_of[spec.key]}].sorter_label"
+        if label in exact and exact[label] != spec.key:
+            raise ProfileError(
+                label_path, f"sorter label {spec.sorter_label!r} is already claimed by {owners[label]}"
+            )
+        exact[label] = spec.key
+        owners.setdefault(label, label_path)
 
 
 def _classification(value: Any, path: str, class_keys: list[str]) -> tuple[str, ...]:
@@ -1058,6 +1103,11 @@ def _canonical_parts(parts: dict[str, Any]) -> dict[str, Any]:
         "classification_match_order": list(parts["classification_match_order"]),
         "classes": [_canonical_class(spec) for spec in parts["classes"]],
     }
+
+
+def profile_content_hash(profile: ScoringProfile) -> str:
+    """Return the SHA-256 of a profile's canonical JSON form (:attr:`ScoringProfile.content_hash`)."""
+    return hashlib.sha256(_canonical_json(profile_canonical_form(profile))).hexdigest()
 
 
 def profile_canonical_form(profile: ScoringProfile) -> dict[str, Any]:

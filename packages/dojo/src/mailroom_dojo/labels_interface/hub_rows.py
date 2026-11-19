@@ -120,7 +120,9 @@ def scoring_fields_from_hub_row(
       ``extra_keys``, keeps only those keys;
     - a field whose presence status is ``pending_annotation`` is dropped (unlabelled);
     - a field whose status is ``not_applicable`` or ``schema_documented_absence``
-      becomes ``""`` (labelled empty: a stated value stays a false positive);
+      becomes ``""`` (labelled empty). ``score_extraction`` skips an empty
+      expectation, so a stated value is penalised only for an active row
+      variant's ``documented_absent_fields``; on any other field it is not scored;
     - for each row variant of ``class_key`` whose marker is derived from the
       subclass, an empty marker field is filled with the subclass token when it is
       one of the marker values (stripped and lowercased).

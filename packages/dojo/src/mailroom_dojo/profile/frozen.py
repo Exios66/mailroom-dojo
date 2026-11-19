@@ -23,7 +23,13 @@ class FrozenMapping(Mapping[KeyType, ValueType], Generic[KeyType, ValueType]):
     __slots__ = ("_items", "_hash")
 
     def __init__(self, items: Mapping[KeyType, ValueType] | None = None) -> None:
-        """Copy ``items`` (a mapping, or nothing for an empty mapping)."""
+        """Copy ``items`` (a mapping, or nothing for an empty mapping); refuse a second initialization."""
+        try:
+            object.__getattribute__(self, "_items")
+        except AttributeError:
+            pass
+        else:
+            raise TypeError(f"{type(self).__name__} is already initialized and immutable")
         object.__setattr__(self, "_items", MappingProxyType(dict(items or {})))
         object.__setattr__(self, "_hash", None)
 

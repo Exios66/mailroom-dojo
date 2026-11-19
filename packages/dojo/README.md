@@ -27,7 +27,7 @@ from `llm_dojo_scoring`.
 | `field_scoring/similarity_backend.py` | optional embedding rescue: an injected `SimilarityBackend`, with every backend failure kept as a reported `SimilarityFallback`. Off unless a caller passes a backend. |
 | `field_scoring/sentence_transformer_backend.py` | an optional local `sentence-transformers` backend (extra `embeddings`, local files only). |
 | `field_scoring/entity_lists.py` | `score_entity_list`: pairs items by the Hungarian algorithm (scipy), thresholded by `thresholds.list_match_threshold`, then precision, recall and F1. The greedy matcher runs only when asked (`matcher="greedy"`) or allowed as the fallback for a missing scipy (`fallback_matcher="greedy"`); `EntityListScore.matcher` and `.matcher_fallback` say which ran and why. |
-| `field_scoring/audits.py` | the factuality audit: `audit_list_field`, `audit_scalar_field` (a predicted value is true when it matches the label or is grounded in the document text; dates are grounded in any format), `verify_list_items`, `field_audit_support`. |
+| `field_scoring/audits.py` | the factuality audit: `audit_list_field`, `audit_scalar_field` (a predicted value is true when it matches the label or is grounded in the document text; a date is grounded by a full date in the text written numerically, as month-day-year or as a day-of-month phrase, so an ISO `2014-08-18` or a bare `August 2014` in the text grounds nothing: see `docs/score-changelog.md`), `verify_list_items`, `field_audit_support`. |
 | `field_scoring/category_presence.py` | `score_category_presence`: the share of labelled clause categories a predicted span covers, with reasoning-trace routing and an optional `PresenceSimilarity` whose backend failures are reported. |
 | `field_scoring/row_variants.py` | the rules of a profile's row variants (documented-absent fields, type overrides, an unstated marker, a marker read from a fallback field). |
 | `field_scoring/trace_capture.py` | `capture_trace`: model-emitted `confidence` and `reasoning`, captured for the run log under the profile's `TraceCaptureOptions`, never scored. |
@@ -35,7 +35,7 @@ from `llm_dojo_scoring`.
 | `classification/` | `ClassLabelSet.from_profile(profile)` and the classification metrics: `normalize_label`, `exact_match`, `accuracy`, `fbeta`, `per_class_stats`, `macro_accuracy`, `macro_prf`, `confusion_matrix`, `top_confusions`, `binary_metrics`, `class_distribution`. The class set, its match order and retired classes come from the profile. |
 | `measures/` | `Measure(value, n, cost_basis, label_status, method, ci=None, reason=None, subject=Subject(), provenance=None)`: an immutable number that carries its sample size, cost basis (closed vocabulary), label status, subject (agent, class, field) and provenance (the old provenance keys), validated when built, plus `comparability_problems` / `assert_comparable` (same method, subject, cost basis, label status and provenance; `vary` for the compared axis) and `combined_label_status`. `load_metric_table()` reads the metric table (`measures/metrics.yaml`, package data) into a `MetricTable` identified by `content_hash`; `MetricTable.check(measure)` applies the per-metric rules (unit range, whole counts, interval in range and around the value, labels required, cost basis); `MetricTable.default_view(agent)` gives the agent's one default number. |
 | `statistics/` | `bootstrap_ci`, `delta_significance` (unpaired), `wilson_ci`, `wilson_bounds`; calibration and risk: `clopper_pearson_upper`, `required_samples`, `cutoff_at_target`, `cross_fit_cutoffs`, `cutoff_for_precision`, `expected_calibration_error`, `brier_score`, `reliability_bins`, `auroc` (ranking power), `spearman`, and `calibration_by_group` (per agent and class). Paired run comparison, over `{document id: value}` mappings paired by id (unpaired documents refused unless `allow_unpaired=True`): `paired_bootstrap_delta` (per-document score differences) and `outcome_flip_test` (exact McNemar). Seeds are arguments; results are frozen dataclasses whose `to_dict()` is the old Dojo's dictionary. |
-| `labels_interface/` | structural Protocols (`LabelSource`, `ExpectedDocument`, `PresenceExpectation`) that the labels package satisfies, `expected_values(...)` (keeps scorable fields only; refuses or flags unverified documents), and `hub_rows.py`, a reference adapter for Hub rows that is meant to move to `mailroom_labels`. |
+| `labels_interface/` | structural Protocols (`LabelSource`, `ExpectedDocument`, `PresenceExpectation`) meant to match the labels package's shapes (tested with stand-ins; not yet checked against `mailroom_labels`, where `doc_class` and `content_sha256` may be None), `expected_values(...)` (keeps scorable fields only; refuses or flags unverified documents), and `hub_rows.py`, a reference adapter for Hub rows that is meant to move to `mailroom_labels`. |
 
 ## The scoring profile
 
@@ -44,6 +44,10 @@ It reproduces the old Dojo (llm-dojo-scoring 0.30.1, commit `23f8234c`) exactly:
 classes in the old registry order (three retired), their field types, the intent,
 subclass and label vocabularies, the CMS DE-SynPUF row variant and every default
 threshold.
+
+A profile states each key once per mapping. YAML merge keys (`<<`) may supply keys, but
+a local key that repeats a merged one is refused as a duplicate, never read as an
+override.
 
 ## Adding a document type or a client
 
@@ -60,6 +64,12 @@ Nothing in Python changes for a new document type built from existing field type
    `variants` for rows with a different shape inside one class.
 4. Load it: the loader refuses unknown keys, unregistered types, label fields without a
    vocabulary, duplicate classes and out-of-range thresholds, naming the YAML path.
+
+Classes appended after the existing ones in `classification.match_order` keep every
+existing classification, with two exceptions: text that matched no class may now match a
+new one, and a whole output equal to a new class's sorter label (ignoring case) is read as
+that class even if an existing class's pattern matched it, because exact labels are tried
+before patterns. Pick sorter labels no existing class's output takes.
 
 A field type the built-ins do not cover (a VIN, a policy number format) is a **plug-in**:
 write a scorer `(predicted, expected, rescue=None) -> float`, declare its name under
@@ -136,14 +146,15 @@ the file); the tests never read an old checkout.
 ## Tests
 
 See `docs/test-strategy-dojo-core.md`. The differential corpus
-(`tests/fixtures/differential/scalar_cases.jsonl`) holds 21,009 inputs with the old Dojo's
-outputs; `scripts/capture_old_dojo_scalar_cases.py` regenerates it from an old checkout
+(`tests/fixtures/differential/scalar_cases.jsonl`) holds 21,549 inputs with the old Dojo's
+outputs (540 of them through fake embedding backends); `scripts/capture_old_dojo_scalar_cases.py` regenerates it from an old checkout
 and never runs in CI.
 
-The extraction corpus (`tests/fixtures/differential/extraction_cases.jsonl`, 6,414 cases)
+The extraction corpus (`tests/fixtures/differential/extraction_cases.jsonl`, 6,594 cases)
 holds the old golden run's `score_extraction` calls, tied to the old `scores.json` by
 path and hash, the calls the old tests make into the extraction layers, and seeded
-generated inputs, many under non-default settings that the replay builds into a profile.
+generated inputs, many under non-default settings that the replay builds into a profile,
+180 of them through fake embedding backends.
 `scripts/capture_old_dojo_extraction_cases.py` regenerates it byte for byte.
 
 The statistics corpus (`tests/fixtures/differential/statistics_cases.jsonl`, 2,000 cases)

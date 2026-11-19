@@ -70,6 +70,7 @@ def _scalar_script() -> Any:
 
 _SCALAR = _scalar_script()
 encode, decode, Unencodable = _SCALAR.encode, _SCALAR.decode, _SCALAR.Unencodable
+encode_case_arguments = _SCALAR.encode_case_arguments
 
 #: Old direct tests whose calls are captured.
 OLD_TEST_FILES = (
@@ -582,9 +583,11 @@ def generated_cases(rng: random.Random, classes: dict[str, Any]) -> list[dict[st
     cases: list[dict[str, Any]] = []
 
     def add(function: str, settings: dict[str, Any] | None = None, **arguments: Any) -> None:
-        """Queue one case (skip values the corpus format cannot hold)."""
+        """Queue one case (skip values the corpus format cannot hold; a fake backend spec is kept)."""
         with contextlib.suppress(Unencodable):
-            cases.append({"function": function, "args": encode(arguments), "settings": settings or {}})
+            cases.append(
+                {"function": function, "args": encode_case_arguments(arguments), "settings": settings or {}}
+            )
 
     element_types = ["name", "free_text", "date", "id", "money", "label", "cms_doc_ref", "containment"]
     # Entity lists: pools, role words, duplicates, empties, JSON texts, hostile items, permutations.

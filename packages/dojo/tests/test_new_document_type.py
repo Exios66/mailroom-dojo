@@ -371,7 +371,9 @@ def _corpus_outputs() -> list[Any]:
 def test_appending_classes_keeps_every_existing_classification(mailroom_profile):
     """With new classes after the existing ones, every corpus output read as an existing class reads the same.
 
-    An output that matched no class may now match a new one; that is the point of adding it.
+    An output that matched no class may now match a new one; that is the point of adding it. The one other
+    exception is an output equal to a new class's exact sorter label (see the next test); these fixture
+    labels equal no existing class's output.
     """
     base = ClassLabelSet.from_profile(mailroom_profile)
     extended = ClassLabelSet.from_profile(load_scoring_profile(mailroom_with_new_classes(first=False)))
@@ -393,6 +395,20 @@ def test_appending_classes_keeps_every_existing_classification(mailroom_profile)
     assert (
         "auto policy declarations" in moved and "contract for an auto policy declarations page" not in moved
     )
+
+
+def test_an_appended_class_takes_an_output_equal_to_its_exact_sorter_label(mailroom_profile):
+    """The one exception to the append guarantee: a whole output that equals a new class's sorter label
+    (ignoring case) is read as that class before any pattern is tried, even when an existing class's pattern
+    matched it before. Only that exact text moves; longer text naming both still goes to the earlier class."""
+    text = "contract for an auto policy declarations page"
+    mapping = mailroom_with_new_classes(first=False)
+    mapping["classes"][-2]["sorter_label"] = "Contract for an Auto Policy Declarations Page"
+    extended = ClassLabelSet.from_profile(load_scoring_profile(mapping))
+    base = ClassLabelSet.from_profile(mailroom_profile)
+    assert normalize_label(text, base) == "contract"
+    assert normalize_label(text, extended) == NEW_CLASS
+    assert normalize_label(f"{text} attached", extended) == "contract"
 
 
 def test_putting_a_new_class_first_can_take_existing_matches(mailroom_profile):
@@ -417,6 +433,7 @@ def test_adding_classes_moves_no_existing_extraction_score(first):
     extended = load_scoring_profile(mailroom_with_new_classes(first=first))
     assert extended.content_hash != base.content_hash
     calls = [call for call in boundary_document()["calls"] if call["function"] == "score_extraction"]
+    assert len(calls) == 16  # an empty or truncated capture must not pass as extraction parity
     for call in calls:
         args = decode(json.loads(json.dumps(call["args"])))
         result = score_extraction(

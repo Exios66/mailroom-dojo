@@ -4,7 +4,10 @@ A predicted value is *true* when it matches the ground truth (its similarity rea
 the profile's ``thresholds.list_match_threshold``) or when it is grounded in the
 source document: at least ``profile.audit.token_coverage`` of its content tokens
 occur in the document text. A predicted date is grounded when the document states a
-date that agrees with every component the prediction states, in any format.
+date that agrees with every component the prediction states, written numerically
+(day or month first), as month-day-year or as a day-of-month phrase. A year-first
+ISO date (2014-08-18) or a year-month (August 2014) in the text grounds nothing, as
+in the old Dojo.
 
 An audit is a plain dict with ``n_predicted``, ``matched_gt``, ``verified_in_doc``,
 ``true_items``, ``verified_precision``, ``hallucinated``, ``hallucination_rate`` and
@@ -19,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..normalization.dates import MONTH_NAMES, DateParts, parse_date_parts
 from ..normalization.text import containment_tokens
+from ..values.summation import compensated_sum
 from .entity_lists import as_list, element_scorer, element_similarity
 from .scalar_scorers import date_match_similarity
 from .scorer_registry import FieldScorerRegistry, ScalarScorer
@@ -162,6 +166,7 @@ def date_grounded_in_document(predicted_date: datetime.date | DateParts | None, 
 
     ``predicted_date`` is a full date or the :class:`DateParts` of a partial one
     ("August 18"); a component the prediction does not state is never compared.
+    Only the date forms listed in the module docstring are found in the text.
     """
     if predicted_date is None or not doc_text:
         return False
@@ -248,6 +253,10 @@ def field_audit_support(audits: Mapping[str, Mapping[str, Any]]) -> dict[str, An
         return {"n_audited": 0, "verified_precision": None, "hallucination_rate": None}
     return {
         "n_audited": count,
-        "verified_precision": round(sum(audit["verified_precision"] for audit in eligible) / count, 4),
-        "hallucination_rate": round(sum(audit["hallucination_rate"] for audit in eligible) / count, 4),
+        "verified_precision": round(
+            compensated_sum(audit["verified_precision"] for audit in eligible) / count, 4
+        ),
+        "hallucination_rate": round(
+            compensated_sum(audit["hallucination_rate"] for audit in eligible) / count, 4
+        ),
     }

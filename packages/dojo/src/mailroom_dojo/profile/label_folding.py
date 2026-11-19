@@ -14,7 +14,9 @@ only), and folds with one of five methods:
     alias of eight or more characters found inside the value; then the longest
     token the value starts with; then the longest token of four or more characters
     (three when it starts with a digit) found inside the value. The unknown token is
-    never reached by the prefix and substring steps. The result must be a token.
+    never reached by the prefix and substring steps, neither as a token nor as an
+    alias target (only a whole alias or the token itself folds onto it). The result
+    must be a token.
 ``catalog``
     ``exact``; then a catalog lookup: a catalog key equal to the value's compact
     form, then an alias, then a catalog entry whose compact label equals the value
@@ -73,7 +75,8 @@ class LabelVocabulary:
     """A closed set of label tokens and the method that folds written labels onto them.
 
     ``aliases``, ``prefix_aliases``, ``catalog`` and ``tokens`` are ordered: when two
-    entries of equal length both match, the earlier one wins. ``unknown_token`` is the
+    entries of equal length both match, the earlier one wins, so two vocabularies
+    whose tables differ only in order are not equal. ``unknown_token`` is the
     residual label (``other``): an inventory fold never reaches it through a prefix
     or substring, a catalog or allowed-set fold never returns it from its catalog
     step, and :meth:`normalize` returns it when nothing folds.
@@ -85,6 +88,9 @@ class LabelVocabulary:
     prefix_aliases: FrozenMapping[str, str] = field(default_factory=FrozenMapping)
     catalog: tuple[CatalogEntry, ...] = ()
     unknown_token: str = "other"
+    _alias_order: tuple[tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]] = field(
+        init=False, repr=False
+    )
     _tokens_by_compact: FrozenMapping[str, str] = field(init=False, repr=False, compare=False, hash=False)
     _aliases_by_compact: FrozenMapping[str, str] = field(init=False, repr=False, compare=False, hash=False)
 
@@ -94,6 +100,11 @@ class LabelVocabulary:
         object.__setattr__(self, "aliases", FrozenMapping(self.aliases))
         object.__setattr__(self, "prefix_aliases", FrozenMapping(self.prefix_aliases))
         object.__setattr__(self, "catalog", tuple(self.catalog))
+        # The alias tables compare order-blind as mappings, but their order breaks ties
+        # when folding, so equality and the hash also see it.
+        object.__setattr__(
+            self, "_alias_order", (tuple(self.aliases.items()), tuple(self.prefix_aliases.items()))
+        )
         object.__setattr__(
             self,
             "_tokens_by_compact",
@@ -140,7 +151,7 @@ class LabelVocabulary:
         """Fold through prefix aliases and the inventory search; the result must be a token."""
         key = compact_label(value)
         for prefix, target in self.prefix_aliases.items():
-            if key.startswith(compact_label(prefix)):
+            if target != self.unknown_token and key.startswith(compact_label(prefix)):
                 return target
         token = self._search_inventory(key)
         return token if token in self.tokens else ""
@@ -158,7 +169,11 @@ class LabelVocabulary:
         ranked_aliases = sorted(self.aliases.items(), key=lambda item: -len(compact_label(item[0])))
         for alias, target in ranked_aliases:
             alias_key = compact_label(alias)
-            if len(alias_key) >= _INVENTORY_MINIMUM_ALIAS_LENGTH and alias_key in key:
+            if (
+                target != self.unknown_token
+                and len(alias_key) >= _INVENTORY_MINIMUM_ALIAS_LENGTH
+                and alias_key in key
+            ):
                 return target
         ranked_tokens = sorted(self.tokens, key=lambda token: -len(compact_label(token)))
         searchable = [

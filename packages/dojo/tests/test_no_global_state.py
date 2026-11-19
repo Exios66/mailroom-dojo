@@ -34,6 +34,8 @@ FORBIDDEN_IMPORTS = {
     "dotenv",
 }
 FORBIDDEN_DECORATORS = {"lru_cache", "cache", "cached_property"}
+#: The ``os`` names that read or write the environment, as attributes or imported names.
+ENVIRONMENT_ACCESSORS = {"environ", "environb", "getenv", "getenvb", "putenv", "unsetenv"}
 #: Module-level names that may hold a call result: immutable values built once, and the
 #: loader's section readers (closures that read and never write what they close over).
 IMMUTABLE_FACTORIES = {
@@ -81,10 +83,16 @@ def test_no_environment_network_thread_or_engine_imports(path):
             names = [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             names = [node.module]
+            if node.module == "os":
+                names += [f"os.{alias.name}" for alias in node.names if alias.name in ENVIRONMENT_ACCESSORS]
         else:
             names = []
-        problems += [f"imports {name}" for name in names if name.split(".")[0] in FORBIDDEN_IMPORTS]
-        if isinstance(node, ast.Attribute) and node.attr in {"environ", "getenv", "putenv"}:
+        problems += [
+            f"imports {name}"
+            for name in names
+            if name.split(".")[0] in FORBIDDEN_IMPORTS or name.removeprefix("os.") in ENVIRONMENT_ACCESSORS
+        ]
+        if isinstance(node, ast.Attribute) and node.attr in ENVIRONMENT_ACCESSORS:
             problems.append(f"uses os.{node.attr} at line {node.lineno}")
         if isinstance(node, ast.Global):
             problems.append(f"global statement at line {node.lineno}")
@@ -103,6 +111,17 @@ def test_no_environment_network_thread_or_engine_imports(path):
     assert not problems, f"{_relative(path)}: {problems}"
 
 
+def _mutable_parts(value: ast.AST) -> list[str]:
+    """What in a module-level value is mutable: the value itself or, for a tuple, any element."""
+    if isinstance(value, (ast.List, ast.Dict, ast.Set, ast.ListComp, ast.DictComp, ast.SetComp)):
+        return [f"is a mutable {type(value).__name__}"]
+    if isinstance(value, ast.Call) and _call_name(value.func) not in IMMUTABLE_FACTORIES:
+        return [f"= {_call_name(value.func)}(...)"]
+    if isinstance(value, ast.Tuple):
+        return [problem for element in value.elts for problem in _mutable_parts(element)]
+    return []
+
+
 @pytest.mark.parametrize("path", SOURCE_FILES, ids=_relative)
 def test_no_mutable_module_level_values(path):
     """Module-level assignments hold constants or immutable values, never a list, dict, set or open call
@@ -116,10 +135,7 @@ def test_no_mutable_module_level_values(path):
             names = [target.id for target in targets if isinstance(target, ast.Name)]
             if names == ["__all__"] or value is None:
                 continue
-            if isinstance(value, (ast.List, ast.Dict, ast.Set, ast.ListComp, ast.DictComp, ast.SetComp)):
-                problems.append(f"{names} is a mutable {type(value).__name__} at line {node.lineno}")
-            elif isinstance(value, ast.Call) and _call_name(value.func) not in IMMUTABLE_FACTORIES:
-                problems.append(f"{names} = {_call_name(value.func)}(...) at line {node.lineno}")
+            problems += [f"{names} {problem} at line {node.lineno}" for problem in _mutable_parts(value)]
     assert not problems, f"{_relative(path)}: {problems}"
 
 
@@ -141,3 +157,36 @@ def test_the_checks_catch_what_they_look_for(tmp_path, monkeypatch):
     with pytest.raises(AssertionError) as state:
         module.test_no_mutable_module_level_values(bad)
     assert "['CACHE'] is a mutable Dict" in str(state.value) and "['SEEN'] = set(...)" in str(state.value)
+
+
+def test_the_environment_check_catches_directly_imported_accessors(tmp_path, monkeypatch):
+    """``from os import getenv`` (and environ, putenv) is caught as well as ``os.getenv``."""
+    bad = tmp_path / "mailroom_dojo" / "direct.py"
+    bad.parent.mkdir()
+    bad.write_text("from os import getenv, path\nfrom os import environ as env\nTHRESHOLD = getenv('X')\n")
+    import test_no_global_state as module
+
+    monkeypatch.setattr(module, "SOURCE_ROOT", bad.parent)
+    with pytest.raises(AssertionError) as caught:
+        module.test_no_environment_network_thread_or_engine_imports(bad)
+    assert "imports os.getenv" in str(caught.value) and "imports os.environ" in str(caught.value)
+    assert "os.path" not in str(caught.value)
+    fine = tmp_path / "mailroom_dojo" / "fine.py"
+    fine.write_text("from os import path\nimport os\nSEPARATOR = os.sep\n")
+    module.test_no_environment_network_thread_or_engine_imports(fine)
+
+
+def test_the_state_check_looks_inside_module_level_tuples(tmp_path, monkeypatch):
+    """A tuple that holds a dict, list, set or a mutable call result is mutable state; a tuple of constants
+    is not."""
+    bad = tmp_path / "mailroom_dojo" / "wrapped.py"
+    bad.parent.mkdir()
+    bad.write_text("STATE = ({},)\nNESTED = (1, ([2],))\nSEEN = (set(), 'a')\nFINE = (1, 'a', frozenset())\n")
+    import test_no_global_state as module
+
+    monkeypatch.setattr(module, "SOURCE_ROOT", bad.parent)
+    with pytest.raises(AssertionError) as caught:
+        module.test_no_mutable_module_level_values(bad)
+    message = str(caught.value)
+    assert "['STATE'] is a mutable Dict" in message and "['NESTED'] is a mutable List" in message
+    assert "['SEEN'] = set(...)" in message and "FINE" not in message

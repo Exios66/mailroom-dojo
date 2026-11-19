@@ -13,6 +13,7 @@ from collections import Counter
 from collections.abc import Sequence
 from typing import Any
 
+from ..values.summation import compensated_sum
 from .labels import ERROR_PREFIX, ClassLabelSet
 from .paired import require_equal_lengths
 
@@ -115,7 +116,7 @@ def macro_accuracy(expected: Sequence[Any], predicted: Sequence[Any], label_set:
     stats = per_class_stats(expected, predicted, label_set)
     if not stats:
         return 0.0
-    return round(sum(entry["accuracy"] for entry in stats.values()) / len(stats), 4)
+    return round(compensated_sum(entry["accuracy"] for entry in stats.values()) / len(stats), 4)
 
 
 def confusion_matrix(
@@ -273,10 +274,12 @@ def macro_prf(
     class_count = len(per_class)
     if not class_count:
         return empty
-    precision_macro = round(sum(entry["precision"] for entry in per_class.values()) / class_count, 4)
-    recall_macro = round(sum(entry["recall"] for entry in per_class.values()) / class_count, 4)
-    f1_macro = round(sum(entry["f1"] for entry in per_class.values()) / class_count, 4)
-    f2_macro = round(sum(entry["f2"] for entry in per_class.values()) / class_count, 4)
+    precision_macro = round(
+        compensated_sum(entry["precision"] for entry in per_class.values()) / class_count, 4
+    )
+    recall_macro = round(compensated_sum(entry["recall"] for entry in per_class.values()) / class_count, 4)
+    f1_macro = round(compensated_sum(entry["f1"] for entry in per_class.values()) / class_count, 4)
+    f2_macro = round(compensated_sum(entry["f2"] for entry in per_class.values()) / class_count, 4)
     return {
         "precision_macro": precision_macro,
         "recall_macro": recall_macro,

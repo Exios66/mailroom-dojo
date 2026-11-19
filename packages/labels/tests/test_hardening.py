@@ -373,6 +373,33 @@ def test_source_lines_with_an_over_long_integer_are_rejected_and_later_rows_stil
     assert [(r["line"], r["file"]) for r in rejected] == [(1, "src.jsonl")]
 
 
+@pytest.mark.parametrize("number", ["1e999", "-1e999"])
+def test_a_source_float_that_overflows_is_refused_as_not_json(number: str) -> None:
+    from mailroom_labels.importers.common import loads_source
+
+    with pytest.raises(ValueError, match="too large for a float"):
+        loads_source('{"x": ' + number + "}")
+
+
+def test_an_overlay_manifest_with_an_overflowing_float_is_refused_not_a_crash(tmp_path: Path) -> None:
+    import hashlib
+
+    from test_importers import jsonl, overlay
+
+    src = tmp_path / "src"
+    src.mkdir()
+    data = jsonl(interim_row("D1", {"sender": ("gap_fill", "A")}))
+    (src / "letter.jsonl").write_bytes(data)
+    listed = json.dumps({"letter.jsonl": hashlib.sha256(data).hexdigest()})
+    (src / "MANIFEST.json").write_text(
+        '{"schema": "mailroom-interim-labels/v1", "files": ' + listed + ', "built_at": 1e999}',
+        encoding="utf-8",
+    )
+    with pytest.raises(ImportRefused, match="MANIFEST.json is not JSON"):
+        overlay(tmp_path / "interim-x", src, allow_rejected=True)
+    assert not (tmp_path / "interim-x").exists()
+
+
 def test_a_label_that_looks_like_a_token_is_not_trusted_as_one() -> None:
     import importlib.util
     import sys
@@ -444,3 +471,30 @@ def test_a_vocabulary_finding_names_the_type_not_the_supplied_text(tmp_path: Pat
     found = [f for f in report.errors if f.kind == "vocabulary_violation"]
     assert [(f.doc, f.field) for f in found] == [("D4", "urgency")]  # positive control
     assert "SECRET" not in found[0].detail
+
+
+@pytest.mark.parametrize("key", ["doc_id", "field"])
+@pytest.mark.parametrize("shape", ["desk", "decisions"])
+def test_a_review_line_whose_label_is_not_a_name_is_rejected_and_never_merged(
+    tmp_path: Path, key: str, shape: str
+) -> None:
+    from test_importers import desk, review
+
+    # A numeric id must not stand for the string id it prints as: the later, numeric line
+    # would otherwise supersede the valid decision and then be refused by the review reader.
+    if shape == "desk":
+        good = desk("7", "7", "Ann", at="2026-01-01T00:00:00Z")
+        bad = desk("7", "7", "Bo", at="2026-02-01T00:00:00Z")
+        decisions, desks = [], [good, bad]
+    else:
+        good = {**review_row("7", "7", "Ann", human=True), "reviewed_at": "2026-01-01T00:00:00Z"}
+        bad = {**review_row("7", "7", "Bo", human=True), "reviewed_at": "2026-02-01T00:00:00Z"}
+        decisions, desks = [good, bad], []
+    bad[key] = 7
+    with pytest.raises(ImportRefused, match="rejected_lines 1"):
+        review(tmp_path, decisions, desks)
+    manifest, rows = review(tmp_path, decisions, desks, allow_rejected=True)
+    assert [(r["doc_id"], r["field"], r["entry"]["value"]) for r in rows] == [("7", "7", "Ann")]
+    assert manifest.source.get("superseded", []) == []
+    assert [r["line"] for r in manifest.source["rejected_lines"]] == [2]
+    assert f"{key} must be a name" in manifest.source["rejected_lines"][0]["reason"]

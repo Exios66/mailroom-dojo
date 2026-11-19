@@ -167,6 +167,16 @@ def encode(value: Any) -> Any:
     raise Unencodable(type(value).__name__)
 
 
+def encode_case_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Encode a case's keyword arguments; an ``embedding={"$similarity": spec}`` fake backend spec is attached
+    as tagged JSON after the rest is encoded (``encode`` refuses ``$`` keys in input data)."""
+    embedding = arguments.get("embedding")
+    if isinstance(embedding, dict) and set(embedding) == {"$similarity"}:
+        rest = {key: value for key, value in arguments.items() if key != "embedding"}
+        return {**encode(rest), "embedding": {"$similarity": encode(embedding["$similarity"])}}
+    return encode(arguments)
+
+
 def decode(value: Any) -> Any:
     """Invert :func:`encode` (fake similarity specs are left as tagged dicts)."""
     if isinstance(value, list):
@@ -634,9 +644,14 @@ def generated_cases(rng: random.Random, old: dict[str, Any]) -> list[dict[str, A
     cases: list[dict[str, Any]] = []
 
     def add(function: str, **arguments: Any) -> None:
-        """Append a case, skipping arguments the format cannot hold."""
+        """Append a case, skipping arguments the format cannot hold.
+
+        A fake backend spec (``embedding={"$similarity": spec}``) is attached after the
+        other arguments are encoded: the encoder rightly refuses a ``$`` key in input
+        data, and refusing this one silently dropped every embedding-rescue case.
+        """
         with contextlib.suppress(Unencodable):
-            cases.append({"function": function, "args": encode(arguments)})
+            cases.append({"function": function, "args": encode_case_arguments(arguments)})
 
     dates = date_texts(rng, 260)
     for text in dates:

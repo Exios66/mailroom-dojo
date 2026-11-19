@@ -24,7 +24,7 @@ that re-scores the imported v1 and slice-100 r2 runs (it waits for the run recor
 | R2 | Per-field scoring by type, coverage and precision kept apart, exact parity with the old scorers |
 | R3 | Classification metrics and label normalization with a profile-driven class set |
 | R4 | A new document type is a class entry in a scoring profile (YAML), no code edit. Proved by an end-to-end synthetic-type test that also asserts no source file names the type |
-| R6 | Scoring reads expected values through a `LabelSource` Protocol that the labels package satisfies (statuses hub, interim, near_gold, gold; unverified documents flagged, never silently scored) |
+| R6 | Scoring reads expected values through a `LabelSource` Protocol meant to match the labels package's shapes (not yet checked against `mailroom_labels`; statuses hub, interim, near_gold, gold; unverified documents flagged, never silently scored) |
 | R8 | Parity tests against recorded old-Dojo outputs, differential corpus, property tests, and fault tests (failing similarity backend, missing optional dependency, malformed profile, hostile inputs) asserting exact reported behaviour |
 | R9 | One-way dependencies, no globals, no environment variables, no network; boundary test |
 

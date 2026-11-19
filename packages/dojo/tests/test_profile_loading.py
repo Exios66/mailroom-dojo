@@ -723,6 +723,21 @@ def test_duplicate_yaml_key_is_refused(tmp_path):
     assert "line" in error.problem
 
 
+def test_a_yaml_merge_key_cannot_be_overridden_but_a_disjoint_merge_loads(tmp_path):
+    """Merge keys (``<<``) are allowed, but a local key that repeats a merged one is a duplicate, not an
+    override: the profile format has no precedence rule, so every key is stated once."""
+    base = MAILROOM_PROFILE_PATH.read_text()
+    assert "  token_coverage: 0.7\n" in base
+    disjoint = base.replace("  token_coverage: 0.7\n", "  <<: {token_coverage: 0.7}\n")
+    (tmp_path / "disjoint.yaml").write_text(disjoint)
+    assert load_scoring_profile(tmp_path / "disjoint.yaml") == load_scoring_profile(MAILROOM_PROFILE_PATH)
+    overriding = base.replace(
+        "  token_coverage: 0.7\n", "  <<: {token_coverage: 0.8}\n  token_coverage: 0.7\n"
+    )
+    (tmp_path / "overriding.yaml").write_text(overriding)
+    _expect_error(tmp_path / "overriding.yaml", "", "duplicate key 'token_coverage'")
+
+
 @pytest.mark.parametrize("key", ["[a, b]", "{a: 1}"], ids=["sequence", "mapping"])
 def test_unhashable_yaml_key_is_a_profile_error(tmp_path, key):
     """A YAML complex key (a sequence or a mapping) cannot be a dict key; the loader names its line instead
@@ -763,6 +778,7 @@ def test_integer_too_large_for_a_float_in_yaml_is_a_profile_error(tmp_path):
     _expect_error(path, "thresholds.list_match_threshold", "must be between")
 
 
+@pytest.mark.usefixtures("default_int_digit_limit")
 def test_integer_too_long_to_read_in_yaml_is_a_profile_error(tmp_path):
     """PyYAML raises ValueError (Python's integer digit limit) on a 5,000 digit integer; that is a malformed
     file, reported as a ProfileError naming it."""
@@ -786,6 +802,7 @@ def test_integer_too_long_to_read_in_yaml_is_a_profile_error(tmp_path):
     ],
     ids=["boolean", "choice", "band", "format", "key"],
 )
+@pytest.mark.usefixtures("default_int_digit_limit")
 def test_a_value_too_long_to_print_still_gives_a_profile_error(edit, path, words):
     """repr() of an integer over Python's digit limit raises ValueError; the error message must not."""
     error = _expect_error(_mutate(edit), path, words)
@@ -1031,3 +1048,126 @@ def test_a_frozen_mapping_offers_no_writable_view_of_its_items():
     with pytest.raises(AttributeError):
         frozen._items = {}  # type: ignore[misc]
     assert dict(frozen) == {"a": 1}
+
+
+def test_a_frozen_mapping_cannot_be_initialized_twice():
+    """Calling ``__init__`` again would replace the items and clear the cached hash of a dict key."""
+    frozen = FrozenMapping({"a": 1})
+    table = {frozen: "kept"}
+    with pytest.raises(TypeError, match="already initialized"):
+        frozen.__init__({"b": 2})  # type: ignore[misc]
+    assert dict(frozen) == {"a": 1} and table[FrozenMapping({"a": 1})] == "kept"
+    assert dict(FrozenMapping()) == {}
+
+
+_SURROGATE = chr(0xD800)
+
+
+def _with_surrogate(place: str) -> dict:
+    """The minimal profile with a lone surrogate written at one place."""
+    mapping = minimal_profile_mapping()
+    spec = mapping["classes"][0]
+    vocabulary = spec["fields"]["coverage_tier"]["vocabulary"]
+    if place == "client":
+        mapping["client"] = _SURROGATE
+    elif place == "version":
+        mapping["version"] = "1" + _SURROGATE
+    elif place == "sorter_label":
+        spec["sorter_label"] = "Auto " + _SURROGATE
+    elif place == "synonym":
+        spec["synonyms"] = ["auto" + _SURROGATE]
+    elif place == "token":
+        vocabulary["tokens"] = ["basic", "p" + _SURROGATE]
+    elif place == "alias_key":
+        vocabulary.update(fold="aliases", aliases={"x" + _SURROGATE: "basic"})
+    elif place == "unknown_key":
+        mapping["x" + _SURROGATE] = 1
+    return mapping
+
+
+@pytest.mark.parametrize(
+    ("place", "path"),
+    [
+        ("client", "client"),
+        ("version", "version"),
+        ("sorter_label", "classes[0].sorter_label"),
+        ("synonym", "classes[0].synonyms[0]"),
+        ("token", "classes[0].fields.coverage_tier.vocabulary.tokens[1]"),
+        ("alias_key", "classes[0].fields.coverage_tier.vocabulary.aliases.x\\ud800"),
+        ("unknown_key", None),
+    ],
+)
+def test_a_lone_surrogate_is_a_profile_error_at_its_key(place, path):
+    """A parsed mapping can hold text no UTF-8 encoder accepts; the loader names where instead of raising
+    UnicodeEncodeError from the content hash, and the error itself prints."""
+    with pytest.raises(ProfileError) as caught:
+        load_scoring_profile(_with_surrogate(place))
+    if path is not None:
+        assert caught.value.path == path and "lone surrogate" in caught.value.problem
+    str(caught.value).encode("utf-8")  # the message itself is valid text
+    assert isinstance(load_scoring_profile(minimal_profile_mapping(client="Société")), ScoringProfile)
+
+
+@pytest.mark.parametrize(
+    "synonym",
+    ["x{999999999999}", "(" * 5000 + "x" + ")" * 5000],
+    ids=["repetition_overflow", "nesting_too_deep"],
+)
+def test_a_synonym_the_regex_compiler_cannot_build_is_a_profile_error(synonym):
+    """re.compile raises OverflowError or RecursionError (not re.error) for these; the loader names the
+    synonym instead. A valid synonym is kept as written."""
+    mapping = minimal_profile_mapping()
+    mapping["classes"][0]["synonyms"] = ["auto policy", synonym]
+    _expect_error(mapping, "classes[0].synonyms[1]", "is not a valid regular expression")
+    mapping["classes"][0]["synonyms"] = [r"auto\s+policy"]
+    assert load_scoring_profile(mapping).classes[0].synonyms == (r"auto\s+policy",)
+
+
+def _two_live_classes(notice_label: str, claim_label: str | None = None, claim_status: str = "live") -> dict:
+    """A profile with live class ``notice`` and a class ``claim`` (labels as given)."""
+    mapping = minimal_profile_mapping()
+    template = mapping["classes"][0]
+    notice = {**copy.deepcopy(template), "key": "notice", "sorter_label": notice_label}
+    claim = {**copy.deepcopy(template), "key": "claim", "status": claim_status}
+    if claim_label is not None:
+        claim["sorter_label"] = claim_label
+    mapping["classes"] = [notice, claim]
+    return mapping
+
+
+@pytest.mark.parametrize(
+    ("notice_label", "claim_label"),
+    [("CLAIM", None), ("Claim Form", "claim form"), ("claim", None)],
+    ids=["label_is_another_key_in_capitals", "labels_differ_only_in_case", "label_is_another_key"],
+)
+def test_sorter_labels_are_unique_in_the_classifiers_case_blind_namespace(notice_label, claim_label):
+    """A sorter label the classifier would read as another live class (ignoring case) is refused at load,
+    not later by ClassLabelSet.from_profile."""
+    mapping = _two_live_classes(notice_label, claim_label)
+    with pytest.raises(ProfileError) as caught:
+        load_scoring_profile(mapping)
+    assert caught.value.path in ("classes[0].sorter_label", "classes[1].sorter_label"), str(caught.value)
+    assert "already" in caught.value.problem
+    retired = _two_live_classes(notice_label, claim_label, claim_status="retired")
+    if notice_label != "claim":  # the exact duplicate of a key or label is refused whatever the status
+        assert load_scoring_profile(retired).live_class_keys == ("notice",)
+
+
+def test_a_replaced_profile_gets_the_hash_of_its_own_rules(mailroom_profile):
+    """``dataclasses.replace`` cannot carry the old hash to new rules: the hash is derived, never passed."""
+    changed = dataclasses.replace(
+        mailroom_profile,
+        thresholds=dataclasses.replace(mailroom_profile.thresholds, list_match_threshold=0.9),
+    )
+    assert changed.thresholds.list_match_threshold == 0.9
+    assert changed.content_hash != mailroom_profile.content_hash and changed != mailroom_profile
+    assert (
+        changed.content_hash
+        == load_scoring_profile(
+            _mutate(lambda m: m["thresholds"].update(list_match_threshold=0.9))
+        ).content_hash
+    )
+    assert dataclasses.replace(mailroom_profile) == mailroom_profile
+    # Python 3.11 and 3.12 refuse an init=False field with ValueError, 3.13 with TypeError.
+    with pytest.raises((TypeError, ValueError)):
+        dataclasses.replace(mailroom_profile, content_hash="0" * 64)
