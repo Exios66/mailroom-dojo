@@ -433,6 +433,7 @@ def test_adding_classes_moves_no_existing_extraction_score(first):
     extended = load_scoring_profile(mailroom_with_new_classes(first=first))
     assert extended.content_hash != base.content_hash
     calls = [call for call in boundary_document()["calls"] if call["function"] == "score_extraction"]
+    assert len(calls) == 16  # an empty or truncated capture must not pass as extraction parity
     for call in calls:
         args = decode(json.loads(json.dumps(call["args"])))
         result = score_extraction(
