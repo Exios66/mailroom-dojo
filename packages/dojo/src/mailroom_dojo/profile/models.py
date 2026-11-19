@@ -357,7 +357,6 @@ class ScoringProfile:
     version: str
     classes: tuple[ClassSpec, ...]
     classification_match_order: tuple[str, ...]
-    content_hash: str
     unknown_label: str = "other"
     unmapped_fields: UnmappedFieldPolicy = "heuristic"
     never_scored_fields: frozenset[str] = frozenset()
@@ -371,15 +370,21 @@ class ScoringProfile:
     embedding: EmbeddingSettings = field(default_factory=EmbeddingSettings)
     list_matching: ListMatchingSettings = field(default_factory=ListMatchingSettings)
     trace_capture: TraceCaptureOptions = field(default_factory=TraceCaptureOptions)
+    #: SHA-256 of the canonical form of every rule above. Derived on every construction
+    #: (``dataclasses.replace`` included), never passed in, so it always names these rules.
+    content_hash: str = field(init=False)
 
     def __post_init__(self) -> None:
-        """Freeze every collection."""
+        """Freeze every collection and derive :attr:`content_hash` from the frozen rules."""
         object.__setattr__(self, "classes", tuple(self.classes))
         object.__setattr__(self, "classification_match_order", tuple(self.classification_match_order))
         object.__setattr__(self, "never_scored_fields", frozenset(self.never_scored_fields))
         object.__setattr__(self, "retired_fields", frozenset(self.retired_fields))
         object.__setattr__(self, "scorer_plugins", tuple(self.scorer_plugins))
         object.__setattr__(self, "class_aliases", FrozenMapping(self.class_aliases))
+        from .loading import profile_content_hash  # loading imports this module
+
+        object.__setattr__(self, "content_hash", profile_content_hash(self))
 
     def __eq__(self, other: object) -> bool:
         """Two profiles are equal when their content hashes are."""

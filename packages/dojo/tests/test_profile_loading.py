@@ -1149,3 +1149,22 @@ def test_sorter_labels_are_unique_in_the_classifiers_case_blind_namespace(notice
     retired = _two_live_classes(notice_label, claim_label, claim_status="retired")
     if notice_label != "claim":  # the exact duplicate of a key or label is refused whatever the status
         assert load_scoring_profile(retired).live_class_keys == ("notice",)
+
+
+def test_a_replaced_profile_gets_the_hash_of_its_own_rules(mailroom_profile):
+    """``dataclasses.replace`` cannot carry the old hash to new rules: the hash is derived, never passed."""
+    changed = dataclasses.replace(
+        mailroom_profile,
+        thresholds=dataclasses.replace(mailroom_profile.thresholds, list_match_threshold=0.9),
+    )
+    assert changed.thresholds.list_match_threshold == 0.9
+    assert changed.content_hash != mailroom_profile.content_hash and changed != mailroom_profile
+    assert (
+        changed.content_hash
+        == load_scoring_profile(
+            _mutate(lambda m: m["thresholds"].update(list_match_threshold=0.9))
+        ).content_hash
+    )
+    assert dataclasses.replace(mailroom_profile) == mailroom_profile
+    with pytest.raises(TypeError):
+        dataclasses.replace(mailroom_profile, content_hash="0" * 64)

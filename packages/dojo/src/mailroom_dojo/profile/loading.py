@@ -860,8 +860,7 @@ def load_scoring_profile(source: str | os.PathLike[str] | Mapping[str, Any]) -> 
         list_matching=list_matching,
         trace_capture=trace_capture,
     )
-    content_hash = hashlib.sha256(_canonical_json(_canonical_parts(parts))).hexdigest()
-    return ScoringProfile(content_hash=content_hash, **parts)
+    return ScoringProfile(**parts)
 
 
 def _check_unique_classes(classes: tuple[ClassSpec, ...]) -> None:
@@ -1097,6 +1096,11 @@ def _canonical_parts(parts: dict[str, Any]) -> dict[str, Any]:
         "classification_match_order": list(parts["classification_match_order"]),
         "classes": [_canonical_class(spec) for spec in parts["classes"]],
     }
+
+
+def profile_content_hash(profile: ScoringProfile) -> str:
+    """Return the SHA-256 of a profile's canonical JSON form (:attr:`ScoringProfile.content_hash`)."""
+    return hashlib.sha256(_canonical_json(profile_canonical_form(profile))).hexdigest()
 
 
 def profile_canonical_form(profile: ScoringProfile) -> dict[str, Any]:
