@@ -723,6 +723,21 @@ def test_duplicate_yaml_key_is_refused(tmp_path):
     assert "line" in error.problem
 
 
+def test_a_yaml_merge_key_cannot_be_overridden_but_a_disjoint_merge_loads(tmp_path):
+    """Merge keys (``<<``) are allowed, but a local key that repeats a merged one is a duplicate, not an
+    override: the profile format has no precedence rule, so every key is stated once."""
+    base = MAILROOM_PROFILE_PATH.read_text()
+    assert "  token_coverage: 0.7\n" in base
+    disjoint = base.replace("  token_coverage: 0.7\n", "  <<: {token_coverage: 0.7}\n")
+    (tmp_path / "disjoint.yaml").write_text(disjoint)
+    assert load_scoring_profile(tmp_path / "disjoint.yaml") == load_scoring_profile(MAILROOM_PROFILE_PATH)
+    overriding = base.replace(
+        "  token_coverage: 0.7\n", "  <<: {token_coverage: 0.8}\n  token_coverage: 0.7\n"
+    )
+    (tmp_path / "overriding.yaml").write_text(overriding)
+    _expect_error(tmp_path / "overriding.yaml", "", "duplicate key 'token_coverage'")
+
+
 @pytest.mark.parametrize("key", ["[a, b]", "{a: 1}"], ids=["sequence", "mapping"])
 def test_unhashable_yaml_key_is_a_profile_error(tmp_path, key):
     """A YAML complex key (a sequence or a mapping) cannot be a dict key; the loader names its line instead

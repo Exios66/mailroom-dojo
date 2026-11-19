@@ -43,6 +43,10 @@ classes in the old registry order (three retired), their field types, the intent
 subclass and label vocabularies, the CMS DE-SynPUF row variant and every default
 threshold.
 
+A profile states each key once per mapping. YAML merge keys (`<<`) may supply keys, but
+a local key that repeats a merged one is refused as a duplicate, never read as an
+override.
+
 ## Adding a document type or a client
 
 Nothing in Python changes for a new document type built from existing field types:

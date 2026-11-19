@@ -6,6 +6,10 @@ problem raises :class:`ProfileError` naming the YAML path, for example
 ``classes[6].fields.claim_type.type: unregistered field type 'lable'``. Defaults
 equal the scoring engine's defaults; a profile only states what it changes.
 
+Every key is stated once per mapping. YAML merge keys (``<<``) may supply keys, but a
+local key that repeats a merged one is refused as a duplicate, not read as an
+override: the format has no precedence rule.
+
 The content hash is the SHA-256 of the profile's canonical JSON form (sorted keys,
 no whitespace). Mapping key order never changes it; list order does, because list
 order is meaningful (classes, catalog entries, alias tables that break ties by
@@ -64,7 +68,7 @@ _MISSING_CONFIDENCE_POLICIES = ("absent", "assume_1", "assume_0")
 
 
 class _StrictSafeLoader(yaml.SafeLoader):
-    """A safe YAML loader that refuses a mapping with the same key twice."""
+    """A safe YAML loader that refuses a mapping with the same key twice (a merged ``<<`` key included)."""
 
 
 def _construct_unique_mapping(loader: _StrictSafeLoader, node: yaml.MappingNode, deep: bool = False) -> dict:
