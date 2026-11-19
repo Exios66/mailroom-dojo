@@ -13,10 +13,11 @@ on demand ("Package boundaries", "Configuration, not code", "Testing", "Commits"
 **Binding on every task** (`.claude/rules/`; Claude Code loads these automatically, other
 tools must read them):
 
-- `orchestration.md`: model tiers with explicit effort, 1 to 3 adversarial rounds, an Opus
-  review of anything Sonnet or Haiku produced, orchestrator re-verifies.
+- `orchestration.md`: model tiers with explicit effort, one fresh Opus review per PR
+  (which also covers anything Sonnet or Haiku produced), fixes verified by the
+  orchestrator rather than re-reviewed, orchestrator re-verifies.
 - `evidence-contract.md`: what counts as proof before anything is called done.
-- `pr-flow.md`: no session links, local gate, fresh pre-PR review, draft PR, merge gate,
+- `pr-flow.md`: no session links, local gate, one fresh pre-PR review, draft PR, merge gate,
   hand-written squash message.
 - `code-mode.md`: bulk work runs as one script that prints a digest.
 
@@ -133,10 +134,15 @@ Not hook-enforced but equally binding: a committed label snapshot is never edite
 ## Subagents and skills
 
 Project subagents (`.claude/agents/`): `implementer` (Opus), `scoped-worker` (Sonnet, effort
-high, for tightly scoped tasks), `runner` (Haiku), `adversarial-reviewer` (Opus) and
-`pre-pr-reviewer` (Opus). Pass model and effort on every call; if the Agent tool takes no
-per-call effort, use these project agents, whose frontmatter sets it. Output of
-`scoped-worker` or `runner` always gets an Opus review. When and how:
+high, for tightly scoped tasks), `runner` (Haiku), `pre-pr-reviewer` (Opus) and
+`adversarial-reviewer` (Opus, optional). Pass model and effort on every call; if the Agent
+tool takes no per-call effort, use these project agents, whose frontmatter sets it. Each
+PR gets one review: a fresh `pre-pr-reviewer` pass through its checklist, which also
+counts as the Opus review of anything `scoped-worker` or `runner` produced. The
+orchestrator verifies the fixes; a second review only when the fixes changed the design
+or added more than about 150 lines, never more than two. The `adversarial-reviewer` is
+used only when the owner asks, or for a record schema, security or governance-guard
+change, where it replaces the pre-PR review. When and how:
 `.claude/rules/orchestration.md`.
 
 ## Cross-repo rules
