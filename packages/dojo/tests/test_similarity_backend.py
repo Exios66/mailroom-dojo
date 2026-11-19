@@ -225,6 +225,10 @@ def test_default_scoring_is_string_only():
 # ---------------------------------------------------------------------------
 
 
+#: How long a thread test waits at its barrier or for a thread to finish.
+THREAD_TIMEOUT_SECONDS = 30.0
+
+
 def test_two_profiles_with_different_thresholds_in_threads_do_not_interfere():
     """Rescues built from two profiles, used concurrently, each apply only their own threshold."""
     low = load_scoring_profile(minimal_profile_mapping(embedding={"enabled": True, "rescue_below": 0.05}))
@@ -234,14 +238,19 @@ def test_two_profiles_with_different_thresholds_in_threads_do_not_interfere():
     results: dict[str, list[float]] = {"low": [], "high": []}
     rescues: dict[str, EmbeddingRescue] = {}
     barrier = threading.Barrier(8)
+    errors: list[BaseException] = []
 
     def work(label: str, profile, index: int) -> None:
-        """Score the far pair many times with this thread's own rescue."""
-        rescue = EmbeddingRescue.from_profile(profile, _constant(0.99))
-        rescues[f"{label}{index}"] = rescue
-        barrier.wait()
-        for _ in range(300):
-            results[label].append(scalar_scorers.score_name_field(FAR_PREDICTED, FAR_EXPECTED, rescue))
+        """Score the far pair many times with this thread's own rescue; a failure releases the others."""
+        try:
+            rescue = EmbeddingRescue.from_profile(profile, _constant(0.99))
+            rescues[f"{label}{index}"] = rescue
+            barrier.wait(timeout=THREAD_TIMEOUT_SECONDS)
+            for _ in range(300):
+                results[label].append(scalar_scorers.score_name_field(FAR_PREDICTED, FAR_EXPECTED, rescue))
+        except BaseException as error:  # reported by the main thread below
+            errors.append(error)
+            barrier.abort()
 
     threads = [
         threading.Thread(target=work, args=(label, profile, index))
@@ -251,7 +260,9 @@ def test_two_profiles_with_different_thresholds_in_threads_do_not_interfere():
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join()
+        thread.join(timeout=THREAD_TIMEOUT_SECONDS)
+    assert not any(thread.is_alive() for thread in threads), "a scoring thread did not finish"
+    assert not errors, errors
     assert set(results["low"]) == {string_score} and len(results["low"]) == 1200
     assert set(results["high"]) == {0.99} and len(results["high"]) == 1200
     assert all(rescue.fallbacks == () for rescue in rescues.values())
